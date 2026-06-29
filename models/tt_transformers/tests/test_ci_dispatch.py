@@ -18,6 +18,7 @@ from models.tt_transformers.tt.common import get_hf_tt_cache_path
         "meta-llama/Llama-3.1-8B-Instruct",
         "meta-llama/Llama-3.2-11B-Vision-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3",
+        "HuggingFaceTB/SmolLM2-1.7B-Instruct",
     ],
     ids=[
         "ttt-llama3.2-1B",
@@ -25,6 +26,7 @@ from models.tt_transformers.tt.common import get_hf_tt_cache_path
         "ttt-llama3.1-8B",
         "ttt-llama3.2-11B",
         "ttt-mistral-7B-v0.3",
+        "ttt-smollm2-1.7B",
     ],
 )
 def test_ci_dispatch(model_weights):
