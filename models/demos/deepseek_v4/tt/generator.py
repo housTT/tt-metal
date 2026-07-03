@@ -7,8 +7,9 @@ A clean, self-contained generation API over the actual pretrained weights — th
 object a serving stack (tt-inference-server / the tt-metal vLLM plugin) wraps, and which an
 eval harness (e.g. lm-eval) can drive offline to score accuracy today. It produces CORRECT
 tokens (validated end-to-end to PCC ≥ 0.99 vs the HF reference; e.g. "The capital of France
-is" -> " Paris."). Weights are streamed per layer from the fp8/fp4 checkpoint and the routed
-experts are kept resident on device (see reference/real_weights.py, tt/model.py).
+is" -> " Paris."). Weights are streamed per layer from the fp8/fp4 checkpoint; the routed-expert
+matmuls run on device (host-cached bf16, transferred per call — no single-device OOM). See
+reference/real_weights.py, tt/model.py.
 
 Throughput note: this uses the correctness-first per-token forward. The high-throughput path
 (resident+sharded+traced decode, paged attention, continuous batching) is measured in
