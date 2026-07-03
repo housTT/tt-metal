@@ -52,6 +52,9 @@ class DeepseekV4ForCausalLM:
         # Running context for the active (batch=1) sequence; ignored KV pool means we
         # reconstruct the sequence ourselves so decode attends over the real context.
         self._ctx: torch.Tensor | None = None
+        # The TT model-runner's warmup loop reads/resets this flag.
+        self.already_warmed_up_prefill = False
+        self.already_warmed_up_decode = False
 
     @classmethod
     def initialize_vllm_model(
@@ -159,6 +162,18 @@ class DeepseekV4ForCausalLM:
     def read_decode_output(self, tt_out, async_read=False):
         # decode_forward already returns host tensors.
         return (tt_out, []) if async_read else tt_out
+
+    # ---- warmup (no-op): the model streams weights and runs eager; there is no trace to
+    # pre-compile, so warmup just flips the runner's flags. (Mirrors vllm_test_utils base.) ----
+    def warmup_model_prefill(self, *args, **kwargs):
+        self.already_warmed_up_prefill = True
+
+    def warmup_model_decode(self, *args, **kwargs):
+        self.already_warmed_up_decode = True
+
+    def allocate_kv_cache_per_layer(self, *args, **kwargs):
+        # Only reached for hybrid-KV grouping (not advertised); return a benign placeholder.
+        return None
 
     def allocate_kv_cache(self, kv_cache_shape, dtype, num_layers):
         """The plugin always allocates a paged pool and hands it back each step. This model keeps
