@@ -1,0 +1,37 @@
+{
+  "_comment": "Merge this entry into tt-inference-server/release_model_spec.json under model_specs. Device key P300X2 = 2x p300 boards = 4 Blackhole chips (this QuietBox). See PRODUCTION_STATUS.md for registration + run steps.",
+  "model_specs": {
+    "deepseek-ai/DeepSeek-V4-Flash": {
+      "P300X2": {
+        "vLLM": {
+          "deepseek_v4": {
+            "model_id": "id_deepseek_v4_deepseek-v4-flash_p300x2",
+            "impl": {
+              "impl_id": "deepseek_v4",
+              "impl_name": "deepseek-v4",
+              "repo_url": "https://github.com/tenstorrent/tt-metal",
+              "code_path": "models/demos/deepseek_v4"
+            },
+            "hf_model_repo": "deepseek-ai/DeepSeek-V4-Flash",
+            "model_name": "DeepSeek-V4-Flash",
+            "inference_engine": "vLLM",
+            "device_type": "P300X2",
+            "tt_metal_commit": "2232efceeb2",
+            "device_model_spec": {
+              "device": "P300X2",
+              "max_concurrency": 1,
+              "max_context": 2048,
+              "perf_targets_map": {},
+              "default_impl": true,
+              "perf_reference": {
+                "decode_t/s/u": 5.63,
+                "prefill_time_to_first_token_ms": 3651,
+                "note": "op-structure-faithful harness (demo/decode_engine.py); see PERF.md/PRODUCTION_STATUS.md"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
