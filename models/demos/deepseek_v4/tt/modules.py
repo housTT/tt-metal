@@ -23,6 +23,20 @@ def _to_dev(t: torch.Tensor, device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOU
     return ttnn.from_torch(t, dtype=dtype, layout=layout, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
 
+def linear(x: torch.Tensor, weight: torch.Tensor, device, bias: torch.Tensor | None = None, weight_dtype=ttnn.bfloat16):
+    """TT-NN dense linear. `weight` is nn.Linear layout [out, in]; y = x @ weightᵀ (+bias)."""
+    tx = _to_dev(x, device)
+    tw = _to_dev(weight.t().contiguous(), device, dtype=weight_dtype)
+    tb = _to_dev(bias, device) if bias is not None else None
+    ty = ttnn.linear(tx, tw, bias=tb)
+    out = ttnn.to_torch(ty)
+    for t in (tx, tw, ty):
+        ttnn.deallocate(t)
+    if tb is not None:
+        ttnn.deallocate(tb)
+    return out
+
+
 def rms_norm(x: torch.Tensor, weight: torch.Tensor | None, device, eps: float = 1e-6) -> torch.Tensor:
     """Weighted RMSNorm over the last dim (weight=None -> unweighted, V4 q_b_norm).
 
@@ -177,6 +191,18 @@ def hyperconnection(streams: torch.Tensor, hc, device):
         comb = comb / (comb.sum(dim=-2, keepdim=True) + eps)
     collapsed = (pre.unsqueeze(-1) * streams.float()).sum(dim=2)  # [B,S,H]
     return post, comb, collapsed
+
+
+def hyper_head(streams: torch.Tensor, hh, device):
+    """mHC final collapse (DeepseekV4HyperHead, HF ref 951-967). streams [B,S,hc,H] -> [B,S,H].
+    input_norm + `hc_fn` linear on device; the tiny sigmoid mix on host."""
+    B, S, HC, Hd = streams.shape
+    eps = getattr(hh, "hc_eps", 1e-6)
+    flat = streams.reshape(B, S, HC * Hd)
+    normed = rms_norm(flat, None, device, eps=getattr(hh.input_norm, "variance_epsilon", 1e-6))
+    mixes = linear(normed, hh.hc_fn.data, device).float()  # [B,S,hc]
+    pre = torch.sigmoid(mixes * hh.hc_scale.data.float() + hh.hc_base.data.float()) + eps
+    return (pre.unsqueeze(-1) * streams.float()).sum(dim=2)  # [B,S,H]
 
 
 def sqrtsoftplus_router_scores(x: torch.Tensor, gate_w: torch.Tensor, device) -> torch.Tensor:
