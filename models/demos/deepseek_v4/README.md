@@ -30,35 +30,44 @@ documented fallbacks; migrating them to native TTNN ops is tracked in `docs/OPTI
 ```bash
 source models/demos/deepseek_v4/env.sh          # venv + TT_METAL_HOME (4x Blackhole)
 
-# Run the demo: tokenize a prompt, generate on device, decode, and verify vs the HF reference
+# ACTUAL pretrained weights — full 43-layer model, streamed per layer, on device:
+python models/demos/deepseek_v4/demo/demo.py --real --prompt "The capital of France is" --max-new-tokens 2
+
+# Reduced-config functional demo (fast; verifies pipeline vs HF reference):
 python models/demos/deepseek_v4/demo/demo.py --prompt "The capital of France is" --max-new-tokens 16 --verify
 
 # Or via pytest (like other demos)
 pytest models/demos/deepseek_v4/demo/test_demo.py
 ```
 
-Example output (reduced config, so the *text* is not meaningful English — but the device tokens exactly match
-the HF reference, i.e. the pipeline is functionally correct):
+### `--real` — actual pretrained weights (the real model)
+
+Runs the **full 43-layer DeepSeek-V4-Flash with its actual fp8/fp4 weights** on Blackhole. Real output:
 
 ```
-Prompt: 'The capital of France is'  ->  5 tokens
-Device arch: Arch.BLACKHOLE. Generating 8 tokens on device...
-Generated token ids: [48873, 113351, 16947, 6816, 63223, 116975, 5239, 25301]
-[verify] device tokens == HF reference tokens: True
-DEMO_OK
+Prompt: 'The capital of France is'
+  ... layer 1/43 ... layer 43/43 (streamed per layer)
+  token 1/2: id=11111  ' Paris'
+  token 2/2: id=64465  '.",\n'
+Continuation: ' Paris.",\n'
+Full: 'The capital of France is Paris.'
+DEMO_OK (actual weights)
 ```
 
-## Scope & how to run full weights
+**How it fits.** The checkpoint is ~149 GB fp8 (attention/shared-expert/LM-head, block-128 scale) + MXFP4 fp4
+routed experts; bf16 would be ~320 GB (> host RAM). `reference/real_weights.py` reads the raw safetensors and
+**dequantizes one layer at a time** into a 5-layer scratch module (covering all four (attention, MoE) structural
+combos), and the MoE dequantizes **only the routed experts** — so peak memory is ~one layer. Loader validated
+tensor-for-tensor (max|Δ|=0) vs the transformers-dequantized model; 4-layer end-to-end logits PCC 0.991 vs the HF
+reference on device (`tests/test_real_weights.py`, `tests/test_real_e2e.py`). It is the **prefill path** (no KV
+cache), ~1.5 s/layer, so it re-runs all 43 layers per generated token — correct but slow; KV cache + resident
+sharded weights (multi-chip) is the perf-scaling work.
 
-To keep a single laptop-free session tractable, the demo runs a **reduced-but-real-code-path** config (fewer
-layers/hidden/experts) with the **real tokenizer and vocab** — the same code path as the full model, per the
-bring-up guide's "reduce for correctness, never fake" rule. Weights are a reproducible reduced random init, so
-the generated *text* is gibberish; `--verify` proves correctness by matching the HF reference token-for-token.
+### Reduced-config functional demo (default)
 
-To run the full pretrained model, replace `build_reduced_model` (in `reference/reduced_config.py`) with a
-full-weight loader — fp8 block-dequant (`models/demos/deepseek_v3/utils/hf_model_utils.py`) + the full
-`config.json` — and keep the same `tt/model.py::tt_forward` loop. This needs a multi-chip Blackhole system to
-hold the 256 experts; see `docs/TT_REUSE_MAP.md` and `../../../REPORT_5.md`.
+Runs a smaller config with the **real tokenizer/vocab** for a fast pipeline check; weights are a reproducible
+random init so the *text* is gibberish, and `--verify` reports final-token logits PCC vs the HF reference
+(≈0.9997) to prove functional correctness.
 
 ## Tests (correctness, on Blackhole)
 
@@ -73,8 +82,9 @@ python models/demos/deepseek_v4/tests/test_optimizations.py     # precision swee
 ## Layout
 
 ```
-demo/demo.py          text-in -> generate-on-device -> text-out demo (+ --verify)
+demo/demo.py          text-in -> generate-on-device -> text-out demo (--real actual weights; --verify)
 demo/test_demo.py     pytest wrapper
+reference/real_weights.py  stream + dequantize (fp8 + MXFP4) the actual checkpoint, layer by layer
 demo/benchmark_tt.py  hardware benchmark harness ([hw] module table; refuses simulator)
 demo/forge_demo.py    tt-forge (PJRT) compiler-path demo
 tt/attention.py       MLA-v4 attention
