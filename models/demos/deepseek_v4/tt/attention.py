@@ -37,15 +37,21 @@ def apply_rope(x, cos, sin, unsqueeze_dim=1):
     return torch.cat([nope, rotated], dim=-1)
 
 
-def mla_attention(hidden_states, attn, cos, sin, causal_mask, cfg, device, weight_dtype=None, position_ids=None):
+def mla_attention(
+    hidden_states, attn, cos, sin, causal_mask, cfg, device, weight_dtype=None, position_ids=None, resident=None
+):
     """hidden_states: [B,S,H] (already input_layernorm'd). `attn` = HF DeepseekV4Attention
     (source of weights + `sinks` + optional `compressor`). Returns [B,S,H]. `weight_dtype`
     optionally sets on-device projection precision (Checkpoint-3 sweep); None -> bf16.
+
+    `resident=(store, layer_idx)`: keep the large projection weights RESIDENT on device (uploaded
+    once, keyed by layer, reused every token) instead of re-transferring per op — the perf win.
 
     If `attn.compressor` is present (CSA/HCA layers), the compressed long-range KV entries
     and their per-query block-bias are computed (tt/compressors.py) and concatenated onto
     the sliding K==V, and the mask is extended — mirroring HF attention.forward §1 steps 4-7."""
     import ttnn
+    from models.demos.deepseek_v4.reference import real_weights as RW
     from models.demos.deepseek_v4.tt import compressors as C  # lazy import (avoids cycle)
 
     wdt = weight_dtype or ttnn.bfloat16
@@ -53,16 +59,23 @@ def mla_attention(hidden_states, attn, cos, sin, causal_mask, cfg, device, weigh
     nh, hd = cfg.num_attention_heads, cfg.head_dim
     scaling = attn.scaling
 
+    # linear that keeps its weight resident on device when `resident` is set
+    def lin(x, w, tag):
+        if resident is not None:
+            store, li = resident
+            return M.linear_dev(x, RW.dev_linear(store, device, (li, tag), w), device)
+        return M.linear(x, w, device, weight_dtype=wdt)
+
     # --- Q path (device projections) ---
-    q_res = M.linear(hidden_states, attn.q_a_proj.weight.data, device, weight_dtype=wdt)  # [B,S,q_lora]
+    q_res = lin(hidden_states, attn.q_a_proj.weight.data, "q_a")  # [B,S,q_lora]
     q_res = M.rms_norm(q_res, attn.q_a_norm.weight.data, device, eps=cfg.rms_norm_eps)
-    q = M.linear(q_res, attn.q_b_proj.weight.data, device, weight_dtype=wdt)  # [B,S,nh*hd]
+    q = lin(q_res, attn.q_b_proj.weight.data, "q_b")  # [B,S,nh*hd]
     q = q.view(B, S, nh, hd).transpose(1, 2)  # [B,nh,S,hd]
     q = M.rms_norm(q, None, device, eps=cfg.rms_norm_eps)  # unweighted q_b_norm over hd
     q = apply_rope(q, cos, sin)
 
     # --- KV path (single shared head, K==V) ---
-    kv = M.linear(hidden_states, attn.kv_proj.weight.data, device, weight_dtype=wdt)  # [B,S,hd]
+    kv = lin(hidden_states, attn.kv_proj.weight.data, "kv")  # [B,S,hd]
     kv = M.rms_norm(kv, attn.kv_norm.weight.data, device, eps=cfg.rms_norm_eps)
     kv = kv.view(B, S, 1, hd).transpose(1, 2)  # [B,1,S,hd]
     kv = apply_rope(kv, cos, sin)
@@ -99,7 +112,13 @@ def mla_attention(hidden_states, attn, cos, sin, causal_mask, cfg, device, weigh
     attn_out = apply_rope(attn_out, cos, -sin)  # [B,nh,S,hd]
     attn_out = attn_out.transpose(1, 2).contiguous()  # [B,S,nh,hd]
     grouped = attn_out.reshape(B, S, cfg.o_groups, -1)  # [B,S,g,nh*hd/g]
-    grouped = M.grouped_linear(grouped.reshape(B, S, -1), attn.o_a_proj.weight.data, cfg.o_groups, device)
+    gflat = grouped.reshape(B, S, -1)
+    if resident is not None:
+        store, li = resident
+        wd = RW.dev_grouped(store, device, (li, "o_a"), attn.o_a_proj.weight.data, cfg.o_groups)
+        grouped = M.grouped_linear_dev(gflat, wd, cfg.o_groups, device)
+    else:
+        grouped = M.grouped_linear(gflat, attn.o_a_proj.weight.data, cfg.o_groups, device)
     grouped = grouped.reshape(B, S, -1)  # flatten(2) -> [B,S,g*rank]
-    output = M.linear(grouped, attn.o_b_proj.weight.data, device, weight_dtype=wdt)  # [B,S,H]
+    output = lin(grouped, attn.o_b_proj.weight.data, "o_b")  # [B,S,H]
     return output

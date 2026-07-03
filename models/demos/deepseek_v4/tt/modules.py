@@ -129,6 +129,47 @@ def fused_experts(x, gate_up_T, down_T, interm, device, limit=10.0):
     return out
 
 
+def linear_dev(x, tw_T, device):
+    """Linear with a RESIDENT device weight `tw_T` [in, out] (pre-transposed, on device). Only
+    the activation crosses host->device. y = x @ tw_T."""
+    tx = _to_dev(x, device)
+    ty = ttnn.matmul(tx, tw_T)
+    out = ttnn.to_torch(ty)
+    ttnn.deallocate(tx)
+    ttnn.deallocate(ty)
+    return out
+
+
+def grouped_linear_dev(x, tw_dev, n_groups, device):
+    """DeepseekV4GroupedLinear with RESIDENT device weight `tw_dev` [g, in_per_group, rank].
+    x is [..., g*in_per_group]. Returns [..., g, rank]."""
+    input_shape = x.shape[:-1]
+    ipg = tw_dev.shape[1]
+    xg = x.reshape(-1, n_groups, ipg).transpose(0, 1).contiguous()  # [g, N, ipg]
+    tx = _to_dev(xg, device)
+    ty = ttnn.matmul(tx, tw_dev)  # [g, N, rank]
+    y = ttnn.to_torch(ty).transpose(0, 1)  # [N, g, rank]
+    ttnn.deallocate(tx)
+    ttnn.deallocate(ty)
+    return y.reshape(*input_shape, n_groups, tw_dev.shape[-1])
+
+
+def fused_experts_dev(x, tgu, tdn, interm, device, limit=10.0):
+    """Clamped-SwiGLU expert using RESIDENT device weights `tgu` [H,2I], `tdn` [I,H] (ttnn
+    tensors already on device — NOT re-uploaded per token). Only the small activation `x`
+    crosses host->device. 2 matmuls + no weight transfer."""
+    tx = _to_dev(x, device)
+    gu = ttnn.matmul(tx, tgu)  # [n, 2I]
+    gate = ttnn.clamp(gu[..., :interm], max=limit)
+    up = ttnn.clamp(gu[..., interm:], min=-limit, max=limit)
+    act = ttnn.multiply(ttnn.silu(gate), up)  # [n, I]
+    y = ttnn.matmul(act, tdn)  # [n, H]
+    out = ttnn.to_torch(y)
+    for t in (tx, gu, gate, up, act, y):
+        ttnn.deallocate(t)
+    return out
+
+
 def moe_routed_experts(
     x: torch.Tensor,
     gate_up_proj: torch.Tensor,  # [E, 2*interm, hidden]  (HF DeepseekV4Experts layout)

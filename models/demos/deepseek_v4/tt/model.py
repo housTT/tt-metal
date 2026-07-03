@@ -90,27 +90,19 @@ def sparse_moe_streaming(collapsed_ln, layer_idx, layer, store, cfg, device, inp
     weights = scores.gather(1, indices)
     weights = weights / (weights.sum(dim=-1, keepdim=True) + 1e-20) * cfg.routed_scaling_factor
 
-    # Run only the routed experts (union across tokens). expert_gate_up/down are cached
-    # (dequantized once, reused across generated tokens); gate+up is a single fused matmul.
+    # Run only the routed experts (union across tokens). Expert weights are kept RESIDENT on
+    # device in bfloat4_b (native fp4 precision), loaded on first touch and reused every token —
+    # so warm tokens do NO per-token weight transfer/dequant (only the tiny activation crosses).
     interm = cfg.moe_intermediate_size
     uniq = torch.unique(indices).tolist()
-    # Prefetch/dequantize the routed experts in parallel across CPU cores (torch releases the
-    # GIL for the tensor math), populating the cache before the serial device loop — cuts the
-    # cold first-token cost (fp4 dequant dominates it).
-    if len(uniq) > 1:
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=min(16, len(uniq))) as ex:
-            list(ex.map(lambda e: RW.expert_fused(store, layer_idx, e), uniq))
-
     out = torch.zeros(N, H, dtype=torch.float32)
     for e in uniq:
         sel = indices == e
         rows = sel.any(dim=-1).nonzero().flatten()
         if rows.numel() == 0:
             continue
-        gate_up_T, down_T = RW.expert_fused(store, layer_idx, e)  # cached, pre-transposed
-        y = M.fused_experts(flat[rows], gate_up_T, down_T, interm, device, limit=cfg.swiglu_limit)
+        tgu, tdn = RW.expert_fused_dev(store, device, layer_idx, e)  # resident on device (bf4)
+        y = M.fused_experts_dev(flat[rows], tgu, tdn, interm, device, limit=cfg.swiglu_limit)
         w_e = (weights * sel).sum(dim=-1)[rows].float()
         out[rows] += w_e.unsqueeze(-1) * y.float()
 

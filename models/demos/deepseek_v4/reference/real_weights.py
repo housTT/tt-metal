@@ -205,6 +205,30 @@ def expert_fused(store: RealWeightStore, layer_idx: int, e: int):
     return _expert(store, layer_idx, e)
 
 
+def expert_fused_dev(store: RealWeightStore, device, layer_idx: int, e: int, dtype=None):
+    """Device-RESIDENT expert weights (gate_up_T, down_T) as ttnn tensors, cached on `device`.
+
+    First touch: dequantize (host) then upload as `dtype` (default bfloat16 — fast upload with
+    no host-side quantization cost, best accuracy, and the working set of ~20-30 routed
+    experts/layer still fits in device DRAM ~13 GB/chip) and keep resident. Reused across all
+    subsequent tokens → no per-token re-transfer/dequant."""
+    import ttnn
+
+    dtype = dtype or ttnn.bfloat16
+    key = (layer_idx, e, "dev")
+    cache = store._expert_cache
+    if cache is not None and key in cache:
+        return cache[key]
+    gate_up_T, down_T = _expert(store, layer_idx, e)  # host bf16 (cached)
+    to = lambda t: ttnn.from_torch(
+        t, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG
+    )
+    dev = (to(gate_up_T), to(down_T))
+    if cache is not None:
+        cache[key] = dev
+    return dev
+
+
 def _assemble_experts(store, p, parts, cat):
     """Stack per-expert native weights into the HF packed tensor [E, out, in]."""
     e = 0
@@ -244,6 +268,45 @@ def build_scratch(scfg):
     finally:
         md.DeepseekV4PreTrainedModel._init_weights = orig
     return model
+
+
+def dev_linear(store, device, key, w_out_in, dtype=None):
+    """Cache a RESIDENT device weight for a linear, pre-transposed to [in, out]. `w_out_in` is
+    the nn.Linear weight [out, in]. Cached in the store keyed by `key` (use the real layer idx)."""
+    import ttnn
+
+    dtype = dtype or ttnn.bfloat16
+    cache = store._expert_cache
+    if cache is not None and key in cache:
+        return cache[key]
+    tw = ttnn.from_torch(
+        w_out_in.t().contiguous(),
+        dtype=dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    if cache is not None:
+        cache[key] = tw
+    return tw
+
+
+def dev_grouped(store, device, key, w, n_groups, dtype=None):
+    """Cache a RESIDENT grouped-linear weight [g, in_per_group, rank] for o_a. `w` is the
+    GroupedLinear weight [g*rank, in_per_group]."""
+    import ttnn
+
+    dtype = dtype or ttnn.bfloat16
+    cache = store._expert_cache
+    if cache is not None and key in cache:
+        return cache[key]
+    ipg = w.shape[1]
+    rank = w.shape[0] // n_groups
+    wd = w.view(n_groups, rank, ipg).transpose(1, 2).contiguous()  # [g, ipg, rank]
+    tw = ttnn.from_torch(wd, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+    if cache is not None:
+        cache[key] = tw
+    return tw
 
 
 def find_snapshot():
