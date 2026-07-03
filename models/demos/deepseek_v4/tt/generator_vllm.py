@@ -42,7 +42,9 @@ class DeepseekV4ForCausalLM:
         "supports_sample_on_device": False,  # host sampling -> forwards return logits
     }
 
-    def __init__(self, generator: DeepSeekV4Generator, max_seq_len: int = 4096):
+    def __init__(self, generator: DeepSeekV4Generator, max_seq_len: int = 4096, **kwargs):
+        # **kwargs (incl. vllm_config) lets vLLM's `is_vllm_model` init-signature check pass;
+        # the real construction goes through `initialize_vllm_model`.
         self.generator = generator
         self.max_seq_len = max_seq_len
         self.tokenizer = generator.tokenizer
@@ -82,6 +84,11 @@ class DeepseekV4ForCausalLM:
     def compute_logits(self, *args, **kwargs):  # pragma: no cover - Protocol only
         raise NotImplementedError(
             "DeepseekV4ForCausalLM returns logits directly from prefill_forward/decode_forward."
+        )
+
+    def embed_input_ids(self, *args, **kwargs):  # pragma: no cover - Protocol only
+        raise NotImplementedError(
+            "DeepseekV4ForCausalLM manages its own embeddings inside the tt-metal forward."
         )
 
     @property
