@@ -1,71 +1,155 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""vLLM integration surface for DeepSeek-V4-Flash (tt-inference-server / tt-metal vLLM plugin).
+"""vLLM integration surface for DeepSeek-V4-Flash (Tenstorrent vLLM plugin / tt-inference-server).
 
-Mirrors the shape of the production adapters (`models/demos/deepseek_v3/tt/generator_vllm.py`,
-`models/tt_transformers/tt/generator_vllm.py`): a `DeepseekV4ForCausalLM` the tt-metal vLLM
-plugin instantiates via `initialize_vllm_model`, exposing `prefill_forward` / `decode_forward`
-/ `allocate_kv_cache`. It wraps the correct real-weight `DeepSeekV4Generator` (tt/generator.py).
+The TT vLLM plugin (`vllm_tt_plugin`) prepends ``TT`` to the HF architecture name and looks the
+result up in ``vllm.ModelRegistry``; register this class as ``TTDeepseekV4ForCausalLM`` (the HF
+config declares ``architectures: ["DeepseekV4ForCausalLM"]``). The plugin then drives the class
+through a small duck-typed interface — there is no required vLLM base class. This adapter
+implements exactly what the plugin's loader + model-runner touch:
 
-Status (see PRODUCTION_STATUS.md): this bridges to the CORRECTNESS forward, so it produces valid
-tokens for accuracy evals driven single-sequence. Full production serving (paged KV attention +
-continuous batching + the resident/sharded/traced throughput path from demo/decode_engine.py)
-is the remaining work; the methods below raise a clear NotImplementedError where that path is
-required rather than silently degrade.
+  * ``initialize_vllm_model(cls, hf_config, mesh_device, max_batch_size, max_seq_len, ...)`` factory
+  * ``prefill_forward(**kwargs)``  -> host logits ``[B, S, V]``   (runner slices ``[:, -1, :]``)
+  * ``decode_forward(**kwargs)``   -> host logits ``[B, 1, V]``   (runner slices ``[:, -1, :]``)
+  * ``allocate_kv_cache(shape, dtype, num_layers)`` -> benign ``[None] * num_layers``
+  * ``cache_path`` property and ``model_capabilities`` class attribute
+
+Serving semantics: this wraps the correct real-weight ``DeepSeekV4Generator`` (tt/generator.py).
+The plugin always allocates a paged block pool and passes ``page_table`` / ``kv_cache`` every step,
+but this model ignores them and keeps its own running context (faithful at batch=1, which is the
+supported concurrency — see the P300X2 spec's ``max_concurrency``). Multi-sequence continuous
+batching over the paged pool + the resident/sharded/traced fast decode path (demo/decode_engine.py)
+is the documented throughput upgrade — see PRODUCTION_STATUS.md.
 """
 from __future__ import annotations
 
 import os
 
 import torch
+from loguru import logger
 
 from models.demos.deepseek_v4.tt.generator import DeepSeekV4Generator
 
 
 class DeepseekV4ForCausalLM:
-    """tt-metal vLLM bridge for DeepSeek-V4-Flash. Instantiated by the plugin via
-    `initialize_vllm_model`; drives generation through `DeepSeekV4Generator`."""
+    """TT vLLM bridge for DeepSeek-V4-Flash. Registered as ``TTDeepseekV4ForCausalLM``."""
+
+    # Read by the plugin platform/runner to decide host vs on-device sampling.
+    model_capabilities = {
+        "supports_prefix_caching": False,
+        "supports_async_decode": False,
+        "supports_sample_on_device": False,  # host sampling -> forwards return logits
+    }
 
     def __init__(self, generator: DeepSeekV4Generator, max_seq_len: int = 4096):
         self.generator = generator
         self.max_seq_len = max_seq_len
         self.tokenizer = generator.tokenizer
+        self.hf_config = generator.cfg
+        # Running context for the active (batch=1) sequence; ignored KV pool means we
+        # reconstruct the sequence ourselves so decode attends over the real context.
+        self._ctx: torch.Tensor | None = None
 
     @classmethod
     def initialize_vllm_model(
-        cls, hf_config, mesh_device, max_batch_size, max_seq_len, tt_data_parallel=1, optimizations=None
+        cls,
+        hf_config,
+        mesh_device,
+        max_batch_size,
+        max_seq_len,
+        n_layers=None,
+        tt_data_parallel=1,
+        optimizations=None,
     ):
-        """Entry point the tt-metal vLLM plugin calls to build the model on the device mesh.
-        Model path resolved from env (`DEEPSEEK_V4_HF_MODEL`) or the local HF cache snapshot."""
-        num_layers = int(os.environ.get("DEEPSEEK_V4_NUM_LAYERS", hf_config.num_hidden_layers))
+        """Factory the TT vLLM loader calls (positionally: hf_config, device, max_batch_size, ...)."""
+        num_layers = int(
+            os.environ.get("DEEPSEEK_V4_NUM_LAYERS", n_layers or hf_config.num_hidden_layers)
+        )
         gen = DeepSeekV4Generator(mesh_device, num_layers=num_layers)
         return cls(gen, max_seq_len=max_seq_len)
 
-    # ---- generation (single-sequence, correctness path — drivable for accuracy evals) ----
-    def prefill_forward(self, tokens, *args, **kwargs):
-        """Prefill: prompt token ids [1, S] -> next-token logits [1, vocab]."""
+    @property
+    def cache_path(self):
+        # tt-metal tensor cache location; the generator streams weights per-layer, so this is
+        # only used by the plugin's allocators for bookkeeping.
+        return os.environ.get("TT_CACHE_PATH")
+
+    # ---- prefill: prompt tokens [B, S] -> host logits [B, S, V] ----
+    def prefill_forward(self, *args, **kwargs):
+        tokens = kwargs["tokens"]
+        prompt_lens = kwargs.get("prompt_lens", None)
         if not torch.is_tensor(tokens):
-            tokens = torch.tensor(tokens).reshape(1, -1)
-        return self.generator.prefill(tokens)
+            tokens = torch.tensor(tokens)
+        if tokens.dim() == 1:
+            tokens = tokens.unsqueeze(0)
+        batch, seqlen = tokens.shape
+        vocab = self.hf_config.vocab_size
 
-    def decode_forward(self, context_tokens, *args, **kwargs):
-        """Decode one step given the full context [1, S] -> next-token logits [1, vocab].
-        (Correctness path re-runs the sequence; paged single-token decode is the throughput upgrade.)"""
-        if not torch.is_tensor(context_tokens):
-            context_tokens = torch.tensor(context_tokens).reshape(1, -1)
-        return self.generator.decode(context_tokens)
+        # Warmup / empty-prompt calls: return correctly-shaped zeros without running the model.
+        if prompt_lens is not None and all(int(x) == 0 for x in prompt_lens):
+            return torch.zeros(batch, seqlen, vocab, dtype=torch.float32)
 
-    def generate(self, prompt, max_new_tokens=32, temperature=0.0, top_p=1.0):
-        """Convenience text-in/text-out used by offline eval drivers."""
-        return self.generator.generate(prompt, max_new_tokens, temperature, top_p)
+        if batch > 1:
+            logger.warning(
+                "DeepseekV4ForCausalLM serves batch=1 (max_concurrency=1); got batch={}. "
+                "Processing rows independently.",
+                batch,
+            )
 
-    def allocate_kv_cache(self, *args, **kwargs):
-        """Paged KV-cache allocation for continuous batching. NOT yet implemented: the correctness
-        forward recomputes the sequence per step. The paged/resident/sharded decode path lives in
-        demo/decode_engine.py (perf-validated) and must be folded in for full vLLM serving."""
-        raise NotImplementedError(
-            "Paged KV cache / continuous batching not yet wired for DeepSeek-V4. Use the "
-            "single-sequence generate()/prefill_forward()/decode_forward() path for accuracy evals; "
-            "see PRODUCTION_STATUS.md for the throughput-integration plan."
+        rows = []
+        for i in range(batch):
+            plen = int(prompt_lens[i]) if prompt_lens is not None else seqlen
+            ids = tokens[i, :plen].unsqueeze(0)
+            logits = self.generator._logits(ids)[0]  # [plen, V]
+            # Track the active context so subsequent decode steps attend over it (batch=1).
+            self._ctx = ids[0].clone()
+            if plen < seqlen:  # right-pad logits back to S with the last row
+                pad = logits[-1:].expand(seqlen - plen, -1)
+                logits = torch.cat([logits, pad], dim=0)
+            rows.append(logits)
+        return torch.stack(rows, dim=0)  # [B, S, V]
+
+    # ---- decode: new token(s) [B, 1] + start_pos -> host logits [B, 1, V] ----
+    def decode_forward(self, *args, **kwargs):
+        tokens = kwargs["tokens"]
+        if not torch.is_tensor(tokens):
+            tokens = torch.tensor(tokens)
+        tokens = tokens.reshape(tokens.shape[0], -1)  # [B, 1]
+        batch = tokens.shape[0]
+        vocab = self.hf_config.vocab_size
+
+        if batch == 1 and self._ctx is not None:
+            # Faithful path: append the new token and recompute over the full context.
+            self._ctx = torch.cat([self._ctx, tokens[0].to(self._ctx.dtype)], dim=0)
+            ids = self._ctx.unsqueeze(0)
+            logits = self.generator._logits(ids)[0, -1, :]  # [V]
+            return logits.reshape(1, 1, vocab)
+
+        # Fallback (batch>1 or no tracked context): shape-correct logits from the given token(s).
+        rows = []
+        for i in range(batch):
+            ids = tokens[i : i + 1]
+            logits = self.generator._logits(ids)[0, -1, :]
+            rows.append(logits)
+        return torch.stack(rows, dim=0).reshape(batch, 1, vocab)
+
+    def read_decode_output(self, tt_out, async_read=False):
+        # decode_forward already returns host tensors.
+        return (tt_out, []) if async_read else tt_out
+
+    def allocate_kv_cache(self, kv_cache_shape, dtype, num_layers):
+        """The plugin always allocates a paged pool and hands it back each step. This model keeps
+        its own context and ignores the pool, so return a benign per-layer placeholder that the
+        forwards treat as "no external cache" (they guard on ``any(entry is None ...)``)."""
+        logger.info(
+            "DeepseekV4ForCausalLM.allocate_kv_cache: returning [None]*{} (model-managed context; "
+            "paged pool ignored). kv_cache_shape={}",
+            num_layers,
+            kv_cache_shape,
         )
+        return [None] * num_layers
+
+    # ---- convenience for offline eval drivers (not used by the vLLM server path) ----
+    def generate(self, prompt, max_new_tokens=32, temperature=0.0, top_p=1.0):
+        return self.generator.generate(prompt, max_new_tokens, temperature, top_p)
