@@ -71,8 +71,24 @@ class DeepseekV4ForCausalLM:
         num_layers = int(
             os.environ.get("DEEPSEEK_V4_NUM_LAYERS", n_layers or hf_config.num_hidden_layers)
         )
-        gen = DeepSeekV4Generator(mesh_device, num_layers=num_layers)
-        return cls(gen, max_seq_len=max_seq_len)
+        # The correctness forward is single-device (its from_torch/to_torch expect one buffer).
+        # vLLM hands us the full mesh (e.g. (1,4)); run on a (1,1) submesh so device tensors
+        # have buffers.size()==1. The remaining chips idle until the sharded fast path lands.
+        device = mesh_device
+        try:
+            import ttnn
+
+            if tuple(mesh_device.shape) != (1, 1):
+                device = mesh_device.create_submesh(ttnn.MeshShape(1, 1))
+        except Exception as exc:  # pragma: no cover - fall back to the mesh as-is
+            from loguru import logger
+
+            logger.warning("Could not create (1,1) submesh ({}); using mesh as-is.", exc)
+            device = mesh_device
+        gen = DeepSeekV4Generator(device, num_layers=num_layers)
+        obj = cls(gen, max_seq_len=max_seq_len)
+        obj._submesh = device  # keep a reference so it isn't collected
+        return obj
 
     # vLLM's registry classifies a model as text-generation via a runtime_checkable
     # Protocol requiring `forward` + `compute_logits` method names. The TT worker never
