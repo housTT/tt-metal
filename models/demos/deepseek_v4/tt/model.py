@@ -90,18 +90,28 @@ def sparse_moe_streaming(collapsed_ln, layer_idx, layer, store, cfg, device, inp
     weights = scores.gather(1, indices)
     weights = weights / (weights.sum(dim=-1, keepdim=True) + 1e-20) * cfg.routed_scaling_factor
 
+    # Run only the routed experts (union across tokens). expert_gate_up/down are cached
+    # (dequantized once, reused across generated tokens); gate+up is a single fused matmul.
     interm = cfg.moe_intermediate_size
+    uniq = torch.unique(indices).tolist()
+    # Prefetch/dequantize the routed experts in parallel across CPU cores (torch releases the
+    # GIL for the tensor math), populating the cache before the serial device loop — cuts the
+    # cold first-token cost (fp4 dequant dominates it).
+    if len(uniq) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(16, len(uniq))) as ex:
+            list(ex.map(lambda e: RW.expert_fused(store, layer_idx, e), uniq))
+
     out = torch.zeros(N, H, dtype=torch.float32)
-    for e in torch.unique(indices).tolist():
-        sel = indices == e  # [N, top_k] bool
-        tok = sel.any(dim=-1)  # tokens routed to expert e
-        rows = tok.nonzero().flatten()
+    for e in uniq:
+        sel = indices == e
+        rows = sel.any(dim=-1).nonzero().flatten()
         if rows.numel() == 0:
             continue
-        gu = RW.expert_gate_up(store, layer_idx, e)  # [2*interm, H]
-        dn = RW.expert_down(store, layer_idx, e)  # [H, interm]
-        y = M.clamped_swiglu_mlp(flat[rows], gu[:interm], gu[interm:], dn, device, limit=cfg.swiglu_limit)
-        w_e = (weights * sel).sum(dim=-1)[rows].float()  # per selected token combine weight
+        gate_up_T, down_T = RW.expert_fused(store, layer_idx, e)  # cached, pre-transposed
+        y = M.fused_experts(flat[rows], gate_up_T, down_T, interm, device, limit=cfg.swiglu_limit)
+        w_e = (weights * sel).sum(dim=-1)[rows].float()
         out[rows] += w_e.unsqueeze(-1) * y.float()
 
     se = layer.mlp.shared_experts

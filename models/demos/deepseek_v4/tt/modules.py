@@ -111,6 +111,24 @@ def grouped_linear(x: torch.Tensor, weight: torch.Tensor, n_groups: int, device)
     return y.reshape(*input_shape, n_groups, rank)
 
 
+def fused_experts(x, gate_up_T, down_T, interm, device, limit=10.0):
+    """Clamped-SwiGLU expert with a FUSED gate+up matmul. gate_up_T [H, 2I] and down_T [I, H]
+    are pre-transposed+contiguous (cached), so this does 2 matmuls + no per-call transpose
+    (vs 3 matmuls + 3 transposes for the generic MLP). x [n, H] -> [n, H]."""
+    tx = _to_dev(x, device)
+    tgu = _to_dev(gate_up_T, device)
+    tdn = _to_dev(down_T, device)
+    gu = ttnn.matmul(tx, tgu)  # [n, 2I]
+    gate = ttnn.clamp(gu[..., :interm], max=limit)
+    up = ttnn.clamp(gu[..., interm:], min=-limit, max=limit)
+    act = ttnn.multiply(ttnn.silu(gate), up)  # [n, I]
+    y = ttnn.matmul(act, tdn)  # [n, H]
+    out = ttnn.to_torch(y)
+    for t in (tx, tgu, tdn, gu, gate, up, act, y):
+        ttnn.deallocate(t)
+    return out
+
+
 def moe_routed_experts(
     x: torch.Tensor,
     gate_up_proj: torch.Tensor,  # [E, 2*interm, hidden]  (HF DeepseekV4Experts layout)

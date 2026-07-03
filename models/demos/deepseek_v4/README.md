@@ -59,9 +59,13 @@ routed experts; bf16 would be ~320 GB (> host RAM). `reference/real_weights.py` 
 **dequantizes one layer at a time** into a 5-layer scratch module (covering all four (attention, MoE) structural
 combos), and the MoE dequantizes **only the routed experts** — so peak memory is ~one layer. Loader validated
 tensor-for-tensor (max|Δ|=0) vs the transformers-dequantized model; 4-layer end-to-end logits PCC 0.991 vs the HF
-reference on device (`tests/test_real_weights.py`, `tests/test_real_e2e.py`). It is the **prefill path** (no KV
-cache), ~1.5 s/layer, so it re-runs all 43 layers per generated token — correct but slow; KV cache + resident
-sharded weights (multi-chip) is the perf-scaling work.
+reference on device (`tests/test_real_weights.py`, `tests/test_real_e2e.py`).
+
+**Timing** (measured, 4× Blackhole; prefill path, no KV cache): **startup ~10 s** (scratch built with
+`_init_weights` no-op'd — otherwise ~4 min), first token ~65 s (cold fp4 dequant), **subsequent tokens ~35 s**
+(dequantized experts cached in host RAM + fused gate/up matmul). A 2-token run is ~2 min end-to-end. This is
+bandwidth-bound (it streams the touched weights through the host each token); real serving speed needs a KV cache
++ resident weights sharded across the chips + Metal Trace — the perf-scaling work beyond this bring-up.
 
 ### Reduced-config functional demo (default)
 

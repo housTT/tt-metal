@@ -129,7 +129,7 @@ def run_real_demo(prompt, max_new_tokens=3, num_layers=43, device_id=0):
     """Run the ACTUAL pretrained DeepSeek-V4-Flash weights (full model) on Blackhole via
     per-layer streaming (reference/real_weights.py). fp8/fp4 weights stay memory-mapped; each
     layer is dequantized on demand. Single-forward (no KV cache) greedy decode — slow but real."""
-    from transformers import AutoConfig, AutoModelForCausalLM
+    from transformers import AutoConfig
 
     from models.demos.deepseek_v4.reference import real_weights as RW
 
@@ -150,8 +150,8 @@ def run_real_demo(prompt, max_new_tokens=3, num_layers=43, device_id=0):
     scfg.num_nextn_predict_layers = 0
     scfg.layer_types = scfg.layer_types[:5]
     scfg.mlp_layer_types = scfg.mlp_layer_types[:5]
-    logger.info("Building scratch module (5 layers, full dims) for streaming...")
-    scratch = AutoModelForCausalLM.from_config(scfg, dtype=torch.bfloat16).eval()
+    logger.info("Building scratch module (5 layers, full dims, no-init) for streaming...")
+    scratch = RW.build_scratch(scfg)  # no-op _init_weights: ~7s instead of ~4min
 
     input_ids = tokenizer(prompt, return_tensors="pt").input_ids
     logger.info(f"Prompt: {prompt!r} -> {input_ids.shape[1]} tokens")

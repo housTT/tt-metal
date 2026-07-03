@@ -113,11 +113,15 @@ GLOBAL_MAP = {
 
 
 class RealWeightStore:
-    def __init__(self, snapshot: str):
+    def __init__(self, snapshot: str, cache_experts: bool = True):
         self.snapshot = snapshot
         idx = json.load(open(os.path.join(snapshot, "model.safetensors.index.json")))
         self.wm = idx["weight_map"]  # native key -> shard filename
         self._handles = {}
+        # cache of dequantized routed experts, keyed (layer_idx, expert_id) -> (gate_up, down).
+        # Experts are static and (esp. for hash layers) reused every generated token, so this
+        # makes token 2+ skip fp4 dequant. Bounded by #unique experts touched (fits host RAM).
+        self._expert_cache = {} if cache_experts else None
 
     def _f(self, shard):
         h = self._handles.get(shard)
@@ -180,15 +184,25 @@ def load_layer(layer_module, layer_idx: int, store: RealWeightStore, skip_expert
     _assign(layer_module, new)
 
 
-def expert_gate_up(store: RealWeightStore, layer_idx: int, e: int):
-    """Dequantized packed gate/up for routed expert `e`: [2*interm, hidden]."""
+def _expert(store: RealWeightStore, layer_idx: int, e: int):
+    """Cached, PRE-TRANSPOSED expert weights ready for x @ W: gate_up_T [H, 2I], down_T [I, H].
+    Transposing once (here, cached) avoids a per-call .t().contiguous() on every token."""
+    cache = store._expert_cache
+    if cache is not None and (layer_idx, e) in cache:
+        return cache[(layer_idx, e)]
     p = f"layers.{layer_idx}.ffn.experts.{e}."
-    return torch.cat([store.deq(p + "w1.weight"), store.deq(p + "w3.weight")], dim=0)
+    gate_up = torch.cat([store.deq(p + "w1.weight"), store.deq(p + "w3.weight")], dim=0)  # [2I, H]
+    down = store.deq(p + "w2.weight")  # [H, I]
+    gate_up_T = gate_up.t().contiguous()  # [H, 2I]
+    down_T = down.t().contiguous()  # [I, H]
+    if cache is not None:
+        cache[(layer_idx, e)] = (gate_up_T, down_T)
+    return gate_up_T, down_T
 
 
-def expert_down(store: RealWeightStore, layer_idx: int, e: int):
-    """Dequantized down proj for routed expert `e`: [hidden, interm]."""
-    return store.deq(f"layers.{layer_idx}.ffn.experts.{e}.w2.weight")
+def expert_fused(store: RealWeightStore, layer_idx: int, e: int):
+    """(gate_up_T [H,2I], down_T [I,H]) for expert `e`, cached + pre-transposed."""
+    return _expert(store, layer_idx, e)
 
 
 def _assemble_experts(store, p, parts, cat):
@@ -212,6 +226,24 @@ def _assign(module, name_to_tensor):
             if dst is None:
                 raise KeyError(f"target {name!r} not found in module")
             dst.copy_(t.to(dst.dtype).reshape(dst.shape))
+
+
+def build_scratch(scfg):
+    """Build the scratch HF model WITHOUT the (expensive) random weight init. from_config's
+    `_init_weights` normal_-fills ~34B params (5 full-dim layers × 256 experts) — ~4 min — but
+    every weight we use is overwritten by the real-weight loader and the routed-expert tensors
+    are never read (streamed from the store). So we no-op `_init_weights`: params are allocated
+    uninitialized (fast) while module __init__ still computes the RoPE inv_freq buffers."""
+    from transformers import AutoModelForCausalLM
+    from transformers.models.deepseek_v4 import modeling_deepseek_v4 as md
+
+    orig = md.DeepseekV4PreTrainedModel._init_weights
+    md.DeepseekV4PreTrainedModel._init_weights = lambda self, module: None
+    try:
+        model = AutoModelForCausalLM.from_config(scfg, dtype=torch.bfloat16).eval()
+    finally:
+        md.DeepseekV4PreTrainedModel._init_weights = orig
+    return model
 
 
 def find_snapshot():
