@@ -125,6 +125,70 @@ def run_demo(prompt, max_new_tokens=16, num_layers=2, device_id=0, verify=False)
     return new_ids, output_text
 
 
+def run_real_demo(prompt, max_new_tokens=3, num_layers=43, device_id=0):
+    """Run the ACTUAL pretrained DeepSeek-V4-Flash weights (full model) on Blackhole via
+    per-layer streaming (reference/real_weights.py). fp8/fp4 weights stay memory-mapped; each
+    layer is dequantized on demand. Single-forward (no KV cache) greedy decode — slow but real."""
+    from transformers import AutoConfig
+
+    from models.demos.deepseek_v4.reference import real_weights as RW
+
+    logger.info("=== DeepSeek-V4-Flash TT-NN demo — ACTUAL WEIGHTS (Blackhole) ===")
+    snap = RW.find_snapshot()
+    logger.info(f"weights: {snap}")
+    tokenizer = AutoTokenizer.from_pretrained(HF_MODEL)
+    store = RW.RealWeightStore(snap)
+
+    cfg = AutoConfig.from_pretrained(snap)
+    cfg.num_nextn_predict_layers = 0
+    real_layer_types = list(cfg.layer_types[:num_layers])
+    real_mlp_types = list(cfg.mlp_layer_types[:num_layers])
+
+    # scratch model with 5 layers covering all 4 (attn,mlp) structural combos in the full model.
+    scfg = AutoConfig.from_pretrained(snap)
+    scfg.num_hidden_layers = 5
+    scfg.num_nextn_predict_layers = 0
+    scfg.layer_types = scfg.layer_types[:5]
+    scfg.mlp_layer_types = scfg.mlp_layer_types[:5]
+    logger.info("Building scratch module (5 layers, full dims) for streaming...")
+    scratch = AutoModelForCausalLM.from_config(scfg, dtype=torch.bfloat16).eval()
+
+    input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+    logger.info(f"Prompt: {prompt!r} -> {input_ids.shape[1]} tokens")
+    logger.info(
+        f"Streaming {num_layers} real layers per token on device {device_id} (this is slow: fp4 experts "
+        "dequantized per layer, no KV cache)..."
+    )
+
+    device = ttnn.CreateDevice(device_id=device_id)
+    new_ids = []
+    try:
+        ids = input_ids.clone()
+        for t in range(max_new_tokens):
+            logits = TTM.tt_forward_streaming(
+                scratch,
+                store,
+                real_layer_types,
+                real_mlp_types,
+                ids,
+                device,
+                num_layers,
+                log=(logger.info if t == 0 else None),
+            )
+            nxt = int(logits[:, -1, :].argmax(-1))
+            new_ids.append(nxt)
+            ids = torch.cat([ids, torch.tensor([[nxt]])], dim=1)
+            logger.info(f"  token {t + 1}/{max_new_tokens}: id={nxt} {tokenizer.decode([nxt])!r}")
+    finally:
+        ttnn.CloseDevice(device)
+
+    logger.info("=== OUTPUT (ACTUAL MODEL) ===")
+    logger.info(f"Continuation: {tokenizer.decode(new_ids)!r}")
+    logger.info(f"Full: {tokenizer.decode(input_ids[0].tolist() + new_ids)!r}")
+    logger.info("DEMO_OK (actual weights)")
+    return new_ids
+
+
 def main():
     ap = argparse.ArgumentParser(description="DeepSeek-V4-Flash TT-NN demo (Blackhole)")
     ap.add_argument("--prompt", default="The capital of France is")
@@ -132,8 +196,13 @@ def main():
     ap.add_argument("--num-layers", type=int, default=2)
     ap.add_argument("--device-id", type=int, default=0)
     ap.add_argument("--verify", action="store_true", help="check device tokens match the HF reference")
+    ap.add_argument("--real", action="store_true", help="use the ACTUAL pretrained weights (full model, streamed)")
     args = ap.parse_args()
-    run_demo(args.prompt, args.max_new_tokens, args.num_layers, args.device_id, args.verify)
+    if args.real:
+        nl = args.num_layers if args.num_layers != 2 else 43
+        run_real_demo(args.prompt, args.max_new_tokens if args.max_new_tokens != 16 else 3, nl, args.device_id)
+    else:
+        run_demo(args.prompt, args.max_new_tokens, args.num_layers, args.device_id, args.verify)
 
 
 if __name__ == "__main__":

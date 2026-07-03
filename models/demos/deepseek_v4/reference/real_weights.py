@@ -135,7 +135,7 @@ class RealWeightStore:
     def deq(self, key):
         """Fetch a native tensor, dequantizing per its format:
         - fp8 e4m3 + .scale  -> block-128 dequant (attention/shared-expert/lm_head projections)
-        - int8 (MXFP4) + .scale -> nibble-unpack via e2m1 LUT × 2^(scale-127) (routed experts, expert_dtype=fp4)
+        - int8 (MXFP4) + .scale -> e2m1 LUT[nibble] × per-group e8m0 float scale (routed experts, expert_dtype=fp4)
         - else (bf16 norms/embed/compressor/sinks/hc/tid2eid) -> as-is."""
         w = self.raw(key)
         scale_key = key[: -len(".weight")] + ".scale" if key.endswith(".weight") else key + ".scale"
@@ -156,22 +156,39 @@ def load_globals(model, store: RealWeightStore):
     _assign(model, sd)
 
 
-def load_layer(layer_module, layer_idx: int, store: RealWeightStore):
-    """Load real layer-`layer_idx` weights (dequantized) into `layer_module` (HF DecoderLayer)."""
+def load_layer(layer_module, layer_idx: int, store: RealWeightStore, skip_experts: bool = False):
+    """Load real layer-`layer_idx` weights (dequantized) into `layer_module` (HF DecoderLayer).
+    `skip_experts=True` leaves the 256 routed-expert tensors untouched (they are streamed on
+    demand per selected expert via `expert_gate_up`/`expert_down` — avoids dequantizing all 256)."""
     p = f"layers.{layer_idx}."
     target = dict(layer_module.named_parameters())
     target.update(dict(layer_module.named_buffers()))
     new = {}
     for hf_k in target:
+        if hf_k in ("mlp.experts.gate_up_proj", "mlp.experts.down_proj") and skip_experts:
+            continue
         if hf_k in LAYER_MAP:
             new[hf_k] = store.deq(p + LAYER_MAP[hf_k])
         elif hf_k == "mlp.experts.gate_up_proj":
             new[hf_k] = _assemble_experts(store, p, ("w1", "w3"), cat=True)
         elif hf_k == "mlp.experts.down_proj":
             new[hf_k] = _assemble_experts(store, p, ("w2",), cat=False)
+        elif "inv_freq" in hf_k or "rotary" in hf_k:
+            continue  # RoPE inv_freq are computed from config at __init__, not in the checkpoint
         else:
             raise KeyError(f"no native mapping for HF key {hf_k!r} (layer {layer_idx})")
     _assign(layer_module, new)
+
+
+def expert_gate_up(store: RealWeightStore, layer_idx: int, e: int):
+    """Dequantized packed gate/up for routed expert `e`: [2*interm, hidden]."""
+    p = f"layers.{layer_idx}.ffn.experts.{e}."
+    return torch.cat([store.deq(p + "w1.weight"), store.deq(p + "w3.weight")], dim=0)
+
+
+def expert_down(store: RealWeightStore, layer_idx: int, e: int):
+    """Dequantized down proj for routed expert `e`: [hidden, interm]."""
+    return store.deq(f"layers.{layer_idx}.ffn.experts.{e}.w2.weight")
 
 
 def _assemble_experts(store, p, parts, cat):
