@@ -129,7 +129,7 @@ def run_real_demo(prompt, max_new_tokens=3, num_layers=43, device_id=0):
     """Run the ACTUAL pretrained DeepSeek-V4-Flash weights (full model) on Blackhole via
     per-layer streaming (reference/real_weights.py). fp8/fp4 weights stay memory-mapped; each
     layer is dequantized on demand. Single-forward (no KV cache) greedy decode — slow but real."""
-    from transformers import AutoConfig
+    from transformers import AutoConfig, AutoModelForCausalLM
 
     from models.demos.deepseek_v4.reference import real_weights as RW
 
