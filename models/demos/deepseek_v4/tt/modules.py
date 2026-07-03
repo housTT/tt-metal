@@ -45,6 +45,7 @@ def clamped_swiglu_mlp(
     down_w: torch.Tensor,
     device,
     limit: float = 10.0,
+    weight_dtype=ttnn.bfloat16,
 ) -> torch.Tensor:
     """DeepSeek-V4 clamped SwiGLU (shared expert / DeepseekV4MLP).
 
@@ -52,11 +53,12 @@ def clamped_swiglu_mlp(
     up   = clamp(x @ up_wᵀ, min=-limit, max=limit) # two-sided
     y    = (silu(gate) * up) @ down_wᵀ
     (weights are nn.Linear [out,in]; matmul uses xᵀ convention via transpose.)
+    `weight_dtype` selects the on-device weight precision (Checkpoint 3 precision sweep).
     """
     tx = _to_dev(x, device)
-    tg = _to_dev(gate_w.t().contiguous(), device)
-    tu = _to_dev(up_w.t().contiguous(), device)
-    td = _to_dev(down_w.t().contiguous(), device)
+    tg = _to_dev(gate_w.t().contiguous(), device, dtype=weight_dtype)
+    tu = _to_dev(up_w.t().contiguous(), device, dtype=weight_dtype)
+    td = _to_dev(down_w.t().contiguous(), device, dtype=weight_dtype)
 
     gate = ttnn.linear(tx, tg)
     up = ttnn.linear(tx, tu)
