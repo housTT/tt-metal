@@ -69,6 +69,21 @@ class DeepseekV4ForCausalLM:
         gen = DeepSeekV4Generator(mesh_device, num_layers=num_layers)
         return cls(gen, max_seq_len=max_seq_len)
 
+    # vLLM's registry classifies a model as text-generation via a runtime_checkable
+    # Protocol requiring `forward` + `compute_logits` method names. The TT worker never
+    # calls these (it drives prefill_forward/decode_forward), but they must exist so
+    # `is_text_generation_model` is True and `--runner generate` is accepted.
+    def forward(self, *args, **kwargs):  # pragma: no cover - satisfies vLLM Protocol only
+        raise NotImplementedError(
+            "DeepseekV4ForCausalLM is driven via prefill_forward/decode_forward by the TT "
+            "vLLM worker, not the standard vLLM forward()."
+        )
+
+    def compute_logits(self, *args, **kwargs):  # pragma: no cover - Protocol only
+        raise NotImplementedError(
+            "DeepseekV4ForCausalLM returns logits directly from prefill_forward/decode_forward."
+        )
+
     @property
     def cache_path(self):
         # tt-metal tensor cache location; the generator streams weights per-layer, so this is
