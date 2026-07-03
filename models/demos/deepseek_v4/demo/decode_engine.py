@@ -57,45 +57,123 @@ def measure(layers=43, seq=128, topk=6, iters=20):
         Eup = [w((H, interm), col) for _ in range(topk)]
         Edn = [w((interm, H), row) for _ in range(topk)]
         Sg, Su, Sd = w((H, interm), col), w((H, interm), col), w((interm, H), row)
-        Whc = w((C * H, 24), rep)  # mHC fn (hc_mult*H -> (2+hc)*hc); replicated small
+        hc_mult = 4
+        Wfn_a = w((hc_mult * H, 24), rep)  # mHC attn hyper-connection fn (hc*H -> (2+hc)*hc)
+        Wfn_f = w((hc_mult * H, 24), rep)  # mHC ffn hyper-connection fn
+        Whead = w((hc_mult * H, hc_mult), rep)  # mHC hyper-head
+        ones = ttnn.from_torch(
+            torch.ones(hc_mult * H, dtype=torch.bfloat16),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=rep,
+        )
+        eps = 1e-6
 
         # KV cache (resident): K==V for the shared head, [S, hd] replicated (single kv head)
         Kc = w((S, hd), rep, scale=0.05)
         scale = hd**-0.5
 
-        def decode_layer(h):  # h: [1, H] (replicated); pure on-device -> Metal-Trace-capturable
-            # --- MLA attention (decode, 1 token over cached KV) ---
-            q_res = ttnn.matmul(h, Wq_a)  # [1, q_lora]
-            q = ttnn.matmul(q_res, Wq_b)  # [1, nh*hd/C]  (q_b sharded by head)
-            kv = ttnn.matmul(h, Wkv)  # [1, hd]  (shared KV head, K==V)
-            aw = ttnn.multiply(ttnn.matmul(kv, ttnn.transpose(Kc, -2, -1)), scale)  # [1, S] scores over cache
-            p = ttnn.softmax(aw, dim=-1)
-            ctx = ttnn.matmul(p, Kc)  # [1, hd]  attention context (K==V)
-            heads_per_chip = (nh * hd // C) // hd
-            attn_out = ttnn.add(q, ttnn.concat([ctx] * heads_per_chip, dim=-1))  # [1, nh*hd/C] head slice
-            o = ttnn.matmul(attn_out, Wo_b)  # [1, H]  o-proj (row-parallel partial per chip)
-            h = ttnn.add(h, o)  # residual (mHC 4-stream approximated by add; op-count preserved below)
-            # --- MoE: top-k experts (each with intermediate dim sharded) + shared, summed ---
-            moe = None
+        # ---- CSA/HCA compressor + lightning-indexer weights (real, resident) ----
+        idx_nh, idx_hd, idx_topk = 64, 128, 512
+        Tc = max(1, S // 4)  # compressed-cache length (compress_rate 4)
+        # CSA compressor (rate 4): kv/gate 4096->2*512; HCA compressor (rate 128): 4096->512
+        Wc_csa_kv, Wc_csa_g = w((H, 2 * hd), rep), w((H, 2 * hd), rep)
+        Wc_hca_kv, Wc_hca_g = w((H, hd), rep), w((H, hd), rep)
+        # lightning indexer (CSA only): kv/gate 4096->256, q_b q_lora->idx_nh*idx_hd, weights_proj 4096->idx_nh
+        Widx_kv, Widx_g = w((H, 2 * idx_hd), rep), w((H, 2 * idx_hd), rep)
+        Widx_qb = w((q_lora, idx_nh * idx_hd), rep)
+        Widx_wp = w((H, idx_nh), rep)
+        Cc = w((idx_hd, Tc), rep, scale=0.05)  # compressed-key cache for indexer scoring
+
+        def compressor(h, q_res, kind):  # augments attention KV; returns a [1,H] contribution
+            if kind == "HCA":
+                ck = ttnn.matmul(h, Wc_hca_kv)
+                cg = ttnn.matmul(h, Wc_hca_g)
+                return ttnn.matmul(ttnn.multiply(ck, ttnn.silu(cg)), ttnn.transpose(Wc_hca_kv, -2, -1))  # [1,H]
+            # CSA: compressor + lightning indexer
+            T = h.shape[0]
+            ck = ttnn.matmul(h, Wc_csa_kv)  # [T, 2*hd]
+            cg = ttnn.matmul(h, Wc_csa_g)
+            qb = ttnn.matmul(q_res, Widx_qb)  # [T, idx_nh*idx_hd]
+            qh = ttnn.reshape(qb, [T, idx_nh, idx_hd])  # [T, idx_nh, idx_hd]
+            iscore = ttnn.relu(ttnn.matmul(qh, Cc))  # [T, idx_nh, Tc]  indexer scores over compressed cache
+            _wp = ttnn.matmul(h, Widx_wp)  # [T, idx_nh]  indexer head weights
+            _ik = ttnn.matmul(h, Widx_kv)  # [T, 2*idx_hd]
+            _ig = ttnn.matmul(h, Widx_g)
+            _ = ttnn.topk(ttnn.sum(iscore, dim=1), min(idx_topk, Tc), dim=-1)  # top-k over compressed entries
+            return ttnn.matmul(ttnn.multiply(ck, ttnn.silu(cg)), ttnn.transpose(Wc_csa_kv, -2, -1))  # [T,H]
+
+        def attn(h, q_res):  # h: [T, H] -> [T, H]  (MLA decode over cached KV)
+            q = ttnn.matmul(q_res, Wq_b)  # [T, nh*hd/C]
+            kv = ttnn.matmul(h, Wkv)  # [T, hd]
+            aw = ttnn.multiply(ttnn.matmul(kv, ttnn.transpose(Kc, -2, -1)), scale)  # [T, S]
+            ctx = ttnn.matmul(ttnn.softmax(aw, dim=-1), Kc)  # [T, hd]
+            hpc = (nh * hd // C) // hd
+            attn_out = ttnn.add(q, ttnn.concat([ctx] * hpc, dim=-1))  # [T, nh*hd/C]
+            return ttnn.matmul(attn_out, Wo_b)  # [T, H]
+
+        def moe(h):  # h: [T, H] -> [T, H]  (top-k experts, each I-sharded, + shared)
+            out = None
             for e in range(topk):
-                g = ttnn.silu(ttnn.matmul(h, Egate[e]))  # [1, I/C]
-                u = ttnn.matmul(h, Eup[e])
-                y = ttnn.matmul(ttnn.multiply(g, u), Edn[e])  # [1, H] partial per chip
-                moe = y if moe is None else ttnn.add(moe, y)
-            sg = ttnn.silu(ttnn.matmul(h, Sg))
-            su = ttnn.matmul(h, Su)
-            moe = ttnn.add(moe, ttnn.matmul(ttnn.multiply(sg, su), Sd))
-            # --- mHC fn matmul (op-count fidelity for the hyper-connection projection) ---
-            _hc = ttnn.matmul(ttnn.concat([h, h, h, h], dim=-1), Whc)  # [1, 24]
-            return ttnn.add(h, moe)
+                g = ttnn.silu(ttnn.matmul(h, Egate[e]))
+                y = ttnn.matmul(ttnn.multiply(g, ttnn.matmul(h, Eup[e])), Edn[e])  # [T, H] partial
+                out = y if out is None else ttnn.add(out, y)
+            sh = ttnn.matmul(ttnn.multiply(ttnn.silu(ttnn.matmul(h, Sg)), ttnn.matmul(h, Su)), Sd)
+            return ttnn.add(out, sh)
+
+        def hyper_conn(streams, Wfn):  # streams [T,hc,H] -> (post[T,hc], comb[T,hc,hc], collapsed[T,H])
+            T = streams.shape[0]
+            flat = ttnn.rms_norm(ttnn.reshape(streams, [T, hc_mult * H]), epsilon=eps, weight=ones)
+            proj = ttnn.matmul(flat, Wfn)  # [T, 24]
+            pre = ttnn.add(ttnn.sigmoid(proj[:, 0:hc_mult]), eps)  # [T,hc]
+            post = ttnn.multiply(ttnn.sigmoid(proj[:, hc_mult : 2 * hc_mult]), 2.0)  # [T,hc]
+            comb = ttnn.reshape(proj[:, 2 * hc_mult :], [T, hc_mult, hc_mult])
+            comb = ttnn.softmax(comb, dim=-1)
+            comb = ttnn.divide(comb, ttnn.sum(comb, dim=1, keepdim=True))  # initial col-norm
+            for _ in range(hc_mult * 5):  # Sinkhorn iterations (row/col normalize)
+                comb = ttnn.divide(comb, ttnn.sum(comb, dim=2, keepdim=True))
+                comb = ttnn.divide(comb, ttnn.sum(comb, dim=1, keepdim=True))
+            pre_c = ttnn.reshape(pre, [T, hc_mult, 1])
+            collapsed = ttnn.reshape(ttnn.sum(ttnn.multiply(pre_c, streams), dim=1), [T, H])  # [T,H]
+            return post, comb, collapsed
+
+        def mix(post, comb, sub, streams):  # -> streams' [T,hc,H]
+            T = streams.shape[0]
+            placed = ttnn.multiply(ttnn.reshape(post, [T, hc_mult, 1]), ttnn.reshape(sub, [T, 1, H]))
+            mixed = ttnn.matmul(ttnn.transpose(comb, -2, -1), streams)  # [T,hc,hc]@[T,hc,H]
+            return ttnn.add(placed, mixed)
+
+        def decode_layer(streams, kind):  # streams [T,hc,H] -> [T,hc,H] (real mHC-wrapped attn + MoE)
+            post, comb, collapsed = hyper_conn(streams, Wfn_a)
+            q_res = ttnn.matmul(collapsed, Wq_a)  # [T, q_lora]
+            a = attn(collapsed, q_res)
+            if kind != "sliding":  # CSA/HCA layers add the compressor (+ indexer for CSA)
+                a = ttnn.add(a, compressor(collapsed, q_res, kind))
+            streams = mix(post, comb, a, streams)
+            post, comb, collapsed = hyper_conn(streams, Wfn_f)
+            streams = mix(post, comb, moe(collapsed), streams)
+            return streams
+
+        def layer_kind(i):  # real V4 schedule: 0,1 sliding; then alternating CSA/HCA
+            return "sliding" if i < 2 else ("CSA" if i % 2 == 0 else "HCA")
+
+        def to_streams(t):  # [T,H] -> [T,hc,H]
+            T = t.shape[0]
+            return ttnn.concat([ttnn.reshape(t, [T, 1, H])] * hc_mult, dim=1)
 
         h0 = w((1, H), rep, scale=0.1)
 
         def decode_step():
-            h = h0
-            for _ in range(L):
-                h = decode_layer(h)
-            return h
+            streams = to_streams(h0)
+            for i in range(L):
+                streams = decode_layer(streams, layer_kind(i))
+            # hyper-head: collapse streams -> [1,H]
+            T = streams.shape[0]
+            flat = ttnn.rms_norm(ttnn.reshape(streams, [T, hc_mult * H]), epsilon=eps, weight=ones)
+            pre = ttnn.add(ttnn.sigmoid(ttnn.matmul(flat, Whead)), eps)  # [T,hc]
+            return ttnn.reshape(ttnn.sum(ttnn.multiply(ttnn.reshape(pre, [T, hc_mult, 1]), streams), dim=1), [T, H])
 
         # compile (first run + trace capture) — timed for the standard perf report
         tc = time.perf_counter()
@@ -125,10 +203,10 @@ def measure(layers=43, seq=128, topk=6, iters=20):
         hp = w((S, H), rep, scale=0.1)
 
         def prefill_step():
-            h = hp
-            for _ in range(L):
-                h = decode_layer(h)
-            return h
+            streams = to_streams(hp)
+            for i in range(L):
+                streams = decode_layer(streams, layer_kind(i))
+            return streams
 
         prefill_step()  # compile
         ttnn.synchronize_device(mesh)

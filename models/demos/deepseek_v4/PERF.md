@@ -11,12 +11,14 @@ This file contains the measured performance of DeepSeek-V4-Flash on a Blackhole 
 Please note that using more recent versions of the software stack (TT-Metal and vLLM) might lead to different
 performance numbers.
 
-> **Scope of these numbers.** They are produced by the resident + sharded + Metal-Traced decode/prefill engine
-> (`demo/decode_engine.py`), which runs the model's real op structure — 43 layers, top-6 MoE, MLA attention, KV
-> cache — with weights resident and tensor-parallel-sharded across the 4 chips. The mHC 4-stream Sinkhorn residual
-> is approximated by a residual add and the CSA/HCA compressor + lightning-indexer ops are not yet folded in, so a
-> fully-faithful build will be somewhat slower (est. ~9–11 t/s/u). Per-module numerical correctness is validated to
-> PCC ≥ 0.99 separately (`tests/test_*_pcc.py`). This is batch-1, single-user.
+> **Scope of these numbers.** Produced by the resident + sharded + Metal-Traced decode/prefill engine
+> (`demo/decode_engine.py`) running the model's **full, actual op structure — no approximations**: 43 layers with
+> the real per-layer schedule (2 sliding + alternating CSA/HCA), the **mHC 4-stream residual with the full 20-iter
+> Sinkhorn** (attn_hc + ffn_hc + hyper-head), the **CSA/HCA KV compressors and the lightning indexer** (q_b proj,
+> scorer matmul, top-k), MLA attention with KV cache, and top-6 MoE — with weights resident and tensor-parallel-
+> sharded across the 4 chips. It is an op-structure/shape/depth/sharding/precision-faithful perf harness (weights
+> are random, so it measures latency, not the model's text output; per-token numerical correctness is validated to
+> PCC ≥ 0.99 separately in `tests/test_*_pcc.py`). Batch-1, single-user.
 
 ## 2026-07-03
 
@@ -39,14 +41,16 @@ python models/demos/deepseek_v4/demo/decode_engine.py --layers 43 --seq 2048
 
 | Input length | Output length | Batch | TTFT (per user) | Token/s/u (avg of all decoded tokens) |
 |--------------|---------------|-------|-----------------|----------------------------------------|
-| 128          | 128           | 1     | 94.3 ms         | 61.4 ms, 16.29 t/s/u                    |
-| 512          | 128           | 1     | 144.6 ms        | 61.9 ms, 16.15 t/s/u                    |
-| 2K           | 128           | 1     | 322.8 ms        | 64.2 ms, 15.59 t/s/u                    |
-| 8K           | 128           | 1     | 1,129.6 ms      | 73.4 ms, 13.62 t/s/u                    |
+| 128          | 128           | 1     | 411.5 ms        | 162.7 ms, 6.15 t/s/u                    |
+| 2K           | 128           | 1     | 3,651.0 ms      | 177.5 ms, 5.63 t/s/u                    |
 
-**Targets:** ≥ 5 t/s/u decode and < 5 s TTFT — met at every context length above (`test_perf.py` asserts these
-and passes). Standard perf CSV emitted via `models/perf/prep_perf_report`; CI benchmark JSON via
-`models/perf/benchmarking_utils` (`BenchmarkData.save_partial_run_json`).
+**Targets:** ≥ 5 t/s/u decode and < 5 s TTFT — met at both context lengths above with the full actual op
+structure (`test_perf.py -m models_performance_bare_metal` asserts these and passes). Standard perf CSV emitted
+via `models/perf/prep_perf_report`; CI benchmark JSON via `models/perf/benchmarking_utils`.
+
+Notes: the full mHC Sinkhorn + CSA/HCA compressors + indexer take decode from ~16 t/s/u (their ops omitted) to
+~6 t/s/u — the honest cost of the actual computation. TTFT grows with prompt length (the indexer/compressor and
+prefill matmuls scale with sequence); beyond ~2–3K it will exceed 5 s and needs chunked prefill (not yet wired).
 
 ### Reference point (same hardware)
 
