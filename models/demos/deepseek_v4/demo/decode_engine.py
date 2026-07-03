@@ -21,16 +21,8 @@ import ttnn
 torch.manual_seed(0)
 
 
-def main():
-    import argparse
-
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--layers", type=int, default=43)
-    ap.add_argument("--seq", type=int, default=128)  # cached context length for decode / prefill len
-    ap.add_argument("--top-k", type=int, default=6)
-    ap.add_argument("--iters", type=int, default=20)
-    args = ap.parse_args()
-
+def measure(layers=43, seq=128, topk=6, iters=20):
+    """Run the resident+sharded+traced decode/prefill and return timing metrics (dict)."""
     mesh = ttnn.open_mesh_device(mesh_shape=ttnn.MeshShape(1, 4), trace_region_size=1_500_000_000)
     try:
         C = mesh.get_num_devices()
@@ -38,9 +30,8 @@ def main():
         q_lora = 1024
         nh, hd = 64, 512
         interm = 2048
-        topk = args.top_k
-        S = args.seq
-        L = args.layers
+        S = seq
+        L = layers
         rep = ttnn.ReplicateTensorToMesh(mesh)
         col = ttnn.ShardTensorToMesh(mesh, dim=-1)
         row = ttnn.ShardTensorToMesh(mesh, dim=0)
@@ -106,22 +97,23 @@ def main():
                 h = decode_layer(h)
             return h
 
-        # warm / compile
+        # compile (first run + trace capture) — timed for the standard perf report
+        tc = time.perf_counter()
         decode_step()
         ttnn.synchronize_device(mesh)
-        # trace the full L-layer decode step
         tid = ttnn.begin_trace_capture(mesh, cq_id=0)
         out = decode_step()
         ttnn.end_trace_capture(mesh, tid, cq_id=0)
         ttnn.synchronize_device(mesh)
+        compile_s = time.perf_counter() - tc
         for _ in range(3):
             ttnn.execute_trace(mesh, tid, cq_id=0, blocking=False)
         ttnn.synchronize_device(mesh)
         t0 = time.perf_counter()
-        for _ in range(args.iters):
+        for _ in range(iters):
             ttnn.execute_trace(mesh, tid, cq_id=0, blocking=False)
         ttnn.synchronize_device(mesh)
-        ms = (time.perf_counter() - t0) / args.iters * 1e3
+        ms = (time.perf_counter() - t0) / iters * 1e3
         print(
             f"[decode] {L} layers, seq={S}, top-{topk}, resident+sharded+traced: {ms:.2f} ms/token "
             f"-> {1000 / ms:.2f} tok/s"
@@ -149,8 +141,27 @@ def main():
             f"({'PASS <5s' if ttft < 5 else 'OVER 5s'})"
         )
         print("TTFT_S", f"{ttft:.3f}")
+        return {
+            "decode_ms": ms,
+            "decode_toks": 1000 / ms,
+            "ttft_s": ttft,
+            "compile_s": compile_s,
+            "num_devices": mesh.get_num_devices(),
+        }
     finally:
         ttnn.close_mesh_device(mesh)
+
+
+def main():
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--layers", type=int, default=43)
+    ap.add_argument("--seq", type=int, default=128)
+    ap.add_argument("--top-k", type=int, default=6)
+    ap.add_argument("--iters", type=int, default=20)
+    args = ap.parse_args()
+    measure(layers=args.layers, seq=args.seq, topk=args.top_k, iters=args.iters)
 
 
 if __name__ == "__main__":
