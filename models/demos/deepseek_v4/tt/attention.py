@@ -37,11 +37,16 @@ def apply_rope(x, cos, sin, unsqueeze_dim=1):
     return torch.cat([nope, rotated], dim=-1)
 
 
-def mla_attention(hidden_states, attn, cos, sin, causal_mask, cfg, device, weight_dtype=None):
+def mla_attention(hidden_states, attn, cos, sin, causal_mask, cfg, device, weight_dtype=None, position_ids=None):
     """hidden_states: [B,S,H] (already input_layernorm'd). `attn` = HF DeepseekV4Attention
-    (source of weights + `sinks`). Returns [B,S,H]. `weight_dtype` optionally sets on-device
-    projection precision (Checkpoint-3 sweep); None -> bf16."""
+    (source of weights + `sinks` + optional `compressor`). Returns [B,S,H]. `weight_dtype`
+    optionally sets on-device projection precision (Checkpoint-3 sweep); None -> bf16.
+
+    If `attn.compressor` is present (CSA/HCA layers), the compressed long-range KV entries
+    and their per-query block-bias are computed (tt/compressors.py) and concatenated onto
+    the sliding K==V, and the mask is extended — mirroring HF attention.forward §1 steps 4-7."""
     import ttnn
+    from models.demos.deepseek_v4.tt import compressors as C  # lazy import (avoids cycle)
 
     wdt = weight_dtype or ttnn.bfloat16
     B, S, H = hidden_states.shape
@@ -62,12 +67,26 @@ def mla_attention(hidden_states, attn, cos, sin, causal_mask, cfg, device, weigh
     kv = kv.view(B, S, 1, hd).transpose(1, 2)  # [B,1,S,hd]
     kv = apply_rope(kv, cos, sin)
 
-    # --- attention core with sinks (host fallback: tiny softmax over [B,nh,S,S+1]) ---
-    k = kv.expand(B, nh, S, hd)  # repeat_kv 1 -> nh
+    # --- optional compressed long-range KV (CSA / HCA) ---
+    mask = causal_mask[..., :S, :S].float() if causal_mask is not None else torch.zeros(1, 1, S, S)
+    if getattr(attn, "compressor", None) is not None:
+        comp = attn.compressor
+        if comp.__class__.__name__.startswith("DeepseekV4HCA"):
+            ckv, block_bias = C.hca_compressor(hidden_states, comp, cfg, device), None
+        else:
+            ckv, block_bias = C.csa_compressor(hidden_states, q_res, position_ids, comp, cfg, device)
+        T = ckv.shape[2]
+        if T > 0:
+            kv = torch.cat([kv, ckv.to(kv.dtype)], dim=2)  # [B,1,S+T,hd]
+            ext = block_bias.float() if block_bias is not None else torch.zeros(1, 1, S, T)
+            mask = torch.cat([mask, ext], dim=-1)  # [1,1,S,S+T]
+
+    # --- attention core with sinks (host fallback: tiny softmax over [B,nh,S,Lkv+1]) ---
+    Lkv = kv.shape[2]
+    k = kv.expand(B, nh, Lkv, hd)  # repeat_kv 1 -> nh
     v = k
-    aw = torch.matmul(q.float(), k.float().transpose(2, 3)) * scaling  # [B,nh,S,S]
-    if causal_mask is not None:
-        aw = aw + causal_mask[..., :S, :S].float()
+    aw = torch.matmul(q.float(), k.float().transpose(2, 3)) * scaling  # [B,nh,S,Lkv]
+    aw = aw + mask.float()
     sinks = attn.sinks.reshape(1, -1, 1, 1).expand(B, nh, S, 1).float()
     combined = torch.cat([aw, sinks], dim=-1)
     combined = combined - combined.max(dim=-1, keepdim=True).values

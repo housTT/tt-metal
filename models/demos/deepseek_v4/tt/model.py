@@ -80,14 +80,20 @@ def tt_forward(hf_model, input_ids, device, weight_dtype=None):
     streams = embeds.unsqueeze(2).expand(B, S, cfg.hc_mult, embeds.shape[-1]).contiguous()
 
     position_ids = torch.arange(S).unsqueeze(0)
-    cos, sin = top.rotary_emb(embeds, position_ids=position_ids, layer_type="main")
+    rope = {
+        "main": top.rotary_emb(embeds, position_ids=position_ids, layer_type="main"),
+        "compress": top.rotary_emb(embeds, position_ids=position_ids, layer_type="compress"),
+    }
     causal = _causal_mask(S, dtype)
 
     for layer in top.layers:
-        # attention sublayer through attn_hc
+        # attention sublayer through attn_hc; sliding layers use "main" rope, CSA/HCA use "compress"
+        cos, sin = rope[layer.self_attn.rope_layer_type]
         post, comb, collapsed = M.hyperconnection(streams, layer.attn_hc, device)
         collapsed_ln = M.rms_norm(collapsed, layer.input_layernorm.weight.data, device, eps=cfg.rms_norm_eps)
-        attn_out = A.mla_attention(collapsed_ln, layer.self_attn, cos, sin, causal, cfg, device, weight_dtype)
+        attn_out = A.mla_attention(
+            collapsed_ln, layer.self_attn, cos, sin, causal, cfg, device, weight_dtype, position_ids=position_ids
+        )
         streams = post.to(dtype).unsqueeze(-1) * attn_out.to(dtype).unsqueeze(-2) + torch.matmul(
             comb.to(dtype).transpose(-1, -2), streams
         )
