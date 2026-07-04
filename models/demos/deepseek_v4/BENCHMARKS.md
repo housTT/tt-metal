@@ -53,12 +53,23 @@ python run.py \
   --vllm-dir /home/ttuser/.local/lib/model-bringup/tt-metal/vllm \
   --host-hf-cache /home/ttuser/.cache/huggingface \
   --disable-trace-capture \
+  --limit-samples-mode smoke-test \
   --service-port 8000
 ```
+(also written to `~/run_deepseek_v4_benchmarks.sh`.)
 
 This starts the local vLLM server, waits for `/health`, then drives `vllm bench serve`
-(`--dataset-name random`) over the auto-generated ISL/OSL sweep (bounded by the spec's
-`max_context=2048`, `max_concurrency=1`) and finally the reports workflow.
+(from the benchmarks venv, upstream `vllm==0.13.0`) and finally the reports workflow.
+
+`--limit-samples-mode smoke-test` runs the bounded `(ISL=16, OSL=4)` workload so the sweep
+**completes** at the current served-forward speed (~20 s/token). Drop the flag for the full
+ISL/OSL sweep — practical once the on-device served forward lands (see below).
+
+Two fixes were required for the workflow to run here:
+- `workflows/model_spec.py`: the `DeepSeek-V4-Flash` `ModelSpecTemplate` `version` must be
+  ≥ `0.11.0` (`validate_setup._check_image_version_supported`) — set to `0.14.0`.
+- the empty `override_tt_config` is omitted from `vllm_args` (this vLLM build doesn't
+  register `--override-tt-config`).
 
 ## Performance caveat (important, honest)
 
