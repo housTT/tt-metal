@@ -90,11 +90,11 @@ def sparse_moe_streaming(collapsed_ln, layer_idx, layer, store, cfg, device, inp
     weights = scores.gather(1, indices)
     weights = weights / (weights.sum(dim=-1, keepdim=True) + 1e-20) * cfg.routed_scaling_factor
 
-    # Run only the routed experts (union across tokens). Correctness path: host-cached bf16
-    # weights transferred per call and freed (no device accumulation -> no single-device OOM).
-    # The resident/sharded device-expert path (RW.expert_fused_dev) is the mesh throughput path
-    # exercised in demo/decode_engine.py; keeping it here would OOM one chip across tokens.
-    interm = cfg.moe_intermediate_size
+    # Run only the routed experts (union across tokens) with RESIDENT, tensor-parallel-SHARDED
+    # expert weights on the mesh (REPORT_7): each expert's gate/up column-sharded + down
+    # row-sharded across the C chips, uploaded ONCE and reused every token (no per-token weight
+    # transfer — the ~20 GB/token that dominated the streaming path). The touched-expert working
+    # set (~29/layer) sharded /C fits (~15.6 GB/chip). On a single device C=1 -> plain resident.
     uniq = torch.unique(indices).tolist()
     out = torch.zeros(N, H, dtype=torch.float32)
     for e in uniq:
@@ -102,20 +102,14 @@ def sparse_moe_streaming(collapsed_ln, layer_idx, layer, store, cfg, device, inp
         rows = sel.any(dim=-1).nonzero().flatten()
         if rows.numel() == 0:
             continue
-        gate_up_T, down_T = RW.expert_fused(store, layer_idx, e)  # host bf16 (cached)
-        y = M.fused_experts(flat[rows], gate_up_T, down_T, interm, device, limit=cfg.swiglu_limit)
+        tgate, tup, tdown = RW.expert_sharded_dev(store, device, layer_idx, e)  # resident sharded
+        y = M.swiglu_sharded(flat[rows], tgate, tup, tdown, device, limit=cfg.swiglu_limit)
         w_e = (weights * sel).sum(dim=-1)[rows].float()
         out[rows] += w_e.unsqueeze(-1) * y.float()
 
-    se = layer.mlp.shared_experts
-    shared = M.clamped_swiglu_mlp(
-        collapsed_ln,
-        se.gate_proj.weight.data,
-        se.up_proj.weight.data,
-        se.down_proj.weight.data,
-        device,
-        limit=cfg.swiglu_limit,
-    )
+    # shared expert: resident sharded, reused every token
+    tsg, tsu, tsd = RW.shared_sharded_dev(store, device, layer_idx, layer.mlp.shared_experts)
+    shared = M.swiglu_sharded(flat, tsg, tsu, tsd, device, limit=cfg.swiglu_limit).reshape(B, S, H)
     return out.reshape(B, S, H) + shared
 
 

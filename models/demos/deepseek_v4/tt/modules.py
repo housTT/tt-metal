@@ -19,8 +19,33 @@ import ttnn
 HIFI4 = ttnn.WormholeComputeKernelConfig  # placeholder; set per-op below
 
 
+def _is_mesh(device):
+    """True if `device` is a multi-device MeshDevice (needs mesh mappers/composers)."""
+    n = getattr(device, "get_num_devices", None)
+    try:
+        return n is not None and n() > 1
+    except Exception:
+        return False
+
+
 def _to_dev(t: torch.Tensor, device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
-    return ttnn.from_torch(t, dtype=dtype, layout=layout, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+    """Host tensor -> device. On a MeshDevice the tensor is REPLICATED across all chips
+    (each chip computes redundantly with resident replicated weights); on a single device
+    it's a plain upload."""
+    mapper = ttnn.ReplicateTensorToMesh(device) if _is_mesh(device) else None
+    return ttnn.from_torch(
+        t, dtype=dtype, layout=layout, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=mapper
+    )
+
+
+def _from_dev(ty, device):
+    """Device -> host. On a MeshDevice every chip holds an identical (replicated) copy of the
+    result, so concat along dim 0 and keep the first 1/num_devices rows (chip 0's answer);
+    on a single device it's a plain read."""
+    if _is_mesh(device):
+        o = ttnn.to_torch(ty, mesh_composer=ttnn.ConcatMeshToTensor(device, dim=0))
+        return o[: o.shape[0] // device.get_num_devices()]
+    return ttnn.to_torch(ty)
 
 
 def linear(x: torch.Tensor, weight: torch.Tensor, device, bias: torch.Tensor | None = None, weight_dtype=ttnn.bfloat16):
@@ -29,7 +54,7 @@ def linear(x: torch.Tensor, weight: torch.Tensor, device, bias: torch.Tensor | N
     tw = _to_dev(weight.t().contiguous(), device, dtype=weight_dtype)
     tb = _to_dev(bias, device) if bias is not None else None
     ty = ttnn.linear(tx, tw, bias=tb)
-    out = ttnn.to_torch(ty)
+    out = _from_dev(ty, device)
     for t in (tx, tw, ty):
         ttnn.deallocate(t)
     if tb is not None:
@@ -46,7 +71,7 @@ def rms_norm(x: torch.Tensor, weight: torch.Tensor | None, device, eps: float = 
     w = weight if weight is not None else torch.ones(x.shape[-1], dtype=torch.float32)
     tw = _to_dev(w, device)
     ty = ttnn.rms_norm(tx, epsilon=eps, weight=tw)
-    out = ttnn.to_torch(ty)
+    out = _from_dev(ty, device)
     ttnn.deallocate(tx)
     ttnn.deallocate(ty)
     return out
@@ -80,7 +105,7 @@ def clamped_swiglu_mlp(
     up = ttnn.clamp(up, min=-limit, max=limit)
     act = ttnn.multiply(ttnn.silu(gate), up)
     y = ttnn.linear(act, td)
-    out = ttnn.to_torch(y)
+    out = _from_dev(y, device)
     for t in (tx, tg, tu, td, gate, up, act, y):
         ttnn.deallocate(t)
     return out
@@ -104,7 +129,7 @@ def grouped_linear(x: torch.Tensor, weight: torch.Tensor, n_groups: int, device)
     tw = _to_dev(w, device)
     tx = _to_dev(xg, device)
     ty = ttnn.matmul(tx, tw)  # [g, N, rank]
-    y = ttnn.to_torch(ty).transpose(0, 1)  # [N, g, rank]
+    y = _from_dev(ty, device).transpose(0, 1)  # [N, g, rank]
     ttnn.deallocate(tw)
     ttnn.deallocate(tx)
     ttnn.deallocate(ty)
@@ -123,7 +148,7 @@ def fused_experts(x, gate_up_T, down_T, interm, device, limit=10.0):
     up = ttnn.clamp(gu[..., interm:], min=-limit, max=limit)
     act = ttnn.multiply(ttnn.silu(gate), up)  # [n, I]
     y = ttnn.matmul(act, tdn)  # [n, H]
-    out = ttnn.to_torch(y)
+    out = _from_dev(y, device)
     for t in (tx, tgu, tdn, gu, gate, up, act, y):
         ttnn.deallocate(t)
     return out
@@ -134,7 +159,7 @@ def linear_dev(x, tw_T, device):
     the activation crosses host->device. y = x @ tw_T."""
     tx = _to_dev(x, device)
     ty = ttnn.matmul(tx, tw_T)
-    out = ttnn.to_torch(ty)
+    out = _from_dev(ty, device)
     ttnn.deallocate(tx)
     ttnn.deallocate(ty)
     return out
@@ -148,7 +173,7 @@ def grouped_linear_dev(x, tw_dev, n_groups, device):
     xg = x.reshape(-1, n_groups, ipg).transpose(0, 1).contiguous()  # [g, N, ipg]
     tx = _to_dev(xg, device)
     ty = ttnn.matmul(tx, tw_dev)  # [g, N, rank]
-    y = ttnn.to_torch(ty).transpose(0, 1)  # [N, g, rank]
+    y = _from_dev(ty, device).transpose(0, 1)  # [N, g, rank]
     ttnn.deallocate(tx)
     ttnn.deallocate(ty)
     return y.reshape(*input_shape, n_groups, tw_dev.shape[-1])
@@ -164,8 +189,34 @@ def fused_experts_dev(x, tgu, tdn, interm, device, limit=10.0):
     up = ttnn.clamp(gu[..., interm:], min=-limit, max=limit)
     act = ttnn.multiply(ttnn.silu(gate), up)  # [n, I]
     y = ttnn.matmul(act, tdn)  # [n, H]
-    out = ttnn.to_torch(y)
+    out = _from_dev(y, device)
     for t in (tx, gu, gate, up, act, y):
+        ttnn.deallocate(t)
+    return out
+
+
+def _tp_reduce_read(y, device):
+    """Read a row-parallel (down-projection) partial result off the mesh and SUM the per-chip
+    partials — the tensor-parallel reduce. On a single device it's a plain read."""
+    if _is_mesh(device):
+        C = device.get_num_devices()
+        parts = ttnn.to_torch(y, mesh_composer=ttnn.ConcatMeshToTensor(device, dim=0))  # [C*N, H]
+        N = parts.shape[0] // C
+        return parts.reshape(C, N, parts.shape[-1]).sum(0)  # [N, H]
+    return ttnn.to_torch(y)
+
+
+def swiglu_sharded(x, tgate, tup, tdown, device, limit=10.0):
+    """Clamped-SwiGLU with tensor-parallel-SHARDED RESIDENT weights: `tgate`/`tup` [H, I/C]
+    (column-sharded) and `tdown` [I/C, H] (row-sharded). Each chip computes its I-shard; the
+    row-parallel down output is summed across chips (TP reduce). x [N, H] -> [N, H]."""
+    tx = _to_dev(x, device)  # replicated
+    g = ttnn.clamp(ttnn.matmul(tx, tgate), max=limit)  # [N, I/C] per chip
+    u = ttnn.clamp(ttnn.matmul(tx, tup), min=-limit, max=limit)
+    act = ttnn.multiply(ttnn.silu(g), u)
+    y = ttnn.matmul(act, tdown)  # [N, H] partial per chip
+    out = _tp_reduce_read(y, device)
+    for t in (tx, g, u, act, y):
         ttnn.deallocate(t)
     return out
 
@@ -232,7 +283,7 @@ def hyperconnection(streams: torch.Tensor, hc, device):
     # fn linear on device
     tnorm = _to_dev(normed, device)
     tfn = _to_dev(fn_w.t().contiguous(), device)
-    proj = ttnn.to_torch(ttnn.linear(tnorm, tfn)).float()  # [B,S,(2+hc)*hc]
+    proj = _from_dev(ttnn.linear(tnorm, tfn), device).float()  # [B,S,(2+hc)*hc]
     ttnn.deallocate(tnorm)
     ttnn.deallocate(tfn)
 
@@ -274,7 +325,7 @@ def sqrtsoftplus_router_scores(x: torch.Tensor, gate_w: torch.Tensor, device) ->
     tw = _to_dev(gate_w.t().contiguous(), device)
     logits = ttnn.linear(tx, tw)
     scores = ttnn.sqrt(ttnn.softplus(logits))
-    out = ttnn.to_torch(scores)
+    out = _from_dev(scores, device)
     for t in (tx, tw, logits, scores):
         ttnn.deallocate(t)
     return out

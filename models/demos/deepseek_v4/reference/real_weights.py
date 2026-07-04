@@ -283,25 +283,91 @@ def build_scratch(scfg):
     return model
 
 
+def _mesh_n(device):
+    n = getattr(device, "get_num_devices", None)
+    try:
+        return n() if n is not None else 1
+    except Exception:
+        return 1
+
+
+def _res_upload(t, device, dtype, shard_dim=None):
+    """Upload a resident weight to `device`. On a MeshDevice: REPLICATE (shard_dim=None) or
+    SHARD along `shard_dim` (tensor-parallel). On a single device: plain upload."""
+    import ttnn
+
+    mapper = None
+    if _mesh_n(device) > 1:
+        mapper = (
+            ttnn.ShardTensorToMesh(device, dim=shard_dim)
+            if shard_dim is not None
+            else ttnn.ReplicateTensorToMesh(device)
+        )
+    return ttnn.from_torch(
+        t, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=mapper
+    )
+
+
 def dev_linear(store, device, key, w_out_in, dtype=None):
     """Cache a RESIDENT device weight for a linear, pre-transposed to [in, out]. `w_out_in` is
-    the nn.Linear weight [out, in]. Cached in the store keyed by `key` (use the real layer idx)."""
+    the nn.Linear weight [out, in]. Cached in the store keyed by `key` (use the real layer idx).
+    Replicated across a mesh (small projections resident on every chip)."""
     import ttnn
 
     dtype = dtype or ttnn.bfloat16
     cache = store._expert_cache
     if cache is not None and key in cache:
         return cache[key]
-    tw = ttnn.from_torch(
-        w_out_in.t().contiguous(),
-        dtype=dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-    )
+    tw = _res_upload(w_out_in.t().contiguous(), device, dtype)
     if cache is not None:
         cache[key] = tw
     return tw
+
+
+def expert_sharded_dev(store, device, layer_idx: int, e: int, dtype=None):
+    """RESIDENT, tensor-parallel-SHARDED expert weights for the mesh MoE (the memory-dominant
+    fix, REPORT_7). Returns (tgate [H, I/C], tup [H, I/C], tdown [I/C, H]) as ttnn tensors,
+    gate/up column-sharded and down row-sharded across the mesh (TP-exact for SwiGLU), cached
+    resident. `C=1` (single device) degenerates to a plain resident upload."""
+    import ttnn
+
+    dtype = dtype or ttnn.bfloat16
+    key = (layer_idx, e, "shard")
+    cache = store._expert_cache
+    if cache is not None and key in cache:
+        return cache[key]
+    p = f"layers.{layer_idx}.ffn.experts.{e}."
+    gate_T = store.deq(p + "w1.weight").t().contiguous()  # [H, I]
+    up_T = store.deq(p + "w3.weight").t().contiguous()  # [H, I]
+    down_T = store.deq(p + "w2.weight").t().contiguous()  # [I, H]
+    dev = (
+        _res_upload(gate_T, device, dtype, shard_dim=-1),  # [H, I/C]
+        _res_upload(up_T, device, dtype, shard_dim=-1),  # [H, I/C]
+        _res_upload(down_T, device, dtype, shard_dim=0),  # [I/C, H]
+    )
+    if cache is not None:
+        cache[key] = dev
+    return dev
+
+
+def shared_sharded_dev(store, device, layer_idx: int, se, dtype=None):
+    """RESIDENT tensor-parallel-sharded SHARED expert (gate/up col-sharded, down row-sharded).
+    `se` is the HF shared_experts module (source of the dequantized weights)."""
+    import ttnn
+
+    dtype = dtype or ttnn.bfloat16
+    key = (layer_idx, "shared_shard")
+    cache = store._expert_cache
+    if cache is not None and key in cache:
+        return cache[key]
+    dev = (
+        _res_upload(se.gate_proj.weight.data.t().contiguous(), device, dtype, shard_dim=-1),
+        _res_upload(se.up_proj.weight.data.t().contiguous(), device, dtype, shard_dim=-1),
+        _res_upload(se.down_proj.weight.data.t().contiguous(), device, dtype, shard_dim=0),
+    )
+    if cache is not None:
+        cache[key] = dev
+    return dev
 
 
 def dev_grouped(store, device, key, w, n_groups, dtype=None):
@@ -316,7 +382,7 @@ def dev_grouped(store, device, key, w, n_groups, dtype=None):
     ipg = w.shape[1]
     rank = w.shape[0] // n_groups
     wd = w.view(n_groups, rank, ipg).transpose(1, 2).contiguous()  # [g, ipg, rank]
-    tw = ttnn.from_torch(wd, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+    tw = _res_upload(wd, device, dtype)  # replicated across mesh
     if cache is not None:
         cache[key] = tw
     return tw
