@@ -120,16 +120,19 @@ def sparse_moe_streaming(collapsed_ln, layer_idx, layer, store, cfg, device, inp
 
 
 def run_decoder_layer(
-    streams, layer, rope, causal, cfg, device, input_ids, position_ids, weight_dtype=None, moe_fn=None
+    streams, layer, rope, causal, cfg, device, input_ids, position_ids, weight_dtype=None, moe_fn=None, resident=None
 ):
     """One DeepSeek-V4 decoder layer through the mHC 4-stream residual. `layer` is an HF
-    DecoderLayer module (weights read from it). Returns updated streams [B,S,hc,H]."""
+    DecoderLayer module (weights read from it). `resident=(store, layer_idx)` keeps the large
+    attention projection weights resident on device (uploaded once per layer, reused every
+    token) instead of re-transferring per op. Returns updated streams [B,S,hc,H]."""
     dtype = torch.float32
     cos, sin = rope[layer.self_attn.rope_layer_type]  # sliding->main, CSA/HCA->compress
     post, comb, collapsed = M.hyperconnection(streams, layer.attn_hc, device)
     collapsed_ln = M.rms_norm(collapsed, layer.input_layernorm.weight.data, device, eps=cfg.rms_norm_eps)
     attn_out = A.mla_attention(
-        collapsed_ln, layer.self_attn, cos, sin, causal, cfg, device, weight_dtype, position_ids=position_ids
+        collapsed_ln, layer.self_attn, cos, sin, causal, cfg, device, weight_dtype,
+        position_ids=position_ids, resident=resident,
     )
     streams = post.to(dtype).unsqueeze(-1) * attn_out.to(dtype).unsqueeze(-2) + torch.matmul(
         comb.to(dtype).transpose(-1, -2), streams
@@ -194,13 +197,17 @@ def tt_forward_streaming(scratch, store, layer_types, mlp_types, input_ids, devi
         sl = top.layers[scratch_by_type[key]]
         RW.load_layer(sl, i, store, skip_experts=True)  # everything but the 256 routed experts
         moe_fn = lambda cln, _i=i, _sl=sl: sparse_moe_streaming(cln, _i, _sl, store, cfg, device, input_ids)
-        streams = run_decoder_layer(streams, sl, rope, causal, cfg, device, input_ids, position_ids, moe_fn=moe_fn)
+        streams = run_decoder_layer(
+            streams, sl, rope, causal, cfg, device, input_ids, position_ids, moe_fn=moe_fn, resident=(store, i)
+        )
         if log:
             log(f"  layer {i + 1}/{num_layers} ({layer_types[i]}, {mlp_types[i]})")
 
     hidden = M.hyper_head(streams, top.hc_head, device)
     hidden = M.rms_norm(hidden, top.norm.weight.data, device, eps=cfg.rms_norm_eps)
-    logits = M.linear(hidden, scratch.lm_head.weight.data, device)
+    # lm_head resident on device (uploaded once): it's the single biggest projection
+    # (vocab×H), so re-transferring it every token dominates otherwise.
+    logits = M.linear_dev(hidden, RW.dev_linear(store, device, ("lm_head",), scratch.lm_head.weight.data), device)
     return logits
 
 

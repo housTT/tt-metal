@@ -122,6 +122,11 @@ class RealWeightStore:
         # Experts are static and (esp. for hash layers) reused every generated token, so this
         # makes token 2+ skip fp4 dequant. Bounded by #unique experts touched (fits host RAM).
         self._expert_cache = {} if cache_experts else None
+        # cache of dequantized NON-EXPERT weights, keyed by native key. The streaming forward
+        # re-loads every layer's attention/norm/mHC/lm_head weights each token; memoizing the
+        # (expensive) fp8 block-dequant makes token 2+ skip it. Non-expert weights total ~16 GB
+        # bf16 (fits host RAM); routed experts are excluded (they have their own bounded cache).
+        self._deq_cache = {}
 
     def _f(self, shard):
         h = self._handles.get(shard)
@@ -141,15 +146,23 @@ class RealWeightStore:
         - fp8 e4m3 + .scale  -> block-128 dequant (attention/shared-expert/lm_head projections)
         - int8 (MXFP4) + .scale -> e2m1 LUT[nibble] × per-group e8m0 float scale (routed experts, expert_dtype=fp4)
         - else (bf16 norms/embed/compressor/sinks/hc/tid2eid) -> as-is."""
+        # memoize dequant for non-expert weights (re-loaded every token by the streaming forward)
+        cacheable = self._deq_cache is not None and "ffn.experts" not in key
+        if cacheable and key in self._deq_cache:
+            return self._deq_cache[key]
         w = self.raw(key)
         scale_key = key[: -len(".weight")] + ".scale" if key.endswith(".weight") else key + ".scale"
         if w.dtype == torch.float8_e4m3fn and self.has(scale_key):
-            return dequantize_weight_tensor(w, self.raw(scale_key), BLOCK)
-        if w.dtype == torch.int8 and self.has(scale_key):
-            return _dequant_mxfp4(w, self.raw(scale_key))
-        if w.dtype == torch.float8_e4m3fn:
-            return w.to(torch.bfloat16)
-        return w
+            out = dequantize_weight_tensor(w, self.raw(scale_key), BLOCK)
+        elif w.dtype == torch.int8 and self.has(scale_key):
+            out = _dequant_mxfp4(w, self.raw(scale_key))
+        elif w.dtype == torch.float8_e4m3fn:
+            out = w.to(torch.bfloat16)
+        else:
+            out = w
+        if cacheable:
+            self._deq_cache[key] = out
+        return out
 
 
 def load_globals(model, store: RealWeightStore):
