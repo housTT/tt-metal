@@ -104,4 +104,12 @@ avoidable costs, fixed both, and remeasured before/after in the same regime.
   4→15 win, not a core-count change) were reviewed and classified expected.
 
 ## Commit
-- (SHA recorded in a follow-up note after the checkpoint commit)
+- Stage-owned changes committed locally on branch agentic-research/hous/kokoro-82m-p150
+  (never pushed): SHA `394fd1a1faf` (tt/model.py terminal-path optimization,
+  doc/context_contract.json optimized_full_model section, doc/optimized_full_model/*
+  incl. tt-perf-report table CSV + txt + run logs, readiness_autoregressive/*
+  refreshed). pre-commit hooks (black/isort/autoflake/whitespace/EOF) ran and
+  passed. The 3.4 MB raw tokenout_ops_perf.csv is left on disk (gitignored per the
+  skill's raw-Tracy-CSV exclusion; reproducible via the README tracy command).
+  .agents/* pre-existing pipeline edits deliberately excluded (not stage-owned).
+  This SHA-record note is the follow-up commit.
