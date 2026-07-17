@@ -124,5 +124,13 @@ a latency play, not memory-forced).
 
 ## 8. Commit
 
-- `$stage-review` re-review verdict: <recorded below>
-- Commit SHA: <recorded below>
+- `$stage-review` final re-review verdict: **clean-pass** (fresh xhigh subagent;
+  two remediation rounds; verified topology.log, ffn_in_matmul.log +
+  tracy/decode_perf_report.csv corroboration, T=16/T=33 gates, ETH-overflow log,
+  RESULTS.md provenance). No remaining required work.
+- tt-metal branch `agentic-research/hous/kokoro-82m-p150`.
+- Stage commit SHA `8c4d5efe7eb60c43f3a5cae701ab5a418eee853e` (stage-owned files
+  only: tt/multichip_decoder.py, tests/test_multichip_decoder.py,
+  tests/test_perf_multichip.py, doc/multichip_decoder/, doc/context_contract.json;
+  pre-existing unrelated .agents/* excluded). Not pushed.
+- Follow-up commit records this SHA + a stale-docstring fix (Ring, not Linear).

@@ -18,8 +18,10 @@ Target hardware / mesh
 ----------------------
 4x Blackhole p300c (``ClusterType.P300_X2``), a physical 4-ring exposed as a
 ``(1, 4)`` mesh. Tensor-parallel factor ``TP = 4`` over the size-4 mesh axis
-(FABRIC_1D / ``Topology.Linear``, 2 ethernet links). The design targets
-single-user (batch-1) latency, which is Kokoro's real serving regime.
+(FABRIC_1D_RING / ``Topology.Ring`` on the physical 4-ring, 2 ethernet links;
+auto-falls back to Linear if the mesh was opened with the non-ring fabric). The
+design targets single-user (batch-1) latency, which is Kokoro's real serving
+regime.
 
 Parallelization scheme (see doc/multichip_decoder/README.md for the full table)
 ------------------------------------------------------------------------------
