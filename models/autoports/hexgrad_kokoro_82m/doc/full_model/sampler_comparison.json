@@ -1,0 +1,19 @@
+{
+  "selected": "ttnn.argmax (on replicated readout logits)",
+  "candidates": {
+    "ttnn_argmax": {
+      "latency_ms": 0.4561,
+      "greedy_correct_vs_host": true,
+      "cross_device_all_gather": false,
+      "verdict": "SELECTED \u2014 semantically greedy, no cross-device movement, tile-shaped."
+    },
+    "sampling_1d_tttv2": {
+      "constructed": true,
+      "cross_device_all_gather": true,
+      "verdict": "REJECTED for greedy: expects per-device vocab shards and all-gathers over dim=3 (cluster_shape=[1,4]); Kokoro's readout is a tiny (178) REPLICATED vocab, so the gather would concat 4 identical copies and add movement for no benefit. Retained as the top-k/top-p path if sampled TTS-token selection is ever needed (vocab is tiny so it can run single-device on a (1,1) submesh)."
+    },
+    "tt_sampling_tttv1": {
+      "verdict": "REJECTED for greedy: same contract as TTTv2 (requires vocab sharded across the mesh cluster axis + cross-device all-gather, needs args.cluster_shape/tt_ccl and a SamplingGenerator wrapper). Heavier than TTTv2 for our tiny replicated vocab; TTTv2 is the lighter of the two if a sampled path is needed."
+    }
+  }
+}

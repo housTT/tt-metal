@@ -1,0 +1,71 @@
+Kokoro-82M full-model runtime fallback audit (stage 05, full-model)
+====================================================================
+Scope: models/autoports/hexgrad_kokoro_82m/tt/model.py + tt/generator.py, on top
+of the stage-04 optimized_multichip_decoder (whose own fallback audit is clean).
+
+MEASURED TOKEN-OUT DECODE PATH (greedy, sample_on_device=True, enable_trace=True)
+--------------------------------------------------------------------------------
+- Pure TTNN. One captured trace covers encode -> reconstruction readout matmul ->
+  on-device ttnn.argmax (model.py:_encode_readout_argmax / decode_out_traced).
+- Greedy token is produced ON DEVICE by ttnn.argmax (model.py:238). There is:
+    * NO host argmax on this path (torch.argmax appears only in the explicit
+      host_sampling compat mode, generator.py:237/266 — grep-verified).
+    * NO full-vocab logits readback: only the tiny [b, S] token-id tensor is
+      gathered (model.py:gather_tokens); logits are gathered ONLY when
+      want_logits/host_sampling is set (gather_logits, model.py:357).
+    * NO Python token-feedback rebuild inside a fixed-shape decode loop: the
+      encoder input GROWS by construction (bidirectional, non-autoregressive), so
+      there is no persistent [batch,1] decode-token tensor / device position
+      advance to maintain — this AR contract item is N/A (documented in headers).
+- from_torch / copy_host_to_device on the hot path: NONE. from_torch occurs only
+  at setup (readout_w/readout_b in _build_readout; decoder weight load; per-call
+  input prep prepare_inputs, which is outside trace capture). grep-verified:
+  model.py from_torch only at lines 144/147.
+- Trace replay is ttnn.execute_trace(..., blocking=False) + one
+  synchronize_device to read the caller-required token id.
+
+CACHE OWNERSHIP
+---------------
+- KV cache / paged cache: N/A (stateless bidirectional encoder — carried from
+  stages 01-04). prefill_forward/decode_forward accept page_table/kv_cache for
+  Generator-ABC compatibility and IGNORE them (kv_cache=None is the normal call).
+  There is no cache to allocate, fill, index, or reset; no host cache rebuild.
+- Standalone generation owns no cache; a serving caller passing page_table/
+  kv_cache is accepted and (correctly) a no-op here.
+
+HOST-LOGIT BOUNDARIES
+---------------------
+- prefill_forward returns host logits [b,S,vocab] (or [b,1,vocab]) — this is the
+  readiness prefill-check surface (full-visibility reconstruction), not the
+  measured token-out path; a host logits gather here is expected and correct.
+- host_sampling=True (generator.py) is the explicit compatibility mode for tests
+  that require host sampling; it reads logits + host-argmax. It is SEPARATE from
+  and never replaces the on-device traced greedy path used for the token-out
+  performance number.
+
+SAMPLING
+--------
+- Greedy = on-device ttnn.argmax over the replicated readout logits (selected;
+  semantically greedy; no cross-device movement). Both common samplers
+  (models/common/sampling TTTv1, models/common/modules/sampling/sampling_1d
+  TTTv2) target a large SHARDED vocab with a cross-device all-gather and are the
+  recorded rejected alternatives for greedy (sampler_comparison.json). No custom
+  sampler code was written — ttnn.argmax is a stock op.
+
+RESET BEHAVIOR
+--------------
+- reset() is a no-op (stateless encoder): no KV cache to zero, no decode-position
+  or page-table state to clear. Traces, weights, and compiled programs survive
+  across prompts by design (reset does not free device buffers or reload
+  weights). Repeated decode after reset is bit-identical (test_reset_is_stateless_noop).
+
+WATCHER
+-------
+- TT_METAL_WATCHER=10 TT_METAL_WATCHER_DISABLE_ETH=1 over the full-model tests:
+  0 fault/assert/tripped/overflow/corrupt markers (watcher/watcher.log). ETH
+  excluded (fabric ETH kernels overflow the ACTIVE_ETH config buffer — infra
+  limit, same as stages 03/04).
+
+VERDICT: no avoidable host fallback in the measured token-out decode path; host
+boundaries are confined to (a) setup, (b) the readiness prefill-check surface,
+and (c) the explicit host-sampling compatibility mode.

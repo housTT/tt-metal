@@ -50,6 +50,29 @@
       "Optimization is a latency play only (sharded norm + persistent CCL); it does not change parallelization, dtype policy, context, or the inter-layer residual layout. capability_reduction=false."
     ]
   },
+  "full_model": {
+    "target_mesh_shape": [1, 4],
+    "cluster": "P300_X2 (4x Blackhole p300c, physical 4-ring)",
+    "component": "KokoroModel = full optimized-multichip plbert encoder + tied-embedding reconstruction readout (models/autoports/hexgrad_kokoro_82m/tt/model.py, tt/generator.py)",
+    "scheme": "Preserves the optimized_multichip_decoder VERBATIM (TP=4 head-parallel attention + sequence-parallel FFN + sequence-sharded residual [b,1,S/TP,H], bf16 act / BFP8 linear weights / HiFi2 / fp32-dest-acc, block-sharded L1 LayerNorm, persistent CCL, 1 all_gather + 1 reduce_scatter per layer). Adds a terminal reconstruction readout matmul (per-token, run on the sequence shard) + on-device argmax; only tiny logits/token tensors gather at the boundary. No inter-layer all_gather added.",
+    "advertised_context": 512,
+    "supported_context": 512,
+    "capability_reduction": false,
+    "limiting_reason": "none - full model preserves context 512 (advertised = supported); PCC vs HF >= 0.995 at every tested length (worst 0.99700 @T=128), prefill reconstruction top-1/5/100 = 100%, teacher-forcing top-5 0.9955 / top-100 1.0.",
+    "per_device_weight_bytes_approx": 4685000,
+    "per_device_weight_breakdown": "optimized_multichip decoder weights ~4.39 MB/device (attention fractured 1/TP + FFN replicated + embeddings/map/norms) PLUS the folded reconstruction readout weight W_readout[H=768, vocab_padded=192] bf16 replicated = 768*192*2 = ~0.295 MB/device. Total ~4.69 MB/device.",
+    "kv_cache_bytes": 0,
+    "kv_cache_note": "N/A - non-autoregressive bidirectional encoder, no KV cache / paged cache / current-position state (same as stages 01/02/03/04). 'decode' is a stateless full-sequence traced re-encode (decode == prefill).",
+    "reserved_trace_region_bytes": 90000000,
+    "per_device_added_persistent_buffers": "Same persistent CCL buffers as optimized_multichip (~1.7 MB/device/shape at b=1,S=512). Token-out decode adds the captured encode+readout+argmax trace over stable sequence-sharded inputs. DRAM is many GB, so no capacity pressure and NO context reduction.",
+    "dram_capacity_note": "p300c per-device DRAM is many GB; ~4.69 MB weights + ~<50 MB activations/trace/CCL is a rounding error. No hard physical limit forces any context or batch reduction. Weight + KV-cache (0) DRAM recomputed for the full 12-layer stack + readout above.",
+    "batch_contract": "Batch-1 is the primary latency target (Kokoro's single-utterance serving regime). Batch dims are not hard-coded: prepare_inputs/forward/prefill_forward/decode_forward carry an explicit batch dim; PCC validated at batch 4 (0.998881) and decoder stage tested batch up to 32.",
+    "seq_padding": "Public generator/model accept any logical length 1..512 including non-tile-aligned (31,33,127,200,511 validated at PCC>=0.995); padded internally to a TP*TILE=128 multiple, masked, sliced back to logical length. No aligned-only public contract.",
+    "notes": [
+      "The full-model stage is the plbert encoder assembled with a reconstruction readout (LM-head analog). Kokoro's true full TTS pipeline (bert_encoder + predictor + ISTFTNet decoder + text_encoder) is out of scope for this stage (start-from-decoder contract) and is not autoregressive either.",
+      "Autoregressive contract items (KV cache, paged cache, current-position advance, on-device token-feedback loop) are N/A for a stateless bidirectional encoder; the model-appropriate equivalents (stateless decode==prefill, on-device greedy argmax with no host argmax/logits readback, traced re-encode) are implemented and validated."
+    ]
+  },
   "notes": [
     "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
     "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",
