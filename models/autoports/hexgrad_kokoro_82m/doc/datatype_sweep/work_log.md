@@ -124,4 +124,11 @@ under a hypothetical top-1/top-5-only gate) was addressed by tightening the READ
 Pareto interpretation.
 
 ### Commit SHA
-See below (stage-owned files only; .agents/ pipeline-setup changes excluded; not pushed).
+`b3b36bbfa68` — "Kokoro-82M datatype sweep (stage 07): BFP8/HiFi2 selected, file-backed
+precision config". Stage-owned files only (doc/datatype_sweep/*, tt/precision_config.py,
+tt/generator.py wiring, doc/context_contract.json); `.agents/` pipeline-setup changes
+excluded; not pushed. Pre-commit hooks (black/autoflake/eof) reformatted the new
+scripts and removed the now-unused PrecisionPolicy/OptConfig imports from generator.py
+(construction goes through precision_config.load_selected); re-verified after: build via
+the default build_generator path reproduces the selected on-device dtypes
+(propagation all_consumed:true) and token-out (560/395 t/s/u).
