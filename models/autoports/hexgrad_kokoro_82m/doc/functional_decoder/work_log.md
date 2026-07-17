@@ -119,5 +119,14 @@ the correct target for this stage. See README.md for the full contract.
 - Only the plbert encoder is in scope; other Kokoro modules are later stages.
 
 ## Commit
-- See end of stage: local checkpoint commit of stage-owned files under
-  `models/autoports/hexgrad_kokoro_82m/`. SHA recorded below after stage-review clean-pass.
+- Local checkpoint commit of stage-owned files under
+  `models/autoports/hexgrad_kokoro_82m/` (33 files). Never pushed.
+  - Repo: `/home/ttuser/dev/tt-metal`
+  - Branch: `agentic-research/hous/kokoro-82m-p150`
+  - SHA: `e3d886b8204993618fc52c2a942677cf5b3f9bf5`
+  - Excluded from commit (unrelated dirty runner files, NOT stage-owned):
+    `.agents/README.md`, `.agents/requirements.txt`, `.agents/scripts/multigoal`.
+  - Raw Tracy `*_ops.csv` (1.5–2.5 MB) kept on disk as provenance but excluded by
+    the repo's 500 KB large-file pre-commit gate; committed CSV evidence is the
+    filtered `*_perf_report.csv`. Pre-commit hooks (black/isort/whitespace/eof)
+    reformatted the committed .py/.json/.txt; post-reformat smoke test passed.
