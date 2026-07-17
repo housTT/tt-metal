@@ -1,0 +1,69 @@
+Kokoro-82M optimized-full-model runtime fallback audit (stage 06)
+================================================================
+Scope: models/autoports/hexgrad_kokoro_82m/tt/model.py + tt/generator.py, on top
+of the stage-04 optimized_multichip_decoder (imported VERBATIM; its own fallback
+audit is clean and unchanged). Stage-06 changes only the terminal path
+(_argmax_seq, _readout); the decoder stack and generator orchestration are
+unchanged from stage 05.
+
+MEASURED TOKEN-OUT DECODE PATH (greedy, sample_on_device=True, enable_trace=True)
+--------------------------------------------------------------------------------
+- Pure TTNN. One captured trace covers encode -> reconstruction readout matmul ->
+  ttnn.to_layout(ROW_MAJOR) -> on-device ttnn.argmax (model.py:_encode_readout_argmax
+  / _argmax_seq / decode_out_traced). grep-verified: no to_torch / from_torch /
+  copy_host_to_device in _encode_readout_argmax, _argmax_seq, or _readout.
+- STAGE-06 TERMINAL OPTIMIZATIONS (both pure on-device TTNN, trace-safe):
+    * _argmax_seq now untilizes the logits shard to ROW_MAJOR
+      (ttnn.to_layout, a device untilize op) before ttnn.argmax. ttnn.argmax on a
+      TILE input runs SINGLE-CORE (~112 us @T=128 device); on ROW_MAJOR it runs
+      MULTI-CORE (36 us on 6 cores @T=128, per tokenout_perf_report.txt). The
+      argmax output is UINT32/ROW_MAJOR/INTERLEAVED regardless of input layout, so
+      the downstream gather_tokens contract is unchanged. No host op added.
+    * _readout now passes an explicit MatmulMultiCoreReuseMultiCastProgramConfig
+      (in0_block_w=8, gx tiling the vocab N dim) instead of the auto core_grid,
+      dropping the readout matmul 17 us -> 4-5 us (tokenout_perf_report.txt). Pure
+      program-config change; math identical (PCC preserved, see results.json).
+- Greedy token is produced ON DEVICE by ttnn.argmax (model.py:_argmax_seq). There is:
+    * NO host argmax on this path (torch.argmax appears only in the explicit
+      host_sampling compat mode, generator.py:242/279 — grep-verified).
+    * NO full-vocab logits readback: only the tiny [b, S] token-id tensor is
+      gathered (model.py:gather_tokens), and that gather runs in the generator
+      AFTER decode_out_traced returns, not inside the measured traced region.
+      Logits are gathered ONLY when want_logits/host_sampling is set.
+    * NO Python token-feedback rebuild inside a fixed-shape decode loop: the
+      encoder input GROWS by construction (bidirectional, non-autoregressive), so
+      there is no persistent [batch,1] decode-token tensor / device position
+      advance to maintain — this AR contract item is N/A (documented in headers).
+- from_torch / copy_host_to_device on the hot path: NONE. from_torch occurs only
+  at setup (readout_w/readout_b in _build_readout, model.py:146/149; decoder
+  weight load; per-call prepare_inputs, outside trace capture).
+- Trace replay is ttnn.execute_trace(..., blocking=False) + one
+  synchronize_device to read the caller-required token id.
+
+CACHE OWNERSHIP / HOST-LOGIT BOUNDARIES / SAMPLING / RESET
+---------------------------------------------------------
+Unchanged from stage 05 (see doc/full_model/fallback_audit.txt):
+- KV/paged cache: N/A (stateless bidirectional encoder); page_table/kv_cache
+  accepted for Generator-ABC compatibility and ignored.
+- prefill_forward host logits = the readiness prefill-check surface, not the
+  measured token-out path.
+- host_sampling=True = explicit compatibility mode, separate from and never
+  replacing the on-device traced greedy path.
+- Greedy = on-device ttnn.argmax over the replicated readout logits (selected;
+  semantically greedy; no cross-device movement). TTTv1/TTTv2 common samplers
+  target a large SHARDED vocab + cross-device all-gather and remain the recorded
+  rejected alternatives for this tiny (178) replicated vocab (sampler_comparison.json).
+- reset() no-op (stateless); repeated decode after reset bit-identical.
+
+WATCHER
+-------
+- TT_METAL_WATCHER=10 TT_METAL_WATCHER_DISABLE_ETH=1 over the token-out full-model
+  tests: 0 fault/assert/tripped/overflow/corrupt markers (watcher/watcher.log).
+  ETH excluded (fabric ETH kernels overflow the ACTIVE_ETH config buffer — infra
+  limit, same as stages 03/04/05).
+
+VERDICT: no avoidable host fallback in the measured token-out decode path. The
+stage-06 terminal optimizations (ROW_MAJOR multi-core argmax + explicit readout
+program config) are both pure on-device TTNN and add no host boundary. Host
+boundaries remain confined to (a) setup, (b) the readiness prefill-check surface,
+and (c) the explicit host-sampling compatibility mode.

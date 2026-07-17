@@ -73,6 +73,27 @@
       "Autoregressive contract items (KV cache, paged cache, current-position advance, on-device token-feedback loop) are N/A for a stateless bidirectional encoder; the model-appropriate equivalents (stateless decode==prefill, on-device greedy argmax with no host argmax/logits readback, traced re-encode) are implemented and validated."
     ]
   },
+  "optimized_full_model": {
+    "target_mesh_shape": [1, 4],
+    "cluster": "P300_X2 (4x Blackhole p300c, physical 4-ring)",
+    "component": "KokoroModel (stage-05 full model) with an OPTIMIZED terminal token-out path (models/autoports/hexgrad_kokoro_82m/tt/model.py). The stage-04 optimized_multichip_decoder and stage-05 generator orchestration are preserved VERBATIM; only _argmax_seq and _readout changed.",
+    "scheme": "Same as full_model (TP=4 head-parallel attention + sequence-parallel FFN + sequence-sharded residual [b,1,S/TP,H], bf16 act / BFP8 linear weights / HiFi2 / fp32-dest-acc, block-sharded L1 LayerNorm, persistent CCL, 1 all_gather + 1 reduce_scatter/layer, inter-layer residual layout preserved, terminal reconstruction readout + on-device greedy argmax). Stage-06 optimizes the terminal path only: (1) greedy argmax untilizes the logits shard to ROW_MAJOR so ttnn.argmax runs MULTI-CORE (6 cores, 36us) instead of SINGLE-CORE on TILE (1 core, 112us) @T=128; (2) the readout (LM-head) matmul uses an explicit MatmulMultiCoreReuseMultiCast program config (in0_block_w=8) instead of the auto core_grid (17us -> 4-5us).",
+    "advertised_context": 512,
+    "supported_context": 512,
+    "capability_reduction": false,
+    "limiting_reason": "none - optimization is latency-only; context 512 preserved (advertised = supported), PCC vs HF >= 0.995 at every tested length (worst 0.996999 @T=128), prefill top-1/5/100 = 100%, teacher-forcing top-5 0.9955 / top-100 1.0 (unchanged from full_model - argmax result is bit-identical).",
+    "per_device_weight_bytes_approx": 4685000,
+    "per_device_weight_breakdown": "UNCHANGED from full_model (~4.69 MB/device). No new weights; the readout program config is a launch-time config, not a tensor.",
+    "kv_cache_bytes": 0,
+    "kv_cache_note": "N/A - non-autoregressive bidirectional encoder (same as stages 01-05).",
+    "reserved_trace_region_bytes": 90000000,
+    "per_device_added_persistent_buffers": "UNCHANGED from full_model. The stage-06 argmax path allocates a transient ROW_MAJOR logits copy [b,1,S/TP,vocab_padded] inside the captured trace (freed each replay via the trace's own lifetime); vocab_padded=192 so at b=1,S=512 that is <0.05 MB/device - a rounding error, no capacity pressure, NO context reduction.",
+    "inter_layer_residual_contract": "UNCHANGED from optimized_multichip_decoder / full_model: sequence-sharded [b,1,S/TP,H], no layer-to-layer gather added. The terminal gather is confined to the tiny token/logits tensors at the model boundary.",
+    "notes": [
+      "Optimization preserves parallelization, dtype/fidelity/CCL policy, rejection ledger, inter-layer residual layout, context, batch, and non-aligned prompt support. capability_reduction=false.",
+      "Full-model token-out overhead over the decoder-layer-stack lower bound dropped from 7.8%/18.3% (T128/T512, stage-05) to 2.4%/6.6% (stage-06), both within the 10-15% target. See doc/optimized_full_model/perf_summary.json."
+    ]
+  },
   "notes": [
     "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
     "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",

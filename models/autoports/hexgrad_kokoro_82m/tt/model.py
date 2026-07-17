@@ -64,6 +64,7 @@ compatibility path.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import torch
@@ -125,6 +126,8 @@ class KokoroModel(LightweightModule):
 
         # terminal-gather + readout trace store, keyed by (batch, padded_seq_len, has_mask)
         self._out_traces: dict = {}
+        # explicit readout-matmul program configs, cached per M-tile count
+        self._readout_pc_cache: dict = {}
 
     def _build_readout(self, readout_weight: Optional[torch.Tensor]):
         if readout_weight is None:
@@ -197,18 +200,54 @@ class KokoroModel(LightweightModule):
         return self.decoder.prepare_inputs(input_ids, attention_mask=attention_mask)
 
     # ---------------------------------------------------------------- readout
+    def _readout_program_config(self, m_tiles: int):
+        """Explicit 2D program config for the terminal readout (LM-head) matmul.
+
+        Shape (per sequence shard): [b,1,local_seq,H] @ [H, vocab_padded]. The
+        stage-05 path used the decoder's auto ``core_grid=CoreGrid(8,10)``, which
+        left this matmul SLOW at ``in0_block_w=1`` (~21.6 µs @T=128 eager). Because
+        the vocab is small and REPLICATED (no vocab-split / cross-device gather —
+        see doc rejection ledger), the readout is a plain sequence-local matmul:
+        gx tiles the ``vocab_padded`` N dim, gy divides the M row-tiles, and a
+        K-dividing ``in0_block_w`` (gcd(8, H/32)=8) restores utilization
+        (~11.8 µs @T=128, ~2x). Cached per M-tile count; valid at every
+        tile-aligned local length.
+        """
+        pc = self._readout_pc_cache.get(m_tiles)
+        if pc is not None:
+            return pc
+        n_tiles = self.padded_vocab // TILE  # 6 for vocab_padded=192
+        gx = max(g for g in range(1, 9) if n_tiles % g == 0)
+        gy = max(g for g in range(1, 9) if m_tiles % g == 0)
+        per_core_n = n_tiles // gx
+        in0_block_w = math.gcd(8, self.hidden_size // TILE)  # 8 divides 24 (H=768)
+        pc = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+            compute_with_storage_grid_size=(gx, gy),
+            in0_block_w=in0_block_w,
+            out_subblock_h=1,
+            out_subblock_w=per_core_n if per_core_n <= 4 else 1,
+            per_core_M=m_tiles // gy,
+            per_core_N=per_core_n,
+            transpose_mcast=False,
+            fused_activation=None,
+        )
+        self._readout_pc_cache[m_tiles] = pc
+        return pc
+
     def _readout(self, hidden_s):
         """Reconstruction logits on the sequence shard: [b,1,local_seq,H] -> [b,1,local_seq,vocab_padded].
 
         Per-token matmul (no cross-token dependency), so it runs directly on the
         sequence shard and keeps the terminal gather to the tiny vocab tensor.
         """
+        b, _, local_seq, _ = hidden_s.shape
+        m_tiles = (b * local_seq) // TILE
         logits = ttnn.linear(
             hidden_s,
             self.readout_w,
             bias=self.readout_b,
             compute_kernel_config=self.decoder.matmul_kernel_config,
-            core_grid=self.decoder.mm_core_grid,
+            program_config=self._readout_program_config(m_tiles),
             dtype=ttnn.bfloat16,
         )
         return logits
@@ -233,8 +272,22 @@ class KokoroModel(LightweightModule):
 
         Returns sequence-sharded token ids [b,1,local_seq] (uint32). Stays on the
         shard; only the tiny token tensor is gathered by the caller.
+
+        Optimization (stage 06): ``ttnn.argmax`` with ``dim=-1`` runs **single
+        core** on a TILE input (~112 µs @T=128 / ~454 µs @T=512 device — the
+        dominant avoidable terminal cost of the stage-05 path), but runs
+        **multi-core** on a ROW_MAJOR input. We untilize the (tiny, replicated
+        vocab) logits shard to ROW_MAJOR first, which is 2.7-3x faster end to end
+        (43 µs @T=128 / 148 µs @T=512 including the untilize) and returns the
+        bit-identical greedy token. ``logits_s`` itself is left in TILE layout so
+        the ``want_logits`` host cross-check path is unaffected. The argmax output
+        is always UINT32/ROW_MAJOR/INTERLEAVED regardless of input layout, so the
+        downstream ``gather_tokens`` contract is unchanged.
         """
-        return ttnn.argmax(logits_s, dim=-1, keepdim=False)
+        logits_rm = ttnn.to_layout(logits_s, ttnn.ROW_MAJOR_LAYOUT)
+        tok_s = ttnn.argmax(logits_rm, dim=-1, keepdim=False)
+        ttnn.deallocate(logits_rm)
+        return tok_s
 
     # --------------------------------------------------- device-only forwards
     def _encode_shard(self, prepared, *, traced: bool):

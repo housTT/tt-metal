@@ -1,0 +1,65 @@
+{
+  "workload": {
+    "profile": "token_out_reencode_decode==prefill (stateless bidirectional encoder)",
+    "prompt_len": 128,
+    "gen_len": 1,
+    "batch": 1,
+    "note": "Kokoro plbert is non-autoregressive; a 'decode step' is a full traced T-position re-encode + reconstruction readout + on-device argmax. Numbers are warmed traced replay, min-of-3, (1,4) p300c ring mesh."
+  },
+  "ttft_ms": 9.09,
+  "ttft_note": "eager prefill_forward @128 host-visible first output; production first-token path is the traced token-out (T128 below).",
+  "decode_ms_per_token_e2e": 1.796,
+  "decode_ms_per_token_device": 1.796,
+  "device_e2e_note": "For traced nonblocking replay the host issues one execute_trace + one synchronize per step; there is no per-op host dispatch and no per-step host token/position/page-table refresh (bidirectional encoder has no AR feedback loop), so wall-clock e2e == device time. Steady-state host-refresh counters are 0 (host_argmax=0, logits_readbacks=0 on the greedy path).",
+  "roofline_ms_per_token_estimate": 0.092,
+  "roofline_method": "Modeled weight-read roofline: ~47 MB/device BFP8 linear-weight reads per 12-layer encode (FFN replicated + attention fractured) / ~512 GB/s per-device DRAM BW (from the FFN matmul row saturating 142 GB/s at 27.8% DRAM util). This is NOT the binding constraint.",
+  "binding_constraint": "op dispatch / kernel launch. tt-perf-report shows only 5.3% aggregate DRAM utilization and ~1 us op-to-op gap across ~200 device ops; this 82M encoder is built from many small ops (12 tied layers, tiny M), so it legitimately sits far below the DRAM roofline. The roofline gap is launch-bound, not an untraced-loop / host-readback / input-refresh defect (those are all zero on the measured path).",
+  "before_after": {
+    "harness": "doc/optimized_full_model/perf_full_model.py (min-of-3, ITERS=50), same mesh/session for decoder-only lower bound and full token-out",
+    "T128": {
+      "decoder_only_ms": 1.754,
+      "token_out_before_ms": 1.906,
+      "token_out_after_ms": 1.796,
+      "terminal_overhead_before_pct": 7.8,
+      "terminal_overhead_after_pct": 2.4,
+      "token_out_before_t_s_u": 524.7,
+      "token_out_after_t_s_u": 556.8
+    },
+    "T512": {
+      "decoder_only_ms": 2.412,
+      "token_out_before_ms": 2.869,
+      "token_out_after_ms": 2.571,
+      "terminal_overhead_before_pct": 18.3,
+      "terminal_overhead_after_pct": 6.6,
+      "token_out_before_t_s_u": 348.6,
+      "token_out_after_t_s_u": 388.9
+    },
+    "ttft_eager_ms_T128_before": 13.74,
+    "ttft_eager_ms_T128_after": 9.09
+  },
+  "layer_stack_lower_bound": {
+    "layer_kinds": {"AlbertLayer": 12},
+    "method": "Kokoro has ONE layer kind (weight-tied AlbertLayer x12). The stage-04 optimized multichip decoder's traced 12-layer decode IS the layer-stack lower bound directly (decoder_only_ms above), measured in the same session as the full token-out.",
+    "layer_stack_ms_T128": 1.754,
+    "layer_stack_tps_T128": 570.1,
+    "full_model_overhead_ms_T128": 0.042,
+    "full_model_overhead_pct_T128": 2.4,
+    "layer_stack_ms_T512": 2.412,
+    "full_model_overhead_ms_T512": 0.159,
+    "full_model_overhead_pct_T512": 6.6,
+    "verdict": "Full-model token-out overhead over the decoder-layer-stack lower bound is 2.4% @T128 / 6.6% @T512, both within the 10-15% target. Stage-05 was 7.8%/18.3% (T512 above threshold); the stage-06 terminal fixes closed it."
+  },
+  "terminal_op_breakdown_reduced_probe_T128": {
+    "source": "tracy/tokenout_perf_report.txt (reduced 2-layer probe, 8 traced replays)",
+    "argmax_before": {"cores": 1, "us_per_op": 112, "pct_of_reduced_probe": 25.06},
+    "argmax_after": {"cores": 6, "us_per_op": 36, "pct_of_reduced_probe": 9.94},
+    "readout_matmul_before_us": 17,
+    "readout_matmul_after_us": 4.5,
+    "dominant_op_after": "MatmulDeviceOperation 32.52% (decoder FFN/attention, stage-04 selected BFP8/HiFi2 policy, preserved verbatim)"
+  },
+  "named_limitations": [
+    "82M encoder is launch/dispatch-bound (5.3% DRAM util); the roofline gap is inherent to a many-small-op tied-layer encoder, not an avoidable host boundary.",
+    "ttnn.argmax over a TILE input is single-core; the ROW_MAJOR multi-core path (used here) still costs 36 us @T128 / ~148 us @T512 because it reduces vocab for every sequence position (needed for the bidirectional per-position reconstruction / prefill-check / free-running paths). A last-position-only argmax is not applicable to this all-positions reconstruction contract.",
+    "decoder matmul rows are still tagged SLOW / DRAM-bound by tt-perf-report; that is the stage-04 selected geometry/dtype policy (with its rejection ledger) and is preserved verbatim per the optimized-full-model contract (decoder not re-tuned here)."
+  ]
+}
