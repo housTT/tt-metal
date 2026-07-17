@@ -30,6 +30,26 @@
       "Because there is no KV cache, TP does not change any cache footprint; the only per-device memory items are the (tiny) weights, activations and the trace buffer."
     ]
   },
+  "optimized_multichip_decoder": {
+    "target_mesh_shape": [1, 4],
+    "cluster": "P300_X2 (4x Blackhole p300c, physical 4-ring)",
+    "fabric": "FABRIC_1D_RING / ttnn.Topology.Ring, 2 links",
+    "tp": 4,
+    "scheme": "Same TP=4 head-parallel attention + sequence-parallel FFN + sequence-sharded residual [b,1,S/4,H] as multichip_decoder; adds (1) block-sharded L1 LayerNorm (32-core (8,m_tiles) grid, InterleavedToSharded/ShardedToInterleaved around each in-layer norm) and (2) persistent preallocated CCL output/intermediate buffers for the per-layer all_gather + reduce_scatter. 1 all_gather + 1 reduce_scatter per layer unchanged.",
+    "advertised_context": 512,
+    "supported_context": 512,
+    "capability_reduction": false,
+    "limiting_reason": "none - optimization preserves context 512 (advertised = supported); PCC preserved (worst vs single-chip 0.99802, vs HF 0.99694).",
+    "per_device_weight_bytes_approx": 4390000,
+    "per_device_added_persistent_buffers": "persistent CCL buffers (bf16, DRAM, per traced shape): all_gather out [b,1,S,768] + reduce_scatter intermediate [b,1,S,768] + reduce_scatter out [b,1,S/4,768]. At b=1,S=512 that is ~0.75+0.75+0.19 = ~1.7 MB/device/shape; DRAM is many GB so no capacity pressure and NO context reduction.",
+    "kv_cache_bytes": 0,
+    "kv_cache_note": "N/A - non-autoregressive bidirectional encoder, no KV cache (same as stages 01/02/03).",
+    "reserved_trace_region_bytes": 90000000,
+    "inter_layer_residual_contract": "UNCHANGED from multichip_decoder: the decoder layer input AND output is the sequence-sharded residual [b,1,S/TP,H] in DRAM-interleaved bf16. There is NO gather/reshard/all-reduce between decoder layers; each layer internally does exactly 1 all_gather (residual->full seq, feeds QKV) + 1 reduce_scatter (WO partial->seq shard). The sharded LayerNorm's InterleavedToSharded/ShardedToInterleaved conversions are INTERNAL to a layer and return the residual to the interleaved sequence-shard contract before the layer boundary. Full-model bringup must preserve this sequence-sharded [b,1,S/TP,H] inter-layer contract (do not insert a layer-to-layer all_gather).",
+    "notes": [
+      "Optimization is a latency play only (sharded norm + persistent CCL); it does not change parallelization, dtype policy, context, or the inter-layer residual layout. capability_reduction=false."
+    ]
+  },
   "notes": [
     "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
     "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",

@@ -1,0 +1,50 @@
+Optimized-multichip-decoder fallback audit — 2026-07-17
+
+Rule: the TRACED runtime path (the captured/replayed decode graph) must contain no
+host fallbacks — no per-replay torch / from_torch / to_torch / host readback /
+.item(). Device-side layout conversions (InterleavedToSharded / ShardedToInterleaved)
+are ALLOWED when they are a measured net-positive part of the optimized path; they
+are on-device data-movement ops, not host fallbacks.
+
+== grep: from_torch / to_torch / .item() (tt/optimized_multichip_decoder.py) ==
+  295  from_torch   -> in from_state_dict (setup-time weight sharding)      [setup]
+  379  .item()      -> in prepare_inputs host mask-presence check            [host input prep]
+  388  from_torch   -> in prepare_inputs (host input construction)           [host input prep]
+  482  from_torch   -> _all_gather_seq persistent AG buffer (LAZY, cached)   [one-time setup]
+  512  from_torch   -> _reduce_scatter_seq persistent RS interm buf (cached) [one-time setup]
+  517  from_torch   -> _reduce_scatter_seq persistent RS out buf (cached)    [one-time setup]
+
+There is NO to_torch anywhere in the module (gather-to-host happens only in
+tests / gen_evidence at the model boundary).
+
+== persistent-CCL from_torch (lines 482/512/517): NOT a per-replay fallback ==
+The persistent CCL output/intermediate buffers are allocated lazily and cached in
+self._ag_bufs / self._rs_bufs, keyed by shape. capture_decode_trace runs a WARM
+_encode BEFORE ttnn.begin_trace_capture, so the first-touch from_torch executes
+during warm-up; the captured trace and every ttnn.execute_trace replay reuse the
+existing device buffers with zero host allocation. This is setup allocation
+(equivalent to weight loading), not a host fallback in the measured path. Verified:
+gen_evidence + the perf-report decode window (PERF_DECODE..PERF_DECODE_END) contain
+no EnqueueWriteBuffer / from_torch / to_torch host ops — only device ops.
+
+== device reshards in the sharded LayerNorm (lines 603/606/622): intentional ==
+opt.norm_sharded routes each in-layer LayerNorm through a block-sharded L1 config:
+  to_memory_config(interleaved -> BLOCK_SHARDED L1)  [InterleavedToSharded]
+  layer_norm (sharded, 32 cores)
+  to_memory_config(sharded -> DRAM_INTERLEAVED)       [ShardedToInterleaved]
+These are on-device data-movement ops (perf report: InterleavedToSharded 1.62% +
+ShardedToInterleaved 1.43% of decode). They are a MEASURED net win: LayerNorm
+dropped from ~20 us/op on 4 cores to ~10 us/op on 32 cores, so the norm family
+(norm + both reshards) is ~13.2% of decode vs ~19% at the stage-03 interleaved
+baseline, and traced decode improved 2.56->2.32 ms @T=512 / 1.95->1.68 ms @T=128.
+They are deliberately NOT a defect; they are the optimization.
+
+== VERDICT ==
+CLEAN. The traced decode replay path (_embed / _albert_layer / _encode /
+_all_gather_seq / _reduce_scatter_seq / capture_decode_trace / decode_forward) is
+pure TTNN with no per-replay host fallback: no to_torch, no host readback, no
+per-replay from_torch, no .item() inside the traced graph. All from_torch calls are
+setup-time (weight sharding, host input construction, or one-time cached persistent
+CCL buffers allocated during warm-up). The only added device movement is the
+sharded-norm InterleavedToSharded/ShardedToInterleaved pair, which is a measured
+net-positive part of the optimized path.
