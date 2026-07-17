@@ -64,4 +64,8 @@ full-model fidelity.
 
 ## Commit
 - Stage-owned changes committed locally on branch agentic-research/hous/kokoro-82m-p150
-  (never pushed). SHA recorded in the follow-up commit and in memory.
+  (never pushed): SHA `55985675d18` (tt/model.py, tt/generator.py, tests/test_full_model.py,
+  tests/test_perf_full_model.py, doc/full_model/*, doc/context_contract.json,
+  readiness_autoregressive/*). pre-commit hooks (black/isort/autoflake) passed.
+  This SHA-record note is the follow-up commit. .agents/* pre-existing pipeline
+  edits deliberately excluded (not stage-owned).
