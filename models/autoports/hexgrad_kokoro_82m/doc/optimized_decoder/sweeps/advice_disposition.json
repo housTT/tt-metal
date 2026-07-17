@@ -1,0 +1,26 @@
+{
+  "workload": "traced decode T=512, bf16 act / BFP8 weights / HiFi2 / fp32_dest_acc; tt-perf-report 1.2.8 advice-enabled",
+  "op_type_aggregate_pct": {
+    "Matmul": 44.57, "LayerNorm": 16.75, "NlpCreateHeads": 13.18, "SDPA": 12.10,
+    "BinaryNg": 7.58, "NLPConcatHeads": 4.69, "Embeddings": 0.53
+  },
+  "advice_items": [
+    {"advice": "Place matmul input0 in L1 (currently DRAM_INTERLEAVED)",
+     "action": "REJECTED with evidence",
+     "evidence": "M=512 activation is only 16 M-tiles; L1 height-sharding cannot tile-align across >16 cores (ttnn errors: 'Invalid sharding core_grid' / shard-align TT_FATAL over 8x8 and 8x10). Matmuls already run on 64-80 cores via DRAM-interleaved 2D multicast at 30-42% DRAM util. Block-sharded L1 in0 would add a per-matmul reshard exceeding the benefit for this prefill-shaped (large-M) workload. Prefill guidance (DRAM-interleaved + 2D configs) is the skill-correct mapping for M=512.",
+     "microbench_us": {"ffn_out_dram_core_grid": 28.9, "ffn_out_L1_hshard": "ERR", "ffn_dram_core_grid": 24.5, "ffn_L1_hshard": "ERR"}},
+    {"advice": "FF1 output subblock 1x1 is small, try out_subblock_h*out_subblock_w >= 2",
+     "action": "REJECTED with evidence",
+     "evidence": "FF1 (512x768x2048 + fused erf-gelu) core_grid gives 48.5us; explicit configs with subblock 2x2 (55.9us), 1x4 (54.8us) are all slower; 2x4 errors. core_grid config kept. The 48us includes ~24us inherent gelu SFPU compute.",
+     "microbench_us": {"core_grid_gelu": 48.5, "g8x8_sub2x2": 55.9, "g8x8_sub1x4": 54.8}},
+    {"advice": "in0_block_w / output subblock 'look good' (per-matmul)",
+     "action": "APPLIED/CONFIRMED",
+     "evidence": "qkv/dense/ffn kept on core_grid (best measured); ffn_out uses explicit in0_block_w=8, subblock 1x3 which the advice confirms 'look good'."},
+    {"advice": "Use HiFi4 with BF16 activations for full accuracy (generic, on every matmul)",
+     "action": "REJECTED with evidence",
+     "evidence": "Same-dtype (bf16-weight) fidelity comparison: HiFi4 adds +9% traced-decode latency (3.35ms vs HiFi2 3.06ms) for only +0.0008 worst-case PCC. Selected policy (BFP8/HiFi2/fp32_dest_acc) passes >=0.995 on all real-weight tests (worst 0.99674) at 2.95ms. HiFi2 kept."},
+    {"advice": "DRAM-sharded decode matmul (skill mandatory when DRAM-bound & not sharded)",
+     "action": "N/A mapping recorded",
+     "evidence": "DRAM-sharded matmul is the small-M (M=1 autoregressive decode) pattern. This TTS encoder's 'decode' is a full-sequence traced replay (M=seq_len up to 512), i.e. prefill-shaped and compute-balanced (roofline 12.8%, not DRAM-bound). 2D multicast over 64-80 cores is the correct choice; DRAM-sharded (in0 width-sharded L1 on matching grid) requires M=1-style tiny activations."}
+  ]
+}

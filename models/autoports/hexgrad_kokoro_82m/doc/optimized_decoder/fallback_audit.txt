@@ -1,0 +1,25 @@
+Optimized decoder runtime fallback audit (tt/optimized_decoder.py)
+==================================================================
+Command: grep -nE "to_torch|from_torch|\btorch\." tt/optimized_decoder.py
+
+Findings:
+- to_torch: 0 occurrences anywhere in the module (callers slice at the torch
+  boundary in tests via ttnn.to_torch, outside the measured path).
+- from_torch / torch.*: confined to
+    * from_state_dict()  (setup-time host->device weight conversion, incl. the
+      packed-QKV torch.cat), and
+    * prepare_inputs()   (host-side input id/mask construction).
+- The forward path methods _embed, _albert_layer (packed QKV linear,
+  nlp_create_qkv_heads, scaled_dot_product_attention, nlp_concat_heads, dense,
+  layer_norm, fused-gelu FF1, ffn_output), _encode, prefill_forward,
+  capture_decode_trace, and decode_forward contain NO torch / from_torch /
+  to_torch calls.
+- The measured traced-decode window is ttnn.execute_trace + ttnn.synchronize_device
+  only (see tests/test_perf_optimized.py::test_perf_decode).
+- No tilize/untilize/reshard/host-fallback ops in the measured path beyond the
+  fused nlp_create_qkv_heads / nlp_concat_heads TM ops that are the intended
+  optimized head path, and the two cheap ttnn.reshape adaptors around them (no
+  layout conversion; add/remove a leading unit dim).
+
+Conclusion: clean. No unnecessary torch/from_torch/to_torch, tilize/untilize,
+reshard, or host fallback in measured prefill/decode.

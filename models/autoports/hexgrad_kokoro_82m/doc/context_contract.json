@@ -12,6 +12,8 @@
     "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
     "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",
     "Full advertised context (512) is tested in both prefill and traced decode with no reduction; the model fits comfortably on a single Blackhole p300c device (bert weights ~0.13 GB in bf16).",
-    "Model's minimum valid input is 3 tokens (BOS + >=1 phoneme + EOS); the encoder is run at bf16 weights / fp32 activations."
+    "Model's minimum valid input is 3 tokens (BOS + >=1 phoneme + EOS).",
+    "Stage 01 functional decoder ran the encoder at bf16 weights / fp32 activations.",
+    "Stage 02 optimized decoder (tt/optimized_decoder.py) runs at bf16 activations + BFP8 linear weights (HiFi2, fp32 dest accumulation). Both of these dtype changes REDUCE persistent memory vs the functional decoder (weights ~0.13 GB bf16 -> ~0.065 GB BFP8; activations fp32 -> bf16), so capacity is not reduced: advertised = supported = 512 remains, tested at 512 in prefill and traced decode with PCC >= 0.995 (worst 0.99674). capability_reduction stays false. No KV cache / trace-buffer / CCL allocation exists to change (non-autoregressive, single device)."
   ]
 }
