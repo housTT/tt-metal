@@ -146,6 +146,12 @@ Mirrors the functional suite (same lengths/seeds) + `test_uses_optimized_path`
 
 - Local checkpoint commit of stage-owned files under
   `models/autoports/hexgrad_kokoro_82m/` after `$stage-review` clean-pass. Never pushed.
-- SHA: recorded below after commit.
-- Excluded (unrelated dirty runner files, NOT stage-owned): `.agents/README.md`,
-  `.agents/requirements.txt`, `.agents/scripts/multigoal`.
+  - Repo: `/home/ttuser/dev/tt-metal`, branch `agentic-research/hous/kokoro-82m-p150`
+  - SHA: `2a9991dc0a9` (36 files). Pre-commit hooks (autoflake/isort/black/whitespace)
+    reformatted the .py/.json; post-reformat suite re-run = 32 passed.
+  - Raw Tracy `*_ops.csv` (1.3M/795K) kept on disk as provenance but excluded by the
+    500 KB large-file gate + `.gitignore` (`*.csv`); the filtered `*_perf_report.csv`
+    (force-added) are the committed CSV evidence, matching stage 01.
+  - Excluded (unrelated dirty runner files, NOT stage-owned): `.agents/README.md`,
+    `.agents/requirements.txt`, `.agents/scripts/multigoal`.
+- Follow-up commit records this SHA in the work log (mirrors stage 01).
