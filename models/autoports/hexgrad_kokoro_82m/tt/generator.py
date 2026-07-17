@@ -58,8 +58,7 @@ from typing import Any, List, Optional
 import torch
 
 from models.autoports.hexgrad_kokoro_82m.tt.model import KokoroModel
-from models.autoports.hexgrad_kokoro_82m.tt.optimized_decoder import PrecisionPolicy
-from models.autoports.hexgrad_kokoro_82m.tt.optimized_multichip_decoder import OptConfig
+from models.autoports.hexgrad_kokoro_82m.tt.precision_config import load_selected
 from models.common.readiness_check.contract import Generator
 
 MODEL_ID = "hexgrad/Kokoro-82M"
@@ -311,8 +310,14 @@ def build_generator(model_dir, mesh_device, **kwargs) -> KokoroGenerator:
     sd = torch.load(hf_hub_download(hf_model_id, "kokoro-v1_0.pth"), map_location="cpu", weights_only=True)["bert"]
     sd = {k[len("module.") :] if k.startswith("module.") else k: v for k, v in sd.items()}
 
-    policy = kwargs.get("policy") or PrecisionPolicy()
-    opt = kwargs.get("opt") or OptConfig()
+    # Default precision/opt policy = the datatype-sweep-selected config (stage 07),
+    # loaded from doc/datatype_sweep/selected_precision_config.json so the served/
+    # measured runtime path uses exactly the swept-and-selected policy. Explicit
+    # policy=/opt= kwargs override it (the sweep harness uses this); if the file is
+    # absent the loader returns the dataclass defaults (== selected baseline).
+    sel_policy, sel_opt, _ = load_selected()
+    policy = kwargs.get("policy") or sel_policy
+    opt = kwargs.get("opt") or sel_opt
     model = KokoroModel.from_state_dict(
         sd, hf_config=config, vocab=vocab, mesh_device=mesh_device, policy=policy, opt=opt
     )

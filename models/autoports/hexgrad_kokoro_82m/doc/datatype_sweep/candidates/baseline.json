@@ -1,0 +1,104 @@
+{
+  "id": "baseline",
+  "desc": "SELECTED baseline: attn/mlp/map=bfp8, HiFi2, fp32acc, CCL bf16 (current default)",
+  "policy": {
+    "activation": "bf16",
+    "attn_weight": "bfp8",
+    "mlp_weight": "bfp8",
+    "map_weight": "bfp8",
+    "norm_weight": "bf16",
+    "embedding": "bf16",
+    "matmul_fidelity": "HiFi2",
+    "sdpa_fidelity": "HiFi2",
+    "fp32_dest_acc": true
+  },
+  "opt": {
+    "ag_dtype": "bf16",
+    "rs_dtype": "bf16",
+    "norm_sharded": true,
+    "fuse_residual": false,
+    "sdpa_exp_approx": false,
+    "persistent_ccl": true
+  },
+  "policy_label": "act=bf16,attn_w=bfp8,mlp_w=bfp8,mm_fid=HiFi2,sdpa_fid=HiFi2,fp32acc=1",
+  "opt_label": "ag=bf16,rs=bf16,norm_sharded=1,sdpa_approx=0,persist_ccl=1",
+  "hardware": "4x Blackhole p300c (ClusterType.P300_X2, physical 4-ring)",
+  "mesh": "(1,4)",
+  "reference": "doc/full_model/readiness_recon_{prefill,tf}.refpt (IPA phoneme reconstruction, K=100; AIME24 chat-template N/A for TTS)",
+  "bars": {
+    "top1": 0.9,
+    "top5": 0.98,
+    "pcc": 0.995
+  },
+  "command": "python doc/datatype_sweep/run_candidate.py --id baseline --spec '<spec>'",
+  "status": "pass",
+  "error": null,
+  "dtype_summary": {
+    "attn_qkv_w": "BFLOAT8_B",
+    "attn_dense_w": "BFLOAT8_B",
+    "mlp_ffn_w": "BFLOAT8_B",
+    "mlp_ffn_out_w": "BFLOAT8_B",
+    "map_w": "BFLOAT8_B",
+    "emb_word": "BFLOAT16",
+    "norm_attn_ln_w": "BFLOAT16",
+    "readout_w": "BFLOAT16",
+    "readout_b": "BFLOAT16",
+    "matmul_fidelity": "HiFi2",
+    "sdpa_fidelity": "HiFi2",
+    "norm_fidelity": "HiFi4",
+    "matmul_fp32_dest_acc": true,
+    "ag_ccl_dtype": "BFLOAT16",
+    "rs_ccl_dtype": "BFLOAT16",
+    "activation_dtype": "BFLOAT16"
+  },
+  "pcc_vs_hf": {
+    "per_len": {
+      "8": 0.99792,
+      "31": 0.998242,
+      "33": 0.997061,
+      "64": 0.998374,
+      "127": 0.997598,
+      "128": 0.996999,
+      "200": 0.997358,
+      "256": 0.997945,
+      "511": 0.99773,
+      "512": 0.997995
+    },
+    "min": 0.996999,
+    "bar": 0.995
+  },
+  "pcc_non_aligned": {
+    "31": 0.998242,
+    "33": 0.997061,
+    "127": 0.997598,
+    "200": 0.997358,
+    "511": 0.99773
+  },
+  "prefill_check": {
+    "top1": 1.0,
+    "top5": 1.0,
+    "top100": 1.0,
+    "total": 222
+  },
+  "teacher_forcing": {
+    "top1": 0.986486,
+    "top5": 0.995495,
+    "top100": 1.0,
+    "total": 222,
+    "ttft_ms": 16.2321,
+    "decode_t_s_u": 347.8455,
+    "traced": true
+  },
+  "token_out": {
+    "T128_ms": 1.7894,
+    "T512_ms": 2.549,
+    "T128_t_s_u": 558.85,
+    "T512_t_s_u": 392.31,
+    "regime": "warmed min-of-3x30 traced replay, batch-1, on-device argmax, no logits readback"
+  },
+  "gate": {
+    "top1_ok": true,
+    "top5_ok": true,
+    "pcc_ok": true
+  }
+}

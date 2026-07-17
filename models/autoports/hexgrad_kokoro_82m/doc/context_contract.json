@@ -94,6 +94,29 @@
       "Full-model token-out overhead over the decoder-layer-stack lower bound dropped from 7.8%/18.3% (T128/T512, stage-05) to 2.4%/6.6% (stage-06), both within the 10-15% target. See doc/optimized_full_model/perf_summary.json."
     ]
   },
+  "datatype_sweep": {
+    "target_mesh_shape": [1, 4],
+    "cluster": "P300_X2 (4x Blackhole p300c, physical 4-ring)",
+    "component": "KokoroModel full model with the datatype-sweep-SELECTED precision policy (doc/datatype_sweep/selected_precision_config.json), loaded by default via tt/precision_config.load_selected -> build_generator.",
+    "selected_config_id": "baseline",
+    "selected_policy": "attn/mlp/map weights BFP8, activations bf16, matmul+SDPA HiFi2, fp32 dest acc, LayerNorm HiFi4, CCL (all_gather + reduce_scatter) bf16, readout/logits bf16, greedy on-device argmax.",
+    "advertised_context": 512,
+    "supported_context": 512,
+    "capability_reduction": false,
+    "limiting_reason": "none - the selected config is the canonical BFP8/HiFi2 policy (== stage 02/04/05/06); it does not change any dtype/layout vs optimized_full_model, so context is preserved (advertised = supported = 512). last_hidden_state PCC vs HF >= 0.995 at every tested length incl. non-aligned (worst 0.996999 @T=128; non-aligned 31/33/127/200/511 all >= 0.9970 via the selected-config default path, doc/datatype_sweep/non_aligned_check.json), prefill top-1/5/100 = 1.0, teacher-forcing top-5 0.9955 / top-100 1.0.",
+    "kv_cache_bytes": 0,
+    "kv_cache_dtype": "N/A",
+    "kv_cache_note": "N/A - non-autoregressive bidirectional encoder, no KV cache / paged cache / current-position state (same as stages 01-06). The datatype sweep therefore has NO KV-cache dtype axis and NO candidate that changes memory capacity via a KV cache; no context recomputation from a KV-cache dtype change is required. 'decode' is a stateless full-sequence traced re-encode (decode == prefill).",
+    "per_device_weight_bytes_approx": 4685000,
+    "per_device_weight_breakdown": "UNCHANGED from optimized_full_model (~4.69 MB/device): selected config keeps BFP8 attention (fractured 1/TP) + BFP8 FFN (replicated) + BFP8 map + bf16 embeddings/norms + bf16 folded readout. No dtype change vs the prior stage, so no weight-memory change.",
+    "reserved_trace_region_bytes": 90000000,
+    "dram_capacity_note": "p300c per-device DRAM is many GB; ~4.69 MB weights + KV cache (0) + ~<50 MB activations/trace/CCL is a rounding error. No hard physical limit forces any context/batch reduction, and the selected config does not reduce advertised capability. All swept lower-precision candidates (BFP8-LoFi, BFP4, BFP8-CCL) would REDUCE per-device memory further, so none is rejected for a capacity reason; they are rejected for last_hidden_state fidelity / top-1/5 accuracy (see doc/datatype_sweep/sweep_results.json).",
+    "seq_padding": "UNCHANGED from optimized_full_model: public API accepts any logical length 1..512 incl. non-tile-aligned (31/33/127/200/511 re-validated at PCC>=0.995 for the selected config); padded internally to a TP*TILE=128 multiple, masked, sliced back. No aligned-only public contract. Selected dtype/layout does not change chunking.",
+    "notes": [
+      "The datatype sweep selects the fastest config (by trace-verified teacher-forcing decode t/s/u) that satisfies top-1>=90%, top-5>=98%, and last_hidden_state PCC>=0.995. That is the BFP8/HiFi2 baseline, which introduces no dtype/layout/context change vs optimized_full_model; capability_reduction=false.",
+      "post-selection token-out (default selected-config path): T128 560 t/s/u (1.785 ms), T512 395 t/s/u (2.531 ms), eager TTFT@128 10.7 ms (doc/datatype_sweep/post_selection_tokenout.json)."
+    ]
+  },
   "notes": [
     "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
     "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",
