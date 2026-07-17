@@ -101,4 +101,25 @@ layer-to-layer collective; sharded-norm reshards are layer-internal.
 
 ## 7. Stage review + commit
 
-- (to be appended) `$stage-review` verdict + stage commit SHA.
+- `$stage-review` (fresh xhigh subagent, read-only): initial verdict
+  **more-work-needed** — one P2: the fused `matmul_reduce_scatter_async` (WO+RS)
+  rejection was not earned because the probe **mis-sharded** the WO input over dim=3
+  (splitting the local 192 into 48/device), producing a self-inflicted
+  `width=48 height=192` shape error rather than a real op-contract limit.
+- Remediation: corrected the probe to the real head-parallel layout (per-device
+  full local `[1,1,512,192]` via ReplicateTensorToMesh, `dense_w [192,768]`, dim=2
+  scatter, persistent buffers) + added a same-harness separate WO+RS baseline
+  (38.7 µs/rep). Re-ran on hardware: adapted past the shape error AND a matmul
+  `out_block_w % out_subblock_w` config error, then reached the genuine hard
+  blocker `MatmulReduceScatterAsync requires dim==3` — symmetric with the AG+QKV
+  `AllGatherMatmulAsync requires dim==3`. Updated RESULTS.md §3 / README / work_log.
+- `$stage-review` re-review: **clean-pass**, no required work. (Other Concerns /
+  Hard-Check Gaps — PCC_BAR_SC=0.997 test gate vs 0.998 contract [all values clear
+  0.998], ag_bfp8-in-persistent-family gap, all-off==stage-03 A/B assumption — are
+  non-blocking and acknowledged.)
+- tt-metal branch `agentic-research/hous/kokoro-82m-p150`. Stage commit SHA
+  `617fe1dd00fd1a3c6568e7c04e6bc6fde8f6b319` (stage-owned files only:
+  tt/optimized_multichip_decoder.py, tests/test_optimized_multichip_decoder.py,
+  tests/test_perf_optimized_multichip.py, doc/optimized_multichip_decoder/,
+  doc/context_contract.json; pre-existing unrelated .agents/* excluded). Not pushed.
+  (Pre-commit isort/black reformatted the sweep/test/module files; cosmetic only.)
