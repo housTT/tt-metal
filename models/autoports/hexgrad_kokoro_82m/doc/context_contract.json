@@ -1,0 +1,17 @@
+{
+  "model": "hexgrad/Kokoro-82M",
+  "component": "functional_decoder (plbert / CustomAlbert bidirectional encoder)",
+  "hf_advertised_context": 512,
+  "current_supported_context": 512,
+  "hf_context_source": "AlbertConfig.max_position_embeddings (config.json plbert.max_position_embeddings); KModel.context_length; KModel.forward asserts len(input_ids)+2 <= 512",
+  "tested_prefill_context": 512,
+  "tested_decode_context": 512,
+  "capability_reduction": false,
+  "limiting_reason": "none",
+  "notes": [
+    "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
+    "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",
+    "Full advertised context (512) is tested in both prefill and traced decode with no reduction; the model fits comfortably on a single Blackhole p300c device (bert weights ~0.13 GB in bf16).",
+    "Model's minimum valid input is 3 tokens (BOS + >=1 phoneme + EOS); the encoder is run at bf16 weights / fp32 activations."
+  ]
+}
