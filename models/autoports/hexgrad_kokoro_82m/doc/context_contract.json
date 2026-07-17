@@ -8,6 +8,28 @@
   "tested_decode_context": 512,
   "capability_reduction": false,
   "limiting_reason": "none",
+  "multichip_decoder": {
+    "target_mesh_shape": [1, 4],
+    "cluster": "P300_X2 (4x Blackhole p300c, physical 4-ring)",
+    "fabric": "FABRIC_1D_RING / ttnn.Topology.Ring, 2 links",
+    "tp": 4,
+    "scheme": "head-parallel TP attention (3 local heads/device) + sequence-parallel FFN (replicated FFN weights) + sequence-sharded residual [b,1,S/4,H]; 1 all_gather + 1 reduce_scatter per layer",
+    "advertised_context": 512,
+    "supported_context": 512,
+    "capability_reduction": false,
+    "limiting_reason": "none - TP fits with wide margin; context unchanged",
+    "per_device_weight_bytes_approx": 4390000,
+    "per_device_weight_breakdown": "attention weights FRACTURED to 1/TP (qkv [768,576] + dense [192,768] BFP8 ~0.62 MB); FFN weights REPLICATED full (ffn [768,2048] + ffn_out [2048,768] BFP8 ~3.3 MB); embeddings+map+norms replicated bf16 ~0.32 MB. Total ~4.3 MB/device.",
+    "kv_cache_bytes": 0,
+    "kv_cache_note": "N/A - non-autoregressive bidirectional encoder, no KV cache (same as stages 01/02).",
+    "reserved_trace_region_bytes": 90000000,
+    "per_device_dram_gb_approx": "p300c per-device DRAM is many GB; ~4.3 MB weights + ~<50 MB activations/trace is a rounding error, so TP is not memory-motivated here - it is a latency/compute-parallelism play. No hard physical limit forces any context reduction.",
+    "seq_padding": "public API accepts any length 1..512; internally padded to a multiple of TP*TILE=128 so each sequence shard is tile-aligned; padded keys masked in SDPA, output sliced to logical length. No aligned-only public contract.",
+    "notes": [
+      "Tensor parallelism REDUCES per-device attention-weight memory (1/4) and keeps FFN replicated; both are tiny. Context stays 512 (advertised = supported), no capability reduction.",
+      "Because there is no KV cache, TP does not change any cache footprint; the only per-device memory items are the (tiny) weights, activations and the trace buffer."
+    ]
+  },
   "notes": [
     "Kokoro-82M is a non-autoregressive StyleTTS2/ISTFTNet TTS model. Its only attention-transformer component is plbert (HF AlbertModel). This functional decoder brings up that encoder in TTNN.",
     "The model has NO causal transformer decoder, NO KV cache, and NO token-by-token decode. 'context length' here is the ALBERT max_position_embeddings (512 phoneme positions), which is the model's hard positional-embedding limit and also the KModel forward assertion bound.",

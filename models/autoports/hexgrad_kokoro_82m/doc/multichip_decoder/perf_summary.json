@@ -1,0 +1,47 @@
+{
+  "model": "hexgrad/Kokoro-82M",
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "tp": 4,
+  "cluster": "P300_X2 (4x Blackhole p300c, physical 4-ring, FABRIC_1D_RING/Topology.Ring, 2 links)",
+  "topology": "Topology.Ring",
+  "iters": 50,
+  "collectives_per_layer": {
+    "all_gather": 1,
+    "reduce_scatter": 1
+  },
+  "weight_dtype": "bfloat8_b (attn fractured, FFN replicated)",
+  "activation_dtype": "bfloat16",
+  "results": {
+    "128": {
+      "single_chip": {
+        "prefill_warmed_ms": 2.4606,
+        "decode_traced_ms": 2.4595
+      },
+      "multichip_tp4": {
+        "prefill_warmed_ms": 5.4796,
+        "decode_traced_ms": 1.9529
+      },
+      "decode_speedup": 1.259,
+      "decode_efficiency": 0.315,
+      "prefill_speedup": 0.449,
+      "prefill_efficiency": 0.112
+    },
+    "512": {
+      "single_chip": {
+        "prefill_warmed_ms": 2.9433,
+        "decode_traced_ms": 2.9486
+      },
+      "multichip_tp4": {
+        "prefill_warmed_ms": 5.6123,
+        "decode_traced_ms": 2.5633
+      },
+      "decode_speedup": 1.15,
+      "decode_efficiency": 0.287,
+      "prefill_speedup": 0.524,
+      "prefill_efficiency": 0.131
+    }
+  }
+}
