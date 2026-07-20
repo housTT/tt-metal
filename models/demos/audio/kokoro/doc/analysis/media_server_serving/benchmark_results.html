@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kokoro-82M on P150 — media server benchmark</title>
+<style>
+  :root{ color-scheme: light dark; }
+  body{ max-width: 820px; margin: 2rem auto; padding: 0 1.1rem;
+    font: 15px/1.55 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  h1{ font-size: 1.35rem; margin: 0 0 .2rem; }
+  h2{ font-size: 1rem; margin: 1.8rem 0 .5rem; text-transform: uppercase; letter-spacing: .05em; opacity:.7; }
+  .meta{ opacity:.75; font-size:.9rem; margin:.2rem 0 0; }
+  table{ border-collapse: collapse; width: 100%; margin:.3rem 0; }
+  th,td{ text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #8884; }
+  td.n, th.n{ text-align: right; font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  tbody tr:hover{ background:#8881; }
+  .big{ display:flex; flex-wrap:wrap; gap:1.4rem; margin:.6rem 0 0; }
+  .big div{ min-width:7rem; }
+  .big .v{ font: 600 1.7rem/1 ui-monospace, Menlo, monospace; font-variant-numeric:tabular-nums; }
+  .big .k{ font-size:.8rem; opacity:.7; }
+  .big small{ font-size:.9rem; font-weight:400; opacity:.75; }
+  p.note{ opacity:.75; font-size:.9rem; }
+  code{ font-family: ui-monospace, Menlo, monospace; font-size:.9em; }
+</style>
+</head>
+<body>
+
+<h1>Kokoro-82M — media server TTS benchmark</h1>
+<p class="meta">
+  Device: Tenstorrent P150 (single Blackhole chip) &middot;
+  Model: hexgrad/Kokoro-82M &middot;
+  Server: tt-inference-server media server, <code>POST /v1/audio/speech</code> &middot;
+  24&nbsp;kHz &middot; 2026-07-18
+</p>
+
+<div class="big">
+  <div><div class="v">3.64&times;</div><div class="k">real-time ratio (audio ÷ compute)</div></div>
+  <div><div class="v">942<small> ms</small></div><div class="k">mean latency, 3.4 s clip</div></div>
+  <div><div class="v">1.06<small> req/s</small></div><div class="k">throughput, concurrency 1</div></div>
+</div>
+
+<h2>Latency — 10 calls, 3.4 s clip</h2>
+<table>
+  <tbody>
+    <tr><td>Mean</td><td class="n">941.8 ms</td></tr>
+    <tr><td>p50</td><td class="n">942.3 ms</td></tr>
+    <tr><td>p90</td><td class="n">950.3 ms</td></tr>
+    <tr><td>p95</td><td class="n">959.3 ms</td></tr>
+    <tr><td>Cold (first call)</td><td class="n">959 ms</td></tr>
+    <tr><td>Warm (calls 2–10)</td><td class="n">940 ms</td></tr>
+    <tr><td>Real-time ratio</td><td class="n">3.64&times;</td></tr>
+    <tr><td>Throughput</td><td class="n">1.06 req/s</td></tr>
+  </tbody>
+</table>
+
+<h2>Scaling — latency vs input length (warm)</h2>
+<table>
+  <thead>
+    <tr><th>Input</th><th class="n">Audio (s)</th><th class="n">Latency (ms)</th><th class="n">RTR</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1 phrase</td><td class="n">1.50</td><td class="n">435</td><td class="n">3.44&times;</td></tr>
+    <tr><td>1 sentence (default)</td><td class="n">3.42</td><td class="n">938</td><td class="n">3.65&times;</td></tr>
+    <tr><td>2 sentences</td><td class="n">7.22</td><td class="n">2514</td><td class="n">2.87&times;</td></tr>
+    <tr><td>4 sentences</td><td class="n">11.80</td><td class="n">4185</td><td class="n">2.82&times;</td></tr>
+  </tbody>
+</table>
+
+<h2>Reference target</h2>
+<table>
+  <thead><tr><th>Metric</th><th class="n">Measured</th><th class="n">Target</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>Real-time ratio</td><td class="n">3.64&times;</td><td class="n">1.97&times;</td><td>pass (+85%)</td></tr>
+    <tr><td>Latency</td><td class="n">942 ms</td><td class="n">2000 ms</td><td>pass (2.1&times; faster)</td></tr>
+  </tbody>
+</table>
+<p class="note">Target is the media server's only tracked TTS baseline (SpeechT5,
+<code>benchmark_targets/model_performance_reference.json</code>). Different model; shown for context.</p>
+
+<h2>Method</h2>
+<p class="note">
+  Replicates the media server's TTS benchmark client
+  (<code>utils/media_clients/tts_client.py</code>) against the live P150 server:
+  10 sequential calls, concurrency 1, <code>response_format:"json"</code>.
+  Latency = time to full response; RTR = audio duration ÷ processing time;
+  percentiles by the harness's index method. Sweep: 5 warm reps per length.
+</p>
+
+<h2>Scope</h2>
+<p class="note">
+  This benchmarks the serving path in use: the plbert transformer runs on the P150;
+  the StyleTTS2 predictor and ISTFTNet vocoder run on the host CPU. The all-on-device
+  vocoder is validated separately but not yet wired into the server, so latency here
+  is bounded partly by host-side vocoding.
+</p>
+
+</body>
+</html>
