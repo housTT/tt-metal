@@ -66,12 +66,22 @@ from a 10-config sweep as the fastest configuration that clears the accuracy gat
 The model is launch/dispatch-bound (small ops, ~5% DRAM utilization), so throughput is
 dominated by op-to-op dispatch rather than compute.
 
-| Component | Platform | Metric | Value |
-|---|---|---|---|
-| plbert encoder | p150 | last_hidden_state PCC vs HF (worst, T≤512) | ≈ 0.997 |
-| plbert encoder | p150 | eager TTFT (T=128) | ≈ 10.7 ms |
-| End-to-end TTS (TT plbert + host vocoder) | p150 | mean latency (≈3.4 s clip) | ≈ 942 ms |
-| End-to-end TTS (TT plbert + host vocoder) | p150 | real-time ratio | ≈ 3.6× |
+Measured on P150 (single Blackhole chip):
+
+| Path | Metric | Value |
+|---|---|---|
+| plbert encoder | last_hidden_state PCC vs HF (worst, T≤512) | ≈ 0.997 |
+| plbert encoder | eager prefill latency (T=128 / T=512) | ≈ 2.5 ms / 3.0 ms |
+| **Fully on-device** TTS (`synthesize_device`) | latency (≈2.4 s clip) | ≈ 0.88 s |
+| **Fully on-device** TTS (`synthesize_device`) | real-time factor | ≈ 2.7× |
+| Fully on-device audio | STFT log-magnitude PCC vs torch | ≈ 0.98 |
+
+Reproduce the perf numbers:
+
+```sh
+pytest -m models_performance_bare_metal models/demos/audio/kokoro/tests/test_perf_optimized.py         # encoder
+pytest -m models_performance_bare_metal models/demos/audio/kokoro/tests/test_perf_device_pipeline.py   # full TTS
+```
 
 ## Details
 
