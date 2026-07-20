@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Kokoro-82M text-to-speech demo (single-chip p150).
 
-Runs the plbert encoder on device (TTNN ``OptimizedDecoder``) and the prosody +
-ISTFTNet vocoder stages on the host (torch), via the reference ``kokoro`` package
-with ``KModel.bert`` swapped for the TT encoder. This mirrors the serving runner in
-tt-inference-server (``tt-media-server/tt_model_runners/kokoro_runner.py``).
+This demo uses the hybrid path: the plbert encoder on device (TTNN
+``OptimizedDecoder``) with the prosody + ISTFTNet vocoder stages on the host (torch),
+via the reference ``kokoro`` package with ``KModel.bert`` swapped for the TT encoder.
+It mirrors the serving runner in tt-inference-server
+(``tt-media-server/tt_model_runners/kokoro_runner.py``). For the fully-on-device path
+(plbert + prosody + text encoder + ISTFTNet vocoder all in TTNN) see
+``KokoroDevicePipeline.synthesize_device`` in ``tt/device_pipeline.py``.
 
 Requires a Blackhole p150 and the host deps in ``requirements.txt`` plus
 ``espeak-ng``. Grapheme-to-phoneme uses ``misaki.espeak.EspeakFallback`` so that

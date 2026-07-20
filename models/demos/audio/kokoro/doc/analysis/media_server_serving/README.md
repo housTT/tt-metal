@@ -1,5 +1,10 @@
 # Kokoro-82M — Serving via tt-inference-server media server (DONE)
 
+> Provenance note: this documents the tt-inference-server **serving** path, which
+> host-vocodes by design (mirroring the SpeechT5 runner) and runs only plbert on
+> device. It is not a limit of the tt-metal model — that now runs the **entire**
+> pipeline on device via `../../tt/device_pipeline.py` (`synthesize_device`).
+
 The auto-bringup's vLLM stage was **BLOCKED** by design: vLLM only serves
 autoregressive causal LMs, and Kokoro-82M is a non-autoregressive StyleTTS2 /
 ISTFTNet TTS model (see `../vllm_integration/`). This stage serves Kokoro the

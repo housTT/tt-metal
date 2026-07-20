@@ -12,12 +12,17 @@ StyleTTS2 / ISTFTNet text-to-speech model. Its only attention transformer is a
 weight-tied ALBERT encoder (`plbert`, 12 layers, hidden 768); the prosody predictor,
 text encoder, and ISTFTNet vocoder are convolutional / recurrent.
 
-This bring-up runs the **plbert encoder on Tenstorrent** (TTNN) and the remaining
-prosody + vocoder stages on the host (torch), matching the SpeechT5 TT-transformer +
-CPU-vocoder pattern. A fully-on-device pipeline (`tt/device_pipeline.py`) ports every
-stage — including the ISTFTNet decoder and iSTFT — to TTNN and is validated per-stage
-(reference PCC ≥ 0.999 except the Generator tail ≈ 0.987 audio PCC); it is not yet wired
-into an end-to-end entrypoint and is exercised through its stage methods.
+This bring-up runs the **entire pipeline on Tenstorrent** (TTNN) — plbert, the prosody
+predictor, the text encoder, and the ISTFTNet decoder + iSTFT vocoder — via
+`KokoroDevicePipeline.synthesize_device()` in `tt/device_pipeline.py`. The only
+host-side steps left are indexing, not compute: the duration→alignment scatter and the
+embedding lookup. On p150 it matches the torch reference at STFT log-magnitude PCC ≈ 0.98
+(waveform-domain PCC is not a valid metric here — the on-device harmonic source uses a
+deterministic phase model, so the audio is spectrally equivalent but phase-decorrelated).
+
+A simpler hybrid entrypoint, `synthesize()`, keeps the prosody/vocoder stages on the host
+(torch) and runs only the plbert encoder on device — matching the SpeechT5 TT-transformer +
+CPU-vocoder pattern used by the tt-inference-server media-server runner. It backs the demo.
 
 **Status: EXPERIMENTAL.**
 
