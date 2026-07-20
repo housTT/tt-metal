@@ -17,11 +17,15 @@ metric here — ``sinegen_device`` uses a deterministic harmonic-phase model tha
 omits the reference SineGen's random initial phase and voiced/unvoiced phase
 reset, so the signals are perceptually equivalent but phase-decorrelated.
 
-``synthesize()`` is the end-to-end entrypoint: the acoustic-feature front half
-(plbert, bert_encoder, prosody predictor, alignment, text_encoder) runs on the
-host torch KModel; the ISTFTNet decoder/generator/iSTFT back half runs on device.
-Moving the front half on-device is a follow-up (its primitives — bilstm/adain —
-already live here).
+Two entrypoints:
+- ``synthesize()`` — hybrid: acoustic front half on the host torch KModel, ISTFTNet
+  back half on device. Simplest; used by the demo.
+- ``synthesize_device()`` — fully on device: plbert (TT OptimizedDecoder),
+  bert_encoder, DurationEncoder, prosody predictor (LSTM/duration_proj/F0Ntrain), and
+  TextEncoder all run in ttnn via ``front_half_device()``, feeding the on-device
+  decoder. Only the duration->alignment scatter and embedding lookup stay host indexing
+  (no compute). Validated per stage on p150: pred_dur exact, asr/F0/N PCC ~1.0, audio
+  log-mag PCC ~0.98 (``tests/test_device_pipeline.py``).
 """
 import math
 
@@ -444,6 +448,186 @@ class KokoroDevicePipeline:
             Cout = 1024 if blk.upsample_type == "none" else 512
             xd, L = self.adainresblk1d(self.cl(cur), blk, 1090, Cout, L, s)
         return self.generator(xd, L, F0_curve, s)
+
+    # ---- front-half helpers (prosody predictor + text encoder) ----
+    def _lin(self, x_torch, W, b):
+        """Linear on device: x_torch [N,In] -> torch [N,Out]."""
+        n = x_torch.shape[0]
+        o = self.mm(self.H(x_torch.reshape(n, -1)), self.H(W.detach().t()))
+        if b is not None:
+            o = ttnn.add(o, self.H(b.detach().reshape(1, -1)))
+        return ttnn.to_torch(o).float()
+
+    def _lstm(self, x_torch, lstm):
+        """nn.LSTM (bidirectional) on device via bilstm: x_torch [T,In] -> torch [T,2*Hd]."""
+        T = x_torch.shape[0]
+        Hd = lstm.hidden_size
+        sd = {k: v.detach() for k, v in lstm.state_dict().items()}
+        return ttnn.to_torch(self.bilstm(self.H(x_torch.reshape(T, -1)), sd, Hd, T)).float()
+
+    def _chan_ln(self, x_torch, C, gamma, beta):
+        """LayerNorm over the channel dim on device: x_torch [S,C] -> torch [S,C].
+
+        gamma/beta may be None (AdaLayerNorm normalizes without a learned affine).
+        """
+        S = x_torch.shape[0]
+        x = self.H(x_torch.reshape(1, 1, S, C))
+        mean = ttnn.mean(x, dim=3, keepdim=True)
+        xc = ttnn.subtract(x, mean)
+        var = ttnn.mean(ttnn.mul(xc, xc), dim=3, keepdim=True)
+        xn = ttnn.mul(xc, ttnn.rsqrt(ttnn.add(var, 1e-5)))
+        if gamma is not None:
+            xn = ttnn.add(
+                ttnn.mul(xn, self.H(gamma.detach().reshape(1, 1, 1, C))),
+                self.H(beta.detach().reshape(1, 1, 1, C)),
+            )
+        return ttnn.to_torch(xn).float().reshape(S, C)
+
+    def _adaln(self, x_torch, ada, s_):
+        """AdaLayerNorm on device: LN over channels + (1+gamma)*x+beta from fc(style)."""
+        S, C = x_torch.shape
+        xn = self._chan_ln(x_torch, C, None, None)  # [S,C]
+        h = ttnn.to_torch(
+            ttnn.add(
+                self.mm(self.H(s_), self.H(ada.fc.weight.detach().t())),
+                self.H(ada.fc.bias.detach().reshape(1, 2 * C)),
+            )
+        ).float()
+        gamma = h[:, :C]
+        beta = h[:, C:]
+        return (1.0 + gamma) * xn + beta  # broadcast [1,C] over S
+
+    def _duration_encoder(self, d_en_feat, s_dur):
+        """DurationEncoder on device. d_en_feat [1,S,512], s_dur [1,128] -> d [S,640]."""
+        de = self.km.predictor.text_encoder
+        S = d_en_feat.shape[1]
+        s_exp = s_dur.expand(S, -1)  # [S,128]
+        x = torch.cat([d_en_feat.reshape(S, -1), s_exp], dim=1)  # [S,640]
+        for i in range(0, len(de.lstms), 2):
+            lstm, ada = de.lstms[i], de.lstms[i + 1]
+            x = self._lstm(x, lstm)  # [S,512]
+            x = self._adaln(x, ada, s_dur)  # [S,512]
+            x = torch.cat([x, s_exp], dim=1)  # [S,640]
+        return x  # [S,640]
+
+    @staticmethod
+    def _wn_weight(conv):
+        """Effective weight of a (possibly weight_norm'd) conv, robust to stale .weight."""
+        if hasattr(conv, "weight_g") and hasattr(conv, "weight_v"):
+            g, v = conv.weight_g.detach(), conv.weight_v.detach()
+            return g * v / (v.norm(dim=(1, 2), keepdim=True) + 1e-12)
+        return conv.weight.detach()
+
+    def _text_encoder(self, input_ids):
+        """TextEncoder on device: input_ids [1,S] -> t_en torch [1,512,S]."""
+        te = self.km.text_encoder
+        S = input_ids.shape[1]
+        emb = te.embedding.weight.detach()[input_ids[0]]  # [S,512] lookup
+        xcs = emb.t().unsqueeze(0).contiguous()  # [1,512,S]
+        for c in te.cnn:
+            conv, ln = c[0], c[1]
+            o, _ = self.conv1d(self.cl(xcs), 512, 512, self._wn_weight(conv), conv.bias.detach(), S, 5, 2)
+            x_sc = self.to_t(o, S, 512)[0].t().contiguous()  # [S,512]
+            x_sc = self._chan_ln(x_sc, 512, ln.gamma, ln.beta)  # LayerNorm over channels
+            xd = self.lrelu(self.H(x_sc.reshape(1, 1, S, 512)), 0.2)  # LeakyReLU(0.2) on device
+            x_sc = ttnn.to_torch(xd).float().reshape(S, 512)
+            xcs = x_sc.t().unsqueeze(0).contiguous()
+        h = self._lstm(xcs[0].t().contiguous(), te.lstm)  # [S,512]
+        return h.t().unsqueeze(0).contiguous()  # [1,512,S]
+
+    def _f0ntrain(self, en, s_dur):
+        """ProsodyPredictor.F0Ntrain on device. en [640,T] -> (F0 [1,2T], N [1,2T])."""
+        P = self.km.predictor
+        T = en.shape[-1]
+        h = self._lstm(en.t().contiguous(), P.shared)  # [T,512]
+        base = h.t().unsqueeze(0).contiguous()  # [1,512,T]
+
+        def branch(blocks, proj):
+            L, Cin = T, 512
+            x = self.cl(base)
+            for blk in blocks:
+                Cout = blk.conv1.out_channels
+                x, L = self.adainresblk1d(x, blk, Cin, Cout, L, s_dur)
+                Cin = Cout
+            o, L = self.conv1d(x, Cin, 1, self._wn_weight(proj), proj.bias.detach(), L, 1, 0)
+            return self.to_t(o, L, 1).reshape(1, L)
+
+        return branch(P.F0, P.F0_proj), branch(P.N, P.N_proj)
+
+    def _plbert(self, input_ids):
+        """TT plbert encoder on device: input_ids [1,S] -> last_hidden_state [1,S,768].
+
+        Built once from the host KModel's own bert weights (no re-download) via the
+        validated single-chip OptimizedDecoder. attention_mask=None (single utterance,
+        no padding) matches the reference all-ones mask.
+        """
+        from models.demos.audio.kokoro.tt.optimized_decoder import OptimizedDecoder
+
+        if getattr(self, "_plbert_dec", None) is None:
+            sd = {k: v.detach() for k, v in self.km.bert.state_dict().items()}
+            self._plbert_dec = OptimizedDecoder.from_state_dict(
+                sd, hf_config=self.km.bert.config, mesh_device=self.mesh
+            )
+        prep = OptimizedDecoder.prepare_inputs(input_ids, self.mesh, attention_mask=None)
+        out = self._plbert_dec.prefill_forward(
+            prep["input_ids"],
+            prep["position_ids"],
+            prep["token_type_ids"],
+            prep["attention_mask"],
+            batch=prep["batch"],
+            seq_len=prep["padded_seq_len"],
+        )
+        return ttnn.to_torch(out)[:, : prep["seq_len"], :].float()
+
+    def front_half_device(self, input_ids, ref_s, speed: float = 1.0, tt_plbert: bool = True, pred_dur=None):
+        """Acoustic front half on device -> (asr [1,512,T], F0 [1,2T], N [1,2T], s_dec [1,128], pred_dur [S]).
+
+        With ``tt_plbert=True`` (default) plbert runs on device too via the TT
+        ``OptimizedDecoder`` — the entire compute path is on device. Set
+        ``tt_plbert=False`` to run plbert on the host KModel (isolates the rest of the
+        front half for apples-to-apples PCC against the reference). Everything else —
+        bert_encoder, DurationEncoder, predictor LSTM/duration_proj, F0Ntrain,
+        TextEncoder — always runs on device. Only the duration->alignment scatter and
+        the embedding lookup are host indexing (no compute).
+        """
+        km = self.km
+        S = input_ids.shape[1]
+        s_dur, s_dec = ref_s[:, 128:], ref_s[:, :128]
+        if tt_plbert:
+            bert_dur = self._plbert(input_ids)  # TT plbert on device -> [1,S,768]
+        else:
+            text_mask = torch.zeros(1, S, dtype=torch.bool)
+            bert_dur = km.bert(input_ids, attention_mask=(~text_mask).int())  # host plbert
+        d_en = self._lin(bert_dur.reshape(S, -1), km.bert_encoder.weight, km.bert_encoder.bias).reshape(1, S, 512)
+        d = self._duration_encoder(d_en, s_dur)  # [S,640]
+
+        if pred_dur is None:
+            x = self._lstm(d, km.predictor.lstm)  # [S,512]
+            dp = km.predictor.duration_proj.linear_layer
+            dur = self._lin(x, dp.weight, dp.bias)  # [S,50]
+            dur = torch.sigmoid(dur).sum(dim=-1) / speed
+            pred_dur = torch.round(dur).clamp(min=1).long()  # [S]
+        else:
+            pred_dur = pred_dur.reshape(-1).long()  # caller-pinned alignment
+
+        Tt = int(pred_dur.sum())
+        idx = torch.repeat_interleave(torch.arange(S), pred_dur)
+        aln = torch.zeros(S, idx.shape[0])
+        aln[idx, torch.arange(idx.shape[0])] = 1.0  # [S,T]
+
+        en = ttnn.to_torch(self.mm(self.H(d.t().contiguous()), self.H(aln))).float()  # [640,T]
+        F0, N = self._f0ntrain(en, s_dur)  # [1,2T] each
+        t_en = self._text_encoder(input_ids)  # [1,512,S]
+        asr = ttnn.to_torch(self.mm(self.H(t_en[0].contiguous()), self.H(aln))).float().reshape(1, 512, Tt)
+        return asr, F0, N, s_dec, pred_dur
+
+    def synthesize_device(self, input_ids, ref_s, speed: float = 1.0, pred_dur=None):
+        """Fully-on-device (front half + ISTFTNet back half) phonemes->audio.
+
+        pred_dur optionally pins the duration/alignment (else predicted on device).
+        """
+        asr, F0, N, s_dec, _ = self.front_half_device(input_ids, ref_s, speed, pred_dur=pred_dur)
+        return self.decoder(asr, F0, N, s_dec).reshape(-1)
 
     def synthesize(self, input_ids, ref_s, speed: float = 1.0):
         """End-to-end phonemes->audio for a single utterance.

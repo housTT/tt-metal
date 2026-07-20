@@ -158,3 +158,60 @@ def test_synthesize_end_to_end(device, kmodel, inputs):
     assert dur > 0.3, f"implausibly short audio: {dur:.2f}s"
     assert rms > 0.01, f"near-silent audio: rms={rms:.4f}"
     assert spec >= SPEC_PCC_BAR, f"log-mag PCC {spec:.5f} < {SPEC_PCC_BAR}"
+
+
+@pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
+def test_front_half_device(device, kmodel, inputs):
+    """Acoustic front half on device vs torch reference (identical plbert input)."""
+    input_ids, ref_s = inputs
+    cap = {}
+    handle = kmodel.decoder.register_forward_pre_hook(lambda m, a: cap.__setitem__("args", a))
+    try:
+        _, ref_dur = kmodel.forward_with_tokens(input_ids, ref_s, 1.0)
+    finally:
+        handle.remove()
+    asr_r, F0_r, N_r, _ = cap["args"]
+
+    pipe = KokoroDevicePipeline(kmodel, device)
+    # host plbert here (tt_plbert=False) isolates the ported front half for a tight
+    # apples-to-apples PCC; the all-device path (TT plbert) is covered end-to-end below.
+    asr_d, F0_d, N_d, _, dur_d = pipe.front_half_device(input_ids, ref_s, 1.0, tt_plbert=False)
+
+    assert torch.equal(dur_d, ref_dur.reshape(-1)), "predicted durations diverged (alignment would differ)"
+    pa, pf, pn = _pcc(asr_r, asr_d), _pcc(F0_r, F0_d), _pcc(N_r, N_d)
+    print(f"front-half PCC vs torch: asr={pa:.5f} F0={pf:.5f} N={pn:.5f}")
+    assert min(pa, pf, pn) >= 0.99, f"front-half PCC too low: asr={pa:.5f} F0={pf:.5f} N={pn:.5f}"
+
+
+@pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
+def test_synthesize_device_end_to_end(device, kmodel, inputs):
+    """Fully-on-device pipeline (TT plbert + front half + back half).
+
+    Two checks, because durations are quantized (round) and TT plbert's ~0.1% numeric
+    error can flip a single duration by +/-1 frame — which shifts the whole alignment
+    and makes a raw frame-aligned comparison unfair:
+    1. Fidelity: pin the alignment to the reference durations so the audio is
+       frame-aligned, then require STFT log-magnitude PCC >= bar. This validates the
+       all-device compute (TT plbert included) end to end.
+    2. Free-running: predict durations on device too; require valid audio and a length
+       within 10% of the reference (durations must stay within a frame or two).
+    """
+    input_ids, ref_s = inputs
+    with _deterministic_source():
+        ref_audio, ref_dur = kmodel.forward_with_tokens(input_ids, ref_s, 1.0)
+    ref_audio = ref_audio.detach().cpu().numpy()
+    ref_dur = ref_dur.reshape(-1)
+
+    pipe = KokoroDevicePipeline(kmodel, device)
+
+    aligned = pipe.synthesize_device(input_ids, ref_s, 1.0, pred_dur=ref_dur).detach().cpu().numpy()
+    spec = _logmag_pcc(ref_audio, aligned)
+    print(f"all-device (aligned): {aligned.size / SAMPLE_RATE:.2f}s log-mag PCC={spec:.5f}")
+    assert spec >= SPEC_PCC_BAR, f"all-device log-mag PCC {spec:.5f} < {SPEC_PCC_BAR}"
+
+    free = pipe.synthesize_device(input_ids, ref_s, 1.0).detach().cpu().numpy()
+    rms = float(np.sqrt(np.mean(free.astype(np.float64) ** 2)))
+    len_err = abs(free.size - ref_audio.size) / ref_audio.size
+    print(f"all-device (free-running): {free.size / SAMPLE_RATE:.2f}s rms={rms:.4f} len_err={len_err:.3f}")
+    assert rms > 0.01, f"near-silent audio: rms={rms:.4f}"
+    assert len_err < 0.10, f"free-running length off by {len_err:.1%} (durations diverged)"
