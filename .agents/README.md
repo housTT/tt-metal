@@ -15,9 +15,9 @@ It has three parts:
 
 ## Quick Start
 
-From a built tt-metal checkout with its `python_env` active, Codex installed
-and authenticated, and the agent dependencies installed
-(`python -m pip install -r .agents/requirements.txt`):
+From a built tt-metal checkout with its `python_env` active and Claude Code
+installed and authenticated (the `claude` CLI on `PATH`; the runner needs no
+extra Python packages):
 
 ```bash
 python .agents/scripts/multigoal \
@@ -130,23 +130,36 @@ but unattended experiments should not rely on it.
   identifier-like names are also exported into check-script environments.
 - `--start-index N` — resume a run from stage N without repeating earlier
   stages (after a fix, a machine move, or a harness stop). This starts a fresh
-  thread for stage N.
+  session for stage N.
 - `--resume-stage N --log-dir DIR` — recover an existing terminal stage from
-  `DIR/manifest.txt` by resuming its recorded `stage_N_thread_id`, sending a
-  continuation turn in that same thread, running the stage check if it
-  completes, and then continuing later stages. Use this for `usageLimited`,
-  `budgetLimited`, or auth-account recovery where `--start-index` would lose
-  the stopped thread's context.
+  `DIR/manifest.txt` by resuming its recorded `stage_N_session_id`, sending a
+  continuation turn in that same Claude Code session, running the stage check
+  if it completes, and then continuing later stages. Use this for
+  `usageLimited` or auth-account recovery where `--start-index` would lose the
+  stopped session's context.
 - `--dry-run` — validate the prompt sequence and show what would run.
 - `--check-retries N` / `--no-checks` / `--check-error-policy stop|continue`
   — gate behavior knobs; the defaults are the recommended ones.
 - `--log-dir DIR` — where the manifest, STATUS.md, and per-stage logs go.
+- `--model` / `--effort` — the Claude model alias (e.g. `opus`) and reasoning
+  effort (`low`…`max`) for every stage session.
+- `--permission-mode MODE` — Claude Code permission mode; defaults to
+  `bypassPermissions` for unattended runs.
+- `--claude-bin PATH` / `$CLAUDE_BIN`, `--settings FILE|JSON`, `--claude-arg
+  ARG` (repeatable, appended verbatim), and `--stage-timeout SECONDS` — for
+  pointing at a specific CLI build, layering settings, or bounding a stuck
+  stage.
 
-One sharp edge worth knowing: the agent backend caps a goal's objective at
-4000 characters *after* `HF_MODEL` substitution. The runner validates every
-prompt up front so a too-long prompt fails at launch rather than hours in, and
-`scripts/check_agent_prompt_lengths.py` (wired into pre-commit) measures the
-same invariant when editing prompts.
+The runner drives Claude Code headless (`claude -p`), one session per stage. It
+mints the session id up front (so `--resume-stage` is deterministic), streams
+each session's events to `DIR/<stage>.jsonl`, and requires the agent to end on a
+machine-readable JSON verdict (`--json-schema`) of `complete` or `blocked`;
+usage/rate limits, max-turns, and execution errors are classified from the
+Claude Code result object so they stop the run instead of masquerading as a
+verdict. Objectives have no hard length cap, but the runner still validates
+every prompt up front so a malformed late-stage prompt fails at launch rather
+than hours in, and `scripts/check_agent_prompt_lengths.py` (wired into
+pre-commit) keeps prompts within the shared authoring budget.
 
 ## Extending It
 
