@@ -6,7 +6,9 @@ work — see spec-decode caveat. Supersedes the 2026-08-03 record's 48.2% and th
 verdict.) This is the one canonical status record; it supersedes the per-topic
 status/finding docs (listed at the bottom). Keep alongside: `README.md`, `doc/context_contract.json`,
 `smoke_test.md` (runbook), `resource_utilization_plan.md` (optimization backlog), `scripts/` (tooling),
-`sweep_vllm.tsv` (cited data), and the cited `smoke/` result inputs.
+`sweep_vllm.tsv` (cited data), `pool_agent_plan.md` (planned, not executed — vendor upstream's
+`poolside_v1` parsers into the TT plugin so poolside's `pool` coding agent works unmodified),
+and the cited `smoke/` result inputs.
 
 **Serving latency + agent-benchmark report (HTML):**
 https://claude.ai/code/artifact/aa902432-303a-43ee-b387-56dcd6bab3b3
@@ -168,7 +170,12 @@ attn/dense/shared/KV/LM-head, BFP4 routed experts, fp32/HiFi4 SDPA.
   (**`env_passthrough` is required** — without it the worker allowlist is only `VLLM_*`/`MESH_DEVICE`, so
   the `TT_LAGUNA_*` exports above are silently dropped in the worker, `launcher.py:262`). For agents add
   `--reasoning-parser deepseek_r1 --enable-auto-tool-choice --tool-call-parser glm47`. Full commands in
-  `smoke_test.md`.
+  `smoke_test.md`. **These two parsers are stand-ins.** The model's own `generation_config.json` declares
+  `tool_call_parser`/`reasoning_parser` = `poolside_v1` plus `default_chat_template_kwargs
+  {"enable_thinking": true}`; our fork has neither parser and ignores that third key, which is why
+  agent clients that send no `chat_template_kwargs` get `tool_calls: []` (deepseek_r1 files the whole
+  output, `<tool_call>` included, under `reasoning`). Interim unblock: add
+  `--default-chat-template-kwargs '{"enable_thinking":true}'`. Real fix planned in `pool_agent_plan.md`.
 - **Bench:** ONLY `vllm bench serve` from `.venv_benchmarks_vllm`; report **ISL/OSL/E2EL + t/s/u + agg tok/s
   (never ms/tok)**. Latency numbers should state cold (APC off) vs warm (APC on).
 - **Agents run batch-1** (`--workers 1` SWE, `--n-concurrent 1` TB). Board recovery: `tt-smi -r all` after any
