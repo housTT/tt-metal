@@ -447,8 +447,12 @@ LONG_SEGMENT = 16384
 LONG_PROMPT = 262143
 #: Accepted range for the best-fit scale of the device output onto the HF reference at the full
 #: context.  Both SDPA defects the layer works around are one-sided scale errors that PCC cannot
-#: see, so the full-context tests bound the magnitude as well as the correlation.  The stock
-#: decode kernel sits at 1.29 here; the shipped configuration measures within 2e-3 of 1.
+#: see, so the full-context tests bound the magnitude as well as the correlation.  The shipped
+#: configuration measures 0.9949-0.9985 here.  For scale, the stock decode kernel's op-level
+#: probe ``alpha`` is 1.29 at position 262143
+#: (``doc/functional_decoder/logs/controls/sdpa_decode_stock_baseline.log``); its layer-level
+#: scale is not a recorded number because the same control fails the decode *PCC* assertion
+#: first.
 SCALE_TOLERANCE = (0.98, 1.02)
 
 

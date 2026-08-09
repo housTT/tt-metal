@@ -190,10 +190,12 @@ Sweeping explicit program configs (`logs/sdpa_decode_cfg_sweep_v2.log`) separate
 **Defect A — the cross-core tree reduction is wrong for most positions.** With
 `k_chunk = 128, max_cores_per_head_batch = 16` the scale is 0.997–1.006 at positions 4095,
 12287, 16383, 65535, 131071 and 262143 — and 3705x at position 1023 and **NaN** at 261887.
-The sweep covers six `(k_chunk, cores_per_head)` combinations - `k 128` at cores 1, 4, 8 and 16,
-plus `k 64` and `k 256` at 16 cores (`k 512` at 16 cores does not fit L1) - at eight positions
-each, so 56 measurements in all. `k 64` and `k 256` were only swept at 16 cores; that is enough
-to show the rule is not a property of one k chunk. One rule fits all 56 with no exception:
+The sweep asks for eight configurations and gets seven: `k 128` at cores 1, 4, 8 and 16, plus
+`k 64` and `k 256` at 16 cores, plus an `exp_approx_mode = 1` repeat of `k 128 / 16 cores` (it
+changes nothing, which is itself the finding); `k 512` at 16 cores throws on L1 and produces no
+rows. Seven rows at eight positions each is 56 measurements. `k 64` and `k 256` were swept at
+16 cores only, which is enough to show the rule is not a property of one k chunk. One rule fits
+all 56 with no exception:
 
 > the result is correct only when `num_k_chunks == 1` or `num_k_chunks % (2 * cores_per_head) == 0`
 
@@ -283,13 +285,22 @@ change reverted:
 | 512 / 1, **stock main** | 0.995 | 0.993 | 0.979 | **1.310** | **1.290** |
 | 512 / 1, with the fix | 0.995 | 0.999 | 1.000 | **1.017** | **1.006** |
 
-and at the layer level, same code, same test, only the `.cpp` differing
+and at the layer level, same code, same test revision, only the `.cpp` differing
 (`logs/controls/long_context_stock_control.log` vs `logs/long_context.log`):
 
 | `test_full_advertised_context[full_attention]` | stock main | with the fix |
 |---|---|---|
-| `full_context_prefill_tail_pcc` @ 262143 | 0.9980307630901388 | 0.9980307630901388 (bit-identical — prefill does not touch this factory) |
+| `full_context_prefill_tail_pcc` @ 262143 | 0.9980307630901388 | 0.9980307630901388 |
+| `full_context_prefill_tail_scale` @ 262143 | 0.9974432795186233 | 0.9974432795186233 |
 | `full_context_decode_pcc` @ 262143 | **0.977888 — FAILS the 0.995 bar** | **0.999201 — passes** |
+| `full_context_decode_scale` @ 262143 | not reached (see below) | 0.9949287878196464 |
+
+Both prefill rows are **bit-identical** across the two builds, which is the invariance check
+that the change touches decode and only decode. The control's decode row is where it fails, and
+it fails on PCC, so the run aborts before the decode *scale* assertion is evaluated — the
+layer-level stock decode scale is therefore not a recorded number. The 1.29 figure quoted for
+the stock kernel is the **op-level** probe `alpha` from
+`logs/controls/sdpa_decode_stock_baseline.log`, not a layer-level scale.
 
 So the C++ change is load-bearing for the configuration the layer actually ships, not just for
 the `k_chunk = 128` configuration that exposed the defect.
@@ -462,6 +473,11 @@ commit a9e1fb195ef                                 this SHA record
 commit ffa9619f69d                                 the third-review fixes (section 9)
 ```
 
+The list necessarily lags by one: the commit that records it cannot contain its own SHA, and the
+same is true of any later documentation-only commit. `git rev-list 837e8da3e9b..HEAD` is the
+authoritative list, and every commit in it touches only `models/autoports/qwen_qwen3_6_27b/**`
+plus the one `sdpa_decode_program_factory.cpp`.
+
 Committed with an explicit pathspec so the pre-existing dirty `.agents/` and `scripts/` files —
 which this stage did not touch and which the runner staged before it started — stayed out of the
 checkpoint. `git show --name-only` on that commit contains only
@@ -559,3 +575,44 @@ the five `full_attention`-only tests; and two suite timings were off by a second
 
 No number, test or measurement changed in this round — every fix was to a document describing
 them — so §5's runs stand as recorded.
+
+## 10. Fourth stage review — findings and what changed
+
+The fourth `$stage-review` verified the round-3 findings resolved and re-derived every headline
+claim from the raw artifacts, including reproducing `pcc_evidence.json` field-for-field from the
+logs. It raised four more P2s, all documentation accuracy, all fixed — three by correcting the
+document, one by going back to the device.
+
+* **The necessity control had run a pre-round-2 revision of the test.** §3.4 described it as
+  "same code, same test", but the committed control log predated the `scale_ratio` assertion
+  added in round 2, so it emitted four evidence records where the shipped run emits six. The
+  fix was to **re-run the control** rather than reword: the `.cpp` was reverted to
+  `837e8da3e9b`, rebuilt, and `test_full_advertised_context[full_attention]` re-run at the
+  shipped test revision, then the fix restored, rebuilt, and the shipped long-context pair
+  re-run to confirm. The control now reproduces `full_context_prefill_tail_pcc` **and**
+  `full_context_prefill_tail_scale` bit-identically and fails at the decode PCC assertion. The
+  log carries a command/date/base-SHA header it previously lacked.
+  The reviewer also caught that **1.29 was being attributed to the layer-level scale gate** when
+  it is the op-level probe `alpha`; the control fails on decode PCC before the decode scale
+  assertion is evaluated, so the layer-level stock decode scale is genuinely not a recorded
+  number. §3.4, §8 and the `SCALE_TOLERANCE` docstring now all say that.
+* **`README.md` claimed "24 of the 32" batch-32 prompts are non-64-divisible.** The lengths are
+  `64 + 97*u` and `gcd(97, 64) = 1`, so it is 31 of 32. Corrected, with the derivation inline so
+  the number is checkable rather than asserted.
+* **`README.md` advertised the full-context command as "~13 min"** against a cited log that says
+  6:23. Corrected.
+* **§3.2's sweep arithmetic did not multiply out.** Six combinations at eight positions is 48,
+  not 56. The sweep actually asks for eight configurations and gets seven — the six distinct
+  `(k_chunk, cores_per_head)` combinations plus an `exp_approx_mode = 1` repeat that the prose
+  had dropped, with `k 512 / 16 cores` throwing on L1. Seven rows at eight positions is 56.
+
+Two other concerns also fixed: `_prefill_alignment`'s comment claimed a padded chunk is always a
+whole number of SDPA k chunks, which stops being true once the k chunk grows to 512 — the op
+rounds its own key extent up internally and only needs `k_chunk % TILE_WIDTH == 0`, and the
+comment now says that; and §3.3 now records that the promotion roughly doubles the L1 footprint
+of the promoted CBs for a future opt-in caller, which would surface as a build-time `TT_THROW`
+rather than a wrong answer.
+
+`logs/long_context.log` and `logs/controls/long_context_stock_control.log` in §5 are from this
+round's re-runs; every other run in §5 is unchanged, because nothing outside these documents and
+one comment changed.

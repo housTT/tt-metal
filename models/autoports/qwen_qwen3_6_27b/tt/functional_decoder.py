@@ -89,8 +89,12 @@ from .model_config import DELTA_CHUNK, FULL_ATTENTION, LINEAR_ATTENTION, Decoder
 #: SDPA q/k chunk size, and of :data:`~.model_config.DELTA_CHUNK`.
 PREFILL_CHUNK = 2048
 
-#: Padding granularity of a ``full_attention`` prefill chunk, in tokens.  Also the smallest
-#: SDPA k chunk we ever ask for, so a padded chunk is always a whole number of k chunks.
+#: Padding granularity of a ``full_attention`` prefill chunk, in tokens, and the smallest SDPA k
+#: chunk this layer asks for.  A padded chunk is *not* always a whole number of k chunks - once
+#: :func:`_sdpa_program_config` grows the k chunk to 512 past 131072 keys, a final chunk padded
+#: to 256, 768, 1280 or 1792 is not - and it does not need to be: the op rounds its own key
+#: extent up to the k chunk internally (``sdpa_program_factory.cpp``: ``padded_Sk = ceil(Sk /
+#: k_chunk) * k_chunk``) and only requires ``k_chunk % TILE_WIDTH == 0``.
 SDPA_CHUNK = 256
 
 #: Cap on the number of k chunks one ``chunked_scaled_dot_product_attention`` call may merge.

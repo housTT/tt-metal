@@ -80,7 +80,7 @@ source models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh
 # full functional suite (57 tests + 2 long-context skips, ~7.5 min)
 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py -v -s
 
-# full advertised context, 262143-token prompt + decode at 262143 (2 tests, ~13 min)
+# full advertised context, 262143-token prompt + decode at 262143 (2 tests, ~6.5 min)
 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py \
     -k test_full_advertised_context --long-context -v -s
 
@@ -179,7 +179,9 @@ is digit-for-digit identical before and after, and tt-metal's own `test_sdpa_dec
 The fix is also load-bearing rather than precautionary, shown by a stock-main control: with the
 `.cpp` change reverted and everything else identical, `full_context_decode_pcc` at position
 262143 is **0.977888 — below the bar** (`logs/controls/long_context_stock_control.log`), against
-**0.999201** with it, while `full_context_prefill_tail_pcc` is bit-identical in both.
+**0.999201** with it, while both `full_context_prefill_tail_pcc` and
+`full_context_prefill_tail_scale` are bit-identical in the two builds — the invariance check that
+the change touches decode and only decode.
 
 ### Capability-contract evidence
 
@@ -208,7 +210,7 @@ The fix is also load-bearing rather than precautionary, shown by a stock-main co
 | one token past a boundary | 2049 | `test_prefill_pcc`, `test_decode_pcc` |
 | long, divisible by none of {32, 64, 256, 2048} | 5000, 8191, 16385 | `test_prefill_pcc`, `test_prefill_pcc_long` |
 | pad amount **below one tile** (`ttnn.pad` aliasing regression) | 735, 736, 737, 743, 767, 768 | `test_prefill_decode_pad_below_one_tile` — prefill **and** decode |
-| every batch-32 prompt | 64, 161, 258, …, 3071 (24 of the 32 are non-64-divisible) | `test_batched_users` |
+| every batch-32 prompt | 64, 161, 258, …, 3071 (`64 + 97*u`; `gcd(97, 64) = 1`, so 31 of the 32 are non-64-divisible) | `test_batched_users` |
 | full advertised context | 262143 | `test_full_advertised_context` |
 
 No divisibility requirement is imposed on the public prefill API. Every length in the table is

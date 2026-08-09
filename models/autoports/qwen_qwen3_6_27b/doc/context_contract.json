@@ -34,16 +34,21 @@
     "conv_state_pcc": 0.9999946280463557,
     "recurrent_state_pcc": 0.9999840404148437,
     "decode_at_262143_pcc": 0.999955257734366,
-    "verdict": "passes the 0.995 bar"
+    "verdict": "passes the 0.995 bar",
+    "prefill_tail_scale": 0.9985341217745319,
+    "decode_scale": 0.9983599041607758
    },
    "full_attention": {
     "paged_k_cache_pcc": 0.9999887280695877,
     "paged_v_cache_pcc": 0.9999926599608485,
     "prefill_tail_256_pcc": 0.9980307630901388,
     "decode_at_262143_pcc": 0.9992007728649125,
-    "verdict": "passes the 0.995 bar"
+    "verdict": "passes the 0.995 bar",
+    "prefill_tail_scale": 0.9974432795186233,
+    "decode_scale": 0.9949287878196464
    }
-  }
+  },
+  "scale_note": "PCC is scale-invariant and both SDPA defects this layer works around are pure scale errors, so test_full_advertised_context also asserts the best-fit scale of the device output onto the HF reference inside SCALE_TOLERANCE = (0.98, 1.02)."
  },
  "largest_context_with_hf_reference_pcc": {
   "linear_attention": {
@@ -110,7 +115,9 @@
      "doc/functional_decoder/logs/controls/sdpa_decode_stock_baseline.log",
      "doc/functional_decoder/logs/controls/long_context_stock_control.log",
      "doc/functional_decoder/logs/ttnn_sdpa_decode_op_tests.log"
-    ]
+    ],
+    "layer_control_test_revision": "the SHIPPED test revision, including the scale assertion; the control reproduces full_context_prefill_tail_pcc and full_context_prefill_tail_scale bit-identically and fails at the decode PCC assertion, so the layer-level stock decode SCALE is not a recorded number - the 1.29 figure is the op-level probe alpha",
+    "layer_stock_main_full_context_prefill_tail_scale": 0.9974432795186233
    }
   }
  },
