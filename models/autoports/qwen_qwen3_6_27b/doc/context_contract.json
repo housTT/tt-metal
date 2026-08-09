@@ -1,6 +1,6 @@
 {
   "model_id": "Qwen/Qwen3.6-27B",
-  "stage": "functional_decoder",
+  "stage": "functional_decoder + fused_decoder",
   "scope": "one decoder layer per HF layer kind on a 1x1 Blackhole mesh (one chip of a p300c board)",
   "hf_advertised_context": {
     "value": 262144,
@@ -158,5 +158,37 @@
     },
     "used_by_this_stage": "/dev/tenstorrent/2 (TT_VISIBLE_DEVICES=2), a chip of the intact board",
     "source": "/sys/class/tenstorrent/*/tt_card_type and tt_serial"
+  },
+  "fused_decoder": {
+    "stage": "fused_decoder",
+    "implementation": "models/autoports/qwen_qwen3_6_27b/tt/fused_decoder.py",
+    "supported_context_unchanged": true,
+    "value": 262144,
+    "note": "The graph-fusing stage changes no capacity-relevant quantity.  Weight and paged-KV dtypes, the cache shape [num_blocks, num_key_value_heads, block_size, head_dim], the block size, the prefill chunk length and the gated-delta-net state shapes are all identical to the functional decoder, so doc/context_contract.json's device_capacity section still applies verbatim.  The advertised 262144-token context was re-constructed, re-prefilled and re-decoded in this stage.",
+    "re_verified_at_full_context": {
+      "test": "models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_full_advertised_context",
+      "command": "cd /home/ttuser/dev/qwen/rundir && source ./ttenv.sh && python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py -k test_full_advertised_context --long-context -v -s",
+      "log": "doc/fused_decoder/logs/long_context.log",
+      "linear_attention": {
+        "prefill_tail_8192_pcc": 0.9999395003229622,
+        "conv_state_pcc": 0.9999946005694235,
+        "recurrent_state_pcc": 0.9999790363998137,
+        "decode_at_262143_pcc": 0.9999417424587161,
+        "verdict": "passes the 0.995 bar, matching the functional decoder to 5e-6"
+      },
+      "full_attention": {
+        "paged_k_cache_pcc": 0.9999881490320556,
+        "paged_v_cache_pcc": 0.9999926352138455,
+        "prefill_tail_256_pcc": 0.9988150994413764,
+        "decode_at_262143_pcc": 0.5512706324097835,
+        "verdict": "prefill and cache pass; decode fails with the same upstream SDPA-decode kernel defect the functional stage recorded (0.5503 there, 0.5513 here) - see supported_context.open_accuracy_gap, which is unchanged"
+      }
+    },
+    "layout_changes_that_are_not_capacity_changes": {
+      "rot_mats_width": "head_dim (256) instead of rotary_dim (64), in the permuted channel order, with cos=1/sin=0 in the non-rotary channels.  Forced by folding Qwen3.5's partial RoPE into one ttnn.experimental.rotary_embedding_hf; see fused_decoder.rope_channel_permutation and harness.expand_rot_mats.  prefill_forward/decode_forward assert the width.",
+      "paged_k_cache_channel_order": "K is stored with permuted head channels (V is not - it never sees RoPE).  FusedDecoder.kv_channel_permutation exposes the permutation; harness.read_paged_kv inverts it, so every cache-vs-HF comparison is against HF's channel order.  Cache shape, dtype and capacity are unchanged.",
+      "l1_residency": "The triangular inverse, the per-chunk recurrence loop and the decode RMSNorm now use L1.  Each region estimates its peak live footprint and falls back to DRAM above L1_BUDGET_BYTES (96 MiB of the 110 x 1.43 MiB = 157 MiB a Blackhole worker grid exposes), so a longer chunk degrades to the DRAM path rather than failing to allocate.  DRAM capacity is untouched."
+    },
+    "evidence": "doc/fused_decoder/README.md, doc/fused_decoder/work_log.md, doc/fused_decoder/pcc_evidence.json"
   }
 }

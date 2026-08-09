@@ -1,0 +1,381 @@
+{
+  "units": {
+    "device_time": "microseconds (tt-perf-report 'Device Time' column, summed over the signposted window)",
+    "wall": "milliseconds (host time.perf_counter around the signposted window)"
+  },
+  "note": "Baseline = tt/functional_decoder.py, fused = tt/fused_decoder.py, both re-measured in one sitting on device 2 with the same test bodies, signposts and iteration counts. Decode is traced: capture once, then 8 execute_trace replays inside the window.",
+  "runs": {
+    "linear_attention/prefill": {
+      "layer_kind": "linear_attention",
+      "phase": "prefill",
+      "iterations_in_window": 1,
+      "baseline": {
+        "device_time_us_total": 150227.0,
+        "device_time_us_per_iteration": 150227.0,
+        "ops_in_window": 805,
+        "ops_per_iteration": 805,
+        "op_to_op_gap_us_total": 8130.8,
+        "wall_line": "PERF prefill layer_idx=0 kind=linear_attention seq_len=2048 wall_e2e_ms=161.115",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+            "device_time_us": 38297.5,
+            "count": 6
+          },
+          {
+            "op": "BinaryNgDeviceOperation",
+            "device_time_us": 20979.1,
+            "count": 195
+          },
+          {
+            "op": "ReshapeViewDeviceOperation",
+            "device_time_us": 12355.5,
+            "count": 5
+          },
+          {
+            "op": "MatmulDeviceOperation b={48} x 64 x 128 x 128",
+            "device_time_us": 9448.4,
+            "count": 64
+          },
+          {
+            "op": "MatmulDeviceOperation b={3072} x 32 x 32 x 32",
+            "device_time_us": 6393.9,
+            "count": 2
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+            "device_time_us": 6102.4,
+            "count": 1
+          }
+        ],
+        "ops_csv": "baseline/tracy/linear_attention/prefill_ops.csv",
+        "report_txt": "baseline/tracy/linear_attention/prefill_perf_report.txt",
+        "report_csv": "baseline/tracy/linear_attention/prefill_perf_report.csv"
+      },
+      "fused": {
+        "device_time_us_total": 78688.6,
+        "device_time_us_per_iteration": 78688.6,
+        "ops_in_window": 769,
+        "ops_per_iteration": 769,
+        "op_to_op_gap_us_total": 1209.2,
+        "wall_line": "PERF prefill layer_idx=0 kind=linear_attention seq_len=2048 wall_e2e_ms=82.564",
+        "top_ops_by_device_time": [
+          {
+            "op": "ReshapeViewDeviceOperation",
+            "device_time_us": 12133.8,
+            "count": 5
+          },
+          {
+            "op": "BinaryNgDeviceOperation",
+            "device_time_us": 9260.6,
+            "count": 181
+          },
+          {
+            "op": "TernaryDeviceOperation",
+            "device_time_us": 6294.5,
+            "count": 3
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+            "device_time_us": 6110.2,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation b={1536} x 64 x 64 x 128",
+            "device_time_us": 5735.8,
+            "count": 2
+          },
+          {
+            "op": "SliceDeviceOperation",
+            "device_time_us": 4759.6,
+            "count": 275
+          }
+        ],
+        "ops_csv": "tracy/linear_attention/prefill_ops.csv",
+        "report_txt": "tracy/linear_attention/prefill_perf_report.txt",
+        "report_csv": "tracy/linear_attention/prefill_perf_report.csv"
+      },
+      "device_time_delta_pct": -47.6,
+      "ops_delta_pct": -4.5
+    },
+    "linear_attention/decode": {
+      "layer_kind": "linear_attention",
+      "phase": "decode",
+      "iterations_in_window": 8,
+      "baseline": {
+        "device_time_us_total": 24257.5,
+        "device_time_us_per_iteration": 3032.2,
+        "ops_in_window": 768,
+        "ops_per_iteration": 96,
+        "op_to_op_gap_us_total": 2888.3,
+        "wall_line": "PERF decode layer_idx=0 kind=linear_attention iters=8 wall_total_ms=27.281 wall_per_iter_ms=3.410",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+            "device_time_us": 6933.3,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+            "device_time_us": 3472.6,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 10240",
+            "device_time_us": 2089.2,
+            "count": 8
+          },
+          {
+            "op": "LayerNormDeviceOperation",
+            "device_time_us": 1672.4,
+            "count": 24
+          },
+          {
+            "op": "BinaryNgDeviceOperation",
+            "device_time_us": 1613.5,
+            "count": 192
+          },
+          {
+            "op": "MatmulDeviceOperation b={48} x 32 x 128 x 128",
+            "device_time_us": 1428.7,
+            "count": 16
+          }
+        ],
+        "ops_csv": "baseline/tracy/linear_attention/decode_ops.csv",
+        "report_txt": "baseline/tracy/linear_attention/decode_perf_report.txt",
+        "report_csv": "baseline/tracy/linear_attention/decode_perf_report.csv"
+      },
+      "fused": {
+        "device_time_us_total": 19161.6,
+        "device_time_us_per_iteration": 2395.2,
+        "ops_in_window": 688,
+        "ops_per_iteration": 86,
+        "op_to_op_gap_us_total": 3458.1,
+        "wall_line": "PERF decode layer_idx=0 kind=linear_attention iters=8 wall_total_ms=22.805 wall_per_iter_ms=2.851",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+            "device_time_us": 6933.5,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+            "device_time_us": 3505.5,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 10240",
+            "device_time_us": 2096.0,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+            "device_time_us": 1234.0,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+            "device_time_us": 1189.4,
+            "count": 8
+          },
+          {
+            "op": "ReshapeViewDeviceOperation",
+            "device_time_us": 763.0,
+            "count": 88
+          }
+        ],
+        "ops_csv": "tracy/linear_attention/decode_ops.csv",
+        "report_txt": "tracy/linear_attention/decode_perf_report.txt",
+        "report_csv": "tracy/linear_attention/decode_perf_report.csv"
+      },
+      "device_time_delta_pct": -21.0,
+      "ops_delta_pct": -10.4
+    },
+    "full_attention/prefill": {
+      "layer_kind": "full_attention",
+      "phase": "prefill",
+      "iterations_in_window": 1,
+      "baseline": {
+        "device_time_us_total": 18598.8,
+        "device_time_us_per_iteration": 18598.8,
+        "ops_in_window": 44,
+        "ops_per_iteration": 44,
+        "op_to_op_gap_us_total": 27.3,
+        "wall_line": "PERF prefill layer_idx=3 kind=full_attention seq_len=2048 wall_e2e_ms=20.160",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+            "device_time_us": 6103.6,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+            "device_time_us": 3332.2,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
+            "device_time_us": 1599.6,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+            "device_time_us": 1239.0,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
+            "device_time_us": 1221.4,
+            "count": 1
+          },
+          {
+            "op": "SDPAOperation",
+            "device_time_us": 1220.3,
+            "count": 1
+          }
+        ],
+        "ops_csv": "baseline/tracy/full_attention/prefill_ops.csv",
+        "report_txt": "baseline/tracy/full_attention/prefill_perf_report.txt",
+        "report_csv": "baseline/tracy/full_attention/prefill_perf_report.csv"
+      },
+      "fused": {
+        "device_time_us_total": 18278.5,
+        "device_time_us_per_iteration": 18278.5,
+        "ops_in_window": 26,
+        "ops_per_iteration": 26,
+        "op_to_op_gap_us_total": 13.0,
+        "wall_line": "PERF prefill layer_idx=3 kind=full_attention seq_len=2048 wall_e2e_ms=19.865",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+            "device_time_us": 6101.0,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+            "device_time_us": 3334.6,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
+            "device_time_us": 1600.5,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+            "device_time_us": 1238.1,
+            "count": 1
+          },
+          {
+            "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
+            "device_time_us": 1221.8,
+            "count": 1
+          },
+          {
+            "op": "SDPAOperation",
+            "device_time_us": 1220.3,
+            "count": 1
+          }
+        ],
+        "ops_csv": "tracy/full_attention/prefill_ops.csv",
+        "report_txt": "tracy/full_attention/prefill_perf_report.txt",
+        "report_csv": "tracy/full_attention/prefill_perf_report.csv"
+      },
+      "device_time_delta_pct": -1.7,
+      "ops_delta_pct": -40.9
+    },
+    "full_attention/decode": {
+      "layer_kind": "full_attention",
+      "phase": "decode",
+      "iterations_in_window": 8,
+      "baseline": {
+        "device_time_us_total": 19401.2,
+        "device_time_us_per_iteration": 2425.2,
+        "ops_in_window": 400,
+        "ops_per_iteration": 50,
+        "op_to_op_gap_us_total": 354.7,
+        "wall_line": "PERF decode layer_idx=3 kind=full_attention iters=8 wall_total_ms=19.840 wall_per_iter_ms=2.480",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+            "device_time_us": 6942.5,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+            "device_time_us": 3478.1,
+            "count": 8
+          },
+          {
+            "op": "SdpaDecodeDeviceOperation",
+            "device_time_us": 2062.5,
+            "count": 8
+          },
+          {
+            "op": "LayerNormDeviceOperation",
+            "device_time_us": 1728.7,
+            "count": 32
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 8192",
+            "device_time_us": 1617.8,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+            "device_time_us": 1277.6,
+            "count": 8
+          }
+        ],
+        "ops_csv": "baseline/tracy/full_attention/decode_ops.csv",
+        "report_txt": "baseline/tracy/full_attention/decode_perf_report.txt",
+        "report_csv": "baseline/tracy/full_attention/decode_perf_report.csv"
+      },
+      "fused": {
+        "device_time_us_total": 17708.2,
+        "device_time_us_per_iteration": 2213.5,
+        "ops_in_window": 312,
+        "ops_per_iteration": 39,
+        "op_to_op_gap_us_total": 368.9,
+        "wall_line": "PERF decode layer_idx=3 kind=full_attention iters=8 wall_total_ms=18.181 wall_per_iter_ms=2.273",
+        "top_ops_by_device_time": [
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+            "device_time_us": 6935.2,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+            "device_time_us": 3447.9,
+            "count": 8
+          },
+          {
+            "op": "SdpaDecodeDeviceOperation",
+            "device_time_us": 2055.7,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 8192",
+            "device_time_us": 1622.2,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+            "device_time_us": 1242.6,
+            "count": 8
+          },
+          {
+            "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+            "device_time_us": 1190.8,
+            "count": 8
+          }
+        ],
+        "ops_csv": "tracy/full_attention/decode_ops.csv",
+        "report_txt": "tracy/full_attention/decode_perf_report.txt",
+        "report_csv": "tracy/full_attention/decode_perf_report.csv"
+      },
+      "device_time_delta_pct": -8.7,
+      "ops_delta_pct": -22.0
+    }
+  }
+}

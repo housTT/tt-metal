@@ -25,6 +25,11 @@ LINEAR_LAYER_IDX = 0
 FULL_LAYER_IDX = 3
 PCC_BAR = 0.995
 
+#: Decoder implementation :func:`build_layer` instantiates when no ``decoder_cls`` is given.
+#: ``tests/test_fused_decoder.py`` re-points this at ``FusedDecoder`` so the whole functional
+#: suite runs unchanged against the fused layer.
+DECODER_CLS = FunctionalDecoder
+
 
 #: Prefix of the machine-readable evidence lines the tests emit (parsed by
 #: ``scripts/collect_evidence.py`` into ``doc/functional_decoder/pcc_evidence.json``).
@@ -129,7 +134,9 @@ def build_layer(
     real_weights: bool = False,
     seed: int = 0,
     cache_dtype=ttnn.bfloat16,
+    decoder_cls=None,
 ) -> LayerUnderTest:
+    decoder_cls = decoder_cls or DECODER_CLS
     config = ref.load_text_config()
     if real_weights:
         state_dict = ref.load_real_layer_state_dict(layer_idx)
@@ -137,7 +144,7 @@ def build_layer(
         state_dict = ref.synthetic_state_dict_from_stats(ref.load_weight_stats(), layer_idx, config, seed=seed)
     ref_layer = ref.build_reference_layer(layer_idx, state_dict={k: v.clone() for k, v in state_dict.items()})
 
-    tt_layer = FunctionalDecoder.from_state_dict(
+    tt_layer = decoder_cls.from_state_dict(
         state_dict,
         hf_config=config,
         layer_idx=layer_idx,
@@ -293,9 +300,45 @@ def tt_hidden_decode(hidden: torch.Tensor, mesh_device) -> ttnn.Tensor:
     )
 
 
+def rope_permutation(lut: LayerUnderTest):
+    """The layer's head-channel permutation, or ``None`` when it does not use one.
+
+    ``FusedDecoder`` folds a channel permutation into the ``q``/``k`` projection weights so
+    Qwen3.5's *partial* rotary embedding becomes a single full-width
+    ``rotary_embedding_hf``; ``FunctionalDecoder`` does not.  Tests read this to build the
+    matching ``cos``/``sin`` and to un-permute the K cache before comparing it with HF's.
+    """
+    return getattr(lut.tt_layer, "kv_channel_permutation", None)
+
+
+def expand_rot_mats(lut: LayerUnderTest, cos: torch.Tensor, sin: torch.Tensor):
+    """HF ``[..., rotary_dim]`` cos/sin → whatever the layer under test expects.
+
+    For the functional decoder that is the identity.  For the fused decoder it is the
+    ``head_dim``-wide form in permuted channel order: the rotary block's two halves sit either
+    side of the rotate-half midpoint and every other channel gets ``cos = 1``, ``sin = 0`` so a
+    full-width rotate-half leaves it alone.
+    """
+    perm = rope_permutation(lut)
+    if perm is None:
+        return cos, sin
+    head_dim = len(perm)
+    rot_dim = cos.shape[-1]
+    half, mid = rot_dim // 2, head_dim // 2
+    lead = cos.shape[:-1]
+    cos_full = torch.ones(*lead, head_dim, dtype=cos.dtype)
+    sin_full = torch.zeros(*lead, head_dim, dtype=sin.dtype)
+    cos_full[..., :half] = cos[..., :half]
+    cos_full[..., mid : mid + half] = cos[..., half:rot_dim]
+    sin_full[..., :half] = sin[..., :half]
+    sin_full[..., mid : mid + half] = sin[..., half:rot_dim]
+    return cos_full.contiguous(), sin_full.contiguous()
+
+
 def prefill_rot_mats(lut: LayerUnderTest, seq_len: int, mesh_device):
     positions = torch.arange(seq_len)
     cos, sin = ref.text_position_embeddings(lut.rotary, positions, batch=1)
+    cos, sin = expand_rot_mats(lut, cos, sin)
     out = []
     for tensor in (cos, sin):
         out.append(
@@ -314,9 +357,10 @@ def prefill_rot_mats(lut: LayerUnderTest, seq_len: int, mesh_device):
 def decode_rot_mats_torch(lut: LayerUnderTest, positions: torch.Tensor):
     """``(cos, sin)`` as torch ``[1, batch, 1, rotary_dim]`` for decode."""
     cos, sin = ref.text_position_embeddings(lut.rotary, positions, batch=1)
+    cos, sin = expand_rot_mats(lut, cos, sin)
     out = []
     for tensor in (cos, sin):
-        per_user = tensor[0]  # [batch, rotary_dim]
+        per_user = tensor[0]  # [batch, rope_width]
         out.append(per_user.reshape(1, positions.numel(), 1, -1).contiguous())
     return tuple(out)
 
@@ -398,9 +442,15 @@ def read_linear_state(lut: LayerUnderTest, user_id: int):
 
 
 def read_paged_kv(lut: LayerUnderTest, user_id: int, seq_len: int):
-    """Un-page the device KV cache for one user: ``(keys, values)`` of ``[n_kv, seq_len, d]``."""
+    """Un-page the device KV cache for one user: ``(keys, values)`` of ``[n_kv, seq_len, d]``.
+
+    When the layer stores K in permuted head channels (the fused decoder — see
+    :func:`rope_permutation`) the permutation is inverted here, so the caller always gets K in
+    HF's channel order.  V is never permuted.
+    """
     k_cache, v_cache = lut.tt_layer.kv_cache
     table = lut.page_table_torch[user_id]
+    perm = rope_permutation(lut)
     out = []
     for cache in (k_cache, v_cache):
         blocks = ttnn.to_torch(cache).to(torch.float32)  # [num_blocks, n_kv, block, d]
@@ -408,6 +458,10 @@ def read_paged_kv(lut: LayerUnderTest, user_id: int, seq_len: int):
         gathered = blocks[table[:needed].to(torch.long)]  # [needed, n_kv, block, d]
         merged = gathered.permute(1, 0, 2, 3).reshape(gathered.shape[1], needed * lut.block_size, -1)
         out.append(merged[:, :seq_len, :])
+    if perm is not None:
+        inverse = torch.empty(len(perm), dtype=torch.long)
+        inverse[torch.tensor(perm, dtype=torch.long)] = torch.arange(len(perm))
+        out[0] = out[0][..., inverse]
     return tuple(out)
 
 

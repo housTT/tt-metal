@@ -1,0 +1,76 @@
+2026-08-08 23:37:15.079 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-08-08 23:37:15.131 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-08 23:37:15.131 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-08 23:37:15.131 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-08 23:37:15.131 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-08 23:37:15.134 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-08 23:37:15.134 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-08 23:37:15.134 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-08 23:37:15.153 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:168)
+2026-08-08 23:37:15.153 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-08 23:37:15.153 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-08 23:37:15.153 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-08 23:37:15.153 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-08 23:37:15.154 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-08 23:37:15.166 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-08 23:37:15.221 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:404)
+2026-08-08 23:37:15.222 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-08 23:37:15.222 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2342)
+2026-08-08 23:37:15.222 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2350)
+2026-08-08 23:37:15.225 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-08 23:37:15.282 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-08 23:37:15.861 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349973 GHz, device_time_at_sync=5514009668588 cycles (realtime_profiler_manager.cpp:1127)
+== gdn
+  seq=2048 out pcc=0.987237 state pcc=0.987776
+  seq=2048 whole chunked delta rule wall=167.9 ms
+== mm
+  dram f32 hifi4 [768, 32, 32]: 0.811 ms/call
+  l1   f32 hifi2 [768, 32, 32]: 0.033 ms/call
+  dram bf16 lofi [768, 32, 32]: 0.730 ms/call
+  dram f32 b3072 [3072, 32, 32]: 3.209 ms/call
+  dram f32 128sq [768, 128, 128]: 2.434 ms/call
+  dram f32 b48 128x2048x128 [48, 2048, 128]: 3.837 ms/call
+== sharded
+2026-08-08 23:37:23.285 | critical |          Always | TT_FATAL: Height sharded inputs are not supported. (assert.hpp:104)
+2026-08-08 23:37:23.287 | critical |          Always | TT_FATAL: Physical shard shape (1, 256) must be tile {32, 32} sized! (assert.hpp:104)
+  rms_norm on height-sharded input: FAILED RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/layernorm_device_operation.cpp:166: a.memory_config().memory_layout() != TensorMemoryL
+  rotary_embedding_hf decode sharded: FAILED RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/tensor/spec/layout/tensor_layout.cpp:162: !shard_align_error.has_value()
+info:
+Physical shard shape (1, 256) must be tile {32, 32} sized!
+backtrace:
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libt
+nanobind: leaked 1 instances!
+ - leaked instance 0x73c18bdb5ab8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 13 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "UnaryOpType"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulDeviceOperation"
+ - leaked type "ttnn._ttnn.tensor.Tensor"
+ - ... skipped remainder
+nanobind: leaked 199 functions!
+ - leaked function "__repr__"
+ - leaked function "is_sharded"
+ - leaked function ""
+ - leaked function "empty"
+ - leaked function "num_cores"
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function "size"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-08 23:37:23.851 | info     |    BuildKernels | JIT cache stats: 178/268 hits (66.4%) [178 cached, 86 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-08 23:37:23.851 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-08 23:37:23.856 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-08 23:37:23.856 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-08 23:37:23.944 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-08 23:37:23.944 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-08 23:37:23.945 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

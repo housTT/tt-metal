@@ -1,0 +1,332 @@
+2026-08-08 23:35:05.273 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-08-08 23:35:05.324 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-08 23:35:05.324 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-08 23:35:05.324 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-08 23:35:05.324 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-08 23:35:05.327 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-08 23:35:05.327 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-08 23:35:05.327 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-08 23:35:05.346 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:168)
+2026-08-08 23:35:05.346 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-08 23:35:05.346 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-08 23:35:05.346 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-08 23:35:05.346 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-08 23:35:05.347 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-08 23:35:05.348 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-08 23:35:05.403 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:404)
+2026-08-08 23:35:05.404 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-08 23:35:05.404 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2342)
+2026-08-08 23:35:05.404 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2350)
+2026-08-08 23:35:05.407 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-08 23:35:05.464 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-08 23:35:06.043 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349970 GHz, device_time_at_sync=5497320329669 cycles (realtime_profiler_manager.cpp:1127)
+== swiglu
+  swiglu vs first*silu(second): pcc=0.999993
+  swiglu vs silu(first)*second: pcc=0.668415
+== rope
+2026-08-08 23:35:06.345 | critical |          Always | TT_FATAL: Input must be sharded in decode mode (assert.hpp:104)
+2026-08-08 23:35:06.346 | critical |          Always | TT_FATAL: Cos must have batch dim = 1 in prefill mode (assert.hpp:104)
+  prefill permuted rotary_embedding_hf: pcc=0.999998
+  decode is_decode_mode=True: FAILED RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/experimental/transformer/rotary_embedding_hf/device/rotary_embedding_hf_device_operation.cpp:57: input_tensor.is_shar
+  decode is_decode_mode=False: FAILED RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/experimental/transformer/rotary_embedding_hf/device/rotary_embedding_hf_device_operation.cpp:74: cos.padded_shape()[1
+== gdn
+Building trisc1, compile step:
+cd /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/eltwise_sfpu/13333866428808945325/trisc1/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh-tensix -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute -c -o /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/eltwise_sfpu/13333866428808945325/trisc1/trisck.15835305795255522986.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/eltwise_sfpu/13333866428808945325/trisc1/trisck.15835305795255522986.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"eltwise_sfpu/13333866428808945325/\"" 
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/eltwise_unary/trigonometry.h:9,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute/eltwise_sfpu.cpp:10,
+                 from ../chlkc_math.cpp:3,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'sfpi::vFloat ckernel::sfpu::_sfpu_sqrt_ge0_(sfpi::vFloat)':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:805:80: warning: 'Type sfpi::reinterpret(impl_::vVal) [with Type = vUInt; std::enable_if_t<((bool)std::is_base_of<impl_::vVal, Type>::value)>* <anonymous> = 0]' is deprecated: Use sfpi::as<T> [-Wdeprecated-declarations]
+  805 |     sfpi::vInt i = sfpi::reinterpret<sfpi::vInt>(sfpi::reinterpret<sfpi::vUInt>(x) >> 1);
+      |                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi.h:690,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc/ckernel_sfpu.h:12,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc/cmath_common.h:12,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_math_common_api.h:10,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/common_globals.h:16,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/common.h:7,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute/eltwise_sfpu.cpp:6:
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:19:18: note: declared here
+   19 | sfpi_inline Type reinterpret (impl_::vVal v) {
+      |                  ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:805:49: warning: 'Type sfpi::reinterpret(impl_::vVal) [with Type = vInt; std::enable_if_t<((bool)std::is_base_of<impl_::vVal, Type>::value)>* <anonymous> = 0]' is deprecated: Use sfpi::as<T> [-Wdeprecated-declarations]
+  805 |     sfpi::vInt i = sfpi::reinterpret<sfpi::vInt>(sfpi::reinterpret<sfpi::vUInt>(x) >> 1);
+      |                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:19:18: note: declared here
+   19 | sfpi_inline Type reinterpret (impl_::vVal v) {
+      |                  ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:806:53: warning: 'Type sfpi::reinterpret(impl_::vVal) [with Type = vFloat; std::enable_if_t<((bool)std::is_base_of<impl_::vVal, Type>::value)>* <anonymous> = 0]' is deprecated: Use sfpi::as<T> [-Wdeprecated-declarations]
+  806 |     sfpi::vFloat y = sfpi::reinterpret<sfpi::vFloat>(0x5f1110a0 - i);
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:19:18: note: declared here
+   19 | sfpi_inline Type reinterpret (impl_::vVal v) {
+      |                  ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'void ckernel::sfpu::calculate_acosh()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:873:72: warning: 'sfpi::RoundMode::NearestEven' is deprecated: Use RoundMode::Nearest or RoundMode::NearestAway [-Wdeprecated-declarations]
+  873 |             res = sfpi::convert<sfpi::vFloat16b>(res, sfpi::RoundMode::NearestEven);
+      |                                                                        ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:611:26: note: declared here
+  611 |  static constexpr Values NearestEven = NearestAway;
+      |                          ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'void ckernel::sfpu::calculate_asinh()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:949:72: warning: 'sfpi::RoundMode::NearestEven' is deprecated: Use RoundMode::Nearest or RoundMode::NearestAway [-Wdeprecated-declarations]
+  949 |             res = sfpi::convert<sfpi::vFloat16b>(res, sfpi::RoundMode::NearestEven);
+      |                                                                        ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:611:26: note: declared here
+  611 |  static constexpr Values NearestEven = NearestAway;
+      |                          ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'void ckernel::sfpu::calculate_atanh()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:998:72: warning: 'sfpi::RoundMode::NearestEven' is deprecated: Use RoundMode::Nearest or RoundMode::NearestAway [-Wdeprecated-declarations]
+  998 |             res = sfpi::convert<sfpi::vFloat16b>(res, sfpi::RoundMode::NearestEven);
+      |                                                                        ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:611:26: note: declared here
+  611 |  static constexpr Values NearestEven = NearestAway;
+      |                          ^~~~~~~~~~~
+Building trisc1, compile step:
+cd /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/eltwise_sfpu/12653771293687693995/trisc1/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh-tensix -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute -c -o /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/eltwise_sfpu/12653771293687693995/trisc1/trisck.15835305795255522986.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/eltwise_sfpu/12653771293687693995/trisc1/trisck.15835305795255522986.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"eltwise_sfpu/12653771293687693995/\"" 
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/eltwise_unary/trigonometry.h:9,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute/eltwise_sfpu.cpp:10,
+                 from ../chlkc_math.cpp:3,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'sfpi::vFloat ckernel::sfpu::_sfpu_sqrt_ge0_(sfpi::vFloat)':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:805:80: warning: 'Type sfpi::reinterpret(impl_::vVal) [with Type = vUInt; std::enable_if_t<((bool)std::is_base_of<impl_::vVal, Type>::value)>* <anonymous> = 0]' is deprecated: Use sfpi::as<T> [-Wdeprecated-declarations]
+  805 |     sfpi::vInt i = sfpi::reinterpret<sfpi::vInt>(sfpi::reinterpret<sfpi::vUInt>(x) >> 1);
+      |                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi.h:690,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc/ckernel_sfpu.h:12,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc/cmath_common.h:12,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_math_common_api.h:10,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/common_globals.h:16,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/common.h:7,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute/eltwise_sfpu.cpp:6:
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:19:18: note: declared here
+   19 | sfpi_inline Type reinterpret (impl_::vVal v) {
+      |                  ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:805:49: warning: 'Type sfpi::reinterpret(impl_::vVal) [with Type = vInt; std::enable_if_t<((bool)std::is_base_of<impl_::vVal, Type>::value)>* <anonymous> = 0]' is deprecated: Use sfpi::as<T> [-Wdeprecated-declarations]
+  805 |     sfpi::vInt i = sfpi::reinterpret<sfpi::vInt>(sfpi::reinterpret<sfpi::vUInt>(x) >> 1);
+      |                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:19:18: note: declared here
+   19 | sfpi_inline Type reinterpret (impl_::vVal v) {
+      |                  ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:806:53: warning: 'Type sfpi::reinterpret(impl_::vVal) [with Type = vFloat; std::enable_if_t<((bool)std::is_base_of<impl_::vVal, Type>::value)>* <anonymous> = 0]' is deprecated: Use sfpi::as<T> [-Wdeprecated-declarations]
+  806 |     sfpi::vFloat y = sfpi::reinterpret<sfpi::vFloat>(0x5f1110a0 - i);
+      |                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:19:18: note: declared here
+   19 | sfpi_inline Type reinterpret (impl_::vVal v) {
+      |                  ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'void ckernel::sfpu::calculate_acosh()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:873:72: warning: 'sfpi::RoundMode::NearestEven' is deprecated: Use RoundMode::Nearest or RoundMode::NearestAway [-Wdeprecated-declarations]
+  873 |             res = sfpi::convert<sfpi::vFloat16b>(res, sfpi::RoundMode::NearestEven);
+      |                                                                        ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:611:26: note: declared here
+  611 |  static constexpr Values NearestEven = NearestAway;
+      |                          ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'void ckernel::sfpu::calculate_asinh()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:949:72: warning: 'sfpi::RoundMode::NearestEven' is deprecated: Use RoundMode::Nearest or RoundMode::NearestAway [-Wdeprecated-declarations]
+  949 |             res = sfpi::convert<sfpi::vFloat16b>(res, sfpi::RoundMode::NearestEven);
+      |                                                                        ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:611:26: note: declared here
+  611 |  static constexpr Values NearestEven = NearestAway;
+      |                          ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h: In function 'void ckernel::sfpu::calculate_atanh()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu/ckernel_sfpu_trigonometry.h:998:72: warning: 'sfpi::RoundMode::NearestEven' is deprecated: Use RoundMode::Nearest or RoundMode::NearestAway [-Wdeprecated-declarations]
+  998 |             res = sfpi::convert<sfpi::vFloat16b>(res, sfpi::RoundMode::NearestEven);
+      |                                                                        ^~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include/sfpi_lib.h:611:26: note: declared here
+  611 |  static constexpr Values NearestEven = NearestAway;
+      |                          ^~~~~~~~~~~
+Building trisc0, compile step:
+cd /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc0/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh-tensix -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute -c -o /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc0/trisck.15835305795255522986.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc0/trisck.15835305795255522986.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"gated_delta_attn/15654594792126714493/\"" -DKERNEL_COMPILE_TIME_ARGS=4,4,4 
+In file included from ../chlkc_unpack.cpp:3,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp: In function 'void fwd_sub_row(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:103:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  103 |         mm_init(cb_L_unit, out_cb, cb_nm_P_b);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:26:
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:152:12: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  152 |     mm_init(cb_L_inv_row_i, cb_nm_P_a, out_cb);
+      |     ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:219:12: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  219 |     mm_init(cb_v_beta_sc, cb_S, cb_v_cor);
+      |     ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:275:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  275 |         mm_init(cb_k_cum, cb_S, cb_v_prime);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:314:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  314 |         mm_init(cb_q_decay, cb_S, cb_o_inter);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:335:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  335 |         mm_init(cb_intra_att, cb_v_new, cb_intra_v);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:374:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  374 |         mm_init(cb_k_dt, cb_v_new, cb_s_upd);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+Building trisc2, compile step:
+cd /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc2/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh-tensix -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute -c -o /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc2/trisck.15835305795255522986.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc2/trisck.15835305795255522986.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"gated_delta_attn/15654594792126714493/\"" -DKERNEL_COMPILE_TIME_ARGS=4,4,4 
+In file included from ../chlkc_pack.cpp:3,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp: In function 'void fwd_sub_row(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:103:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  103 |         mm_init(cb_L_unit, out_cb, cb_nm_P_b);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:26:
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:152:12: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  152 |     mm_init(cb_L_inv_row_i, cb_nm_P_a, out_cb);
+      |     ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:219:12: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  219 |     mm_init(cb_v_beta_sc, cb_S, cb_v_cor);
+      |     ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:275:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  275 |         mm_init(cb_k_cum, cb_S, cb_v_prime);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:314:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  314 |         mm_init(cb_q_decay, cb_S, cb_o_inter);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:335:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  335 |         mm_init(cb_intra_att, cb_v_new, cb_intra_v);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:374:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  374 |         mm_init(cb_k_dt, cb_v_new, cb_s_upd);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+Building trisc1, compile step:
+cd /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc1/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh-tensix -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/include -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute -c -o /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc1/trisck.15835305795255522986.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/gated_delta_attn/15654594792126714493/trisc1/trisck.15835305795255522986.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"gated_delta_attn/15654594792126714493/\"" -DKERNEL_COMPILE_TIME_ARGS=4,4,4 
+In file included from ../chlkc_math.cpp:3,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp: In function 'void fwd_sub_row(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:103:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  103 |         mm_init(cb_L_unit, out_cb, cb_nm_P_b);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:26:
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:152:12: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  152 |     mm_init(cb_L_inv_row_i, cb_nm_P_a, out_cb);
+      |     ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:219:12: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  219 |     mm_init(cb_v_beta_sc, cb_S, cb_v_cor);
+      |     ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:275:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  275 |         mm_init(cb_k_cum, cb_S, cb_v_prime);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:314:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  314 |         mm_init(cb_q_decay, cb_S, cb_o_inter);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:335:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  335 |         mm_init(cb_intra_att, cb_v_new, cb_intra_v);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/transformer/gated_delta_attn/device/kernels/compute/gated_delta_attn.cpp:374:16: warning: 'void ckernel::mm_init(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)' is deprecated: Use compute_kernel_hw_startup<SrcOrder::Reverse>(in0, in1, out) once at kernel start, then matmul_init(in0, in1, transpose). [-Wdeprecated-declarations]
+  374 |         mm_init(cb_k_dt, cb_v_new, cb_s_upd);
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/compute/matmul.h:276:1: note: declared here
+  276 | mm_init(
+      | ^~~~~~~
+  gated_delta_attn_seq out   pcc=0.984615
+  gated_delta_attn_seq state pcc=0.987376
+== triinv
+  matmul [768, 1, 32, 32]: 0.813 ms/call
+  matmul [768, 32, 32]: 0.806 ms/call
+  matmul [6144, 1, 32, 32]: 6.408 ms/call
+  matmul [24, 32, 32, 32]: 0.809 ms/call
+nanobind: leaked 1 instances!
+ - leaked instance 0x7969595c8588 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 13 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "UnaryOpType"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulDeviceOperation"
+ - leaked type "ttnn._ttnn.tensor.Tensor"
+ - ... skipped remainder
+nanobind: leaked 199 functions!
+ - leaked function ""
+ - leaked function "unpad"
+ - leaked function "pad_to_tile"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "get_layout"
+ - leaked function "unpad_from_tile"
+ - leaked function "__ne__"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-08 23:35:17.619 | info     |    BuildKernels | JIT cache stats: 136/238 hits (57.1%) [136 cached, 92 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-08 23:35:17.619 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-08 23:35:17.624 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-08 23:35:17.624 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-08 23:35:17.727 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-08 23:35:17.727 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-08 23:35:17.727 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

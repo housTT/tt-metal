@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import sys
 
 import pytest
 import torch
@@ -24,7 +25,6 @@ from transformers.cache_utils import DynamicCache
 
 from models.autoports.qwen_qwen3_6_27b.reference import hf_reference as ref
 from models.autoports.qwen_qwen3_6_27b.tests import harness as H
-from models.autoports.qwen_qwen3_6_27b.tt import functional_decoder as fd
 
 LAYER_KINDS = [
     pytest.param(H.LINEAR_LAYER_IDX, id="linear_attention"),
@@ -184,14 +184,19 @@ def test_traced_decode_pcc(mesh_device, layer_idx):
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 def test_no_runtime_host_fallback(mesh_device, layer_idx):
     """A single measured prefill/decode pass makes no torch or host-transfer calls."""
-    source = pathlib.Path(fd.__file__).read_text()
+    # The decoder under test is whichever class ``harness.DECODER_CLS`` points at, so the same
+    # scan covers ``tt/functional_decoder.py`` and ``tt/fused_decoder.py``.
+    decoder_cls = H.DECODER_CLS
+    module = sys.modules[decoder_cls.__module__]
+    class_anchor = f"class {decoder_cls.__name__}"
+    source = pathlib.Path(module.__file__).read_text()
     # Scan every line of the implementation except the module docstring and the body of
     # ``from_state_dict``, the documented setup-time torch boundary.  That leaves the
     # module-level helpers, ``__init__`` and everything after the setup section.
     helpers = source.split("def _prefill_alignment", 1)
     assert len(helpers) == 2, "expected the module-level helpers to start at _prefill_alignment"
-    helper_region = helpers[1].split("class FunctionalDecoder", 1)[0]
-    class_body = source.split("class FunctionalDecoder", 1)[1]
+    helper_region = helpers[1].split(class_anchor, 1)[0]
+    class_body = source.split(class_anchor, 1)[1]
     constructor_region = class_body.split("    @classmethod", 1)[0]
     body = source.split("def from_state_dict", 1)
     assert len(body) == 2, "from_state_dict is the documented torch boundary"
