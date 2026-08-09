@@ -1,0 +1,213 @@
+2026-08-09 06:36:29.422 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 72 items / 70 deselected / 2 selected
+
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention] <- models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py 2026-08-09 06:36:30.799 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-09 06:36:30.799 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-09 06:36:30.799 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-09 06:36:30.799 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-09 06:36:30.802 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-09 06:36:30.802 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-09 06:36:30.802 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-09 06:36:30.822 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:168)
+2026-08-09 06:36:30.822 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-09 06:36:30.822 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-09 06:36:30.822 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-09 06:36:30.822 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-09 06:36:30.822 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-09 06:36:30.842 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-09 06:36:30.899 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:404)
+2026-08-09 06:36:30.900 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-09 06:36:30.900 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2342)
+2026-08-09 06:36:30.900 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2350)
+2026-08-09 06:36:30.907 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-09 06:36:30.964 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-09 06:36:31.543 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349996 GHz, device_time_at_sync=22473188135639 cycles (realtime_profiler_manager.cpp:1127)
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_conv_state_pcc", "seq_len": 262143, "value": 0.9998795422648572}
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_recurrent_state_pcc", "seq_len": 262143, "value": 0.999671901980753}
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 8192, "value": 0.9965968435445749}
+2026-08-09 06:41:32.006 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 192],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:41:32.029 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 160],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:41:32.031 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 544],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:41:32.033 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 544],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:41:32.033 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 160],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_decode_pcc", "position": 262143, "value": 0.9969492556263254}
+PASSED
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention] <- models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_k_cache_pcc", "seq_len": 262143, "value": 0.9998489692671497}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_v_cache_pcc", "seq_len": 262143, "value": 0.9998555337257882}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 256, "value": 0.9854470500680538}
+2026-08-09 06:44:00.708 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 192],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:44:01.379 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 160],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:44:01.379 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 544],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:44:01.379 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 544],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 06:44:01.380 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 160],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_decode_pcc", "position": 262143, "value": 0.5471745112715379}
+FAILED
+
+=================================== FAILURES ===================================
+_________________ test_full_advertised_context[full_attention] _________________
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+request = <FixtureRequest for <Function test_full_advertised_context[full_attention]>>
+
+    @pytest.mark.long_context
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_full_advertised_context(mesh_device, layer_idx, request):
+        """Prefill 262143 tokens and decode at position 262143, checked against the HF reference.
+    
+        A whole-prompt HF forward is impossible at this length, so the reference is built the only
+        way that stays O(seq_len):
+    
+        * ``linear_attention`` — the HF layer runs in :data:`LONG_SEGMENT`-token segments with a
+          carried ``DynamicCache``. ``Qwen3_5GatedDeltaNet`` continues exactly from a populated
+          cache (it prepends ``conv_state`` and passes ``recurrent_state`` as ``initial_state``),
+          so this is the same computation as one long call. The last segment's output, the final
+          conv/recurrent state and a following decode step are all compared.
+        * ``full_attention`` — the K/V cache is built from ``k_proj``/``v_proj`` + ``k_norm`` +
+          RoPE only (no attention), then the real HF layer runs on the last :data:`LONG_TAIL`
+          queries against that cache, followed by a decode step. The construction is validated
+          against a genuine short ``reference_prefill`` first, so it cannot silently diverge from
+          what ``Qwen3_5Attention.forward`` writes.
+    
+        This is what the earlier prefix-consistency version could not check: the first outputs of
+        a causal prefill do not depend on anything the later 250k tokens do, so comparing them
+        proved only that the run completed.
+        """
+        if not request.config.getoption("--long-context"):
+            pytest.skip("needs --long-context")
+        context = ref.load_text_config().max_position_embeddings
+        assert LONG_PROMPT + 1 == context
+        lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=context)
+        tail = LONG_TAIL[_kind(lut)]
+        stats = _stats()
+        hidden = ref.synthetic_hidden_states(lut.config, 1, LONG_PROMPT, stats)
+    
+        got = H.run_tt_prefill(lut, hidden)
+        assert got.shape == (1, LONG_PROMPT, lut.config.hidden_size)
+        assert torch.isfinite(got).all(), "long prefill produced non-finite values"
+    
+        if lut.is_full_attention:
+            # Control: the O(L) cache construction must reproduce a real short reference prefill.
+            probe_len = 512
+            probe = hidden[:, :probe_len, :].contiguous()
+            real_cache = DynamicCache(config=lut.config)
+            H.reference_prefill(lut, probe, real_cache)
+            built_cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, probe, built_cache)
+            real_k, real_v = H.reference_cache_kv(lut, real_cache, probe_len)
+            built_k, built_v = H.reference_cache_kv(lut, built_cache, probe_len)
+            assert torch.equal(real_k, built_k), "hand-built reference K cache differs from HF's"
+            assert torch.equal(real_v, built_v), "hand-built reference V cache differs from HF's"
+    
+            cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, hidden[:, : LONG_PROMPT - tail, :].contiguous(), cache)
+            golden = H.reference_prefill(lut, hidden[:, LONG_PROMPT - tail :, :].contiguous(), cache)
+    
+            keys, values = H.read_paged_kv(lut, user_id=0, seq_len=LONG_PROMPT)
+            ref_keys, ref_values = H.reference_cache_kv(lut, cache, LONG_PROMPT)
+            k_pcc, v_pcc = H.pcc(ref_keys, keys), H.pcc(ref_values, values)
+            H.record("full_context_paged_k_cache_pcc", k_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_paged_v_cache_pcc", v_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert k_pcc >= H.PCC_BAR, f"paged K cache at {LONG_PROMPT} tokens: PCC {k_pcc}"
+            assert v_pcc >= H.PCC_BAR, f"paged V cache at {LONG_PROMPT} tokens: PCC {v_pcc}"
+        else:
+            golden, cache = H.reference_prefill_segmented(lut, hidden, LONG_SEGMENT)
+            golden = golden[:, -tail:, :]
+    
+            conv_state, recurrent_state = H.read_linear_state(lut, user_id=0)
+            ref_conv = cache.layers[lut.layer_idx].conv_states[0].to(torch.float32)
+            ref_recurrent = cache.layers[lut.layer_idx].recurrent_states[0].to(torch.float32)
+            conv_pcc = H.pcc(ref_conv, conv_state.T)
+            rec_pcc = H.pcc(ref_recurrent, recurrent_state)
+            H.record("full_context_conv_state_pcc", conv_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_recurrent_state_pcc", rec_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert conv_pcc >= H.PCC_BAR, f"conv state after {LONG_PROMPT} tokens: PCC {conv_pcc}"
+            assert rec_pcc >= H.PCC_BAR, f"recurrent state after {LONG_PROMPT} tokens: PCC {rec_pcc}"
+    
+        tail_pcc = H.pcc(golden, got[:, -tail:, :])
+        H.record("full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
+        assert tail_pcc >= H.PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
+    
+        H.prepare_decode(lut)
+        token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=99)
+        golden_decode = H.reference_decode(lut, token, LONG_PROMPT, cache)
+        decoded = H.run_tt_decode(lut, token, torch.tensor([LONG_PROMPT]))
+        decode_pcc = H.pcc(golden_decode, decoded)
+        H.record("full_context_decode_pcc", decode_pcc, kind=_kind(lut), position=LONG_PROMPT)
+>       assert decode_pcc >= H.PCC_BAR, f"decode at position {LONG_PROMPT}: PCC {decode_pcc}"
+E       AssertionError: decode at position 262143: PCC 0.5471745112715379
+E       assert 0.5471745112715379 >= 0.98
+E        +  where 0.98 = H.PCC_BAR
+
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:516: AssertionError
+=============================== warnings summary ===============================
+../../../.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen/rundir/generated/test_reports/most_recent_tests.xml -
+============================== slowest durations ===============================
+300.60s call     models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+148.97s call     models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention]
+0.88s setup    models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+0.12s setup    models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention]
+0.11s teardown models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention]
+0.04s teardown models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+=========================== short test summary info ============================
+PASSED ../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+FAILED ../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention] - AssertionError: decode at position 262143: PCC 0.5471745112715379
+assert 0.5471745112715379 >= 0.98
+ +  where 0.98 = H.PCC_BAR
+====== 1 failed, 1 passed, 70 deselected, 3 warnings in 451.51s (0:07:31) ======
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7b64bfbad8a8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7b64bfb390c8 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 247 functions!
+ - leaked function "id"
+ - leaked function "get_system_mesh_id"
+ - leaked function ""
+ - leaked function "is_allocated"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "default_core_range"
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-09 06:44:02.743 | info     |    BuildKernels | JIT cache stats: 607/1234 hits (49.2%) [607 cached, 931 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-09 06:44:02.743 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-09 06:44:02.758 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-09 06:44:02.758 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-09 06:44:02.874 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-09 06:44:02.874 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-09 06:44:02.874 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

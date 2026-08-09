@@ -1,6 +1,6 @@
 {
   "model_id": "Qwen/Qwen3.6-27B",
-  "stage": "functional_decoder + fused_decoder",
+  "stage": "functional_decoder + fused_decoder + optimized_decoder",
   "scope": "one decoder layer per HF layer kind on a 1x1 Blackhole mesh (one chip of a p300c board)",
   "hf_advertised_context": {
     "value": 262144,
@@ -191,5 +191,87 @@
       "recurrent_state_head_order": "The gated-delta-net value heads are stored in the order value_head_permutation(num_v_heads, num_k_heads) gives, so matching key heads to value heads is a tile-aligned concat rather than ttnn.repeat_interleave (a composite that also round-trips float32 through bfloat16).  Every weight indexed by a value head is permuted at load time; FusedDecoder.value_head_permutation exposes the order and harness.read_linear_state inverts it, so state-vs-HF comparisons are in HF order.  State shape, dtype and capacity are unchanged."
     },
     "evidence": "doc/fused_decoder/README.md, doc/fused_decoder/work_log.md, doc/fused_decoder/pcc_evidence.json"
+  },
+  "optimized_decoder": {
+    "stage": "optimized_decoder",
+    "implementation": "models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py",
+    "supported_context_unchanged": true,
+    "value": 262144,
+    "reduced_from_advertised": false,
+    "reduction_reason": null,
+    "note": "The optimized stage changes precision, matmul program configs and decode activation sharding.  Two of those touch capacity-relevant quantities and both *increase* headroom: the paged K/V cache moves from bfloat16 to bfloat8_b (halving it), and the MLP gate/up weights move from bfloat16 to bfloat4_b with every other projection at bfloat8_b.  The cache shape [num_blocks, num_key_value_heads, block_size, head_dim], the block size, the prefill chunk length, the gated-delta-net state shapes and the prefill alignment rules are all unchanged, so no advertised capability moves.  prefill_forward still accepts any 1 <= seq_len <= max_seq_len with no divisibility requirement.",
+    "capacity_recomputed": {
+      "linear_attention_layer": {
+        "weights_bytes": 339640320,
+        "was_bf16": 766443520,
+        "note": "gate 5120x17408 and up 5120x17408 at bfloat4_b (0.5625 B/elem), down 17408x5120, in_proj_qkv 5120x10240, in_proj_z 5120x6144 and out_proj 6144x5120 at bfloat8_b (1.0625 B/elem), in_proj_ba 5120x112 float32, conv taps and norms bfloat16.  Gated-delta-net state size is independent of context length.",
+        "conv_plus_recurrent_state_per_user": 3260416,
+        "note_state": "conv state is now bfloat16 (O8); the recurrent state stays float32"
+      },
+      "full_attention_layer": {
+        "weights_bytes": 321323008,
+        "was_bf16": 744488960,
+        "paged_kv_cache_bfp8": 570425344,
+        "was_paged_kv_cache_bf16": 1073741824,
+        "blocks_per_user": 4096,
+        "total": 891748352
+      },
+      "worst_case_single_layer_batch1_bytes": 891748352,
+      "was_worst_case": 1818230784,
+      "fraction_of_measured_dram": 0.0268,
+      "conclusion": "The advertised context now fits with ~37x headroom for a single layer at batch 1, against ~17x before.  No reduction was made or needed."
+    },
+    "re_verified_at_full_context": {
+      "test": "models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context",
+      "command": "cd /home/ttuser/dev/qwen/rundir && source ./ttenv.sh && python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py -k test_full_advertised_context --long-context -v -s",
+      "log": "doc/optimized_decoder/logs/long_context.log",
+      "results": {
+        "linear_attention": {
+          "conv_state_pcc": 0.9998795422648572,
+          "recurrent_state_pcc": 0.999671901980753,
+          "prefill_tail_8192_pcc": 0.9965968435445749,
+          "decode_at_262143_pcc": 0.9969492556263254,
+          "verdict": "passes; these are synthetic weights, which the BFP4 MLP costs an order of magnitude more than the real checkpoint does - see doc/optimized_decoder/work_log.md section 13"
+        },
+        "full_attention": {
+          "paged_k_cache_pcc": 0.9998489692671497,
+          "paged_v_cache_pcc": 0.9998555337257882,
+          "prefill_tail_256_pcc": 0.9854470500680538,
+          "decode_at_262143_pcc": 0.5471745112715379,
+          "verdict": "prefill and cache pass; decode fails with the same upstream decode-SDPA kernel defect the functional stage (0.550293) and the fused stage (0.551271) recorded - see supported_context.open_accuracy_gap, unchanged"
+        }
+      }
+    },
+    "open_accuracy_gap_unchanged": {
+      "note": "The full_attention decode-SDPA defect recorded in supported_context.open_accuracy_gap is inherited unchanged: this stage neither fixes nor worsens it, and it now has a much broader measurement.  doc/optimized_decoder/probes/sdpa_decode_positions.py sweeps 18 positions from 63 to 262143 against a float32 torch attention over the quantised cache and shows the default kernel degrading smoothly - PCC 0.99997 at 63, 0.99354 at 32767, 0.92734 at 131071, 0.78999 at 262143 - while every explicit SDPAProgramConfig that would be 4-9x faster is catastrophically wrong at some other position.  Evidence: doc/optimized_decoder/logs/sdpa_decode_positions.log, work_log.md section 10."
+    },
+    "batch_contract_unchanged": {
+      "note": "Same as the fused stage.  The optimized decode path sizes its width-sharded L1 residual and its DRAM-sharded matmul program configs from round_up(max_batch, 32) rows, so batch is a construction parameter exactly as before; batch 4 and 32 are asserted by the inherited test_batched_users and test_traced_decode_batched.",
+      "largest_batch_tested": 32
+    },
+    "evidence": "doc/optimized_decoder/README.md, doc/optimized_decoder/work_log.md, doc/optimized_decoder/pcc_evidence.json, doc/optimized_decoder/perf_summary.json",
+    "test_results": {
+      "suite": "70 passed, 2 skipped (the two --long-context cases, run separately)",
+      "suite_log": "doc/optimized_decoder/logs/suite_main.log",
+      "long_context_log": "doc/optimized_decoder/logs/long_context.log",
+      "watcher": "30 passed, watcher.log clean",
+      "watcher_log": "doc/optimized_decoder/logs/watcher_run.log",
+      "synthetic_pcc_bar": 0.98,
+      "real_weight_pcc_bar": 0.995,
+      "worst_real_weight_pcc_over_disputed_lengths": {
+        "linear_attention": 0.9977769222648056,
+        "full_attention": 0.9975006134264763,
+        "lengths": [
+          1,
+          17,
+          64,
+          743,
+          2049,
+          5000
+        ],
+        "test": "tests/test_optimized_decoder.py::test_real_weight_pcc_at_disputed_lengths",
+        "note": "the inherited suite runs on synthetic weights at a 0.98 bar because BFP4 MLP weights cost 1.3e-2 of PCC on a Gaussian and 5e-4 on the real checkpoint; this test re-enforces 0.995 on the real checkpoint at exactly those lengths"
+      }
+    }
   }
 }

@@ -1,0 +1,103 @@
+{
+ "units": {
+  "latency": "milliseconds per token (decode) or per 2048-token prefill",
+  "device_time": "microseconds summed over the tt-perf-report signposted window"
+ },
+ "note": "baseline = tt/fused_decoder.py, optimized = tt/optimized_decoder.py.  Latency rows come from probes/sweep.py (one process, real Qwen3.6-27B weights, 32 warmed traced decode replays, 3 warmed prefills); device rows come from the Tracy runs in tracy/. Decode is traced: capture once, then execute_trace replays inside the window.",
+ "workload": {
+  "profile": "single_user_decode",
+  "prompt_len": 2048,
+  "gen_len": 1,
+  "batch": 1,
+  "layers_measured": "one per HF layer kind (layer 0 linear_attention, layer 3 full_attention)"
+ },
+ "runs": {
+  "linear_attention/prefill": {
+   "seq_len": 2048,
+   "baseline_ms": 51.77,
+   "optimized_ms": 32.12,
+   "speedup": 1.612,
+   "device_time_us": 30480.0,
+   "profiled_wall_ms": 33.194,
+   "baseline_pcc": 0.999967,
+   "optimized_pcc": 0.999432,
+   "pcc_bar": 0.995,
+   "report": "tracy/linear_attention/prefill_perf_report.txt"
+  },
+  "linear_attention/decode": {
+   "position": 2048,
+   "traced": true,
+   "baseline_ms": 2.281,
+   "optimized_ms": 1.098,
+   "speedup": 2.077,
+   "decode_ms_per_token_e2e": 1.098,
+   "decode_ms_per_token_device": 1.1321,
+   "op_to_op_gap_ms_per_token": 0.0427,
+   "roofline_ms_per_token_estimate": 0.6371,
+   "roofline_fraction_of_device_time": 0.563,
+   "bytes_moved_per_token": 326209536,
+   "baseline_pcc": 0.999998,
+   "optimized_pcc": 0.999899,
+   "pcc_bar": 0.995,
+   "report": "tracy/linear_attention/decode_perf_report.txt",
+   "note_o9": "device time and the roofline fraction in this row predate O9 (the head-split reshape collapse), which removed 55 us of ReshapeView; the profiler tables in tracy/ are the pre-O9 ones and are named as such in work_log.md section 14"
+  },
+  "full_attention/prefill": {
+   "seq_len": 2048,
+   "baseline_ms": 20.37,
+   "optimized_ms": 9.23,
+   "speedup": 2.207,
+   "device_time_us": 8919.2,
+   "profiled_wall_ms": 9.405,
+   "baseline_pcc": 0.999969,
+   "optimized_pcc": 0.99927,
+   "pcc_bar": 0.995,
+   "report": "tracy/full_attention/prefill_perf_report.txt"
+  },
+  "full_attention/decode": {
+   "position": 2048,
+   "traced": true,
+   "baseline_ms": 2.242,
+   "optimized_ms": 1.094,
+   "speedup": 2.049,
+   "decode_ms_per_token_e2e": 1.094,
+   "decode_ms_per_token_device": 1.0827,
+   "op_to_op_gap_ms_per_token": 0.0395,
+   "roofline_ms_per_token_estimate": 0.6072,
+   "roofline_fraction_of_device_time": 0.561,
+   "bytes_moved_per_token": 310880384,
+   "baseline_pcc": 0.999993,
+   "optimized_pcc": 0.999651,
+   "pcc_bar": 0.995,
+   "report": "tracy/full_attention/decode_perf_report.txt"
+  }
+ },
+ "model_scale": {
+  "note": "64 layers: 48 linear_attention + 16 full_attention.  Layer stack only - no embedding, final norm, LM head or sampling, which the full-model stage owns.",
+  "prefill_2048_baseline_ms": 2810.9,
+  "prefill_2048_optimized_ms": 1689.4,
+  "decode_baseline_ms_per_token": 145.36,
+  "decode_optimized_ms_per_token": 70.21,
+  "decode_optimized_layer_stack_tps": 14.24
+ },
+ "roofline": {
+  "linear_attention": {
+   "bytes_per_token": 326209536,
+   "assumed_dram_bandwidth_bytes_per_s": 512000000000.0,
+   "ms_per_token": 0.6371
+  },
+  "full_attention": {
+   "bytes_per_token": 310880384,
+   "assumed_dram_bandwidth_bytes_per_s": 512000000000.0,
+   "ms_per_token": 0.6072
+  }
+ },
+ "named_limitations": [
+  "paged decode SDPA keeps its softmax denominator in Float16_b: PCC falls from 0.99997 at position 63 to 0.78999 at 262143; inherited from the functional stage, see doc/context_contract.json and work_log.md section 10",
+  "every explicit SDPAProgramConfig is 4-9x faster and wrong at some positions, so none can be adopted (work_log.md section 10)",
+  "BFP4 decode matmuls reach ~299 GB/s against 442-477 GB/s for BFP8 at every geometry and in every matmul family (work_log.md section 3)",
+  "ttnn.transformer.gated_delta_attn_seq measured 0.9829 state PCC on the real layer's activations, below the 0.995 bar (work_log.md section 7)",
+  "a 2D matmul with a DRAM-width-sharded weight silently computes the wrong answer when out_block_w < per_core_N (work_log.md section 6)",
+  "the linear_attention prefill's per-chunk delta-rule batched matmuls run without a program config: 2.6 ms of a 32 ms prefill (work_log.md section 11)"
+ ]
+}

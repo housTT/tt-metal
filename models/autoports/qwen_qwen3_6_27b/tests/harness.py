@@ -136,9 +136,17 @@ def build_layer(
     block_size: int = DEFAULT_BLOCK_SIZE,
     real_weights: bool = False,
     seed: int = 0,
-    cache_dtype=ttnn.bfloat16,
+    cache_dtype=None,
     decoder_cls=None,
+    decoder_kwargs: dict | None = None,
 ) -> LayerUnderTest:
+    """Build one decoder layer under test.
+
+    ``cache_dtype=None`` means "whatever the decoder class defaults to", which is how the
+    optimized decoder's precision policy gets to choose its own paged-cache dtype; passing a
+    dtype explicitly pins it, which is what ``test_bfloat8_kv_cache`` does.  ``decoder_kwargs``
+    forwards implementation-specific keywords (e.g. the optimized decoder's ``precision``).
+    """
     decoder_cls = decoder_cls or DECODER_CLS
     config = ref.load_text_config()
     if real_weights:
@@ -155,7 +163,8 @@ def build_layer(
         max_batch=max_batch,
         max_seq_len=max_seq_len,
         block_size=block_size,
-        cache_dtype=cache_dtype,
+        **({} if cache_dtype is None else {"cache_dtype": cache_dtype}),
+        **(decoder_kwargs or {}),
     )
 
     page_table_torch = None
