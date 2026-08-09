@@ -19,16 +19,16 @@ selects the healthy PCI device.)
 
 | script | question it answers | verdict |
 |---|---|---|
-| `probe_batched.py` | which users/sequence lengths fail at batch 32 | failures exactly where `padded - logical < 32` |
-| `probe_boundary.py` | where in the output does the divergence start | at position 0 → the layer *input* is wrong |
-| `probe_pad.py` | does `ttnn.pad` zero the padded rows | yes, always correct on its own |
-| `probe_pad_alias.py` | does `ttnn.pad` alias its input | **yes** when the padding fits in the tile padding; freeing the input then frees the result |
-| `probe_real_linear.py` | is the real-weight gap in prefill, state or decode | recurrent state diverges (2.76e18 vs 3.36) and grows with length |
-| `probe_inv.py` | is the delta-rule inverse or its inputs wrong | inverse: TTNN error 3.27 vs torch fp32 2.45e-4 on the same captured `attn0` |
-| `probe_capture_attn0.py` | how big do the doubling product's intermediates get (CPU only) | `\|A^8\|` peaks at 9.9e2, partial product at 4.3e2, result 1.0 — ~3 orders of cancellation |
-| `probe_matmul_prec.py` | how accurate is `ttnn.matmul` under each compute config | ~1.4e-3 relative at fp32/HiFi4; fidelity/packer changes do not rescue it |
-| `probe_blockinv.py` | does block-recursive inversion fix the accuracy | yes: 3.269 → 3.4e-2 (base 32) → 8.8e-3 (base 16) → 1.8e-3 (base 8) |
-| `probe_capacity.py` | device DRAM and the byte budget at full context | feeds `../context_contract.json` |
+| `probe_batched.py` *(earlier pass)* | which users/sequence lengths fail at batch 32 | failures exactly where `padded - logical < 32` |
+| `probe_boundary.py` *(earlier pass)* | where in the output does the divergence start | at position 0 → the layer *input* is wrong |
+| `probe_pad.py` *(earlier pass)* | does `ttnn.pad` zero the padded rows | yes, always correct on its own |
+| `probe_pad_alias.py` *(earlier pass)* | does `ttnn.pad` alias its input | **yes** when the padding fits in the tile padding; freeing the input then frees the result |
+| `probe_real_linear.py` *(earlier pass)* | is the real-weight gap in prefill, state or decode | recurrent state diverges (2.76e18 vs 3.36) and grows with length |
+| `probe_inv.py` *(earlier pass)* | is the delta-rule inverse or its inputs wrong | inverse: TTNN error 3.27 vs torch fp32 2.45e-4 on the same captured `attn0` |
+| `probe_capture_attn0.py` *(earlier pass)* | how big do the doubling product's intermediates get (CPU only) | `\|A^8\|` peaks at 9.9e2, partial product at 4.3e2, result 1.0 — ~3 orders of cancellation |
+| `probe_matmul_prec.py` *(earlier pass)* | how accurate is `ttnn.matmul` under each compute config | ~1.4e-3 relative at fp32/HiFi4; fidelity/packer changes do not rescue it |
+| `probe_blockinv.py` *(earlier pass)* | does block-recursive inversion fix the accuracy | yes: 3.269 → 3.3e-2 (base 32) → 8.8e-3 (base 16) → 1.8e-3 (base 8) |
+| `probe_capacity.py` | device DRAM and the byte budget at full context | feeds `../../context_contract.json` |
 | `probe_tri_inv_base.py` | model-level PCC and warmed prefill time for `TRI_INV_BASE` in {8,16,32}, on real weights | all three clear the bar; 204.7 / 161.1 / 136.4 ms, recurrent-state PCC 0.999993 / 0.999992 / 0.999988 -> base 16 selected (`../logs/tri_inv_base_sweep.log`) |
 | `probe_sdpa_localise.py` | which stage of `full_attention` prefill loses the accuracy at 262143 | the SDPA op alone: it scores well on its own Q/K/V while the layer does not (earlier-pass localisation; kept as the method) |
 | `probe_amplification.py` | is the layer error propagation of the SDPA error, or something downstream (host only) | pure propagation: a torch continuation of the *device* attention output reproduces the layer PCC |
@@ -56,7 +56,14 @@ for `TRI_INV_BASE = 16`.
 
 ## Provenance of the numbers in this file
 
-Every verdict above was measured on this branch unless the row says otherwise; the backing logs
-are in `../logs/`. Numbers quoted from the earlier pass on
-`agentic-research/hous/qwen3.6-27b` have been removed rather than carried forward, because the
-SDPA behaviour changed between that tree and current main (see `../work_log.md` section 2.2).
+Rows marked ***(earlier pass)*** are the diagnostics that found the three bugs the earlier pass
+on `agentic-research/hous/qwen3.6-27b` fixed - the `ttnn.pad` aliasing hazard, the zero-padded
+prefill tokens corrupting the gated-delta-net state, and the Neumann doubling product at the
+real weights. Their fixes are in the code and are covered by this branch's tests
+(`test_prefill_decode_pad_below_one_tile`, `test_linear_state_and_kv_cache_match_reference`,
+`test_real_weights`), but the *diagnostic numbers* in those rows were measured on that tree and
+have no `../logs/` artifact here; they are kept because the probes are the reproduction recipe,
+not because the figures were re-measured. `../work_log.md` section 0 says the same thing about
+the narrative.
+
+Every other row was measured on this branch and names its backing log in `../logs/`.

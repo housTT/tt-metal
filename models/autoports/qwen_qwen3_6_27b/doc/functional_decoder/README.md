@@ -178,14 +178,14 @@ is digit-for-digit identical before and after, and tt-metal's own `test_sdpa_dec
 
 The fix is also load-bearing rather than precautionary, shown by a stock-main control: with the
 `.cpp` change reverted and everything else identical, `full_context_decode_pcc` at position
-262143 is **0.977888 — below the bar** (`logs/long_context_stock_control.log`), against
+262143 is **0.977888 — below the bar** (`logs/controls/long_context_stock_control.log`), against
 **0.999201** with it, while `full_context_prefill_tail_pcc` is bit-identical in both.
 
 ### Capability-contract evidence
 
 | claim | evidence | remaining risk |
 |---|---|---|
-| Both HF layer kinds implemented and correct | 57 functional tests, both kinds in every parametrised case; `logs/suite_main.log` = `57 passed, 2 skipped` | Only layers 0 and 3 are instantiated. `layer_types` has exactly two distinct values and `decoder_shapes` rejects a third. |
+| Both HF layer kinds implemented and correct | 57 functional tests; both kinds in every parametrised case except the five that are `full_attention`-only by construction (the two block-size tests, the block-size guard and the BFP8 cache test - `linear_attention` has no paged KV cache); `logs/suite_main.log` = `57 passed, 2 skipped` | Only layers 0 and 3 are instantiated. `layer_types` has exactly two distinct values and `decoder_shapes` rejects a third. |
 | Advertised context 262144 supported, not reduced | `test_full_advertised_context` prefills 262143 and decodes at 262143 for both kinds, against a real HF reference; all four PCCs >= 0.998031 | The reference is built segmentally (`linear_attention`) or by projection-only cache fill validated `torch.equal` against a real short prefill (`full_attention`); a whole-prompt HF forward is impossible at this length. |
 | Paged KV cache correct under a non-trivial page table | Page tables are a shuffled permutation of all `batch * blocks_per_user` blocks; `test_linear_state_and_kv_cache_match_reference` un-pages the device cache and compares it against HF's own cache object (K 0.999989, V 0.999993) | Cache compare is at one length (2049) and batch 1; batched addressing covered indirectly by `test_batched_users[32]` and directly at full context. |
 | Page/block geometry is a parameter | `test_alternate_page_block_size` at 32 and 128 | Three block sizes tested. |

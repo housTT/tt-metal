@@ -190,8 +190,10 @@ Sweeping explicit program configs (`logs/sdpa_decode_cfg_sweep_v2.log`) separate
 **Defect A — the cross-core tree reduction is wrong for most positions.** With
 `k_chunk = 128, max_cores_per_head_batch = 16` the scale is 0.997–1.006 at positions 4095,
 12287, 16383, 65535, 131071 and 262143 — and 3705x at position 1023 and **NaN** at 261887.
-Repeating over `max_cores_per_head_batch` 1, 4, 8, 16 and k chunk 64, 128, 256 fits one rule
-exactly, with no exceptions in 40 measurements:
+The sweep covers six `(k_chunk, cores_per_head)` combinations - `k 128` at cores 1, 4, 8 and 16,
+plus `k 64` and `k 256` at 16 cores (`k 512` at 16 cores does not fit L1) - at eight positions
+each, so 56 measurements in all. `k 64` and `k 256` were only swept at 16 cores; that is enough
+to show the rule is not a property of one k chunk. One rule fits all 56 with no exception:
 
 > the result is correct only when `num_k_chunks == 1` or `num_k_chunks % (2 * cores_per_head) == 0`
 
@@ -253,7 +255,7 @@ Blast radius, measured rather than asserted:
 
 | check | result |
 |---|---|
-| repo-wide `grep -rn max_cores_per_head_batch models/ tests/ ttnn/` | no caller outside this autoport passes `1`; the values in the repo are the struct default `16`, plus explicit `16` (`models/demos/gemma4`) and `4` (`tests/.../test_mla_decode.py`, `test_sdpa_decode_cache.py`, `test_mla_decode_stress.py`) |
+| repo-wide `grep -rn max_cores_per_head_batch models/ tests/ ttnn/` | no source literal `1` outside this autoport; the values in the repo are the struct default `16`, plus explicit `16` (`models/demos/gemma4`) and `4` (`tests/.../test_mla_decode.py`, `test_sdpa_decode_cache.py`, `test_mla_decode_stress.py`). Four sweep-framework loaders parse the value out of a config *string*, so a data-driven sweep config could in principle select 1; that is an explicit opt-in by the same definition, and the promotion only raises precision. |
 | `k_chunk = 128, max_cores_per_head_batch = 16` probe row, before vs after | digit-for-digit identical (0.99671, 0.99893, 0.99975, 1.00195, 1.00178, 1.00613, and the same NaN at 261887) |
 | `tests/ttnn/unit_tests/operations/sdpa/test_sdpa_decode.py` + `test_paged_sdpa_decode_flexible_geometry.py` | **21 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`) |
 
@@ -348,8 +350,8 @@ needed.
 
 | gate | result | artifact |
 |---|---|---|
-| functional suite | **57 passed, 2 skipped** in 7:39 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
-| full advertised context, both layer kinds | **2 passed** in 6:24 | `logs/long_context.log` |
+| functional suite | **57 passed, 2 skipped** in 7:37 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
+| full advertised context, both layer kinds | **2 passed** in 6:23 | `logs/long_context.log` |
 | watcher (`TT_METAL_WATCHER=10`) | **9 passed**, log clean, 0 fatal/assert/sanitize lines in 1712 | `logs/watcher_run.log`, `watcher/WATCHER_AUDIT.md` |
 | tt-metal `sdpa_decode` op suites (blast-radius control for the `.cpp` change) | **21 passed, 1 skipped** | `logs/ttnn_sdpa_decode_op_tests.log` |
 | profiling | 4 Tracy runs, marker-drop-free windows (exact op-count periodicity) | `perf_summary.json`, `tracy/*/*_perf_report.txt` |
@@ -430,9 +432,10 @@ with `full_context_prefill_tail_pcc` bit-identical in both. The change is load-b
 * `scripts/collect_evidence.py` de-duplicated with "later logs win", so the reported minimum
   depended on argument order. It now keeps the *worst* numeric value per measurement, which
   makes the "0 records below the bar" claim order-independent.
-* Leftover later-stage artifact trees (`doc/fused_decoder/`, `doc/optimized_decoder/`) and
-  `__pycache__` for deleted sources were removed from the model directory; this goal owns the
-  functional decoder only.
+* Leftover later-stage artifact trees from the earlier pass - a fused-decoder and an
+  optimized-decoder doc directory - plus `__pycache__` for sources that no longer exist were
+  deleted from the model directory; this goal owns the functional decoder only, so those paths
+  are deliberately absent now.
 
 Everything above was re-run after the fixes: the suite, the long-context pair, the watcher run
 and all four Tracy runs in §5 are from the final build, not from the reviewed state.
@@ -518,3 +521,39 @@ so the stage's own headline defect class is now gated, not just narrated. Measur
 0.99853 / 0.99836 (`linear_attention`) and 0.99744 / 0.99493 (`full_attention`).
 
 Everything in §5 was re-run after these changes.
+
+## 9. Third stage review — findings and what changed
+
+The third `$stage-review` verified all four round-2 findings resolved and re-derived every
+headline claim from the raw artifacts independently. It raised three new P2s, all of them
+documentation accuracy in stage-owned files, and all fixed:
+
+* **`doc/context_contract.json`'s acceptance counts were stale.** They still said 264 records /
+  260 numeric from before the four scale ratios were added, while `pcc_evidence.json`,
+  `README.md` and this log said 268. The block is now derived from `pcc_evidence.json` and
+  spells the breakdown out (268 = 260 PCC + 4 scale + 4 booleans), with the scale range and
+  tolerance alongside. The runner guardrail does not check these fields, so nothing but a reader
+  would have caught it.
+* **`README.md` still cited `logs/long_context_stock_control.log`** after the round-2 fix moved
+  it to `logs/controls/`. That is the citation for the single most load-bearing claim in the
+  stage — that the tt-metal change is necessary rather than precautionary — so a dead link there
+  matters more than most. Fixed, and a path-resolution sweep over every link and backticked
+  artifact path in the five stage documents now comes back clean.
+* **`probes/README.md` had a dead `../context_contract.json` link and an over-broad provenance
+  claim.** The round-2 fix corrected the rows whose numbers had changed and then asserted that
+  *every* row was measured on this branch — which is not true of the nine rows that diagnose the
+  earlier pass's three bugs and have no log here. Those rows are now marked *(earlier pass)*
+  with an explicit note that the probes are kept as the reproduction recipe, not because the
+  figures were re-measured. The `3.4e-2` / `3.3e-2` disagreement with the code docstring is
+  reconciled.
+
+Smaller items also fixed: the sweep in §3.2 is described accurately (56 measurements over six
+`(k_chunk, cores)` combinations, not "40" over an implied 4x3 grid, and `k 64`/`k 256` were only
+swept at 16 cores); the blast-radius table now notes that four sweep-framework loaders parse
+`max_cores_per_head_batch` out of a config string, so the "no caller passes 1" claim is a
+static-literal claim; `TRI_INV_BASE`'s docstring no longer reads as though the measurement
+selected 16 when it favours 32 on speed; the "both kinds in every parametrised case" row names
+the five `full_attention`-only tests; and two suite timings were off by a second or two.
+
+No number, test or measurement changed in this round — every fix was to a document describing
+them — so §5's runs stand as recorded.

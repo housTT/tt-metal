@@ -189,10 +189,12 @@ DEFAULT_BLOCK_SIZE = 64
 #:     16   | 0.999969    | 0.999992            | 0.999986   | 161.1 ms
 #:     32   | 0.999970    | 0.999988            | 0.999986   | 136.4 ms
 #:
-#: All three clear the bar with room to spare.  16 is taken as the default because it is 21 %
-#: faster than 8 while its recurrent-state PCC is still within 1e-6 of it; base 32 is faster
-#: again and is the first base whose recurrent state moves by more than that, so that trade is
-#: handed to the optimization stage with the numbers attached rather than taken here.
+#: All three clear the bar with room to spare, and the measurement does **not** by itself select
+#: 16 - base 32 is 15 % faster again and still clears every bar.  16 is the *correctness-stage*
+#: default: it is 21 % faster than 8 while its recurrent-state PCC stays within 1e-6 of base 8,
+#: and 32 is the first base whose recurrent state moves by more than that.  Taking the extra
+#: 15 % is a precision-for-speed trade, so it is handed to the optimization stage with the
+#: numbers attached rather than taken here.
 TRI_INV_BASE = 16
 
 
