@@ -215,6 +215,27 @@ def _decode_norm_config(hidden_size: int, rows: int):
     return None
 
 
+def value_head_permutation(num_v_heads: int, num_k_heads: int) -> list[int]:
+    """Value-head order that turns ``repeat_interleave`` into a plain ``concat`` (``F24``).
+
+    The gated delta net has ``num_v_heads`` value heads sharing ``num_k_heads`` key heads, value
+    head ``j`` using key head ``j // v_per_k``.  Matching them therefore needs
+    ``repeat_interleave(q, v_per_k)`` — and ``ttnn.repeat_interleave`` is a **composite**:
+    ``typecast to bf16 -> untilize -> concat -> tilize -> typecast back``
+    (``repeat_interleave.cpp:34-68``), which both costs five dispatches and silently rounds the
+    float32 ``q``/``k`` to bfloat16 and back.
+
+    Re-ordering the value heads to ``j' -> v_per_k * (j' % num_k_heads) + j' // num_k_heads``
+    makes value head ``j'`` use key head ``j' % num_k_heads`` instead, which is exactly what a
+    plain ``ttnn.concat([q] * v_per_k, dim=head_axis)`` produces — one tile-resident copy, no
+    layout change and no dtype round trip.  Returns ``perm`` with
+    ``permuted[j'] == original[perm[j']]``; it is applied at load time to every weight indexed by
+    a value head, so nothing moves at runtime.
+    """
+    per_key = num_v_heads // num_k_heads
+    return [per_key * (j % num_k_heads) + j // num_k_heads for j in range(num_v_heads)]
+
+
 def _prefill_alignment(layer_type: str, block_size: int) -> int:
     """Padding granularity of a prefill chunk."""
     if layer_type == FULL_ATTENTION:
@@ -310,6 +331,13 @@ class FusedDecoder(LightweightModule):
         self.decode_head_mem_cfg = None
         self.decode_rot_mem_cfg = None
         self.kv_channel_permutation = None
+        #: F24's value-head order, or ``None`` for ``full_attention``.  The recurrent state is
+        #: stored in this order; a reader comparing it against HF must invert the permutation.
+        self.value_head_permutation = (
+            None
+            if shapes.layer_type == FULL_ATTENTION
+            else value_head_permutation(shapes.num_v_heads, shapes.num_k_heads)
+        )
         # F15: width-sharded decode RMSNorm.  Both layer kinds use it for the two full-width
         # norms of a decode step, which the interleaved kernel would run single-core.
         self.decode_norm_mem_cfg = None
@@ -444,35 +472,49 @@ class FusedDecoder(LightweightModule):
             weights["q_norm"] = _norm_w(_get("self_attn.q_norm.weight")[perm], one_centred=True)
             weights["k_norm"] = _norm_w(_get("self_attn.k_norm.weight")[perm], one_centred=True)
         else:
-            nv, dk = shapes.num_v_heads, shapes.head_k_dim
-            weights["in_proj_qkv"] = _linear_w(_get("linear_attn.in_proj_qkv.weight"))
-            weights["in_proj_z"] = _linear_w(_get("linear_attn.in_proj_z.weight"))
-            weights["out_proj"] = _linear_w(_get("linear_attn.out_proj.weight"))
+            nv, dk, dv = shapes.num_v_heads, shapes.head_k_dim, shapes.head_v_dim
+            # F24: reorder the value heads so the key-head match is a concat, not an interleave.
+            v_perm = torch.tensor(value_head_permutation(nv, shapes.num_k_heads), dtype=torch.long)
+
+            def _perm_v_rows(tensor: "torch.Tensor", width: int) -> "torch.Tensor":
+                """Permute the value-head blocks of a ``[nv * width, ...]`` leading axis."""
+                rest = tensor.shape[1:]
+                return tensor.reshape(nv, width, *rest)[v_perm].reshape(nv * width, *rest)
+
+            qkv_w = _get("linear_attn.in_proj_qkv.weight")
+            v_start = 2 * shapes.key_dim
+            qkv_w = torch.cat([qkv_w[:v_start], _perm_v_rows(qkv_w[v_start:], dv)], dim=0)
+            weights["in_proj_qkv"] = _linear_w(qkv_w)
+            weights["in_proj_z"] = _linear_w(_perm_v_rows(_get("linear_attn.in_proj_z.weight"), dv))
+            # out_proj consumes the value dim, so its *columns* carry the permutation.
+            out_w = _get("linear_attn.out_proj.weight")
+            weights["out_proj"] = _linear_w(_perm_v_rows(out_w.t().contiguous(), dv).t().contiguous())
             weights["gated_norm"] = _norm_w(_get("linear_attn.norm.weight"), one_centred=False)
 
             # F5 + F11: b and a share their LHS, so one matmul emits both, with dt_bias folded
             # in as the bias of the ``a`` half.  The ``b`` half is padded up to a tile so both
             # output slices start on a tile boundary.
-            b_w = _get("linear_attn.in_proj_b.weight")
-            a_w = _get("linear_attn.in_proj_a.weight")
+            b_w = _perm_v_rows(_get("linear_attn.in_proj_b.weight"), 1)
+            a_w = _perm_v_rows(_get("linear_attn.in_proj_a.weight"), 1)
             pad = _round_up(nv, ttnn.TILE_SIZE) - nv
             hidden = b_w.shape[1]
             weights["in_proj_ba"] = _linear_w(
                 torch.cat([b_w, torch.zeros(pad, hidden), a_w], dim=0), ttnn.float32
             )
             weights["ba_bias"] = _tt(
-                torch.cat([torch.zeros(nv + pad), _get("linear_attn.dt_bias")]).reshape(1, 1, 1, -1),
+                torch.cat([torch.zeros(nv + pad), _get("linear_attn.dt_bias")[v_perm]]).reshape(1, 1, 1, -1),
                 ttnn.float32,
             )
 
             # conv1d weight [conv_dim, 1, K] → K taps of shape [1, 1, 1, conv_dim]
             conv_w = _get("linear_attn.conv1d.weight").squeeze(1)
+            conv_w = torch.cat([conv_w[:v_start], _perm_v_rows(conv_w[v_start:], dv)], dim=0)
             weights["conv_taps"] = [
                 _tt(conv_w[:, j].reshape(1, 1, 1, -1), ttnn.float32) for j in range(shapes.conv_kernel_size)
             ]
 
             weights["neg_exp_A"] = _tt(
-                (-torch.exp(_get("linear_attn.A_log"))).reshape(1, 1, 1, -1), ttnn.float32
+                (-torch.exp(_get("linear_attn.A_log")))[v_perm].reshape(1, 1, 1, -1), ttnn.float32
             )
 
             # F3: L2 norm as an rms_norm.  rms_norm(x, eps') = x*sqrt(D)/sqrt(sum(x^2)+D*eps'),
@@ -562,7 +604,10 @@ class FusedDecoder(LightweightModule):
         time puts every one of those matmuls in L1.  Half of :data:`L1_BUDGET_BYTES` is used here
         because two of these regions can be live at once.
         """
-        for groups in (1, 2, 4, 8, 16, 32, 64):
+        # Every divisor, ascending - not just powers of two, so a ragged final prefill chunk
+        # (e.g. nc = 15 for seq_len 5000) is split 3 or 5 ways instead of falling all the way
+        # through to one chunk per group.
+        for groups in range(1, leading + 1):
             if leading % groups:
                 continue
             if bytes_per_unit * (leading // groups) <= L1_BUDGET_BYTES // 2:
@@ -1054,9 +1099,13 @@ class FusedDecoder(LightweightModule):
         v = ttnn.concat([v0, v1, v2], dim=1)
         for tensor in (v0, v1, v2):
             _free(tensor, v)
-        q_rep = ttnn.repeat_interleave(q, s.v_per_k, dim=1)
+        # F24: with the value heads reordered, matching key heads to value heads is a plain
+        # concat along the head axis instead of ttnn.repeat_interleave, which is a composite
+        # (typecast -> untilize -> concat -> tilize -> typecast, repeat_interleave.cpp:34-68)
+        # that cost 1.82 ms here and round-tripped the float32 q/k through bfloat16.
+        q_rep = ttnn.concat([q] * s.v_per_k, dim=1)
         _free(q, q_rep)
-        k_rep = ttnn.repeat_interleave(k, s.v_per_k, dim=1)
+        k_rep = ttnn.concat([k] * s.v_per_k, dim=1)
         _free(k, k_rep)
         return q_rep, k_rep, v
 
@@ -1302,11 +1351,15 @@ class FusedDecoder(LightweightModule):
         ttnn.deallocate(conv_out)
 
         def to_heads(flat, num_heads, head_dim, repeat: int):
-            t = ttnn.reshape(flat, (1, batch, num_heads, head_dim))
+            # F24: repeat on the *flat* tensor's last axis, which is tile-aligned, rather than on
+            # the head axis of [1, batch, 16, 128] - a 16-row concat is not tile-aligned and
+            # TTNN pays for it with an untilize/retilize.  Concatenating [q | q | q] column-wise
+            # gives exactly the head order the reordered value heads want.
             if repeat > 1:
-                rep = ttnn.repeat_interleave(t, repeat, dim=2)
-                _free(t, flat, rep)
-                t = rep
+                wide = ttnn.concat([flat] * repeat, dim=-1)
+                _free(flat, wide)
+                flat, num_heads = wide, num_heads * repeat
+            t = ttnn.reshape(flat, (1, batch, num_heads, head_dim))
             return ttnn.reshape(t, (1, batch * nv, 1, head_dim))
 
         q = to_heads(q_flat, s.num_k_heads, s.head_k_dim, s.v_per_k)

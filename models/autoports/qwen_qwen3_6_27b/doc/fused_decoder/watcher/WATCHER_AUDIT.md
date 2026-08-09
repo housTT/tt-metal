@@ -1,7 +1,7 @@
 # Watcher audit — Qwen3.6-27B **fused** decoder
 
 Hardware: one Blackhole chip (device 2) of a p300c board — see `../README.md`.
-Run against the final fused code (F1–F22 as landed).
+Run against the final fused code (F1–F24 as landed).
 
 Command, from `/home/ttuser/dev/qwen/rundir` with `ttenv.sh` sourced.  The device profiler is
 **off** for this run; watcher and Tracy are never combined (`$tt-device-usage`).
@@ -15,14 +15,14 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
         or test_bfloat8_kv_cache or test_fused_graph_is_the_fused_graph" -v -s
 ```
 
-Result: `9 passed, 55 deselected, 3 warnings in 62.73s`.  The selection deliberately includes the
+Result: `9 passed, 55 deselected, 3 warnings in 60.39s`.  The selection deliberately includes the
 **2048-token prefill** for both layer kinds, which is the pass that carries the new L1 residency
 (F6/F21) and the chunk-grouped triangular inverse, as well as paged decode, trace capture and
 replay, the BFP8 KV-cache path, and the device-op-count comparison against the unfused layer (so
 watcher covered both implementations in one run).
 
 Console log: `../logs/watcher_run.log`.  Raw watcher log: `generated/watcher/watcher.log`
-(1988 lines, 14 dumps).
+(1989 lines, 14 dumps).
 
 ## Clean-run audit
 

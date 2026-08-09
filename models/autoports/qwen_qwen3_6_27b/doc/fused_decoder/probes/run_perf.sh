@@ -36,8 +36,15 @@ CSV=$(find "$TT_METAL_HOME/generated/profiler/reports" "$PWD/generated/profiler/
 if [ -z "$CSV" ]; then echo "no ops_perf_results CSV found"; exit 3; fi
 echo "newest ops csv: $CSV"
 cp "$CSV" "$OUT/${PHASE}_ops.csv"
-echo "$CSV" > "$OUT/${PHASE}_ops.csv.provenance"
-date -Is >> "$OUT/${PHASE}_ops.csv.provenance"
+{
+  echo "$CSV"
+  date -Is
+  echo "repo_commit $(git -C "$REPO" rev-parse HEAD)"
+  echo "repo_dirty  $(git -C "$REPO" status --porcelain -- models/autoports/qwen_qwen3_6_27b/tt | wc -l) tt/ files modified"
+  for f in tt/fused_decoder.py tt/functional_decoder.py tt/model_config.py; do
+    echo "sha256 $(sha256sum "$REPO/models/autoports/qwen_qwen3_6_27b/$f")"
+  done
+} > "$OUT/${PHASE}_ops.csv.provenance"
 
 tt-perf-report "$OUT/${PHASE}_ops.csv" \
   --start-signpost "$SIGN" --end-signpost "${SIGN}_END" \

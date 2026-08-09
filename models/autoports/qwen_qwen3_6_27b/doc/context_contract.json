@@ -170,11 +170,11 @@
       "command": "cd /home/ttuser/dev/qwen/rundir && source ./ttenv.sh && python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py -k test_full_advertised_context --long-context -v -s",
       "log": "doc/fused_decoder/logs/long_context.log",
       "linear_attention": {
-        "prefill_tail_8192_pcc": 0.9999395003229622,
+        "prefill_tail_8192_pcc": 0.9999428606318065,
         "conv_state_pcc": 0.9999946005694235,
-        "recurrent_state_pcc": 0.9999790363998137,
-        "decode_at_262143_pcc": 0.9999417424587161,
-        "verdict": "passes the 0.995 bar, matching the functional decoder to 5e-6"
+        "recurrent_state_pcc": 0.9999805297371981,
+        "decode_at_262143_pcc": 0.999941426379691,
+        "verdict": "passes the 0.995 bar, matching the functional decoder to 1e-5"
       },
       "full_attention": {
         "paged_k_cache_pcc": 0.9999881490320556,
@@ -187,7 +187,8 @@
     "layout_changes_that_are_not_capacity_changes": {
       "rot_mats_width": "head_dim (256) instead of rotary_dim (64), in the permuted channel order, with cos=1/sin=0 in the non-rotary channels.  Forced by folding Qwen3.5's partial RoPE into one ttnn.experimental.rotary_embedding_hf; see fused_decoder.rope_channel_permutation and harness.expand_rot_mats.  prefill_forward/decode_forward assert the width.",
       "paged_k_cache_channel_order": "K is stored with permuted head channels (V is not - it never sees RoPE).  FusedDecoder.kv_channel_permutation exposes the permutation; harness.read_paged_kv inverts it, so every cache-vs-HF comparison is against HF's channel order.  Cache shape, dtype and capacity are unchanged.",
-      "l1_residency": "The triangular inverse, the per-chunk recurrence loop, the decode RMSNorm and the three per-tap decode conv-state buffers now use L1.  Each region estimates its peak live footprint and falls back to DRAM above L1_BUDGET_BYTES (96 MiB of the 110 x 1.43 MiB = 157 MiB a Blackhole worker grid exposes), so a longer chunk degrades to the DRAM path rather than failing to allocate.  DRAM capacity is untouched: the conv-state buffers total 3.9 MB at batch 32 and no weight or cache tensor changed shape or dtype."
+      "l1_residency": "The triangular inverse, the per-chunk recurrence loop, the decode RMSNorm and the three per-tap decode conv-state buffers now use L1.  Each region estimates its peak live footprint and falls back to DRAM above L1_BUDGET_BYTES (96 MiB of the 110 x 1.43 MiB = 157 MiB a Blackhole worker grid exposes), so a longer chunk degrades to the DRAM path rather than failing to allocate.  DRAM capacity is untouched: the conv-state buffers total 3.9 MB at batch 32 and no weight or cache tensor changed shape or dtype.",
+      "recurrent_state_head_order": "The gated-delta-net value heads are stored in the order value_head_permutation(num_v_heads, num_k_heads) gives, so matching key heads to value heads is a tile-aligned concat rather than ttnn.repeat_interleave (a composite that also round-trips float32 through bfloat16).  Every weight indexed by a value head is permuted at load time; FusedDecoder.value_head_permutation exposes the order and harness.read_linear_state inverts it, so state-vs-HF comparisons are in HF order.  State shape, dtype and capacity are unchanged."
     },
     "evidence": "doc/fused_decoder/README.md, doc/fused_decoder/work_log.md, doc/fused_decoder/pcc_evidence.json"
   }

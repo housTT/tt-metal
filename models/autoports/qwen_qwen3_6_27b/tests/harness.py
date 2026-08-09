@@ -437,11 +437,37 @@ def run_tt_decode(lut: LayerUnderTest, hidden: torch.Tensor, positions: torch.Te
 # ------------------------------------------------------------------- state readback
 
 
+def value_head_permutation(lut: LayerUnderTest):
+    """The layer's value-head order, or ``None`` when it keeps HF's.
+
+    ``FusedDecoder`` reorders the gated-delta-net value heads at load time so matching them to
+    key heads is a ``concat`` rather than ``ttnn.repeat_interleave`` (a composite that also
+    round-trips float32 through bfloat16).  Every weight indexed by a value head moves with it,
+    so only a reader of the *state* has to invert it.
+    """
+    return getattr(lut.tt_layer, "value_head_permutation", None)
+
+
 def read_linear_state(lut: LayerUnderTest, user_id: int):
-    """``(conv_state [K, conv_dim], recurrent_state [num_v_heads, dk, dv])`` for one user."""
+    """``(conv_state [K, conv_dim], recurrent_state [num_v_heads, dk, dv])`` for one user.
+
+    Both come back in HF's head/channel order: the conv state's value block and the recurrent
+    state's head axis are un-permuted here when the layer reorders them.
+    """
     conv = ttnn.to_torch(lut.tt_layer.user_conv_state[user_id]).to(torch.float32)
     recurrent = ttnn.to_torch(lut.tt_layer.user_recurrent_state[user_id]).to(torch.float32)
-    return conv.reshape(conv.shape[-2], conv.shape[-1]), recurrent.reshape(recurrent.shape[-3:])
+    conv = conv.reshape(conv.shape[-2], conv.shape[-1])
+    recurrent = recurrent.reshape(recurrent.shape[-3:])
+    perm = value_head_permutation(lut)
+    if perm is not None:
+        inverse = torch.empty(len(perm), dtype=torch.long)
+        inverse[torch.tensor(perm, dtype=torch.long)] = torch.arange(len(perm))
+        recurrent = recurrent[inverse]
+        head_dim = recurrent.shape[-1]
+        v_start = conv.shape[-1] - len(perm) * head_dim
+        value_block = conv[:, v_start:].reshape(-1, len(perm), head_dim)[:, inverse, :]
+        conv = torch.cat([conv[:, :v_start], value_block.reshape(conv.shape[0], -1)], dim=-1)
+    return conv, recurrent
 
 
 def read_paged_kv(lut: LayerUnderTest, user_id: int, seq_len: int):

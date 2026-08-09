@@ -354,7 +354,7 @@ matmuls flagged `SLOW`, running on 1–8 of 110 cores at 2.3–8.6 % of DRAM roo
 *same geometries* appeared elsewhere in the same profile in L1 at full occupancy:
 
 ```
-kk            b={1536} 64x128x128  DRAM  4570.3 us   4 cores   5.4 % DRAM   -> 2.98 us / batch element
+kk            b={1536} 64x128x64   DRAM  4570.3 us   4 cores   5.4 % DRAM   -> 2.98 us / batch element
 inv @ v_beta  b={1536} 64x64x128   DRAM  2867.7 us   8 cores   8.6 % DRAM   -> 1.87 us / batch element
 inv @ k_bd    b={1536} 64x64x128   DRAM  2868.1 us   8 cores   8.6 % DRAM
 tri-inverse   b={1536} 32x32x32    DRAM  1595.0 us   1 core    2.3 % DRAM   -> 1.04 us / batch element
@@ -386,32 +386,64 @@ Then **F20** took the last big layout op: the gated norm's output had to become
 F19 leaving `core` head-major, that pair is exactly the graph-fusing skill's prefill head-concat
 pattern, and `ttnn.experimental.nlp_concat_heads` does both in 0.12 ms. 53.6 → 50.2 ms.
 
+### F24 — the last composite
+
+`ttnn.repeat_interleave`, used to match the 16 key heads to the 48 value heads, is a
+**composite** too — `repeat_interleave.cpp:34-68` lowers it to
+`typecast → BFLOAT16 → untilize → concat → tilize → typecast back`. It cost **1.82 ms** of
+prefill and **30.4 µs/token** of decode, and it silently rounded the float32 `q`/`k` through
+bfloat16 — in a layer whose `mixed_qkv` is float32 by an explicit decision of the functional
+stage. It survived pass 2 because F17's probe kept it in *both* arms, so the head-split
+measurement held it constant by construction.
+
+Removing it is a host-side reorder rather than a device rewrite. Value head `j` pairs with key
+head `j // 3`, which is why the match is an interleave; reordering the value heads to
+`j' → 3*(j' % 16) + j' // 16` makes value head `j'` pair with key head `j' % 16`, and *that* is
+what a plain `concat([q, q, q])` produces. Every weight indexed by a value head moves with it at
+load time — `in_proj_qkv`'s v columns, `in_proj_z`, `in_proj_b`/`in_proj_a`, `dt_bias`, `A_log`,
+`out_proj`'s input rows and the conv taps' v block — so nothing moves at runtime; only a reader
+of the *recurrent/conv state* has to invert it, which `harness.read_linear_state` does.
+
+The concat axis matters. In prefill `q` is `[1, 16, L, 128]` and the concat is along the head
+axis, which is a leading dimension — tile-free. In decode `q` would be `[1, batch, 16, 128]`,
+where the head axis is the tile **height** and a 16-row concat is not tile-aligned; done that
+way it was *worse* (decode 2249.6 → 2280.9 µs). Concatenating the *flat* `[1, 1, batch, 2048]`
+projection along its last axis instead produces exactly the same head order at a tile-aligned
+boundary: decode 2256.7 µs and its layout ops 14 → 10 per token.
+
+PCC moved slightly **up**, consistent with removing the bfloat16 round trip: `linear_attention`
+prefill 0.999940 → 0.999944 at 2049, decode 0.999929 → 0.999936.
+
 ### What is left, honestly
 
-At 50.18 ms:
+At 48.86 ms:
 
 ```
-BinaryNg                            9.4 ms  18.7 %  196 ops - the delta rule's own elementwise work
-Ternary (addcmul, causal conv)      6.3 ms  12.6 %    3 ops
-Matmul 2048x5120x34816 (MLP)        6.1 ms  12.2 %  at roofline
-Slice                               4.7 ms   9.3 %  332 ops - the per-chunk loop and F21's grouping
-Matmul 2048x17408x5120 (MLP down)   3.3 ms   6.6 %  at roofline
-Matmul 2048x5120x10240 (in_proj_qkv) 2.2 ms  4.5 %  at roofline
-Matmul b={48} 64x128x128 (loop)     2.1 ms   4.1 %  L1, 110 cores
-UntilizeWithUnpadding               2.0 ms   3.9 %    7 ops  <- see below
-Concat                              1.9 ms   3.9 %   23 ops - F21's group joins
-Tilize                              1.5 ms   3.1 %    4 ops  <- see below
-Transpose                           1.3 ms   2.6 %   74 ops
+BinaryNg                            9.3 ms  19.1 %  196 ops - the delta rule's own elementwise work
+Ternary (addcmul, causal conv)      6.3 ms  12.9 %    3 ops
+Matmul 2048x5120x34816 (MLP)        6.1 ms  12.5 %  at the DRAM roofline
+Slice                               4.6 ms   9.5 %  332 ops - the per-chunk loop and F21's grouping
+Matmul 2048x17408x5120 (MLP down)   3.3 ms   6.8 %  at the DRAM roofline
+Matmul 2048x5120x10240 (in_proj_qkv) 2.2 ms  4.6 %  SLOW: 110 cores, 18.3 % DRAM but 62.9 % FLOP
+Matmul b={48} 64x128x128 (loop)     2.1 ms   4.2 %  L1, 110 cores
+UntilizeWithUnpadding               2.0 ms   4.0 %    7 ops  <- see below
+Concat                              1.7 ms   3.5 %   23 ops - F21's group joins and F24's repeats
+Transpose                           1.3 ms   2.7 %   74 ops
 ```
 
-The 3.5 ms of untilize/tilize is the causal conv's two remaining non-tile-aligned tap slices
-(rows 1 and 2 of `window`); TTNN implements those as untilize → slice → retilize. Doing the
-untilize **once** on a shared row-major window and retiling only the taps was implemented and
-measured: **50.38 ms versus 50.18 ms**, i.e. no better, so it was reverted — ttnn's per-slice
-path is already equivalent. `ttnn.conv1d`, the op that would remove the slicing entirely, is
-rejected in §9.6. The remaining 4.9 ms of `SLOW` time is the per-chunk loop's own small matmuls,
-which are already in L1 at 110 cores; `tt-perf-report` flags them because a `[1, 48, 64, 128]`
-matmul cannot saturate DRAM, not because they are misconfigured.
+The 2.0 ms of untilize is the causal conv's two remaining non-tile-aligned tap slices (rows 1
+and 2 of `window`), which TTNN implements as untilize → slice → retilize, plus the window
+`concat` itself. Doing the untilize **once** on a shared row-major window and retiling only the
+taps was implemented and measured: **50.38 ms versus 50.18 ms** at the time, i.e. no better, so
+it was reverted — ttnn's per-slice path is already equivalent. `ttnn.conv1d`, the op that would
+remove the slicing entirely, is rejected in §9.6.
+
+The residual `SLOW` time is 4.94 ms (10.1 %), down from 18.44 ms. It is **not** all "small L1
+matmuls that tt-perf-report mislabels": 2.24 ms of it is the `in_proj_qkv` projection
+(`2048 x 5120 x 10240`, 110 cores, 18.3 % of DRAM roofline but **62.9 % of the HiFi4 FLOP
+roofline**, fp32 output) — a fidelity/precision item for the optimization stage, not a graph
+one; 0.15 ms is F5/F18's `b|a` projection on 64 cores; the remaining ~2.55 ms is the per-chunk
+loop's own `b={48}` matmuls, which are already L1-resident on 110 cores at ~19 % DRAM.
 
 ## 9. Rejected, with the measurement
 
@@ -541,7 +573,7 @@ Commands, all from `/home/ttuser/dev/qwen/rundir` with `ttenv.sh` sourced
 (`ART=$REPO/models/autoports/qwen_qwen3_6_27b/doc/fused_decoder`):
 
 ```bash
-# full fused suite - 62 passed, 2 skipped (the long-context pair), 470.92 s
+# full fused suite - 62 passed, 2 skipped (the long-context pair), ~478 s
 python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py -v -s
 #   -> logs/suite_fused_final.log
 
@@ -558,9 +590,9 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
 export TT_METAL_LOGS_PATH=$ART/watcher TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=0 \
        TT_METAL_WATCHER_NOINLINE=1 TT_METAL_WATCHER_DISABLE_ETH=1
 python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py \
-  -k "test_traced_decode_pcc or (test_decode_pcc and 2049) or test_bfloat8_kv_cache \
-      or test_fused_graph_is_the_fused_graph" -v -s
-#   -> logs/watcher_run.log, watcher/WATCHER_AUDIT.md  (7 passed, log clean)
+  -k "test_traced_decode_pcc or (test_prefill_pcc and 2048) or (test_decode_pcc and 2049) \
+      or test_bfloat8_kv_cache or test_fused_graph_is_the_fused_graph" -v -s
+#   -> logs/watcher_run.log, watcher/WATCHER_AUDIT.md  (9 passed, log clean)
 
 # perf, one at a time, profiler build
 cd $REPO/models/autoports/qwen_qwen3_6_27b/doc/fused_decoder
@@ -579,8 +611,9 @@ numeric measurements, none worse by more than 1e-4**, mean change +7.5e-6, worst
 
 Device op counts from `ttnn.graph` capture, asserted by `test_fused_graph_is_the_fused_graph` (these cover
 the whole call including the input upload, so they are larger than the signposted perf window's
-counts): `linear_attention` prefill 996 → 1095 total but 76 → 36 layout-conversion ops (the F21
-residency trade, §8), decode 98 → 70; `full_attention` prefill 111 → 71, decode 56 → 42.
+counts): `linear_attention` prefill 996 → 1079 total but 76 → 28 layout-conversion ops (the F21
+residency trade, §8), decode 98 → 62 with layout 27 → 11; `full_attention` prefill 111 → 71,
+decode 56 → 42.
 
 ## 12. What the stage review changed
 
@@ -598,9 +631,9 @@ was done about each:
 | the RoPE saving was stated as 2.9 ms and the shared-record count as 262 | corrected to 269 µs and 258, from the CSVs and the two evidence files |
 | a Python-level op spy cannot prove a fusion | replaced with `ttnn.graph` device-op counting (`test_fused_graph_is_the_fused_graph`) |
 
-Net effect of the second pass, on top of the first: `linear_attention` prefill 78.7 → 50.2 ms,
-its decode 2395 → 2250 µs/token; `full_attention` prefill 18.28 → 17.70 ms, its decode
-2214 → 2202 µs/token.
+Net effect of the later passes, on top of the first: `linear_attention` prefill
+78.7 → 67.4 → 53.6 → 50.2 → **48.86 ms**, its decode 2395 → 2250 → **2256.7 µs/token**;
+`full_attention` prefill 18.28 → **17.67 ms**, its decode 2214 → **2205.5 µs/token**.
 
 A **third** review pass added two more findings, both acted on here: (a) §8's claim that the
 layout churn was gone was contradicted by the CSV — the "view" reshape was 2.93 ms and the conv
@@ -609,6 +642,15 @@ row-major window; (b) 20 % of the layer sat in `SLOW` 1–8-core DRAM matmuls wh
 in the same profile, which produced F21. It also corrected `test_no_runtime_host_fallback` to
 scan from the end of the module docstring (so a helper added above the first one is covered) and
 the `F5`/`F18`/matmul-share figures in `README.md`.
+
+A **fourth** pass found the last composite — `ttnn.repeat_interleave` — and that §8's residue
+sentences were still contradicted by the CSV. Both are addressed above (F24 and the rewritten
+"what is left"), together with three smaller items: `_l1_groups` now tries every divisor rather
+than only powers of two (so a ragged final chunk such as `nc = 15` at `seq_len` 5000 is split 3
+or 5 ways instead of falling through to one chunk per group); `probes/run_perf.sh` writes the
+repo commit and the `sha256` of the three decoder sources into each run's `.provenance`, so the
+measured source is pinned to the committed source; and the watcher/stress/op-count wording in
+`README.md` was brought back in line with the artifacts.
 
 ## 13. Hardware notes
 

@@ -26,27 +26,27 @@ decoder class.
 
 | layer kind | phase | functional | **fused** | Δ | ops / layout ops in window |
 |---|---|---|---|---|---|
-| `linear_attention` | prefill 2048 | 150.38 ms | **50.18 ms** | **−66.6 %** | 805 → 944 / 37 → 17 |
-| `linear_attention` | traced decode | 3035.5 µs/token | **2249.6 µs/token** | **−25.9 %** | 96 → 68 / 26 → 14 |
-| `full_attention` | prefill 2048 | 18.55 ms | **17.70 ms** | **−4.6 %** | 44 → 24 / 0 → 0 |
-| `full_attention` | traced decode | 2420.6 µs/token | **2202.2 µs/token** | **−9.0 %** | 50 → 36 / 0 → 0 |
+| `linear_attention` | prefill 2048 | 150.38 ms | **48.86 ms** | **−67.5 %** | 805 → 936 / 37 → 13 |
+| `linear_attention` | traced decode | 3035.5 µs/token | **2256.7 µs/token** | **−25.7 %** | 96 → 60 / 26 → 10 |
+| `full_attention` | prefill 2048 | 18.55 ms | **17.67 ms** | **−4.7 %** | 44 → 24 / 0 → 0 |
+| `full_attention` | traced decode | 2420.6 µs/token | **2205.5 µs/token** | **−8.9 %** | 50 → 36 / 0 → 0 |
 
-Host wall time moves the same way: `linear_attention` prefill 161.2 → 53.8 ms, its traced
-decode 3.412 → 2.302 ms/token; `full_attention` prefill 20.16 → 19.03 ms, its traced decode
-2.474 → 2.258 ms/token.
+Host wall time moves the same way: `linear_attention` prefill 161.2 → 52.3 ms, its traced
+decode 3.412 → 2.302 ms/token; `full_attention` prefill 20.16 → 19.31 ms, its traced decode
+2.474 → 2.254 ms/token.
 
 Both traced-decode paths beat the functional baseline, which is the gate this stage is measured
 on, and both are now dominated by matmuls at the DRAM roofline: **93.7 %** of a `full_attention`
-decode step and **85.5 %** of a `linear_attention` one is matmul or SDPA running at 80–84 % of
+decode step and **85.3 %** of a `linear_attention` one is matmul or SDPA running at 80–84 % of
 peak DRAM bandwidth, which no graph rewrite can move. `full_attention` prefill is the same story
-at **83.1 %**.
+at **83.3 %**.
 
-`linear_attention` prefill is the one case where the op count **rises** (805 → 944) while the
+`linear_attention` prefill is the one case where the op count **rises** (805 → 936) while the
 time falls by two thirds. That is deliberate and is the stage's largest single lever: the
 triangular inverse and the two big batched matmuls run a few chunks at a time so their operands
 fit L1, which costs extra slices and concats and buys a 24× per-batch-element speed-up on the
 matmuls themselves (F6/F21). The count that measures the *fusion* rather than the residency
-trade — layout-conversion ops — falls from 37 to 17 there, and the tests assert on that.
+trade — layout-conversion ops — falls from 37 to 13 there, and the tests assert on that.
 
 Artifacts, per layer kind, under [`tracy/`](tracy/) (fused) and [`baseline/tracy/`](baseline/tracy/)
 (functional): `<phase>_ops.csv`, `<phase>_ops.csv.provenance`, `<phase>_perf_report.txt`,
@@ -95,6 +95,7 @@ into the norm weight together with the `1/√head_k_dim` query scale.
 | F20 | head-concat of the gated norm output via `ttnn.experimental.nlp_concat_heads` | replaces a 625 µs permute + a 2.93 ms reshape with one 0.12 ms op |
 | F21 | run the triangular inverse, `kk` and `inv @ ·` a few chunks at a time so their operands fit L1 | 13.5 ms of `SLOW` 1–8-core DRAM matmuls → 4.9 ms; `linear_attention` prefill 67.4 → 53.6 ms |
 | F22 | the last conv tap **is** `mixed_qkv`, so it needs no slice | removes one untilize/slice/retilize of an 84 MB tensor |
+| F24 | reorder the value heads host-side so key↔value matching is a `concat`, not `ttnn.repeat_interleave` | that helper is a composite (`typecast → untilize → concat → tilize → typecast`) costing 1.82 ms of prefill and 30.4 µs/token of decode, and silently round-tripping the float32 `q`/`k` through bfloat16 |
 | F8 | decode conv state as `conv_kernel_size − 1` per-tap row buffers | removes 4 untilize/slice/retilize round trips per step |
 | F5 | `in_proj_b` + `in_proj_a` → one shared-LHS matmul with a fused bias | `linear_attention` decode 120.7 → 30.8 µs/token, −90 µs |
 | F18 | explicit 4×8 core grid for that small `32 × 5120 × 128` projection | 60.4 → 30.6 µs/token; still `SLOW` on 4 cores, but at 19 % of DRAM roofline instead of 9.5 % |
@@ -206,8 +207,8 @@ fused one is strictly smaller:
 
 | | prefill | decode |
 |---|---|---|
-| `linear_attention` functional → fused, all device ops | 996 → **1095** | 98 → **70** |
-| `linear_attention` functional → fused, layout-conversion ops | 76 → **36** | 27 → **15** |
+| `linear_attention` functional → fused, all device ops | 996 → **1079** | 98 → **62** |
+| `linear_attention` functional → fused, layout-conversion ops | 76 → **28** | 27 → **11** |
 | `full_attention` functional → fused, all device ops | 111 → **71** | 56 → **42** |
 | `full_attention` functional → fused, layout-conversion ops | 6 → 6 | 3 → 3 |
 
@@ -231,7 +232,7 @@ additionally asserts bit-identical prefill and decode for both kinds, as before.
 ## Watcher
 
 `TT_METAL_WATCHER=10` over both layer kinds' paged prefill, paged decode, traced decode, the
-BFP8 KV-cache path and the device-op-count comparison: **7 passed**, watcher log clean. Full
+BFP8 KV-cache path, the 2048-token prefill that carries the new L1 residency, and the device-op-count comparison: **9 passed**, watcher log clean. Full
 audit, including the exact command and the grep that finds no fatal/assert/sanitize/corruption
 lines: [`watcher/WATCHER_AUDIT.md`](watcher/WATCHER_AUDIT.md). Raw log:
 `watcher/generated/watcher/watcher.log`. Watcher and the device profiler were run separately, as
@@ -255,7 +256,10 @@ decoder module is under test) — with **one** difference, forced by F2:
   so every cache-vs-HF comparison in the suite is against HF's channel order. Every later stage
   that reads or transfers this layer's K cache must honour it.
 
-Capacity is unchanged: the advertised 262144-token context is still constructed, prefilled and
+`_mem` and `_tri_mem` fall back to DRAM above `L1_BUDGET_BYTES`; F21's `_grouped_matmul` and
+chunk-grouped inverse instead *shrink the group* until it fits, and only fall through to one
+chunk per group if no divisor works — at this model's fixed per-chunk sizes (3.9–4.7 MB) they
+always find one. Capacity is unchanged: the advertised 262144-token context is still constructed, prefilled and
 decoded at, and re-verified in this stage (`logs/long_context.log`). No memory-layout, sharding
 or KV-cache-dtype change here alters capacity — the L1 residency of F6/F15 is bounded by
 `L1_BUDGET_BYTES` and falls back to DRAM rather than failing, and the KV cache keeps its
@@ -311,12 +315,17 @@ Model-free op probes, under [`probes/`](probes/):
 * **`full_attention` decode at very long positions** — inherited unchanged; see above.
 * The bfloat16 causal conv (a further ~14 % of `linear_attention` prefill) is measured but not
   taken: it is a precision trade for the optimization stage, not a graph rewrite.
-* `linear_attention` prefill's residue is 18.7 % elementwise, 12.6 % causal-conv `addcmul`,
-  9.3 % slices (332 of them, the per-chunk loop) and 7.0 % untilize/tilize that the conv's two
-  remaining non-tile-aligned tap slices still pay. An explicit shared row-major window for those
-  taps was tried and is not faster (50.38 ms vs 50.18 ms). See [`work_log.md` §8](work_log.md).
-* 4.9 ms of `linear_attention` prefill (9.8 %) is still flagged `SLOW` by `tt-perf-report`, down
-  from 13.5 ms; the residue is the per-chunk loop's own small matmuls, which are already in L1.
+* `linear_attention` prefill's residue is 19.1 % elementwise, 12.9 % causal-conv `addcmul`,
+  9.5 % slices (332 of them — the per-chunk loop plus F21's grouping) and 4.0 % untilize that
+  the conv's two remaining non-tile-aligned tap slices still pay. An explicit shared row-major
+  window for those taps was tried and is not faster (50.38 ms vs 50.18 ms at the time).
+  See [`work_log.md` §8](work_log.md).
+* 4.9 ms of `linear_attention` prefill (10.1 %) is still flagged `SLOW` by `tt-perf-report`, down
+  from 18.4 ms. Of that, **2.24 ms is the `in_proj_qkv` matmul** (`2048 x 5120 x 10240`, 110
+  cores, 18.3 % DRAM but 62.9 % of the HiFi4 **FLOP** roofline and fp32 output) — a precision /
+  fidelity item for the optimization stage, not a graph one — 0.15 ms is F5/F18's `b|a`
+  projection, and the remaining ~2.55 ms is the per-chunk loop's own small matmuls, already in
+  L1 on 110 cores at ~19 % DRAM.
 * The `_decode_norm_config` grid search falls back to the interleaved (single-core) kernel if no
   candidate core count divides the hidden size in tiles. It does not for this model
   (5120 / 32 = 160 tiles, 10 cores), but a different hidden size could land there and would
