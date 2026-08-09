@@ -458,6 +458,8 @@ branch agentic-research/hous/qwen3.6-27b-v2
 base   837e8da3e9b
 commit 9d18c856aaa9b203804d6e5dd5e726fcec65b772   the stage (92 files)
 commit ce6565b0d7c76b09b3bb4b29450437e642b85406   the second-review fixes (section 8)
+commit a9e1fb195ef                                 this SHA record
+commit ffa9619f69d                                 the third-review fixes (section 9)
 ```
 
 Committed with an explicit pathspec so the pre-existing dirty `.agents/` and `scripts/` files —
