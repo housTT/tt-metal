@@ -29,6 +29,7 @@ things that would still pass every PCC test while the optimization silently did 
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -75,16 +76,26 @@ DISPUTED_LENGTHS = [1, 17, 64, 743, 2049, 5000]
 def _use_optimized_decoder():
     """Every test in this module builds the optimized layer, at the synthetic-weight bar."""
     previous_cls, previous_bar = H.DECODER_CLS, H.PCC_BAR
-    previous_bfp8 = base.BFP8_PCC_BAR
+    previous_bfp8, previous_kwargs = base.BFP8_PCC_BAR, H.DECODER_KWARGS
     H.DECODER_CLS = OptimizedDecoder
     H.PCC_BAR = SYNTHETIC_PCC_BAR
+    # ``OPT_DECODER_PRECISION=bfp8_gate_up`` re-runs any inherited test with the BFP8 fallback
+    # for the MLP gate/up weights.  It exists so the BFP4-versus-synthetic attribution in
+    # work_log.md section 13 can be controlled at lengths the sweep harness cannot reach, in
+    # particular the full advertised context.  Unset, nothing changes.
+    override = os.environ.get("OPT_DECODER_PRECISION", "")
+    if override == "bfp8_gate_up":
+        H.DECODER_KWARGS = {"precision": DEFAULT_PRECISION.with_(
+            name="bfp8_gate_up_control", mlp_gate_up=ttnn.bfloat8_b)}
+    elif override:
+        raise ValueError(f"unknown OPT_DECODER_PRECISION {override!r}")
     # ``test_bfloat8_kv_cache`` has its own, tighter constant for the deliberately lossier
     # BFP8-cache configuration.  On synthetic weights that stacks with the BFP4 MLP the same way
     # everything else does (0.985833 measured), so it moves with the rest.
     base.BFP8_PCC_BAR = min(previous_bfp8, SYNTHETIC_PCC_BAR)
     yield
     H.DECODER_CLS, H.PCC_BAR = previous_cls, previous_bar
-    base.BFP8_PCC_BAR = previous_bfp8
+    base.BFP8_PCC_BAR, H.DECODER_KWARGS = previous_bfp8, previous_kwargs
 
 
 # Re-collect the functional suite in this module.  The autouse fixture above is what makes the

@@ -74,7 +74,7 @@ def main():
             m_tiles = M // TILE
             for grid_y in (10, 8, 5, 4, 2):
                 per_core_M = math.ceil(m_tiles / grid_y)
-                for in0_block_w in (8, 4, 2, 1):
+                for in0_block_w in (34, 32, 20, 17, 16, 10, 8, 4, 2, 1):
                     if (k // TILE) % in0_block_w:
                         continue
                     for out_block_h in sorted(

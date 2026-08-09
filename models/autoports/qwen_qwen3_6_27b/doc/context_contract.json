@@ -271,6 +271,26 @@
         ],
         "test": "tests/test_optimized_decoder.py::test_real_weight_pcc_at_disputed_lengths",
         "note": "the inherited suite runs on synthetic weights at a 0.98 bar because BFP4 MLP weights cost 1.3e-2 of PCC on a Gaussian and 5e-4 on the real checkpoint; this test re-enforces 0.995 on the real checkpoint at exactly those lengths"
+      },
+      "bfp4_control_at_full_context": {
+        "log": "doc/optimized_decoder/logs/long_context_bfp8_control.log",
+        "command": "OPT_DECODER_PRECISION=bfp8_gate_up python -m pytest tests/test_optimized_decoder.py -k test_full_advertised_context --long-context -v -s",
+        "purpose": "controls the BFP4-versus-synthetic-weight attribution at the one length where the 0.98 synthetic bar is doing the most work",
+        "full_attention_prefill_tail_pcc": {
+          "bfp4_default": 0.9854470500680538,
+          "bfp8_control": 0.9979368311700756
+        },
+        "linear_attention_prefill_tail_pcc": {
+          "bfp4_default": 0.9965968435445749,
+          "bfp8_control": 0.9990624113256287
+        },
+        "unchanged_between_policies": [
+          "conv_state",
+          "recurrent_state",
+          "paged_k_cache",
+          "paged_v_cache"
+        ],
+        "conclusion": "the degradation is entirely the BFP4 MLP gate/up weights on a synthetic Gaussian; everything the MLP does not touch is identical to the last digit"
       }
     }
   }

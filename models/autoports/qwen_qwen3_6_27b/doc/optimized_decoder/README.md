@@ -12,21 +12,22 @@ qwen3_5`), one layer per HF layer kind, on a 1x1 Blackhole mesh.
 
 Warmed prefill of 2048 tokens and warmed **traced** decode at position 2048, batch 1, real
 Qwen3.6-27B checkpoint weights, one layer, measured in the same process on the same device
-through the same harness (`probes/sweep.py`, `logs/sweep_final_baseline.log` and
-`logs/sweep_final_default.log`):
+through the same harness (`probes/sweep.py`; baseline `logs/sweep_final_baseline.log`, optimized
+`logs/sweep_final_default.log`, both collected in the same sitting on the final code).
+The suite re-measures both independently, see "Test-suite results".
 
 | layer kind | phase | fused stage | **optimized** | speed-up |
 |---|---|---|---|---|
-| `linear_attention` | prefill 2048 | 51.77 ms | **32.12 ms** | **1.61x** |
-| `linear_attention` | traced decode | 2.281 ms | **1.098 ms** | **2.08x** |
-| `full_attention` | prefill 2048 | 20.37 ms | **9.23 ms** | **2.21x** |
+| `linear_attention` | prefill 2048 | 51.79 ms | **31.25 ms** | **1.66x** |
+| `linear_attention` | traced decode | 2.279 ms | **1.099 ms** | **2.07x** |
+| `full_attention` | prefill 2048 | 20.41 ms | **9.27 ms** | **2.20x** |
 | `full_attention` | traced decode | 2.242 ms | **1.094 ms** | **2.05x** |
 
 Accuracy against the HF reference on the same real weights, same run:
 
 | layer kind | prefill PCC | decode PCC | bar |
 |---|---|---|---|
-| `linear_attention` | 0.999432 (was 0.999967) | 0.999899 (was 0.999998) | 0.995 |
+| `linear_attention` | 0.999436 (was 0.999967) | 0.999897 (was 0.999998) | 0.995 |
 | `full_attention` | 0.999270 (was 0.999969) | 0.999651 (was 0.999993) | 0.995 |
 
 The deltas are the price of BFP4 MLP gate/up weights, BFP8 attention/gated-delta-net weights, a
@@ -34,8 +35,8 @@ BFP8 KV cache and a bfloat16 causal conv; each is attributed to its tensor group
 `work_log.md` §2, §8 and §9, and every one of them was decided on real weights.
 
 At the model's 48 `linear_attention` + 16 `full_attention` layers this is a layer stack of
-1.69 s of prefill per 2048 tokens against 2.81 s, and **70.2 ms per decoded token against
-145.4 ms** — 14.2 tok/s of layer-stack budget against 6.9. (Layer stack only: embedding, final
+1.65 s of prefill per 2048 tokens against 2.81 s, and **70.3 ms per decoded token against
+145.3 ms** — 14.2 tok/s of layer-stack budget against 6.9. (Layer stack only: embedding, final
 norm, LM head and sampling belong to the full-model stage.)
 
 ## What changed
@@ -49,8 +50,9 @@ norm, LM head and sampling belong to the full-model stage.)
 | `O6` | 2D `MatmulMultiCoreReuseMultiCast` program configs for every prefill matmul, chosen by a measured block-geometry search | prefill 17.5 → 9.3 ms (`full_attention`) |
 | `O8` | the gated-delta-net causal conv in bfloat16 instead of float32 | `linear_attention` prefill 41.9 → 32.2 ms |
 | `O9` | one reshape instead of two in the gated-delta-net decode head split | `linear_attention` decode 1.153 → 1.098 ms |
-| `O5` | `ttnn.transformer.gated_delta_attn_seq` for the gated-delta-net prefill | **rejected**: 0.9829 state PCC on real activations |
-| `O7` | packing `wgate` into `wqkv` / `in_proj_z` into `in_proj_qkv` | **rejected**: same L1 wall as packed gate/up, incompatible output dtypes |
+| `O10` | explicit program configs for the batched delta-rule matmuls | `linear_attention` prefill 32.12 → 31.18 ms |
+| `O5` | `ttnn.transformer.gated_delta_attn_seq` for the gated-delta-net prefill | **rejected**: 0.9829 state PCC on real activations, unchanged when every Python-side precision knob is raised to HiFi4/fp32 |
+| `O7` | packing `wgate` into `wqkv` / `in_proj_z` into `in_proj_qkv` | **rejected on measurement**: attention pair 5.6 us faster in decode and 466 us slower in prefill before split cost; GDN pair blocked by incompatible output dtypes |
 | — | explicit decode `SDPAProgramConfig` | **rejected**: 4-9x faster and wrong at some positions |
 
 ## Contract
@@ -88,8 +90,8 @@ headline itself, in-process, on the same weights:
 
 | | `linear_attention` | `full_attention` |
 |---|---|---|
-| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.074x** | **2.041x** |
-| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.612x** | **2.187x** |
+| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.07x** | **2.05x** |
+| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.66x** | **2.20x** |
 | worst real-weight PCC over lengths 1/17/64/743/2049/5000, prefill **and** decode | **0.997777** | **0.997501** |
 | stress, 12 back-to-back passes, min PCC | 0.996264 | 0.985865 |
 | optimized vs fused, prefill / decode | 0.996583 / 0.996898 | 0.986884 / 0.985500 |
@@ -114,7 +116,16 @@ prefill PCC, decode PCC, traced decode, the repeated-pass stress and the state/c
 One thing that looks alarming in the logs and is not: the first prefill of a new chunk length
 logs `TT_THROW: Statically allocated circular buffers ... beyond max L1 size` one or more times.
 That is `_prefill_linear` walking its candidate program configs and catching the ones that do
-not allocate — a compile-time search, cached per `(weight, M tiles)`. See `work_log.md` §6.
+not allocate — a compile-time search, cached per `(weight, M tiles)`. See `work_log.md` §6. The
+same pattern covers the batched delta-rule matmuls (`O10`, `work_log.md` §17), where a shape the
+reuse program refuses is remembered as `None` after one failed dispatch.
+
+A residual risk worth naming: that search keeps the *first* configuration that allocates, and L1
+occupancy at the moment of the first call is part of what "allocates" means. Every failure
+observed in every shipped run here is the shape-only kind (`grow to 1585920 B which is beyond
+max L1 size`), which is occupancy-independent, so the choice was deterministic — the determinism
+and 12-repeat stress tests pass bit-identically. A first call under materially different L1
+pressure could in principle pin a slower config for the rest of the process.
 
 ## Evidence
 
@@ -169,7 +180,9 @@ Two bars, deliberately:
 
 * **real weights — 0.995**, unchanged from every earlier stage, enforced by
   `test_real_weight_pcc_at_disputed_lengths` (lengths 1, 17, 64, 743, 2049, 5000, prefill and a
-  following decode step, both layer kinds) and by the inherited `test_real_weights`;
+  following decode step, both layer kinds). Note the inherited `test_real_weights` asserts
+  against `H.PCC_BAR`, which this module relaxes, so it is *not* a second 0.995 gate — the new
+  test is the only one;
 * **synthetic weights — 0.98** (`SYNTHETIC_PCC_BAR`), for the inherited suite, which runs on
   per-tensor Gaussians from `weight_stats.json`.
 
@@ -179,6 +192,13 @@ across 16 values loses least when the values are correlated and the output has d
 directions. `work_log.md` §13 has the full table both ways, the measured cost of the BFP8
 fallback, and why the structural coverage of the synthetic suite is unaffected — every real
 break seen during this stage landed at 0.24-0.50, nowhere near 0.98.
+
+The attribution is controlled at the length where it matters most rather than extrapolated:
+re-running the full 262143-token case with `OPT_DECODER_PRECISION=bfp8_gate_up` and nothing else
+changed moves the `full_attention` prefill tail from 0.985447 to **0.997937** and the
+`linear_attention` tail from 0.996597 to **0.999062**, while the conv state, the recurrent state
+and both KV caches come back **identical to the last digit**
+(`logs/long_context_bfp8_control.log`).
 
 ## Limitations
 
@@ -198,13 +218,17 @@ break seen during this stage landed at 0.24-0.50, nowhere near 0.98.
    `out_block_w < per_core_N`.** Found the hard way; the layer now pins `out_block_w` and ships
    a 60-line model-free reproducer (work_log.md §6). Worth reporting upstream.
 4. **`ttnn.transformer.gated_delta_attn_seq` is unusable at this accuracy bar**, measured at
-   0.9897 output / 0.9829 state PCC on the real layer's own activations (work_log.md §7). It is
-   the largest remaining `linear_attention` prefill opportunity and needs an upstream precision
-   change, not a Python one.
-5. **The `linear_attention` prefill's per-chunk delta-rule matmuls have no program config.**
-   `tt-perf-report` advises one; they run inside an L1-resident loop whose operand shapes change
-   with the ragged final chunk, so a fixed core grid is not obviously right. 2.6 ms of a 32 ms
-   prefill (work_log.md §11).
+   0.9897 output / 0.9829 state PCC on the real layer's own activations, and **unchanged**
+   (0.9898 / 0.9829) when every precision knob Python owns — the preprocessing matmuls and the
+   whole `L_inv` solve — is raised from HiFi2 to HiFi4 + fp32 accumulation and the final state
+   is read back in float32 (work_log.md §7). The loss is inside the C++ sequential scan, so the
+   fix is upstream. It remains the largest `linear_attention` prefill opportunity: the
+   delta-rule machinery is ~24 ms of the 30.5 ms prefill.
+5. **The `linear_attention` causal conv carries 1.9 ms of tilize/untilize** (6.3 % of its
+   prefill), because a causal convolution is a sum of row-shifted views and a row shift is never
+   tile-aligned. `ttnn.conv1d` — the op that would replace it — refuses the contract with an
+   exact L1 blocker at 10240 depthwise channels. `full_attention` prefill has no layout op at
+   all. work_log.md §18.
 6. **The synthetic-weight suite runs at a 0.98 bar**, with real-weight enforcement at 0.995
    added alongside it. See "Accuracy bars" above and `work_log.md` §13.
 7. **Single chip.** Collectives, residual layout across a mesh, fused CCL+matmul and persistent

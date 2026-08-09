@@ -1,0 +1,609 @@
+2026-08-09 07:26:43.696 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 72 items / 70 deselected / 2 selected
+
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention] <- models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py 2026-08-09 07:26:45.081 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-09 07:26:45.081 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-09 07:26:45.081 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-09 07:26:45.081 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-09 07:26:45.084 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-09 07:26:45.084 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-09 07:26:45.084 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-09 07:26:45.104 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:168)
+2026-08-09 07:26:45.104 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-09 07:26:45.104 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-09 07:26:45.104 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-09 07:26:45.104 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-09 07:26:45.104 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-09 07:26:45.111 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-09 07:26:45.168 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:404)
+2026-08-09 07:26:45.168 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-09 07:26:45.168 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2342)
+2026-08-09 07:26:45.168 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2350)
+2026-08-09 07:26:45.171 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-09 07:26:45.229 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-09 07:26:45.808 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349984 GHz, device_time_at_sync=23967665566863 cycles (realtime_profiler_manager.cpp:1127)
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_conv_state_pcc", "seq_len": 262143, "value": 0.9998795422648572}
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_recurrent_state_pcc", "seq_len": 262143, "value": 0.9996713171204474}
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 8192, "value": 0.9990624113256287}
+2026-08-09 07:31:44.515 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 192],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 07:31:44.541 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 160],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 07:31:44.543 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 544],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 07:31:44.544 | critical |          Always | TT_THROW: Statically allocated circular buffers on core range [0-0 - 7-9] grow to 1659392 B which is beyond max L1 size of 1572864 B (assert.hpp:104)
+FAILED
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention] <- models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_k_cache_pcc", "seq_len": 262143, "value": 0.9998489692671497}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_v_cache_pcc", "seq_len": 262143, "value": 0.9998555337257882}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 256, "value": 0.9979368311700756}
+2026-08-09 07:32:41.686 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 192],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 07:32:41.697 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 160],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 160], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 07:32:41.697 | warning  |              Op | Mismatch between computed MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={"shard_shape":[32, 544],"grid":[{"start":{"x":0,"y":0},"end":{"x":10,"y":1}}, {"start":{"x":0,"y":2},"end":{"x":9,"y":2}}],"orientation":"ShardOrientation::ROW_MAJOR","shard_distribution_strategy":"ShardDistributionStrategy::ROUND_ROBIN_1D"},created_with_nd_shard_spec=0) and provided MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0) mem config. Using computed config. (matmul_device_operation.cpp:865)
+2026-08-09 07:32:41.697 | critical |          Always | TT_THROW: Statically allocated circular buffers on core range [0-0 - 7-9] grow to 1659392 B which is beyond max L1 size of 1572864 B (assert.hpp:104)
+FAILED
+
+=================================== FAILURES ===================================
+________________ test_full_advertised_context[linear_attention] ________________
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 0
+request = <FixtureRequest for <Function test_full_advertised_context[linear_attention]>>
+
+    @pytest.mark.long_context
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_full_advertised_context(mesh_device, layer_idx, request):
+        """Prefill 262143 tokens and decode at position 262143, checked against the HF reference.
+    
+        A whole-prompt HF forward is impossible at this length, so the reference is built the only
+        way that stays O(seq_len):
+    
+        * ``linear_attention`` — the HF layer runs in :data:`LONG_SEGMENT`-token segments with a
+          carried ``DynamicCache``. ``Qwen3_5GatedDeltaNet`` continues exactly from a populated
+          cache (it prepends ``conv_state`` and passes ``recurrent_state`` as ``initial_state``),
+          so this is the same computation as one long call. The last segment's output, the final
+          conv/recurrent state and a following decode step are all compared.
+        * ``full_attention`` — the K/V cache is built from ``k_proj``/``v_proj`` + ``k_norm`` +
+          RoPE only (no attention), then the real HF layer runs on the last :data:`LONG_TAIL`
+          queries against that cache, followed by a decode step. The construction is validated
+          against a genuine short ``reference_prefill`` first, so it cannot silently diverge from
+          what ``Qwen3_5Attention.forward`` writes.
+    
+        This is what the earlier prefix-consistency version could not check: the first outputs of
+        a causal prefill do not depend on anything the later 250k tokens do, so comparing them
+        proved only that the run completed.
+        """
+        if not request.config.getoption("--long-context"):
+            pytest.skip("needs --long-context")
+        context = ref.load_text_config().max_position_embeddings
+        assert LONG_PROMPT + 1 == context
+        lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=context)
+        tail = LONG_TAIL[_kind(lut)]
+        stats = _stats()
+        hidden = ref.synthetic_hidden_states(lut.config, 1, LONG_PROMPT, stats)
+    
+        got = H.run_tt_prefill(lut, hidden)
+        assert got.shape == (1, LONG_PROMPT, lut.config.hidden_size)
+        assert torch.isfinite(got).all(), "long prefill produced non-finite values"
+    
+        if lut.is_full_attention:
+            # Control: the O(L) cache construction must reproduce a real short reference prefill.
+            probe_len = 512
+            probe = hidden[:, :probe_len, :].contiguous()
+            real_cache = DynamicCache(config=lut.config)
+            H.reference_prefill(lut, probe, real_cache)
+            built_cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, probe, built_cache)
+            real_k, real_v = H.reference_cache_kv(lut, real_cache, probe_len)
+            built_k, built_v = H.reference_cache_kv(lut, built_cache, probe_len)
+            assert torch.equal(real_k, built_k), "hand-built reference K cache differs from HF's"
+            assert torch.equal(real_v, built_v), "hand-built reference V cache differs from HF's"
+    
+            cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, hidden[:, : LONG_PROMPT - tail, :].contiguous(), cache)
+            golden = H.reference_prefill(lut, hidden[:, LONG_PROMPT - tail :, :].contiguous(), cache)
+    
+            keys, values = H.read_paged_kv(lut, user_id=0, seq_len=LONG_PROMPT)
+            ref_keys, ref_values = H.reference_cache_kv(lut, cache, LONG_PROMPT)
+            k_pcc, v_pcc = H.pcc(ref_keys, keys), H.pcc(ref_values, values)
+            H.record("full_context_paged_k_cache_pcc", k_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_paged_v_cache_pcc", v_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert k_pcc >= H.PCC_BAR, f"paged K cache at {LONG_PROMPT} tokens: PCC {k_pcc}"
+            assert v_pcc >= H.PCC_BAR, f"paged V cache at {LONG_PROMPT} tokens: PCC {v_pcc}"
+        else:
+            golden, cache = H.reference_prefill_segmented(lut, hidden, LONG_SEGMENT)
+            golden = golden[:, -tail:, :]
+    
+            conv_state, recurrent_state = H.read_linear_state(lut, user_id=0)
+            ref_conv = cache.layers[lut.layer_idx].conv_states[0].to(torch.float32)
+            ref_recurrent = cache.layers[lut.layer_idx].recurrent_states[0].to(torch.float32)
+            conv_pcc = H.pcc(ref_conv, conv_state.T)
+            rec_pcc = H.pcc(ref_recurrent, recurrent_state)
+            H.record("full_context_conv_state_pcc", conv_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_recurrent_state_pcc", rec_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert conv_pcc >= H.PCC_BAR, f"conv state after {LONG_PROMPT} tokens: PCC {conv_pcc}"
+            assert rec_pcc >= H.PCC_BAR, f"recurrent state after {LONG_PROMPT} tokens: PCC {rec_pcc}"
+    
+        tail_pcc = H.pcc(golden, got[:, -tail:, :])
+        H.record("full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
+        assert tail_pcc >= H.PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
+    
+        H.prepare_decode(lut)
+        token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=99)
+        golden_decode = H.reference_decode(lut, token, LONG_PROMPT, cache)
+>       decoded = H.run_tt_decode(lut, token, torch.tensor([LONG_PROMPT]))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:513: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/harness.py:442: in run_tt_decode
+    tt_out = lut.tt_layer.decode_forward(
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:2221: in decode_forward
+    _free(residual, hidden_states)
+              ^^^^^^^^^^^^^^^^^^^^^
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1239: in _mlp
+    up = ttnn.slice(interleaved, [0, 0, 0, inter], [*lead, 2 * inter])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1093: in _linear
+    return self._prefill_linear(x, weight, key, dtype=dtype, bias=bias,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.linear', function=<ttnn._ttnn.operations.matmul.linear_t object at 0x73c210186070>, preprocess_golden_function_inputs=<function default_preprocess_golden_function_inputs at 0x73c20fc4cb80>, golden_function=<function _golden_function at 0x73c20fc85a80>, postprocess_golden_function_outputs=<function default_postprocess_golden_function_outputs at 0x73c20fc4cc20>, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 4.5312e-01,  2.9102e-01,  ...,  9.2188e-01,  7.3828e-01]]]], shape=Shape([1, 1, 1, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE), ttnn.Tensor([[[[-4.8828e-04,  1.7090e-03,  ..., -9.2773e-03,  5.6152e-03],
+               [ 1.3428e-03, -6.4697e-03,  ..., -1.4648e-03,  1.1230e-02],
+               ...,
+               [ 9.0332e-03,  1.4648e-02,  ...,  3.4180e-03, -1.4648e-03],
+               [ 9.5215e-03, -1.3672e-02,  ..., -4.3945e-03,  2.8076e-03]]]], shape=Shape([1, 1, 5120, 17408]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'bias': None, 'compute_kernel_config': <ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x73c200dd8b70>, 'dtype': DataType.BFLOAT16, 'memory_config': MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:1582: tt::exception
+E               info:
+E               Statically allocated circular buffers on core range [0-0 - 7-9] grow to 1659392 B which is beyond max L1 size of 1572864 B
+E               backtrace:
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x166fe8b) [0x73c21346fe8b]
+E                --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)
+E                --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)
+E                --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&, tt::tt_metal::distributed::MeshWorkload&, bool)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x332) [0x73c2135c8462]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x17d0a18) [0x73c2135d0a18]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xf1) [0x73c2135c7cc1]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x181) [0x73c2135c66f1]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x4ea) [0x73c2135c561a]
+E                --- ttnn::prim::matmul(tt::tt_metal::Tensor const&, tt::tt_metal::Tensor const&, std::optional<tt::tt_metal::Tensor> const&, std::optional<tt::tt_metal::Tensor> const&, ttnn::prim::MatmulParams const&)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x1757117) [0x73c213557117]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKN2tt8tt_metal6TensorES6_RKSt8optionalIS5_EbbRKS7_IKNS3_12MemoryConfigEES7_IKNS3_8DataTypeEERKS7_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS7_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES7_IKNS_19ComputeKernelConfigEES7_IKNS_5types8CoreGridEERKS7_IKNS3_4TileEES7_IS4_ERKS7_IKNS3_12experimental20GlobalCircularBufferEERKS7_IN4ttsl10StrongTypeIhNS3_14SubDeviceIdTagEEEE+0x342) [0x73c213558972]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x5143e5) [0x73c2141143e5]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x51403f) [0x73c21411403f]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x73c213f3b045]
+E                --- python(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+E                --- python() [0x5a31b8]
+E                --- python(PyObject_Call+0x6c) [0x54b0ac]
+E                --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(PyObject_Call+0x6c) [0x54b0ac]
+E                --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(PyEval_EvalCode+0x15b) [0x5d544b]
+E                --- python() [0x5d2fdc]
+E                --- python() [0x581add]
+E                --- python(PyObject_Vectorcall+0x35) [0x549935]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python() [0x6bce82]
+E                --- python(Py_RunMain+0x232) [0x6bcab2]
+E                --- python(Py_BytesMain+0x2d) [0x6bc71d]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73c25a02a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73c25a02a28b]
+E                --- python(_start+0x25) [0x657bc5]
+
+../../../.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: RuntimeError
+_________________ test_full_advertised_context[full_attention] _________________
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+request = <FixtureRequest for <Function test_full_advertised_context[full_attention]>>
+
+    @pytest.mark.long_context
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_full_advertised_context(mesh_device, layer_idx, request):
+        """Prefill 262143 tokens and decode at position 262143, checked against the HF reference.
+    
+        A whole-prompt HF forward is impossible at this length, so the reference is built the only
+        way that stays O(seq_len):
+    
+        * ``linear_attention`` — the HF layer runs in :data:`LONG_SEGMENT`-token segments with a
+          carried ``DynamicCache``. ``Qwen3_5GatedDeltaNet`` continues exactly from a populated
+          cache (it prepends ``conv_state`` and passes ``recurrent_state`` as ``initial_state``),
+          so this is the same computation as one long call. The last segment's output, the final
+          conv/recurrent state and a following decode step are all compared.
+        * ``full_attention`` — the K/V cache is built from ``k_proj``/``v_proj`` + ``k_norm`` +
+          RoPE only (no attention), then the real HF layer runs on the last :data:`LONG_TAIL`
+          queries against that cache, followed by a decode step. The construction is validated
+          against a genuine short ``reference_prefill`` first, so it cannot silently diverge from
+          what ``Qwen3_5Attention.forward`` writes.
+    
+        This is what the earlier prefix-consistency version could not check: the first outputs of
+        a causal prefill do not depend on anything the later 250k tokens do, so comparing them
+        proved only that the run completed.
+        """
+        if not request.config.getoption("--long-context"):
+            pytest.skip("needs --long-context")
+        context = ref.load_text_config().max_position_embeddings
+        assert LONG_PROMPT + 1 == context
+        lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=context)
+        tail = LONG_TAIL[_kind(lut)]
+        stats = _stats()
+        hidden = ref.synthetic_hidden_states(lut.config, 1, LONG_PROMPT, stats)
+    
+        got = H.run_tt_prefill(lut, hidden)
+        assert got.shape == (1, LONG_PROMPT, lut.config.hidden_size)
+        assert torch.isfinite(got).all(), "long prefill produced non-finite values"
+    
+        if lut.is_full_attention:
+            # Control: the O(L) cache construction must reproduce a real short reference prefill.
+            probe_len = 512
+            probe = hidden[:, :probe_len, :].contiguous()
+            real_cache = DynamicCache(config=lut.config)
+            H.reference_prefill(lut, probe, real_cache)
+            built_cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, probe, built_cache)
+            real_k, real_v = H.reference_cache_kv(lut, real_cache, probe_len)
+            built_k, built_v = H.reference_cache_kv(lut, built_cache, probe_len)
+            assert torch.equal(real_k, built_k), "hand-built reference K cache differs from HF's"
+            assert torch.equal(real_v, built_v), "hand-built reference V cache differs from HF's"
+    
+            cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, hidden[:, : LONG_PROMPT - tail, :].contiguous(), cache)
+            golden = H.reference_prefill(lut, hidden[:, LONG_PROMPT - tail :, :].contiguous(), cache)
+    
+            keys, values = H.read_paged_kv(lut, user_id=0, seq_len=LONG_PROMPT)
+            ref_keys, ref_values = H.reference_cache_kv(lut, cache, LONG_PROMPT)
+            k_pcc, v_pcc = H.pcc(ref_keys, keys), H.pcc(ref_values, values)
+            H.record("full_context_paged_k_cache_pcc", k_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_paged_v_cache_pcc", v_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert k_pcc >= H.PCC_BAR, f"paged K cache at {LONG_PROMPT} tokens: PCC {k_pcc}"
+            assert v_pcc >= H.PCC_BAR, f"paged V cache at {LONG_PROMPT} tokens: PCC {v_pcc}"
+        else:
+            golden, cache = H.reference_prefill_segmented(lut, hidden, LONG_SEGMENT)
+            golden = golden[:, -tail:, :]
+    
+            conv_state, recurrent_state = H.read_linear_state(lut, user_id=0)
+            ref_conv = cache.layers[lut.layer_idx].conv_states[0].to(torch.float32)
+            ref_recurrent = cache.layers[lut.layer_idx].recurrent_states[0].to(torch.float32)
+            conv_pcc = H.pcc(ref_conv, conv_state.T)
+            rec_pcc = H.pcc(ref_recurrent, recurrent_state)
+            H.record("full_context_conv_state_pcc", conv_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_recurrent_state_pcc", rec_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert conv_pcc >= H.PCC_BAR, f"conv state after {LONG_PROMPT} tokens: PCC {conv_pcc}"
+            assert rec_pcc >= H.PCC_BAR, f"recurrent state after {LONG_PROMPT} tokens: PCC {rec_pcc}"
+    
+        tail_pcc = H.pcc(golden, got[:, -tail:, :])
+        H.record("full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
+        assert tail_pcc >= H.PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
+    
+        H.prepare_decode(lut)
+        token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=99)
+        golden_decode = H.reference_decode(lut, token, LONG_PROMPT, cache)
+>       decoded = H.run_tt_decode(lut, token, torch.tensor([LONG_PROMPT]))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:513: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/harness.py:442: in run_tt_decode
+    tt_out = lut.tt_layer.decode_forward(
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:2221: in decode_forward
+    _free(residual, hidden_states)
+              ^^^^^^^^^^^^^^^^^^^^^
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1239: in _mlp
+    up = ttnn.slice(interleaved, [0, 0, 0, inter], [*lead, 2 * inter])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1093: in _linear
+    return self._prefill_linear(x, weight, key, dtype=dtype, bias=bias,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.linear', function=<ttnn._ttnn.operations.matmul.linear_t object at 0x73c210186070>, preprocess_golden_function_inputs=<function default_preprocess_golden_function_inputs at 0x73c20fc4cb80>, golden_function=<function _golden_function at 0x73c20fc85a80>, postprocess_golden_function_outputs=<function default_postprocess_golden_function_outputs at 0x73c20fc4cc20>, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 4.3213e-02, -2.3145e-01,  ...,  9.3750e-02, -8.0859e-01]]]], shape=Shape([1, 1, 1, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE), ttnn.Tensor([[[[-4.8828e-04,  1.7090e-03,  ..., -1.0010e-02,  6.1035e-03],
+               [ 1.4648e-03, -7.0801e-03,  ..., -1.4648e-03,  1.2207e-02],
+               ...,
+               [ 9.7656e-03,  1.6113e-02,  ...,  3.9062e-03, -1.4648e-03],
+               [ 1.0254e-02, -1.4893e-02,  ..., -4.7607e-03,  3.0518e-03]]]], shape=Shape([1, 1, 5120, 17408]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'bias': None, 'compute_kernel_config': <ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x73c1feb83240>, 'dtype': DataType.BFLOAT16, 'memory_config': MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{"start":{"x":0,"y":0},"end":{"x":7,"y":3}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:1582: tt::exception
+E               info:
+E               Statically allocated circular buffers on core range [0-0 - 7-9] grow to 1659392 B which is beyond max L1 size of 1572864 B
+E               backtrace:
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x166fe8b) [0x73c21346fe8b]
+E                --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)
+E                --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)
+E                --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&, tt::tt_metal::distributed::MeshWorkload&, bool)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x332) [0x73c2135c8462]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29handle_mesh_adapter_cache_hitITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xb6) [0x73c2135c7b76]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x166) [0x73c2135c66d6]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x4ea) [0x73c2135c561a]
+E                --- ttnn::prim::matmul(tt::tt_metal::Tensor const&, tt::tt_metal::Tensor const&, std::optional<tt::tt_metal::Tensor> const&, std::optional<tt::tt_metal::Tensor> const&, ttnn::prim::MatmulParams const&)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x1757117) [0x73c213557117]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKN2tt8tt_metal6TensorES6_RKSt8optionalIS5_EbbRKS7_IKNS3_12MemoryConfigEES7_IKNS3_8DataTypeEERKS7_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS7_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES7_IKNS_19ComputeKernelConfigEES7_IKNS_5types8CoreGridEERKS7_IKNS3_4TileEES7_IS4_ERKS7_IKNS3_12experimental20GlobalCircularBufferEERKS7_IN4ttsl10StrongTypeIhNS3_14SubDeviceIdTagEEEE+0x342) [0x73c213558972]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x5143e5) [0x73c2141143e5]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x51403f) [0x73c21411403f]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x73c213f3b045]
+E                --- python(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+E                --- python() [0x5a31b8]
+E                --- python(PyObject_Call+0x6c) [0x54b0ac]
+E                --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(PyObject_Call+0x6c) [0x54b0ac]
+E                --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- python() [0x5a31b8]
+E                --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python(PyEval_EvalCode+0x15b) [0x5d544b]
+E                --- python() [0x5d2fdc]
+E                --- python() [0x581add]
+E                --- python(PyObject_Vectorcall+0x35) [0x549935]
+E                --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- python() [0x6bce82]
+E                --- python(Py_RunMain+0x232) [0x6bcab2]
+E                --- python(Py_BytesMain+0x2d) [0x6bc71d]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73c25a02a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73c25a02a28b]
+E                --- python(_start+0x25) [0x657bc5]
+
+../../../.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: RuntimeError
+=============================== warnings summary ===============================
+../../../.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen/rundir/generated/test_reports/most_recent_tests.xml -
+============================== slowest durations ===============================
+298.60s call     models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+56.67s call     models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention]
+0.86s setup    models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+0.12s setup    models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention]
+0.00s teardown models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention]
+=========================== short test summary info ============================
+FAILED ../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[linear_attention] - RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:1582: tt::exception
+info:
+Statically allocated circular buffers on core range [0-0 - 7-9] grow to 1659392 B which is beyond max L1 size of 1572864 B
+backtrace:
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x166fe8b) [0x73c21346fe8b]
+ --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)
+ --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)
+ --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&, tt::tt_metal::distributed::MeshWorkload&, bool)
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x332) [0x73c2135c8462]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x17d0a18) [0x73c2135d0a18]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xf1) [0x73c2135c7cc1]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x181) [0x73c2135c66f1]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x4ea) [0x73c2135c561a]
+ --- ttnn::prim::matmul(tt::tt_metal::Tensor const&, tt::tt_metal::Tensor const&, std::optional<tt::tt_metal::Tensor> const&, std::optional<tt::tt_metal::Tensor> const&, ttnn::prim::MatmulParams const&)
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x1757117) [0x73c213557117]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKN2tt8tt_metal6TensorES6_RKSt8optionalIS5_EbbRKS7_IKNS3_12MemoryConfigEES7_IKNS3_8DataTypeEERKS7_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS7_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES7_IKNS_19ComputeKernelConfigEES7_IKNS_5types8CoreGridEERKS7_IKNS3_4TileEES7_IS4_ERKS7_IKNS3_12experimental20GlobalCircularBufferEERKS7_IN4ttsl10StrongTypeIhNS3_14SubDeviceIdTagEEEE+0x342) [0x73c213558972]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x5143e5) [0x73c2141143e5]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x51403f) [0x73c21411403f]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x73c213f3b045]
+ --- python(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+ --- python() [0x5a31b8]
+ --- python(PyObject_Call+0x6c) [0x54b0ac]
+ --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(PyObject_Call+0x6c) [0x54b0ac]
+ --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(PyEval_EvalCode+0x15b) [0x5d544b]
+ --- python() [0x5d2fdc]
+ --- python() [0x581add]
+ --- python(PyObject_Vectorcall+0x35) [0x549935]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python() [0x6bce82]
+ --- python(Py_RunMain+0x232) [0x6bcab2]
+ --- python(Py_BytesMain+0x2d) [0x6bc71d]
+ --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73c25a02a1ca]
+ --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73c25a02a28b]
+ --- python(_start+0x25) [0x657bc5]
+FAILED ../tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context[full_attention] - RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:1582: tt::exception
+info:
+Statically allocated circular buffers on core range [0-0 - 7-9] grow to 1659392 B which is beyond max L1 size of 1572864 B
+backtrace:
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x166fe8b) [0x73c21346fe8b]
+ --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)
+ --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)
+ --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&, tt::tt_metal::distributed::MeshWorkload&, bool)
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x332) [0x73c2135c8462]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29handle_mesh_adapter_cache_hitITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xb6) [0x73c2135c7b76]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x166) [0x73c2135c66d6]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x4ea) [0x73c2135c561a]
+ --- ttnn::prim::matmul(tt::tt_metal::Tensor const&, tt::tt_metal::Tensor const&, std::optional<tt::tt_metal::Tensor> const&, std::optional<tt::tt_metal::Tensor> const&, ttnn::prim::MatmulParams const&)
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x1757117) [0x73c213557117]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKN2tt8tt_metal6TensorES6_RKSt8optionalIS5_EbbRKS7_IKNS3_12MemoryConfigEES7_IKNS3_8DataTypeEERKS7_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS7_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES7_IKNS_19ComputeKernelConfigEES7_IKNS_5types8CoreGridEERKS7_IKNS3_4TileEES7_IS4_ERKS7_IKNS3_12experimental20GlobalCircularBufferEERKS7_IN4ttsl10StrongTypeIhNS3_14SubDeviceIdTagEEEE+0x342) [0x73c213558972]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x5143e5) [0x73c2141143e5]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x51403f) [0x73c21411403f]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x73c213f3b045]
+ --- python(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+ --- python() [0x5a31b8]
+ --- python(PyObject_Call+0x6c) [0x54b0ac]
+ --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(PyObject_Call+0x6c) [0x54b0ac]
+ --- python(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+ --- python() [0x5a31b8]
+ --- python(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python(PyEval_EvalCode+0x15b) [0x5d544b]
+ --- python() [0x5d2fdc]
+ --- python() [0x581add]
+ --- python(PyObject_Vectorcall+0x35) [0x549935]
+ --- python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- python() [0x6bce82]
+ --- python(Py_RunMain+0x232) [0x6bcab2]
+ --- python(Py_BytesMain+0x2d) [0x6bc71d]
+ --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73c25a02a1ca]
+ --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73c25a02a28b]
+ --- python(_start+0x25) [0x657bc5]
+=========== 2 failed, 70 deselected, 3 warnings in 357.84s (0:05:57) ===========
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x73c2101b1cc8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x73c2101450c8 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 247 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "num_program_cache_entries"
+ - leaked function ""
+ - leaked function "__eq__"
+ - leaked function "to_json"
+ - leaked function "disable_and_clear_program_cache"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-09 07:32:43.631 | info     |    BuildKernels | JIT cache stats: 1227/1227 hits (100.0%) [1227 cached, 917 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-09 07:32:43.631 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-09 07:32:43.645 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-09 07:32:43.645 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-09 07:32:43.734 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-09 07:32:43.734 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-09 07:32:43.734 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

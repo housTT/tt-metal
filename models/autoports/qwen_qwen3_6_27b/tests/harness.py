@@ -25,6 +25,11 @@ LINEAR_LAYER_IDX = 0
 FULL_LAYER_IDX = 3
 PCC_BAR = 0.995
 
+#: Extra keyword arguments :func:`build_layer` passes to ``from_state_dict``.  Test modules set
+#: this to reach implementation-specific constructor options - the optimized decoder's
+#: ``precision`` policy - without every inherited test body having to know about them.
+DECODER_KWARGS: dict = {}
+
 #: Decoder implementation :func:`build_layer` instantiates when no ``decoder_cls`` is given.
 #: ``tests/test_fused_decoder.py`` re-points this at ``FusedDecoder`` so the whole functional
 #: suite runs unchanged against the fused layer.
@@ -164,7 +169,7 @@ def build_layer(
         max_seq_len=max_seq_len,
         block_size=block_size,
         **({} if cache_dtype is None else {"cache_dtype": cache_dtype}),
-        **(decoder_kwargs or {}),
+        **{**DECODER_KWARGS, **(decoder_kwargs or {})},
     )
 
     page_table_torch = None

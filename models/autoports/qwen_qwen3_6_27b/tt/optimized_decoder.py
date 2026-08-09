@@ -85,6 +85,11 @@ _NEG_INF_MASK = -1.0e9
 #: Number of DRAM banks a Blackhole chip exposes; the width a DRAM-sharded weight is cut into.
 DRAM_BANKS = 8
 
+#: Compute grid for the batched delta-rule matmuls (``O10``).  48 cores for 48 value heads, so
+#: each core owns one head's matmul; measured against 8x8, 4x8 and 8x4 in
+#: ``logs/probe_gdn_prefill_ops.log``.
+BATCHED_MATMUL_GRID = (8, 6)
+
 #: ``(x, y)`` compute grid for the 2D prefill matmul program configs (``O6``).  Blackhole's
 #: worker grid is 11x10; the reference Qwen3.6 implementation
 #: (``models/demos/blackhole/qwen36/tt/tp_common.py:prefill_grid_default``) uses 8x10 and warns
@@ -128,11 +133,14 @@ class TopologyOptions:
     #: output slices and halves ``per_core_N``.
     pack_gate_up: bool = False
 
-    #: ``O6``: 2D ``MatmulMultiCoreReuseMultiCast`` program configs for the large prefill
-    #: matmuls instead of the ttnn-chosen default program.  Off by default: the ttnn-chosen
-    #: program already spreads these matmuls over all 110 Blackhole workers at 63-68 % of the
-    #: FLOP roofline, and an explicit 8x10 config has to shrink the output block to fit L1,
-    #: which measured slower.  See work_log.md O6 for the numbers and the L1 arithmetic.
+    #: ``O6``: 2D ``MatmulMultiCoreReuseMultiCast`` program configs for large prefill matmuls
+    #: whose weight is **interleaved**.  This flag is only consulted in that case: a
+    #: DRAM-width-sharded weight (which is what ``dram_sharded_decode`` produces, and the
+    #: default) *requires* an explicit config, because ttnn's auto-selected prefill program
+    #: rejects a sharded ``input_tensor_b`` outright.  It is off by default because the only
+    #: configuration that reaches it is the ``dram_sharded_decode=False`` fallback, where it is
+    #: measured separately - 50.51 -> 42.98 ms and 17.53 -> 10.32 ms of prefill, so it helps
+    #: there too.  See work_log.md O6.
     prefill_program_configs: bool = False
 
     #: Target core count for the width-sharded decode activation grids.  ``0`` asks
@@ -575,6 +583,9 @@ class OptimizedDecoder(LightweightModule):
         self._decode_plans = decode_matmul_plans(shapes, max_batch, topology)
         #: Prefill program configs proven to allocate, keyed by (weight, M tiles).
         self._prefill_pc_cache: dict = {}
+        #: ``O10`` program configs for the batched delta-rule matmuls, keyed by shape.  ``None``
+        #: records a shape the reuse program refused, so it is tried once and not again.
+        self._batched_pc_cache: dict = {}
         #: ``O1``: the state math of the gated delta rule keeps HiFi4 + fp32 accumulation.  The
         #: functional stage measured real catastrophic cancellation in the triangular inverse,
         #: and this path is a few percent of decode time, so there is nothing to win by
@@ -1557,15 +1568,87 @@ class OptimizedDecoder(LightweightModule):
         v = ttnn.slice(conv_out, [*starts, 2 * s.key_dim], [*lead, s.conv_dim])
         return q, k, v
 
-    def _mm(self, a, b, memory_config=None, transpose_b=False):
-        return ttnn.matmul(
-            a,
-            b,
-            dtype=ttnn.float32,
-            compute_kernel_config=self.compute_cfg,
-            memory_config=memory_config,
-            transpose_b=transpose_b,
+    def _batched_program_config(self, a, b, transpose_a: bool, transpose_b: bool):
+        """``O10``: an explicit program config for the batched delta-rule matmuls, or ``None``.
+
+        ``tt-perf-report`` flags every one of these with "No program_config specified, try using
+        one to override in0_block_w and out_subblock_h/w" - 96 rows and 2.5 ms of a 30.5 ms
+        ``linear_attention`` prefill.  Measured on the two shapes that carry the advice
+        (``probes/probe_gdn_prefill_ops.py``, ``logs/probe_gdn_prefill_ops.log``), bit-identical
+        output (PCC 1.0):
+
+        ===============================  =========  ==========================
+        shape                            default    best explicit
+        ===============================  =========  ==========================
+        ``b=48 x 64 x 128 x 64``         17.55 us   **9.30 us** (8x6 grid)
+        ``b=48 x 64 x 64 x 128``         14.55 us   **9.21 us** (8x6 grid)
+        ===============================  =========  ==========================
+
+        ``MatmulMultiCoreReuse`` is the batched (non-multicast) program: it wants
+        ``per_core_N`` to be the whole N and ``per_core_M`` to divide M, which these shapes
+        satisfy exactly.  The 8x6 = 48-core grid matches the 48 value heads, so each core owns
+        one head's matmul.  Shapes the program refuses are cached as ``None`` and fall back to
+        the ttnn-chosen program, so a shape this does not fit costs one failed dispatch once.
+        """
+        shape_a, shape_b = _shape(a), _shape(b)
+        if len(shape_a) != 4 or len(shape_b) != 4:
+            return None
+        m = shape_a[-1] if transpose_a else shape_a[-2]
+        n = shape_b[-2] if transpose_b else shape_b[-1]
+        k = shape_a[-2] if transpose_a else shape_a[-1]
+        if m % ttnn.TILE_SIZE or n % ttnn.TILE_SIZE or k % ttnn.TILE_SIZE:
+            return None
+        key = (m, k, n, transpose_a, transpose_b)
+        if key in self._batched_pc_cache:
+            return self._batched_pc_cache[key]
+        n_tiles = n // ttnn.TILE_SIZE
+        config = ttnn.MatmulMultiCoreReuseProgramConfig(
+            compute_with_storage_grid_size=BATCHED_MATMUL_GRID,
+            in0_block_w=1,
+            out_subblock_h=1,
+            out_subblock_w=next(w for w in (4, 3, 2, 1) if n_tiles % w == 0),
+            per_core_M=m // ttnn.TILE_SIZE,
+            per_core_N=n_tiles,
         )
+        self._batched_pc_cache[key] = config
+        return config
+
+    def _mm(self, a, b, memory_config=None, transpose_b=False, transpose_a=False):
+        """One delta-rule matmul, with ``O10``'s program config where the shape allows it."""
+        program_config = self._batched_program_config(a, b, transpose_a, transpose_b)
+        try:
+            return ttnn.matmul(
+                a,
+                b,
+                dtype=ttnn.float32,
+                compute_kernel_config=self.compute_cfg,
+                memory_config=memory_config,
+                transpose_a=transpose_a,
+                transpose_b=transpose_b,
+                **({} if program_config is None else {"program_config": program_config}),
+            )
+        except RuntimeError:
+            if program_config is None:
+                raise
+            # The reuse program refused this shape; remember that and use the default.
+            self._batched_pc_cache[
+                (
+                    _shape(a)[-1] if transpose_a else _shape(a)[-2],
+                    _shape(a)[-2] if transpose_a else _shape(a)[-1],
+                    _shape(b)[-2] if transpose_b else _shape(b)[-1],
+                    transpose_a,
+                    transpose_b,
+                )
+            ] = None
+            return ttnn.matmul(
+                a,
+                b,
+                dtype=ttnn.float32,
+                compute_kernel_config=self.compute_cfg,
+                memory_config=memory_config,
+                transpose_a=transpose_a,
+                transpose_b=transpose_b,
+            )
 
     def _unit_tri_inverse(self, a, size: int):
         """``(I - a)**-1`` for strictly-lower-triangular ``a`` of shape ``[n, heads, size, size]``.
@@ -1840,13 +1923,7 @@ class OptimizedDecoder(LightweightModule):
             outputs.append(out_i)
 
             decayed_state = ttnn.multiply(state, gl_i)
-            update = ttnn.matmul(
-                kd_i,
-                v_new,
-                transpose_a=True,
-                dtype=ttnn.float32,
-                compute_kernel_config=self.compute_cfg,
-            )
+            update = self._mm(kd_i, v_new, transpose_a=True)
             ttnn.deallocate(v_new)
             new_state = ttnn.add(decayed_state, update)
             ttnn.deallocate(decayed_state)
@@ -1934,7 +2011,7 @@ class OptimizedDecoder(LightweightModule):
         q_flat, k_flat, v_flat = self._split_qkv(conv_out)
         ttnn.deallocate(conv_out)
 
-        def to_heads(flat, num_heads, head_dim, repeat: int):
+        def to_heads(flat, head_dim, repeat: int):
             # F24: repeat on the *flat* tensor's last axis, which is tile-aligned, rather than on
             # the head axis of [1, batch, 16, 128] - a 16-row concat is not tile-aligned and
             # TTNN pays for it with an untilize/retilize.  Concatenating [q | q | q] column-wise
@@ -1942,16 +2019,16 @@ class OptimizedDecoder(LightweightModule):
             if repeat > 1:
                 wide = ttnn.concat([flat] * repeat, dim=-1)
                 _free(flat, wide)
-                flat, num_heads = wide, num_heads * repeat
+                flat = wide
             # ``O9``: one reshape, not two.  Both are row-major views of the same flat buffer,
             # so the intermediate ``[1, batch, heads, head_dim]`` step is redundant - and it is
             # not free: this is a last-dim change, which TTNN implements as untilize + retilize.
             # The ten decode reshapes were 103.5 us of a 1132 us step before this.
             return ttnn.reshape(flat, (1, batch * nv, 1, head_dim))
 
-        q = to_heads(q_flat, s.num_k_heads, s.head_k_dim, s.v_per_k)
-        k = to_heads(k_flat, s.num_k_heads, s.head_k_dim, s.v_per_k)
-        v = to_heads(v_flat, nv, s.head_v_dim, 1)
+        q = to_heads(q_flat, s.head_k_dim, s.v_per_k)
+        k = to_heads(k_flat, s.head_k_dim, s.v_per_k)
+        v = to_heads(v_flat, s.head_v_dim, 1)
         _free(q_flat, q)
         _free(k_flat, k)
         _free(v_flat, v)
@@ -1971,14 +2048,7 @@ class OptimizedDecoder(LightweightModule):
         ttnn.deallocate(kv_mem)
         ttnn.deallocate(v)
         ttnn.deallocate(beta_h)
-        update = ttnn.matmul(
-            k,
-            delta,
-            transpose_a=True,
-            dtype=ttnn.float32,
-            compute_kernel_config=self.compute_cfg,
-            memory_config=mem,
-        )
+        update = self._mm(k, delta, memory_config=mem, transpose_a=True)
         ttnn.deallocate(delta)
         ttnn.deallocate(k)
         new_state = ttnn.add(state, update, memory_config=mem)
