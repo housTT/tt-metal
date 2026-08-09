@@ -59,7 +59,8 @@ norm, LM head and sampling belong to the full-model stage.)
 | `O5` | `ttnn.transformer.gated_delta_attn_seq` for the gated-delta-net prefill | **rejected**: 0.9829 state PCC on real activations, unchanged when every Python-side precision knob is raised to HiFi4/fp32 |
 | `O7` | packing `wgate` into `wqkv` / `in_proj_z` into `in_proj_qkv` | **rejected on measurement**: attention pair 5.6 us faster in decode and 466 us slower in prefill before split cost; GDN pair blocked by incompatible output dtypes |
 | — | explicit decode `SDPAProgramConfig` | **rejected**: 4-9x faster and wrong at some positions |
-| — | BFP4 attention/GDN output projections | **rejected on real weights**: 0.993815 prefill / 0.994999 decode at seq 17 on `full_attention`, below the 0.995 bar — caught by `test_real_weight_pcc_at_disputed_lengths` after the 2048-token measurement said it was fine (`work_log.md` §9) |
+| — | BFP4 `attn_out` | **rejected on real weights**: 0.993815 prefill / 0.994999 decode at seq 17 on `full_attention`, below the 0.995 bar — caught by `test_real_weight_pcc_at_disputed_lengths` after the 2048-token measurement said it was fine (`work_log.md` §9) |
+| — | BFP4 `gdn_out` | **rejected on real weights**, on its own layer kind's numbers: worth 7.3 us of `linear_attention` decode and above the bar on every single-draw measurement, but 0.994194 worst over six decode-token draws at seq 743, below the bar on three of the six (`work_log.md` §9) |
 | — | `proj_fp32_acc=False` | **rejected on real weights**: worth 0.5 % of decode, but over six decode-token draws at seq 743 it takes `linear_attention`'s worst real-weight decode PCC from 0.996689 to 0.995077 — onto the 0.995 bar — and puts two synthetic structural cases at 0.9789 against the 0.98 bar (`work_log.md` §9) |
 | `O12` | the gated-delta-net chunk loop's recurrent state in L1 | `linear_attention` prefill 30.96 → 29.13 ms |
 | `O13` | the per-chunk total decay as a reduction instead of a last-row slice of the cumulative sum | `linear_attention` prefill 29.13 → 28.85 ms; 309 us of untilize/slice/tilize removed |
@@ -96,15 +97,15 @@ a later full-model stage wants exactly that layout at the layer boundary.
 
 ## Test-suite results
 
-`tests/test_optimized_decoder.py`: **72 passed, 2 skipped, 3 warnings in 736.65s (0:12:16)** (`logs/suite_main.log`). The
+`tests/test_optimized_decoder.py`: **72 passed, 2 skipped, 3 warnings in 758.77s (0:12:38)** (`logs/suite_main.log`). The
 two skips are the `--long-context` cases, run separately below. The suite re-measures the
 headline itself, in-process, on the same weights:
 
 | | `linear_attention` | `full_attention` |
 |---|---|---|
-| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.076x** | **2.040x** |
-| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.794x** | **2.210x** |
-| worst real-weight PCC over lengths 1/17/64/743/2049/5000, prefill **and** decode | **0.997799** | **0.997501** |
+| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.074x** | **2.039x** |
+| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.785x** | **2.179x** |
+| worst real-weight PCC over lengths 1/17/64/743/2049/5000, prefill **and** decode | **0.996689** | **0.996181** |
 | stress, 12 back-to-back passes, min PCC | 0.996257 | 0.985865 |
 | optimized vs fused, prefill / decode | 0.996582 / 0.996900 | 0.986884 / 0.985500 |
 | BF16/HiFi4 structural prefill, worst over the same lengths (bar 0.999) | 0.999898 | 0.999434 |
@@ -276,8 +277,11 @@ Every item, where it was addressed, and the evidence. "N/A" carries a reason, no
    (0.9898 / 0.9829) when every precision knob Python owns — the preprocessing matmuls and the
    whole `L_inv` solve — is raised from HiFi2 to HiFi4 + fp32 accumulation and the final state
    is read back in float32 (work_log.md §7). The loss is inside the C++ sequential scan, so the
-   fix is upstream. It remains the largest `linear_attention` prefill opportunity: the
-   delta-rule machinery is ~24 ms of the 28.9 ms prefill.
+   fix is upstream. Earlier revisions called it the largest `linear_attention` prefill
+   opportunity; timing it says otherwise — the adapted path costs **28.89 ms warmed** at 2048
+   tokens against 27.11 ms of device time for the *entire* shipped layer, so as it stands it is
+   not a latency win either. A fused sequential scan is still the right shape for this problem;
+   this one is neither accurate enough nor, as adapted, faster.
 5. **The `linear_attention` causal conv carries 1.61 ms of tilize/untilize** (5.6 % of its
    prefill, over 11 ops), because a causal convolution is a sum of row-shifted views and a row
    shift is never tile-aligned. `ttnn.conv1d` — the op that would replace it — refuses the

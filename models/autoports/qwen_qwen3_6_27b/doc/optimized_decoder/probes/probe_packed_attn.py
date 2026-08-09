@@ -144,6 +144,34 @@ def main():
                         emit(phase="prefill", family=label, total_us=round(total, 1),
                              pcc=pcc(golden, merged[:, : golden.shape[-1]]))
             ttnn.deallocate(x_dram)
+
+        # ---- the consumer path, which is what an earlier revision estimated rather than measured.
+        #
+        # Separate: `qkv` is width-sharded in L1 and has to reach `nlp_create_qkv_heads_decode`
+        # interleaved, so it pays one sharded-to-interleaved on 8192 columns; `gate` stays in
+        # `o_proj`'s activation shard and pays nothing.
+        # Packed: the single 14336-wide output pays the same conversion on 1.75x the columns and
+        # then two width slices to separate the halves.
+        m = 32
+        x_host = torch.randn(1, 1, m, K) * 0.02
+        for label, width in (("separate", N_QKV), ("packed", N_QKV + N_GATE)):
+            plan = O._decode_matmul_plan("w", K, width, 32, 0)
+            sharded = ttnn.from_torch(torch.randn(1, 1, m, width) * 0.02, dtype=B16,
+                                      layout=ttnn.TILE_LAYOUT, device=device,
+                                      memory_config=width_sharded_l1(m, width, plan.grid))
+            row = {"phase": "decode_consumers", "family": label, "width": width}
+            row["us_sharded_to_interleaved"] = time_op(
+                lambda: ttnn.sharded_to_interleaved(sharded, ttnn.L1_MEMORY_CONFIG), device)
+            if label == "packed":
+                inter = ttnn.sharded_to_interleaved(sharded, ttnn.L1_MEMORY_CONFIG)
+                row["us_slice_qkv"] = time_op(
+                    lambda: ttnn.slice(inter, [0, 0, 0, 0], [1, 1, m, N_QKV]), device)
+                row["us_slice_gate"] = time_op(
+                    lambda: ttnn.slice(inter, [0, 0, 0, N_QKV], [1, 1, m, width]), device)
+                ttnn.deallocate(inter)
+            row["us_total"] = round(sum(v for k, v in row.items() if k.startswith("us_")), 2)
+            emit(**row)
+            ttnn.deallocate(sharded)
     finally:
         ttnn.close_mesh_device(device)
 

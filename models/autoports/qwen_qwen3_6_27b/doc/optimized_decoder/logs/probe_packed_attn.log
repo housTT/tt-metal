@@ -1,46 +1,40 @@
-2026-08-09 07:10:58.342 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+2026-08-09 13:13:50.241 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
-2026-08-09 07:10:58.394 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
-2026-08-09 07:10:58.395 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
-2026-08-09 07:10:58.395 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
-2026-08-09 07:10:58.395 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
-2026-08-09 07:10:58.397 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
-2026-08-09 07:10:58.398 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
-2026-08-09 07:10:58.398 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
-2026-08-09 07:10:58.417 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:168)
-2026-08-09 07:10:58.417 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
-2026-08-09 07:10:58.417 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
-2026-08-09 07:10:58.417 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
-2026-08-09 07:10:58.417 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
-2026-08-09 07:10:58.417 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
-2026-08-09 07:10:58.490 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
-2026-08-09 07:10:58.547 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:404)
-2026-08-09 07:10:58.548 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
-2026-08-09 07:10:58.548 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2342)
-2026-08-09 07:10:58.548 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2350)
-2026-08-09 07:10:58.551 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
-2026-08-09 07:10:58.608 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
-2026-08-09 07:10:59.187 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349972 GHz, device_time_at_sync=23608955895859 cycles (realtime_profiler_manager.cpp:1127)
-PACKATTN {"cores": 32, "family": "separate", "in0_block_w": 5, "k": 5120, "n": 8192, "per_core_N": 8, "phase": "decode", "us": 97.69009993760847}
-PACKATTN {"cores": 32, "family": "separate", "in0_block_w": 5, "k": 5120, "n": 6144, "per_core_N": 6, "phase": "decode", "us": 72.2447999578435}
-PACKATTN {"family": "separate", "pcc": 0.9998832238824463, "phase": "decode", "total_us": 169.9}
-PACKATTN {"cores": 32, "family": "packed", "in0_block_w": 5, "k": 5120, "n": 14336, "per_core_N": 14, "phase": "decode", "us": 164.2799994442612}
-PACKATTN {"family": "packed", "pcc": 0.9998832238824463, "phase": "decode", "total_us": 164.3}
-PACKATTN {"family": "separate", "in0_block_w": 4, "k": 5120, "n": 8192, "out_block_h": 4, "per_core_N": 32, "phase": "prefill", "us": 761.503600369906}
-PACKATTN {"family": "separate", "in0_block_w": 8, "k": 5120, "n": 6144, "out_block_h": 4, "per_core_N": 24, "phase": "prefill", "us": 541.8818000180181}
-PACKATTN {"family": "separate", "pcc": 0.999883025228045, "phase": "prefill", "total_us": 1303.4}
-Building brisc, compile step:
-cd /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/reader_bmm_tile_layout_in1_sender_writer_padding/13562687701328006132/brisc/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow -c -o /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/reader_bmm_tile_layout_in1_sender_writer_padding/13562687701328006132/brisc/brisck.11798802103090691803.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5822202293905037534/kernels/reader_bmm_tile_layout_in1_sender_writer_padding/13562687701328006132/brisc/brisck.11798802103090691803.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"reader_bmm_tile_layout_in1_sender_writer_padding/13562687701328006132/\"" -DIN1_DRAM_WIDTH_SHARDED='1' -DNOC_INDEX='0' -DNOC_MODE='0' -DKERNEL_COMPILE_TIME_ARGS=1,448,1792,56,56,4,224,40,1,4,2,3,7,7,71680,1,1,0,0,1,448,4,448,56,896,4,1,4,28672,0,0,0,3,1088,2,8,160,448,160,56,16777216,50332160,83887104,117442048,0,0,2,2048,224,60928 -DKERNEL_COMPILE_TIME_ARG_MAP="{\"cb_sparsity\",7}, {\"cb_out\",4}, {\"cb_bias\",3}, {\"cb_in1\",1}, " 
-In file included from ../kernel_includes.hpp:1,
-                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
-/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp: In function 'void kernel_main()':
-/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp:201:16: warning: variable 's1' set but not used [-Wunused-but-set-variable]
-  201 |     const auto s1 = TensorAccessor(in1_args, in1_tensor_addr);
-      |                ^~
-PACKATTN {"family": "packed", "in0_block_w": 4, "k": 5120, "n": 14336, "out_block_h": 2, "per_core_N": 56, "phase": "prefill", "us": 1769.9028001516126}
-PACKATTN {"family": "packed", "pcc": 0.9998830253276871, "phase": "prefill", "total_us": 1769.9}
+2026-08-09 13:13:50.295 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-09 13:13:50.295 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-09 13:13:50.295 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-09 13:13:50.295 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-09 13:13:50.298 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-09 13:13:50.298 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-09 13:13:50.298 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-09 13:13:50.318 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:168)
+2026-08-09 13:13:50.318 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-09 13:13:50.318 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-09 13:13:50.318 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-09 13:13:50.318 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-09 13:13:50.318 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-09 13:13:50.382 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-09 13:13:50.439 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:404)
+2026-08-09 13:13:50.439 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-09 13:13:50.439 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2342)
+2026-08-09 13:13:50.439 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2350)
+2026-08-09 13:13:50.443 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-09 13:13:50.500 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-09 13:13:51.078 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349981 GHz, device_time_at_sync=8560857195683 cycles (realtime_profiler_manager.cpp:1127)
+PACKATTN {"cores": 32, "family": "separate", "in0_block_w": 5, "k": 5120, "n": 8192, "per_core_N": 8, "phase": "decode", "us": 96.35704991524108}
+PACKATTN {"cores": 32, "family": "separate", "in0_block_w": 5, "k": 5120, "n": 6144, "per_core_N": 6, "phase": "decode", "us": 72.5981495634187}
+PACKATTN {"family": "separate", "pcc": 0.9998832238824463, "phase": "decode", "total_us": 169.0}
+PACKATTN {"cores": 32, "family": "packed", "in0_block_w": 5, "k": 5120, "n": 14336, "per_core_N": 14, "phase": "decode", "us": 164.0577997022774}
+PACKATTN {"family": "packed", "pcc": 0.9998832238824463, "phase": "decode", "total_us": 164.1}
+PACKATTN {"family": "separate", "in0_block_w": 4, "k": 5120, "n": 8192, "out_block_h": 4, "per_core_N": 32, "phase": "prefill", "us": 767.0694496482611}
+PACKATTN {"family": "separate", "in0_block_w": 8, "k": 5120, "n": 6144, "out_block_h": 4, "per_core_N": 24, "phase": "prefill", "us": 541.4951505372301}
+PACKATTN {"family": "separate", "pcc": 0.999883025228045, "phase": "prefill", "total_us": 1308.6}
+PACKATTN {"family": "packed", "in0_block_w": 4, "k": 5120, "n": 14336, "out_block_h": 2, "per_core_N": 56, "phase": "prefill", "us": 1779.074150545057}
+PACKATTN {"family": "packed", "pcc": 0.9998830253276871, "phase": "prefill", "total_us": 1779.1}
+PACKATTN {"family": "separate", "phase": "decode_consumers", "us_sharded_to_interleaved": 11.78150050691329, "us_total": 11.78, "width": 8192}
+PACKATTN {"family": "packed", "phase": "decode_consumers", "us_sharded_to_interleaved": 7.417199958581477, "us_slice_gate": 19.259299733676016, "us_slice_qkv": 20.65244989353232, "us_total": 47.33, "width": 14336}
 nanobind: leaked 1 instances!
- - leaked instance 0x7140f7fdece8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7e061b5242b8 of type "ttnn._ttnn.tensor.CoreRangeSet"
 nanobind: leaked 41 types!
  - leaked type "DispatchCoreAxis"
  - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
@@ -54,22 +48,22 @@ nanobind: leaked 41 types!
  - leaked type "Layout"
  - ... skipped remainder
 nanobind: leaked 343 functions!
- - leaked function "clear_program_cache"
- - leaked function ""
- - leaked function ""
- - leaked function "to_torch"
- - leaked function "__repr__"
+ - leaked function "__init__"
+ - leaked function "__init__"
+ - leaked function "__eq__"
+ - leaked function "__init__"
  - leaked function "__init__"
  - leaked function ""
+ - leaked function "from_json"
  - leaked function ""
- - leaked function "__eq__"
- - leaked function "__getitem__"
+ - leaked function "__init__"
+ - leaked function ""
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
-See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-09 07:11:03.426 | info     |    BuildKernels | JIT cache stats: 38/48 hits (79.2%) [38 cached, 2 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
-2026-08-09 07:11:03.426 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
-2026-08-09 07:11:03.430 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
-2026-08-09 07:11:03.430 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
-2026-08-09 07:11:03.568 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
-2026-08-09 07:11:03.568 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
-2026-08-09 07:11:03.568 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-09 13:13:54.777 | info     |    BuildKernels | JIT cache stats: 52/52 hits (100.0%) [52 cached, 6 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-09 13:13:54.777 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-09 13:13:54.781 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-09 13:13:54.781 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-09 13:13:54.862 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-09 13:13:54.862 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-09 13:13:54.862 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

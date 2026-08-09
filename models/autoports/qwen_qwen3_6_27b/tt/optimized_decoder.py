@@ -369,6 +369,11 @@ class PrecisionPolicy:
     #: ``linear_attention`` (gated delta net) projections.
     gdn_qkv: object = ttnn.bfloat8_b
     gdn_z: object = ttnn.bfloat8_b
+    #: bfloat4_b here is worth 7.3 us of decode and clears the bar on every *single* real-weight
+    #: measurement (0.998507 at 2048, 0.998054 at seq 17, 0.996838 at seq 743) - but over six
+    #: decode-token draws at seq 743 its worst is 0.994194 and three of the six are below 0.995.
+    #: An earlier revision rejected it by quoting ``attn_out`` numbers taken on
+    #: ``full_attention``, where this weight does not exist; work_log.md §9 now has its own.
     gdn_out: object = ttnn.bfloat8_b
     #: The packed ``b|a`` projection feeds ``sigmoid``/``softplus`` gates of the state
     #: recurrence; it is 2.6 MB, so its dtype is an accuracy choice, not a bandwidth one.

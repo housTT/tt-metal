@@ -174,6 +174,21 @@ def _role(kind: str, code: str) -> str:
     return role or "?"
 
 
+def packattn_consumers() -> list:
+    """The ``decode_consumers`` rows of ``logs/probe_packed_attn.log``, for §5's O7 table."""
+    path = ROOT / "logs" / "probe_packed_attn.log"
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(errors="replace").splitlines():
+        if not line.startswith("PACKATTN "):
+            continue
+        row = json.loads(line[len("PACKATTN "):])
+        if row.get("phase") == "decode_consumers":
+            rows.append(row)
+    return rows
+
+
 def wall_times() -> dict:
     out = {}
     for line in (ROOT / "logs" / "run_perf.log").read_text(errors="replace").splitlines():
@@ -427,6 +442,17 @@ def _rewrite_work_log(perf, suite, longc, ctrl) -> None:
         control.append(f"| {label} | {mark}{got:.6f}{mark} | {mark}{want:.6f}{mark} |")
     text = _replace_block(text, "bfp4-control", "\n".join(control))
 
+    consumers = packattn_consumers()
+    if consumers:
+        table = ["| family | matmul output width | sharded-to-interleaved | width slices | consumer total |",
+                 "|---|---|---|---|---|"]
+        for row in consumers:
+            slices = row.get("us_slice_qkv", 0.0) + row.get("us_slice_gate", 0.0)
+            table.append(
+                f"| {row['family']} | {row['width']} | {row['us_sharded_to_interleaved']:.1f} us | "
+                f"{('%.1f us' % slices) if slices else 'none'} | **{row['us_total']:.1f} us** |")
+        text = _replace_block(text, "o7-consumers", "\n".join(table))
+
     rows = layout_ops("linear_attention", "prefill")
     layout = ["| op ID | us | op |", "|---|---|---|"]
     layout += [f"| {op_id} | {us:.1f} | `{code}` |" for op_id, us, code in rows]
@@ -490,6 +516,15 @@ def main() -> None:
     suite, longc, ctrl = (evidence("suite_main.log"), evidence("long_context.log"),
                           evidence("long_context_bfp8_control.log"))
     if args.write:
+        # A re-run in flight leaves a truncated log, and rewriting the reports from one would
+        # publish half-measured numbers.  Refuse instead, with the reason.
+        for name, ev in (("suite_main.log", suite), ("long_context.log", longc),
+                         ("long_context_bfp8_control.log", ctrl)):
+            if "?" in pytest_summary(name):
+                sys.exit(f"refusing to --write: logs/{name} has no pytest summary line yet "
+                         "(a run is probably still in flight)")
+            if not ev:
+                sys.exit(f"refusing to --write: logs/{name} recorded no PCCEVIDENCE rows")
         json.dump(perf, open(ROOT / "perf_summary.json", "w"), indent=1)
         open(ROOT / "perf_summary.json", "a").write("\n")
         _rewrite_readme(perf, suite, longc, ctrl)

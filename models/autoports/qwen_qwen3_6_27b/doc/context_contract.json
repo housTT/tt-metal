@@ -259,8 +259,8 @@
    "synthetic_pcc_bar": 0.98,
    "real_weight_pcc_bar": 0.995,
    "worst_real_weight_pcc_over_disputed_lengths": {
-    "linear_attention": 0.9977987816216575,
-    "full_attention": 0.9975006134264763,
+    "linear_attention": 0.996688788493334,
+    "full_attention": 0.9961812626355258,
     "lengths": [
      1,
      17,
@@ -270,7 +270,7 @@
      5000
     ],
     "test": "tests/test_optimized_decoder.py::test_real_weight_pcc_at_disputed_lengths",
-    "note": "the inherited suite runs on synthetic weights at a 0.98 bar because BFP4 MLP weights cost 1.3e-2 of PCC on a Gaussian and 5e-4 on the real checkpoint; this test re-enforces 0.995 on the real checkpoint at exactly those lengths  A single draw per length is one sample: probes/probe_draw_sensitivity.py sweeps the decode-token seed and measures a spread of 0.0011-0.0048, so the shipped policy's true worst over six draws is 0.996181 (full_attention, seq 17) and 0.996689 (linear_attention, seq 743).  A candidate landing within ~0.001 of the bar is not shown to hold it - that is what rejected the BFP4 output gate of work_log.md section 23."
+    "note": "the inherited suite runs on synthetic weights at a 0.98 bar because BFP4 MLP weights cost 1.3e-2 of PCC on a Gaussian and 5e-4 on the real checkpoint; this test re-enforces 0.995 on the real checkpoint at exactly those lengths  The gate samples three decode-token draws at the two tightest points (full_attention seq 17, linear_attention seq 743) and one elsewhere, because the draw alone moves real-weight PCC by 0.0011-0.0048; probes/probe_draw_sensitivity.py sweeps six.  These two values are therefore the honest worst case, not a favourable sample - see work_log.md sections 9 and 23."
    },
    "bfp4_control_at_full_context": {
     "log": "doc/optimized_decoder/logs/long_context_bfp8_control.log",

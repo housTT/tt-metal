@@ -109,8 +109,9 @@
   "BFP4 decode matmuls reach ~299 GB/s against 442-477 GB/s for BFP8 at every geometry and in every matmul family (work_log.md section 3)",
   "ttnn.transformer.gated_delta_attn_seq measured 0.9829 state PCC on the real layer's activations, unchanged when every Python-side precision knob is raised to HiFi4/fp32, so the loss is inside the C++ scan (work_log.md section 7)",
   "a 2D matmul with a DRAM-width-sharded weight silently computes the wrong answer when out_block_w < per_core_N (work_log.md section 6)",
-  "the gated-delta-net causal conv carries 1.94 ms of tilize/untilize because a causal conv is a sum of row-shifted views; ttnn.conv1d refuses 10240 depthwise channels with an exact L1 blocker (work_log.md section 18)",
+  "the gated-delta-net causal conv carries 1.61 ms over 11 ops (O13 removed the 13th, 12th and one more: work_log.md section 22) of tilize/untilize because a causal conv is a sum of row-shifted views; ttnn.conv1d refuses 10240 depthwise channels with an exact L1 blocker (work_log.md section 18)",
   "BFP4 attention/gated-delta-net output projections, a BFP4 full_attention output gate and proj_fp32_acc=False are each faster and each rejected on real weights: the output projections read 0.993815 prefill at seq 17, the output gate reads a worst-of-six-draws 0.994316 at seq 17 where BFP8 reads 0.996181, and proj_fp32_acc=False takes linear_attention's worst-of-six-draws decode PCC at seq 743 from 0.996689 to 0.995077 (work_log.md sections 9 and 23, logs/probe_draws_fp32acc_seq743.log, logs/probe_draws_o14_seq17.log)",
   "The layer cannot be built with BF16 weights and DRAM-sharded decode matmuls at the same time: per_core_N is sized for BFP4/BFP8 tiles and a BF16 in1 buffer overflows L1 before the first dispatch. Prefill at BF16 is fine at every disputed length (worst 0.999434), which is what test_structural_prefill_at_high_precision uses (work_log.md section 20)."
- ]
+ ],
+ "_generated": "Every numeric field in runs/, roofline/ and model_scale/ is regenerated from logs/ and tracy/ by probes/derive_report_numbers.py --write.  named_limitations is prose and is hand-maintained; check it against work_log.md when a re-run changes the numbers."
 }

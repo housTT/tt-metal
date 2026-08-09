@@ -406,14 +406,26 @@ def test_real_weight_pcc_at_disputed_lengths(mesh_device, layer_idx):
         )
         worst = min(worst, value)
 
-        H.prepare_decode(lut)
-        token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=900 + seq_len)
-        golden_decode = H.reference_decode(lut, token, seq_len, cache)
-        got_decode = H.run_tt_decode(lut, token, torch.tensor([seq_len]))
-        value = H.pcc(golden_decode, got_decode)
-        H.record("real_weight_decode_pcc", value, kind=kind, prefill_len=seq_len)
-        assert value >= 0.995, f"real-weight decode PCC {value} < 0.995 at seq_len {seq_len}"
-        worst = min(worst, value)
+        # One draw per length is one sample of a distribution whose spread this stage measured
+        # at 0.0011-0.0048 (work_log.md §9), and a candidate can pass a favourable draw while
+        # failing the bar - §23 is exactly that, caught by probe only.  The two tightest points
+        # in the whole policy therefore get three draws here, so the gate itself has some of the
+        # probe's power.  ``probes/probe_draw_sensitivity.py`` remains the full sweep.
+        tight = (kind == "full_attention" and seq_len == 17) or (
+            kind == "linear_attention" and seq_len == 743)
+        for seed in (900 + seq_len, 11, 2024) if tight else (900 + seq_len,):
+            H.prepare_decode(lut)
+            token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=seed)
+            draw_cache = DynamicCache(config=lut.config)
+            H.reference_prefill(lut, hidden, draw_cache)
+            golden_decode = H.reference_decode(lut, token, seq_len, draw_cache)
+            got_decode = H.run_tt_decode(lut, token, torch.tensor([seq_len]))
+            value = H.pcc(golden_decode, got_decode)
+            H.record("real_weight_decode_pcc", value, kind=kind, prefill_len=seq_len, seed=seed)
+            assert value >= 0.995, (
+                f"real-weight decode PCC {value} < 0.995 at seq_len {seq_len}, draw seed {seed}"
+            )
+            worst = min(worst, value)
     H.record("real_weight_worst_pcc", worst, kind=kind, lengths=str(DISPUTED_LENGTHS))
 
 

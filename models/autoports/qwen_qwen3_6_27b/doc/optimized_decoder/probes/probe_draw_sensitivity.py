@@ -44,6 +44,9 @@ CANDIDATES = {
     #: The ``O14`` control: everything shipped except the BFP4 output gate.
     "bfp8_gate": lambda: dataclasses.replace(O.DEFAULT_PRECISION, attn_gate=ttnn.bfloat8_b),
     "bfp4_gate": lambda: dataclasses.replace(O.DEFAULT_PRECISION, attn_gate=ttnn.bfloat4_b),
+    #: ``linear_attention``-only.  §9 rejected this one on an ``attn_out`` measurement taken on
+    #: ``full_attention``, where ``gdn_out`` does not exist; the fifth stage review caught it.
+    "gdn_out_bfp4": lambda: dataclasses.replace(O.DEFAULT_PRECISION, gdn_out=ttnn.bfloat4_b),
 }
 
 

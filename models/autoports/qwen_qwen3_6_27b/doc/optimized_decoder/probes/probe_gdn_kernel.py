@@ -88,11 +88,33 @@ def main():
             elapsed = (time.perf_counter() - start) * 1e3
             got = ttnn.to_torch(out_tt).float().reshape(1, seq_len, H, V)
             got_state = ttnn.to_torch(state_tt).float().reshape(1, H, K, V)
+
+            # The first call includes JIT compilation.  §7 calls this kernel "the largest
+            # `linear_attention` prefill opportunity", which is a claim about latency, so time it
+            # warmed as well - a rejected candidate's prize should be a number.
+            q_d, k_d, v_d, b_d, g_d = (to_dev(t) for t in (q, k, v, beta, g))
+
+            def one():
+                o, st = ref.chunk_gated_delta_rule_seq_adapter(
+                    q_d, k_d, v_d, b_d, g_d, chunk_size=128, initial_state=None,
+                    device=device, cached_masks=masks,
+                )
+                ttnn.deallocate(o)
+                ttnn.deallocate(st)
+
+            one()
+            ttnn.synchronize_device(device)
+            warm_start = time.perf_counter()
+            for _ in range(5):
+                one()
+            ttnn.synchronize_device(device)
+            warmed = (time.perf_counter() - warm_start) * 1e3 / 5
             print(json.dumps({
                 "seq_len": seq_len,
                 "out_pcc": pcc(golden_out, got),
                 "state_pcc": pcc(golden_state, got_state),
                 "first_call_ms": elapsed,
+                "warmed_ms": warmed,
             }), flush=True)
     finally:
         ttnn.close_mesh_device(device)

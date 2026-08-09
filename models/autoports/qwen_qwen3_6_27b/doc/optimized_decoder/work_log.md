@@ -357,13 +357,32 @@ Packed wins decode by **5.6 us of a 1094 us step (0.5 %)** and loses prefill by 
 halves go to different places: `qkv` has to reach `nlp_create_qkv_heads_decode` interleaved and
 `gate` has to reach `o_proj`'s activation shard. Separate, each projection writes its consumer's
 layout directly and the only conversion is one sharded-to-interleaved on the 8192-wide half.
-Packed, that conversion is 14336 wide (1.75x the bytes) and is followed by two width slices of a
-width-sharded tensor — which the profile prices at 3.6 us for the four small conversions it
-already does, so the split alone is comparable to the 5.6 us the packed matmul saves.
+Packed, that conversion is 14336 wide (1.75x the bytes) and is followed by two width slices.
 
-**Rejected on measured evidence**: packed is inside noise on the optimization target and clearly
-worse on prefill, before counting the split. Both projection-packing groups are now measurements
-rather than analogies.
+An earlier revision *estimated* that consumer cost at 3.6 us from the profile's four small
+conversions. The fifth stage review was right that an estimate is not a measurement, so the same
+probe now times the consumer path directly, model-free, at the decode shape
+(`PACKATTN` rows with `"phase": "decode_consumers"`):
+
+<!-- generated:o7-consumers -->
+| family | matmul output width | sharded-to-interleaved | width slices | consumer total |
+|---|---|---|---|---|
+| separate | 8192 | 11.8 us | none | **11.8 us** |
+| packed | 14336 | 7.4 us | 39.9 us | **47.3 us** |
+<!-- /generated:o7-consumers -->
+
+**Rejected on measured evidence, by a much larger margin than the estimate suggested.** The
+packed consumer path costs **47.3 us against 11.8 us** — a 35.5 us penalty, ten times the 3.6 us
+the earlier revision guessed, and six times the 5.6 us the packed matmul saves. The reason is
+visible in the split: the wider conversion is actually *cheaper* (7.4 us against 11.8 us, because
+`sharded_to_interleaved` on more columns still moves the data once), and the cost is the two
+width slices at 20.7 and 19.3 us. Slicing a 14336-wide interleaved tensor at decode is
+expensive in a way that packing cannot amortise.
+
+So packed loses **~30 us of a 1094 us decode step** as well as 466 us of prefill, 5.0 %. The
+estimate happened to reach the right verdict for the wrong magnitude, which is exactly why the
+measurement was worth taking. Both projection-packing groups are now measurements rather than
+analogies, and no part of the comparison is an estimate.
 
 ### BFP4 attention weights on the final topology (OPT-007 follow-up)
 
@@ -520,15 +539,39 @@ probe's number was not measured through it. And the precision is not lost in the
 preprocessing or in the `L_inv` solve: raising every knob Python owns to the highest setting
 ttnn offers leaves the result exactly where it was. The loss is inside the C++ sequential scan.
 
-**Decision: rejected on measured real-weight accuracy after an adapted retry.** The adapted path
-is not slower, it is *equally inaccurate*, which is the stronger form of the result: the fix has
-to happen in the kernel and no Python-side contract change reaches it. Recorded as a ttnn
-improvement candidate with four model-free reproducers — `probe_chunk_size.py`,
-`probe_gdn_kernel.py`, `probe_gdn_kernel_real.py` and `probe_gdn_kernel_precision.py`
-(`logs/probe_gdn_kernel_precision.log`).
+**Gate 4 — how big is the prize, actually?** Earlier revisions of this section and of the
+README called this "the largest `linear_attention` prefill opportunity" without ever timing it,
+which the fifth stage review flagged: a rejected candidate's prize should be a number. So
+`probes/probe_gdn_kernel.py` now times the adapted path warmed, five calls after a warm-up, at
+the real shape (`logs/probe_gdn_kernel.log`):
+
+| seq | first call (includes JIT) | **warmed** |
+|---|---|---|
+| 128 | 77.7 ms | **5.07 ms** |
+| 2048 | 196.1 ms | **28.89 ms** |
+
+**28.89 ms for the delta rule alone, against 27.11 ms of device time for the entire shipped
+`linear_attention` layer** — projections, causal conv, delta rule, both norms and the MLP
+included (`tracy/linear_attention/prefill_perf_report.csv`). In the form that exists and can be
+called, this kernel path is not a prefill win at all; it is slower than everything the layer
+currently does put together.
+
+That does not mean the *kernel* is slow — the adapter carries its own preprocessing matmuls and
+the `L_inv` solve, and those are Python-side and untuned. It does mean the opportunity was
+asserted, not measured, and the honest statement is narrower: **a fused sequential scan is the
+right shape for this problem, and the one available today is neither accurate enough nor, as
+adapted, faster.**
+
+**Decision: rejected on measured real-weight accuracy after an adapted retry, and separately
+not a latency win as it stands.** The adapted path is *equally inaccurate* whatever Python does,
+which is the stronger form of the result: the fix has to happen in the kernel and no Python-side
+contract change reaches it. Recorded as a ttnn improvement candidate with four model-free
+reproducers — `probe_chunk_size.py`, `probe_gdn_kernel.py`, `probe_gdn_kernel_real.py` and
+`probe_gdn_kernel_precision.py` (`logs/probe_gdn_kernel_precision.log`).
 
 The prefill win it would have bought is not lost entirely: §6's program configs take
-`linear_attention` prefill from 51.7 ms to 41.9 ms without touching the delta-rule math.
+`linear_attention` prefill from 51.7 ms to 41.9 ms without touching the delta-rule math, and
+`O8`, `O10`, `O12` and `O13` take it from there to 28.9 ms.
 
 ---
 
@@ -599,10 +642,10 @@ rest of this stage, applied to `O14` as well as to the rejections here, is: **a 
 worst measured real-weight PCC is within ~0.001 of the bar has not been shown to hold it, and
 needs the draw sweep before it can be adopted.**
 
-The rest — `attn_qkv`, `attn_out`, `gdn_out`, `proj_fp32_acc=False` — are all **correct on real
-weights and faster on both layer kinds**, and OPT-007 is explicit that margin above a passing
-bar is not on the list of permitted rejections. So they were stacked and measured properly
-rather than waved away (`logs/sweep_v3_real.log`, `logs/sweep_v3_synth_*.log`,
+The rest — `attn_qkv`, `attn_out`, `gdn_out`, `proj_fp32_acc=False` — all looked **correct on
+real weights and faster on both layer kinds** at this point, and OPT-007 is explicit that margin
+above a passing bar is not on the list of permitted rejections. So they were stacked and measured
+properly rather than waved away (`logs/sweep_v3_real.log`, `logs/sweep_v3_synth_*.log`,
 `logs/sweep_v4_synth.log`):
 
 | stack | kind | decode ms | real prefill PCC | **synthetic** prefill PCC | **synthetic** decode PCC |
@@ -996,14 +1039,38 @@ Collapsing the pair into one reshape, for `q`, `k` and `v`:
 | two reshapes | 32.17 ms | 1.153 ms | 0.999432 | 0.999899 |
 | **one reshape** | **32.12 ms** | **1.098 ms** | 0.999432 | 0.999899 |
 
-**55 us, 4.8 % of the step, bit-identical accuracy.** The remaining reshapes are the four the
-layer genuinely needs: the gated norm has to see `[..., nv, head_v_dim]` to reduce over the value
-dimension and the output has to come back flat, and `beta`/`g` have to reach the per-head scalar
-shape. `logs/sweep_o9_check.log`.
+**55 us, 4.8 % of the step, bit-identical accuracy.** `logs/sweep_o9_check.log`.
 
 The `tt-perf-report` tables in `tracy/` were re-collected after this change and after `O10`, so
 they are the shipped code's: `linear_attention` decode device time is 1072.3 us against the
 1132.1 us that table showed before, which is exactly the 55 us plus noise.
+
+### What is left, counted from the shipped profile
+
+An earlier revision said "the remaining reshapes are the four the layer genuinely needs". The
+shipped profile has **seven** per token, 44.6 us in total (56 dispatches over 8 replays,
+`tracy/linear_attention/decode_perf_report.csv`). Naming all of them, since a count that does not
+match the profile is exactly the kind of thing this document should not contain:
+
+| op ID (first token) | us | site | why |
+|---|---|---|---|
+| 1126 | 6.9 | `to_heads(q)` | `[1, 1, batch, heads*D] -> [1, batch*nv, 1, D]`, a last-dim change |
+| 1128 | 6.4 | `to_heads(k)` | as above |
+| 1129 | 3.6 | `to_heads(v)` | as above, and narrower - no `v_per_k` widening concat |
+| 1132 | 4.0 | `beta` to per-head scalars | `[1, 1, batch, nv] -> [1, batch*nv, 1, 1]` |
+| 1133 | 3.9 | `g` to per-head scalars | as above |
+| **1144** | **16.0** | `core = reshape(out, (1, batch, nv, head_v_dim))` before the gated norm | de-pads `batch*nv` single-row heads into `ceil(batch*nv/32)` dense tile-rows |
+| 1147 | 3.3 | `normed_flat` back to `[1, 1, batch, value_dim]` | the output projection wants the flat residual shape |
+
+The 16.0 us one is worth a measurement rather than an assumption, because RMSNorm reduces over
+the last dimension and both shapes already have `head_v_dim` last — so the reshape looks
+removable. `probes/probe_decode_reshapes.py` times both at the real shapes
+(`logs/probe_decode_reshapes.log`): reshape + norm on the dense `[1, 1, 48, 128]` against norm
+alone on the `[1, 48, 1, 128]` the delta rule produces, identical PCC (0.9999961 both).
+Removing the reshape saves **7.0 us** of the pair — but it does not remove the work, it moves it:
+the following `normed_flat` reshape would then have to de-pad instead, which is the 16 us this
+one is paying. The shipped order pays the de-pad once, at the point where the norm afterwards is
+`ceil(48/32) = 2` tile-rows instead of 48 padded ones. Kept.
 
 
 ---
@@ -1079,24 +1146,26 @@ four Tracy profiles.
 <!-- generated:gates -->
 | gate | result | log |
 |---|---|---|
-| `tests/test_optimized_decoder.py` | **72 passed, 2 skipped, 3 warnings in 736.65s (0:12:16)** | `logs/suite_main.log` |
+| `tests/test_optimized_decoder.py` | **72 passed, 2 skipped, 3 warnings in 758.77s (0:12:38)** | `logs/suite_main.log` |
 | `--long-context`, prompt 262143 and decode at 262143 | 1 failed, 1 passed, 72 deselected, 3 warnings in 360.57s (0:06:00) - the failure is the inherited `full_attention` decode-SDPA defect at 0.547175 (section 10) | `logs/long_context.log` |
 | watcher, `TT_METAL_WATCHER=10` | **30 passed, 44 deselected, 3 warnings in 295.49s (0:04:55)**, `watcher.log` clean | `logs/watcher_run.log` |
 | stress, repeated prefill+decode passes | min PCC 0.996503 / 0.987445 prefill, 0.996257 / 0.985865 decode | in `logs/suite_main.log` |
 | BF16/HiFi4 structural prefill over the disputed lengths, bar 0.999 | worst 0.999898 / 0.999434 | in `logs/suite_main.log` |
-| worst real-weight PCC over the disputed lengths, prefill and decode | **0.997799** / **0.997501** | in `logs/suite_main.log` |
+| worst real-weight PCC over the disputed lengths, prefill and decode | **0.996689** / **0.996181** | in `logs/suite_main.log` |
 | BFP4-attribution control at 262143 | prefill tails 0.985447 -> 0.997937 and 0.996595 -> 0.999062 with BFP8 gate/up; everything the MLP does not touch identical | `logs/long_context_bfp8_control.log` |
 | runtime host-fallback audit | passes (source scan plus `forbid_host_fallback` around a measured prefill and decode) | in `logs/suite_main.log` |
 | batch 4 and 32, per-user page tables and positions | pass, eager and traced | in `logs/suite_main.log` |
-| in-process speed-up, measured by the suite itself | decode 2.076x / 2.040x, prefill 1.794x / 2.210x | in `logs/suite_main.log` |
+| in-process speed-up, measured by the suite itself | decode 2.074x / 2.039x, prefill 1.785x / 2.179x | in `logs/suite_main.log` |
 <!-- /generated:gates -->
 
 The suite re-measures the headline itself rather than trusting this document:
 `test_optimized_decode_beats_fused` and `test_optimized_prefill_beats_fused` build both decoders
 in-process on the same weights and compare them, and
-`test_real_weight_pcc_at_disputed_lengths` recorded a worst real-weight PCC of **0.997777** and
-**0.997501** across lengths 1, 17, 64, 743, 2049 and 5000, prefill and decode, against the
-unmodified 0.995 bar.
+`test_real_weight_pcc_at_disputed_lengths` recorded a worst real-weight PCC of **0.996689** and
+**0.996181** across lengths 1, 17, 64, 743, 2049 and 5000, prefill and decode, against the
+unmodified 0.995 bar — three decode-token draws at the two tightest points and one elsewhere,
+which is why those numbers are lower than the single-draw 0.997799 / 0.997501 earlier revisions
+reported (§23).
 
 `test_precision_policy_reached_the_weights` and `test_decode_matmuls_are_dram_sharded` assert
 §15's table from the device tensors, so a silent fallback to interleaved weights or to BF16
@@ -1483,8 +1552,9 @@ The fix is arithmetic, not layout: **the last element of a cumulative sum is the
 is `ttnn.cumsum(g_h, dim=-2)`, so `g_last` is `ttnn.sum(g_h, dim=-2, keepdim=True)` — a reduction
 over the chunk axis, which is a tile-friendly operation and produces the `[nc, nv, 1, 1]` shape
 both consumers (`decay_to_end = exp(g_last - g_cum)` and `exp_g_last`) already broadcast against.
-`g_h` is kept alive across the triangular inverse to do it, which costs one `[nc, nv, chunk, 1]`
-tensor.
+The reduction runs immediately after the `cumsum`, so `g_h` is deallocated on the very next line
+as before and nothing is kept alive across the triangular inverse; what survives to the two
+consumers is the `[nc, nv, 1, 1]` `g_last`, which is smaller than the slice it replaces.
 
 | | `linear_attention` prefill | decode | prefill PCC | decode PCC | log |
 |---|---|---|---|---|---|
@@ -1518,8 +1588,9 @@ adopted, measured end to end, and then **un**adopted on evidence.
 
 ### Why it looked right
 
-§9 rejected BFP4 for `attn_qkv`, `attn_out` and `gdn_out` on real weights at the disputed short
-lengths. `attn_gate` was measured in the same field-by-field sweep and was *not* rejected there —
+§9 rejects BFP4 for `attn_qkv`, `attn_out` and `gdn_out` on real weights at the disputed
+lengths — each on its own layer kind's numbers, after the fifth stage review found `gdn_out`
+being rejected on an `attn_out` measurement. `attn_gate` was measured in the same field-by-field sweep and was *not* rejected there —
 it was folded into the stacked candidate that failed and went down with the stack. Split back out
 and run alone through the same lengths (`logs/sweep_v6_attn_short_17.log`,
 `logs/sweep_v6_attn_short_743.log`, real weights, `full_attention`):
@@ -1576,12 +1647,20 @@ more than that:
 * **the rule in §9 is now load-bearing rather than decorative.** It was written from the
   `proj_fp32_acc=False` reconciliation and immediately caught a different candidate that every
   other gate had passed;
-* **`test_real_weight_pcc_at_disputed_lengths` has a known blind spot, and it is written down.**
-  One draw per length is one sample of a distribution whose spread is ~0.001-0.005. The test is
-  still the right gate — it is what rejected the output projections — but a candidate landing
-  within ~0.001 of its bar needs `probes/probe_draw_sensitivity.py` before anyone believes it;
-* **the shipped policy's real margin is measured, not assumed.** `full_attention` decode at
-  seq 17 is the tightest point in the whole precision policy at **0.996181** worst-of-six-draws,
-  and `linear_attention` decode at seq 743 is next at **0.996689**. Those two numbers are what
-  the 0.995 bar actually has under it.
+* **`test_real_weight_pcc_at_disputed_lengths` had a blind spot, and the gate itself is now
+  narrower for it.** One draw per length is one sample of a distribution whose spread this stage
+  measures at 0.0011-0.0048. The test still runs one draw at most lengths — six lengths x two
+  kinds x three draws would triple a twelve-minute suite for coverage the probe gives on demand —
+  but it now runs **three draws at the two tightest points** (`full_attention` seq 17,
+  `linear_attention` seq 743), which are exactly where `O14` and `gdn_out` BFP4 hid. Seeds 11 and
+  2024 are in that set, so both would now fail the gate directly. A candidate landing within
+  ~0.001 of the bar anywhere else still needs `probes/probe_draw_sensitivity.py`;
+* **the shipped policy's real margin is measured, not assumed, and the suite now reports it.**
+  `full_attention` decode at seq 17 is the tightest point in the whole precision policy at
+  **0.996181**, and `linear_attention` decode at seq 743 is next at **0.996689**. Those two
+  numbers are what the 0.995 bar actually has under it, and since the gate samples three draws
+  at exactly those points they are also what `real_weight_worst_pcc` reports in
+  `logs/suite_main.log` — the headline accuracy number went *down* from 0.997799 / 0.997501 to
+  0.996689 / 0.996181 as a result of this round, not because the layer got worse but because the
+  measurement got honest.
 
