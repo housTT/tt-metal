@@ -85,10 +85,14 @@ _NEG_INF_MASK = -1.0e9
 #: Number of DRAM banks a Blackhole chip exposes; the width a DRAM-sharded weight is cut into.
 DRAM_BANKS = 8
 
-#: Compute grid for the batched delta-rule matmuls (``O10``).  48 cores for 48 value heads, so
-#: each core owns one head's matmul; measured against 8x8, 4x8 and 8x4 in
-#: ``logs/probe_gdn_prefill_ops.log``.
+#: Narrow-K grid for the batched delta-rule matmuls (``O10``).  48 cores for 48 value heads, so
+#: each core owns one head's matmul.  Measured best for ``K = 64``; see
+#: :meth:`OptimizedDecoder._batched_program_config` and ``logs/batched_matmul_sweep.log``.
 BATCHED_MATMUL_GRID = (8, 6)
+
+#: The whole Blackhole worker grid, measured best for the batched delta-rule matmuls with
+#: ``K >= 128``.
+FULL_WORKER_GRID = (11, 10)
 
 #: ``(x, y)`` compute grid for the 2D prefill matmul program configs (``O6``).  Blackhole's
 #: worker grid is 11x10; the reference Qwen3.6 implementation
@@ -1571,24 +1575,39 @@ class OptimizedDecoder(LightweightModule):
     def _batched_program_config(self, a, b, transpose_a: bool, transpose_b: bool):
         """``O10``: an explicit program config for the batched delta-rule matmuls, or ``None``.
 
-        ``tt-perf-report`` flags every one of these with "No program_config specified, try using
-        one to override in0_block_w and out_subblock_h/w" - 96 rows and 2.5 ms of a 30.5 ms
-        ``linear_attention`` prefill.  Measured on the two shapes that carry the advice
-        (``probes/probe_gdn_prefill_ops.py``, ``logs/probe_gdn_prefill_ops.log``), bit-identical
-        output (PCC 1.0):
+        ``tt-perf-report`` flags these with "No program_config specified, try using one to
+        override in0_block_w and out_subblock_h/w".  The first implementation of this method
+        measured two shapes and then applied one fixed 8x6 config to *every* tile-aligned
+        batched matmul, which was too broad: the triangular inverse's single-tile base case got
+        **slower** (``b={768} x 32 x 32 x 32``, 271.5 -> 535.9 us), because a 48-core grid is
+        narrower than what the default program picks for a 768-deep batch of one-tile matmuls.
 
-        ===============================  =========  ==========================
-        shape                            default    best explicit
-        ===============================  =========  ==========================
-        ``b=48 x 64 x 128 x 64``         17.55 us   **9.30 us** (8x6 grid)
-        ``b=48 x 64 x 64 x 128``         14.55 us   **9.21 us** (8x6 grid)
-        ===============================  =========  ==========================
+        So every shape the prefill actually dispatches was swept - grid x ``in0_block_w`` x
+        ``out_subblock_h``, PCC-gated, ``probes/batched_matmul_sweep.py``,
+        ``logs/batched_matmul_sweep.log``:
 
-        ``MatmulMultiCoreReuse`` is the batched (non-multicast) program: it wants
-        ``per_core_N`` to be the whole N and ``per_core_M`` to divide M, which these shapes
-        satisfy exactly.  The 8x6 = 48-core grid matches the 48 value heads, so each core owns
-        one head's matmul.  Shapes the program refuses are cached as ``None`` and fall back to
-        the ttnn-chosen program, so a shape this does not fit costs one failed dispatch once.
+        =========================  =========  ========  ========  ========
+        shape                      default    11x10     8x6       8x8
+        =========================  =========  ========  ========  ========
+        ``b=48 x 64 x 128 x 128``   20.3 us   **9.8**    12.7      10.5
+        ``b=384 x 64 x 128 x 64``   57.0 us   **25.4**   34.6      29.8
+        ``b=48 x 64 x 64 x 128``    14.5 us    13.6     **9.4**     9.7
+        ``b=768 x 32 x 32 x 32``   **11.9**    15.6      17.8      14.8
+        ``b=384 x 32 x 32 x 32``    11.6 us    12.0     **10.0**   21.7
+        =========================  =========  ========  ========  ========
+
+        Two rules fall out and both are in the code below.  A matmul only one tile tall has
+        nothing to spread over a fixed grid, and the default program beats every explicit
+        candidate for it at the batch depth that matters - so single-M-tile shapes are left
+        alone.  Above that, the full 11x10 worker grid wins whenever K is 4 tiles or more, and
+        the 48-core grid (one per value head) wins for the narrower K.
+
+        ``in0_block_w = 1`` and ``out_subblock_h = 1`` are the measured optimum for every shape
+        here, not a floor left unexplored: 2 and 4 were swept and are 3-10 % slower
+        (``11x10_ibw2`` 10.1 us and ``ibw4`` 10.4 us against 9.8 us for the largest shape).
+        That is the answer to the ``in0_block_w=1 is small`` advice this group carries.
+
+        Shapes the reuse program refuses are cached as ``None`` after one failed dispatch.
         """
         shape_a, shape_b = _shape(a), _shape(b)
         if len(shape_a) != 4 or len(shape_b) != 4:
@@ -1598,57 +1617,65 @@ class OptimizedDecoder(LightweightModule):
         k = shape_a[-2] if transpose_a else shape_a[-1]
         if m % ttnn.TILE_SIZE or n % ttnn.TILE_SIZE or k % ttnn.TILE_SIZE:
             return None
-        key = (m, k, n, transpose_a, transpose_b)
+        m_tiles, k_tiles, n_tiles = (
+            m // ttnn.TILE_SIZE,
+            k // ttnn.TILE_SIZE,
+            n // ttnn.TILE_SIZE,
+        )
+        if m_tiles < 2:
+            return None  # the default program wins for one-tile-tall matmuls; see above
+        key = self._batched_key(a, b, transpose_a, transpose_b)
         if key in self._batched_pc_cache:
             return self._batched_pc_cache[key]
-        n_tiles = n // ttnn.TILE_SIZE
+        grid = FULL_WORKER_GRID if k_tiles >= 4 else BATCHED_MATMUL_GRID
         config = ttnn.MatmulMultiCoreReuseProgramConfig(
-            compute_with_storage_grid_size=BATCHED_MATMUL_GRID,
+            compute_with_storage_grid_size=grid,
             in0_block_w=1,
             out_subblock_h=1,
             out_subblock_w=next(w for w in (4, 3, 2, 1) if n_tiles % w == 0),
-            per_core_M=m // ttnn.TILE_SIZE,
+            per_core_M=m_tiles,
             per_core_N=n_tiles,
         )
         self._batched_pc_cache[key] = config
         return config
 
+    @staticmethod
+    def _batched_key(a, b, transpose_a: bool, transpose_b: bool):
+        """``(M, K, N, transpose_a, transpose_b)`` after transposition - the program-config key."""
+        shape_a, shape_b = _shape(a), _shape(b)
+        return (
+            shape_a[-1] if transpose_a else shape_a[-2],
+            shape_a[-2] if transpose_a else shape_a[-1],
+            shape_b[-2] if transpose_b else shape_b[-1],
+            transpose_a,
+            transpose_b,
+        )
+
     def _mm(self, a, b, memory_config=None, transpose_b=False, transpose_a=False):
         """One delta-rule matmul, with ``O10``'s program config where the shape allows it."""
         program_config = self._batched_program_config(a, b, transpose_a, transpose_b)
+
+        def run(config):
+            return ttnn.matmul(
+                a,
+                b,
+                dtype=ttnn.float32,
+                compute_kernel_config=self.compute_cfg,
+                memory_config=memory_config,
+                transpose_a=transpose_a,
+                transpose_b=transpose_b,
+                **({} if config is None else {"program_config": config}),
+            )
+
+        if program_config is None:
+            return run(None)
         try:
-            return ttnn.matmul(
-                a,
-                b,
-                dtype=ttnn.float32,
-                compute_kernel_config=self.compute_cfg,
-                memory_config=memory_config,
-                transpose_a=transpose_a,
-                transpose_b=transpose_b,
-                **({} if program_config is None else {"program_config": program_config}),
-            )
+            return run(program_config)
         except RuntimeError:
-            if program_config is None:
-                raise
-            # The reuse program refused this shape; remember that and use the default.
-            self._batched_pc_cache[
-                (
-                    _shape(a)[-1] if transpose_a else _shape(a)[-2],
-                    _shape(a)[-2] if transpose_a else _shape(a)[-1],
-                    _shape(b)[-2] if transpose_b else _shape(b)[-1],
-                    transpose_a,
-                    transpose_b,
-                )
-            ] = None
-            return ttnn.matmul(
-                a,
-                b,
-                dtype=ttnn.float32,
-                compute_kernel_config=self.compute_cfg,
-                memory_config=memory_config,
-                transpose_a=transpose_a,
-                transpose_b=transpose_b,
-            )
+            # The reuse program refused this shape.  Remember that so it is tried once, and
+            # fall back to the ttnn-chosen program.
+            self._batched_pc_cache[self._batched_key(a, b, transpose_a, transpose_b)] = None
+            return run(None)
 
     def _unit_tri_inverse(self, a, size: int):
         """``(I - a)**-1`` for strictly-lower-triangular ``a`` of shape ``[n, heads, size, size]``.

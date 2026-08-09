@@ -107,6 +107,36 @@ def conv1d_candidate(device):
         row["error"] = lines[2] if len(lines) > 2 else str(exc)[:400]
     emit(**row)
 
+    # The op's auto-slicer failed on the full width; adapt the shape and retry, which is the
+    # bar $optimize sets before a layout cost may be called blocked.  Splitting the 10240
+    # channels into narrower depthwise convs is mathematically exact - a depthwise conv does
+    # not mix channels - so this is a legal decomposition, not an approximation.
+    for split in (2, 4, 8, 16):
+        chunk = CONV_DIM // split
+        row = {"item": "conv1d_split", "splits": split, "channels_per_split": chunk,
+               "kernel": K_CONV, "groups": chunk}
+        xs = ttnn.from_torch(torch.randn(1, L, chunk) * 0.1, dtype=ttnn.bfloat16,
+                             layout=ttnn.ROW_MAJOR_LAYOUT, device=device,
+                             memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        ws = ttnn.from_torch(torch.randn(chunk, 1, K_CONV) * 0.1, dtype=ttnn.bfloat16,
+                             layout=ttnn.ROW_MAJOR_LAYOUT)
+        try:
+            out = ttnn.conv1d(input_tensor=xs, weight_tensor=ws, in_channels=chunk,
+                              out_channels=chunk, device=device, kernel_size=K_CONV, stride=1,
+                              padding=K_CONV - 1, groups=chunk, batch_size=1, input_length=L)
+            row["ok"] = True
+            row["us_per_split"] = time_op(
+                lambda: ttnn.conv1d(input_tensor=xs, weight_tensor=ws, in_channels=chunk,
+                                    out_channels=chunk, device=device, kernel_size=K_CONV,
+                                    stride=1, padding=K_CONV - 1, groups=chunk, batch_size=1,
+                                    input_length=L), device)
+            row["us_total_estimate"] = round(row["us_per_split"] * split, 1)
+        except Exception as exc:
+            lines = str(exc).splitlines()
+            row["error"] = lines[2] if len(lines) > 2 else str(exc)[:250]
+        emit(**row)
+        ttnn.deallocate(xs)
+
 
 def main():
     device = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)

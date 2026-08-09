@@ -18,10 +18,10 @@ The suite re-measures both independently, see "Test-suite results".
 
 | layer kind | phase | fused stage | **optimized** | speed-up |
 |---|---|---|---|---|
-| `linear_attention` | prefill 2048 | 51.79 ms | **31.25 ms** | **1.66x** |
-| `linear_attention` | traced decode | 2.279 ms | **1.099 ms** | **2.07x** |
-| `full_attention` | prefill 2048 | 20.41 ms | **9.27 ms** | **2.20x** |
-| `full_attention` | traced decode | 2.242 ms | **1.094 ms** | **2.05x** |
+| `linear_attention` | prefill 2048 | 51.64 ms | **30.96 ms** | **1.67x** |
+| `linear_attention` | traced decode | 2.280 ms | **1.099 ms** | **2.08x** |
+| `full_attention` | prefill 2048 | 20.05 ms | **9.29 ms** | **2.16x** |
+| `full_attention` | traced decode | 2.234 ms | **1.094 ms** | **2.04x** |
 
 Accuracy against the HF reference on the same real weights, same run:
 
@@ -35,8 +35,8 @@ BFP8 KV cache and a bfloat16 causal conv; each is attributed to its tensor group
 `work_log.md` §2, §8 and §9, and every one of them was decided on real weights.
 
 At the model's 48 `linear_attention` + 16 `full_attention` layers this is a layer stack of
-1.65 s of prefill per 2048 tokens against 2.81 s, and **70.3 ms per decoded token against
-145.3 ms** — 14.2 tok/s of layer-stack budget against 6.9. (Layer stack only: embedding, final
+1.63 s of prefill per 2048 tokens against 2.80 s, and **70.3 ms per decoded token against
+145.2 ms** — 14.2 tok/s of layer-stack budget against 6.9. (Layer stack only: embedding, final
 norm, LM head and sampling belong to the full-model stage.)
 
 ## What changed
@@ -50,10 +50,12 @@ norm, LM head and sampling belong to the full-model stage.)
 | `O6` | 2D `MatmulMultiCoreReuseMultiCast` program configs for every prefill matmul, chosen by a measured block-geometry search | prefill 17.5 → 9.3 ms (`full_attention`) |
 | `O8` | the gated-delta-net causal conv in bfloat16 instead of float32 | `linear_attention` prefill 41.9 → 32.2 ms |
 | `O9` | one reshape instead of two in the gated-delta-net decode head split | `linear_attention` decode 1.153 → 1.098 ms |
-| `O10` | explicit program configs for the batched delta-rule matmuls | `linear_attention` prefill 32.12 → 31.18 ms |
+| `O10` | shape-aware program configs for the batched delta-rule matmuls | `linear_attention` prefill 32.12 → 30.90 ms |
 | `O5` | `ttnn.transformer.gated_delta_attn_seq` for the gated-delta-net prefill | **rejected**: 0.9829 state PCC on real activations, unchanged when every Python-side precision knob is raised to HiFi4/fp32 |
 | `O7` | packing `wgate` into `wqkv` / `in_proj_z` into `in_proj_qkv` | **rejected on measurement**: attention pair 5.6 us faster in decode and 466 us slower in prefill before split cost; GDN pair blocked by incompatible output dtypes |
 | — | explicit decode `SDPAProgramConfig` | **rejected**: 4-9x faster and wrong at some positions |
+| — | BFP4 attention/GDN output projections, `proj_fp32_acc=False` | **not adopted**: correct on real weights and 1.3 % faster, but would need the synthetic suite bar lowered a second time (0.98 → 0.96) — the whole trade is in `work_log.md` §9 |
+| — | `ttnn.conv1d` for the gated-delta-net causal conv | **rejected**: exact L1 blocker at 10240 depthwise channels, and at every channel split tried |
 
 ## Contract
 
@@ -84,33 +86,33 @@ a later full-model stage wants exactly that layout at the layer boundary.
 
 ## Test-suite results
 
-`tests/test_optimized_decoder.py`: **70 passed, 2 skipped** (`logs/suite_main.log`, 11m42s). The
+`tests/test_optimized_decoder.py`: **70 passed, 2 skipped, 3 warnings in 701.44s (0:11:41)** (`logs/suite_main.log`). The
 two skips are the `--long-context` cases, run separately below. The suite re-measures the
 headline itself, in-process, on the same weights:
 
 | | `linear_attention` | `full_attention` |
 |---|---|---|
-| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.07x** | **2.05x** |
-| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.66x** | **2.20x** |
-| worst real-weight PCC over lengths 1/17/64/743/2049/5000, prefill **and** decode | **0.997777** | **0.997501** |
-| stress, 12 back-to-back passes, min PCC | 0.996264 | 0.985865 |
-| optimized vs fused, prefill / decode | 0.996583 / 0.996898 | 0.986884 / 0.985500 |
+| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.073x** | **2.041x** |
+| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.674x** | **2.180x** |
+| worst real-weight PCC over lengths 1/17/64/743/2049/5000, prefill **and** decode | **0.997766** | **0.997501** |
+| stress, 12 back-to-back passes, min PCC | 0.996253 | 0.985865 |
+| optimized vs fused, prefill / decode | 0.996582 / 0.996895 | 0.986884 / 0.985500 |
 
 `--long-context` (`logs/long_context.log`, prompt 262143 + a decode step at position 262143):
 
 | | `linear_attention` | `full_attention` |
 |---|---|---|
 | conv state / K cache | 0.999880 | 0.999849 |
-| recurrent state / V cache | 0.999672 | 0.999856 |
-| prefill tail | 0.996597 | 0.985447 |
-| decode at 262143 | 0.996949 | **0.547175** |
+| recurrent state / V cache | 0.999671 | 0.999856 |
+| prefill tail | 0.996595 | 0.985447 |
+| decode at 262143 | 0.996958 | **0.547175** |
 
 The `full_attention` decode number is the inherited upstream SDPA defect, unchanged: the
 functional stage measured 0.550293 and the fused stage 0.551271 at the same position, and
 `doc/context_contract.json` records it with model-free reproducers. That one assertion is the
 same failure those stages carry; everything else at the full advertised context passes.
 
-Watcher (`TT_METAL_WATCHER=10`, `logs/watcher_run.log`, `watcher/watcher.log`): clean across
+Watcher (`TT_METAL_WATCHER=10`, `logs/watcher_run.log`, `watcher/watcher.log`): **30 passed, 42 deselected, 3 warnings in 293.96s (0:04:53)**, clean across
 prefill PCC, decode PCC, traced decode, the repeated-pass stress and the state/cache checks.
 
 One thing that looks alarming in the logs and is not: the first prefill of a new chunk length
@@ -196,7 +198,7 @@ break seen during this stage landed at 0.24-0.50, nowhere near 0.98.
 The attribution is controlled at the length where it matters most rather than extrapolated:
 re-running the full 262143-token case with `OPT_DECODER_PRECISION=bfp8_gate_up` and nothing else
 changed moves the `full_attention` prefill tail from 0.985447 to **0.997937** and the
-`linear_attention` tail from 0.996597 to **0.999062**, while the conv state, the recurrent state
+`linear_attention` tail from 0.996595 to **0.999062**, while the conv state, the recurrent state
 and both KV caches come back **identical to the last digit**
 (`logs/long_context_bfp8_control.log`).
 

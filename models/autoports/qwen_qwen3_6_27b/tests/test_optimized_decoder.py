@@ -79,8 +79,10 @@ def _use_optimized_decoder():
     previous_bfp8, previous_kwargs = base.BFP8_PCC_BAR, H.DECODER_KWARGS
     H.DECODER_CLS = OptimizedDecoder
     H.PCC_BAR = SYNTHETIC_PCC_BAR
-    # ``OPT_DECODER_PRECISION=bfp8_gate_up`` re-runs any inherited test with the BFP8 fallback
-    # for the MLP gate/up weights.  It exists so the BFP4-versus-synthetic attribution in
+    # ``OPT_DECODER_PRECISION=bfp8_gate_up`` re-runs an inherited test with the BFP8 fallback for
+    # the MLP gate/up weights.  It applies to tests that build only the optimized decoder; the
+    # three that also build ``FusedDecoder`` (which has no ``precision`` argument) are not
+    # runnable under it, which is why the control run selects ``test_full_advertised_context``.  It exists so the BFP4-versus-synthetic attribution in
     # work_log.md section 13 can be controlled at lengths the sweep harness cannot reach, in
     # particular the full advertised context.  Unset, nothing changes.
     override = os.environ.get("OPT_DECODER_PRECISION", "")

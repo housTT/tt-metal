@@ -115,6 +115,31 @@ CANDIDATE_GROUPS: dict = {
         ("decode_cores_64", dict(decoder_kwargs={"topology": O.TopologyOptions(
             name="decode_cores_64", decode_cores=64)})),
     ],
+    # Per-field attention/GDN precision on the FINAL (post-O8/O9/O10) code.  The earlier
+    # attn_precision group set attn_* and gdn_* together, which conflates two layer kinds: a
+    # gdn_* field is dead in full_attention and an attn_* field is dead in linear_attention.
+    # Each field moves on its own here so a rejection can be attributed to one of them.
+    "precision_v2": [
+        ("default", dict()),
+        ("attn_qkv_bfp4", dict(decoder_kwargs={"precision": _p("attn_qkv_bfp4", attn_qkv=B4)})),
+        ("gdn_qkv_bfp4", dict(decoder_kwargs={"precision": _p("gdn_qkv_bfp4", gdn_qkv=B4)})),
+        ("attn_out_bfp4", dict(decoder_kwargs={"precision": _p("attn_out_bfp4", attn_out=B4)})),
+        ("gdn_out_bfp4", dict(decoder_kwargs={"precision": _p("gdn_out_bfp4", gdn_out=B4)})),
+        ("attn_gate_bfp4", dict(decoder_kwargs={"precision": _p("attn_gate_bfp4", attn_gate=B4)})),
+        ("gdn_z_bfp4", dict(decoder_kwargs={"precision": _p("gdn_z_bfp4", gdn_z=B4)})),
+        ("no_fp32_acc", dict(decoder_kwargs={"precision": _p("no_fp32_acc", proj_fp32_acc=False)})),
+        ("out_bfp4_plus_no_fp32_acc", dict(decoder_kwargs={"precision": _p(
+            "out_bfp4_plus_no_fp32_acc", attn_out=B4, gdn_out=B4, proj_fp32_acc=False)})),
+        ("out_and_gate_bfp4", dict(decoder_kwargs={"precision": _p(
+            "out_and_gate_bfp4", attn_out=B4, gdn_out=B4, attn_gate=B4, gdn_z=B4)})),
+        ("out_bfp4", dict(decoder_kwargs={"precision": _p("out_bfp4", attn_out=B4, gdn_out=B4)})),
+        # The stack the per-field table selects, plus the one variant that could go further.
+        ("adopted", dict(decoder_kwargs={"precision": _p(
+            "adopted", attn_out=B4, gdn_out=B4, proj_fp32_acc=False)})),
+        ("adopted_plus_attn_qkv_bfp4", dict(decoder_kwargs={"precision": _p(
+            "adopted_plus_attn_qkv_bfp4", attn_out=B4, gdn_out=B4, attn_qkv=B4,
+            proj_fp32_acc=False)})),
+    ],
     # Short-sequence accuracy: the synthetic-weight suite's worst case for the BFP4 MLP.
     "short_seq": [
         ("fused_stage_baseline", dict(decoder_cls=FusedDecoder)),

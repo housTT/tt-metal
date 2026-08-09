@@ -419,9 +419,11 @@ fast-but-wrong configuration cannot win a sweep again.
 
 The candidate list sweeps `in0_block_w` well past 8 — up to 34 — because OPT-004 is explicit
 that 8 is not a stopping point and that legal divisors need not be powers of two (K = 5120 is
-160 tiles, so 10, 16, 20 and 32 divide it; K = 17408 is 544, so 16, 17 and 34 do). Every one of
-those larger values **allocates** and is **measured slower**, because the L1 budget then forces
-`out_block_h` down and `out_block_h` is worth more:
+160 tiles, so 10, 16, 20 and 32 divide it; K = 17408 is 544, so 16, 17 and 34 do). Where those larger values allocate they are **measured slower**, because the L1 budget then
+forces `out_block_h` down and `out_block_h` is worth more; where they do not allocate the failure
+is the same circular-buffer overflow. For the 5120x17408 gate only `in0_block_w = 10` allocates
+at all; 16, 20 and 32 overflow at every grid and `out_block_h`. Either way the cap at 8 is a
+measured result:
 
 | role | best overall | best with `in0_block_w > 8` |
 |---|---|---|
@@ -547,41 +549,78 @@ both ways) because it has no gated-delta-net.
 
 ---
 
-## 9. Attention-precision follow-up on the final topology (OPT-007)
+## 9. Attention and gated-delta-net precision, field by field, on the final code
 
-The §2 BFP4-attention trial ran on the pre-O2 topology, which OPT-007 calls screening evidence
-only. Re-measured on the final topology — DRAM-sharded decode matmuls, split gate/up, sharded
-residual — with everything else at the default policy
-(`probes/sweep.py --group attn_precision --real`, `logs/sweep_attn_precision.log`):
+This section was re-run twice. The first version measured the pre-`O2` topology, which OPT-007
+calls screening evidence only. The second measured the final topology but set `attn_*` and
+`gdn_*` fields **together**, which conflates two layer kinds: a `gdn_*` field is dead in
+`full_attention` and an `attn_*` field is dead in `linear_attention`, so a rejection could not be
+attributed to one of them. The table below moves one field at a time on the shipped
+post-`O8`/`O9`/`O10` code, real weights (`probes/sweep.py --group precision_v2 --real`,
+`logs/sweep_precision_v2.log`). Each row is read on the layer kind whose weights it touches.
 
-| candidate | linear decode | linear prefill PCC | full decode | full prefill PCC | decision |
+| candidate | kind | decode ms | delta | prefill PCC | decode PCC |
 |---|---|---|---|---|---|
-| BFP8 attention + GDN (default) | 1.167 ms | 0.999460 | 1.094 ms | 0.999270 | **kept** |
-| BFP4 on QKV / `in_proj_qkv` | 1.149 ms | **0.992530** | 1.082 ms | 0.996002 | rejected |
-| BFP4 on output projection | 1.158 ms | 0.998537 | 1.087 ms | 0.998535 | rejected |
-| BFP4 on the gate / `in_proj_z` | 1.159 ms | 0.995861 | 1.087 ms | 0.998836 | rejected |
-| BFP4 on all attention/GDN projections | 1.135 ms | **0.987644** | 1.068 ms | **0.994787** | rejected |
-| BFP4 attention + bfloat16 conv | 1.153 ms | 0.999432 | 1.068 ms | **0.994787** | rejected |
-| MLP down BFP4 | 1.128 ms | 0.999221 | 1.057 ms | **0.993099** | rejected |
-| `in_proj_ba` bfloat16 instead of float32 | 1.166 ms | 0.999460 | 1.094 ms | 0.999270 | rejected (no gain) |
-| BF16 KV cache instead of BFP8 | 1.167 ms | 0.999460 | 1.094 ms | 0.999281 | rejected (no gain, 2x memory) |
-| weight matmuls at HiFi2 instead of LoFi | 1.694 ms | 0.999702 | 1.612 ms | 0.999395 | rejected |
-| LoFi without `fp32_dest_acc_en` | 1.160 ms | 0.999259 | 1.088 ms | 0.999120 | rejected |
+| **default** (all BFP8) | full | 1.0940 | — | 0.999270 | 0.999651 |
+| `attn_qkv` BFP4 | full | **1.0822** | -11.8 us | 0.996002 | 0.998927 |
+| `attn_out` BFP4 | full | **1.0869** | -7.1 us | 0.998535 | 0.999397 |
+| `attn_gate` BFP4 | full | **1.0873** | -6.7 us | 0.998836 | 0.999508 |
+| `proj_fp32_acc=False` | full | **1.0886** | -5.4 us | 0.999120 | 0.999550 |
+| **default** | linear | 1.0985 | — | 0.999436 | 0.999897 |
+| `gdn_qkv` BFP4 | linear | 1.0812 | -17.3 us | **0.992516** | 0.998496 |
+| `gdn_out` BFP4 | linear | **1.0912** | -7.3 us | 0.998507 | 0.999269 |
+| `gdn_z` BFP4 | linear | 1.0920 | -6.5 us | **0.995821** | 0.999521 |
+| `proj_fp32_acc=False` | linear | **1.0930** | -5.5 us | 0.999226 | 0.999955 |
 
-The BFP4 attention family was tried group by group, on real weights, on the final topology, and
-every member either falls below the 0.995 bar (`in_proj_qkv` at 0.9925, the whole family at
-0.9876) or erodes the margin for 7-18 us of a 1.09-1.17 ms step. The `linear_attention` numbers
-are the decisive ones and the reason is structural: those projections feed the gated delta
-rule's state recurrence, whose conditioning the functional stage already documented — the same
-reason the state math keeps HiFi4.
+Two clean rejections come straight out of this:
 
-`in_proj_ba` at bfloat16 is *free* accuracy-wise but also free performance-wise (1.166 vs
-1.167 ms, inside noise), so the float32 weight is kept: it is 2.6 MB and it feeds the two gates
-of the recurrence.
+* **`gdn_qkv` BFP4 fails the bar** on real weights (prefill PCC 0.992516). It feeds the delta
+  rule's state recurrence, whose conditioning the functional stage documented — the same reason
+  the state math keeps HiFi4. Note this is *not* an argument about `attn_qkv`: splitting the
+  fields shows `full_attention`'s QKV passes at 0.996002 where the gated-delta-net's does not.
+* **`gdn_z` BFP4 at 0.995821** is 0.0008 above the bar, and `attn_gate`+`gdn_z`+both outputs
+  together lands `linear_attention` at **0.995004** — four parts per million above 0.995.
+  A value that close is not a pass, it is noise around the bar.
 
-`proj_fp32_acc=False` buys 6-7 us and costs a digit of PCC on both kinds; kept `True`.
+The rest — `attn_qkv`, `attn_out`, `gdn_out`, `proj_fp32_acc=False` — are all **correct on real
+weights and faster on both layer kinds**, and OPT-007 is explicit that margin above a passing
+bar is not on the list of permitted rejections. So they were stacked and measured properly
+rather than waved away (`logs/sweep_v3_real.log`, `logs/sweep_v3_synth_*.log`,
+`logs/sweep_v4_synth.log`):
 
----
+| stack | kind | decode ms | real prefill PCC | **synthetic** prefill PCC | **synthetic** decode PCC |
+|---|---|---|---|---|---|
+| default | full | 1.0947 | 0.999270 | 0.986537 | 0.984493 |
+| `proj_fp32_acc=False` | full | 1.0882 | 0.999120 | 0.984732 | **0.980829** |
+| outputs BFP4 | full | 1.0866 | 0.998535 | **0.974126** | **0.971992** |
+| outputs BFP4 + no fp32 acc | full | **1.0802** | 0.998382 | **0.972372** | **0.968534** |
+| + `attn_qkv` BFP4 | full | **1.0674** | 0.995052 | **0.916320** | **0.900899** |
+| default | linear | 1.0983 | 0.999436 | 0.996553 | 0.996778 |
+| outputs BFP4 + no fp32 acc | linear | **1.0849** | 0.998291 | 0.988272 | 0.989150 |
+
+**Decision: not adopted, and the reason is a specific one, not margin.** Every one of these
+passes on real weights. What blocks them is the *delivered test suite*: it runs on synthetic
+weights, and adopting the stack would put `full_attention` synthetic decode at 0.9685 and the
+`attn_qkv` variant at 0.9009 — below the 0.98 structural bar §13 already argues for. Adopting
+them therefore requires **a second relaxation of that bar, from 0.98 to about 0.96**, and what it
+buys is **1.3 % of a decode step** (14.5 us of 1094 us) — against the 12.6 % the first relaxation
+bought for BFP4 MLP weights. A bar at 0.96 stops catching the class of structural break this
+stage actually hit: the DRAM-sharded-weight matmul bug landed at 0.240 and 0.496, but a
+partially-corrupted chunk or a mis-shaped mask can land in the 0.96-0.98 band.
+
+That is the whole trade, stated so it can be overruled in one line: **1.3 % of decode against a
+suite gate of 0.98 rather than 0.96**. If a later stage wants the 1.3 %, the policy fields are
+already there (`attn_out`, `gdn_out`, `proj_fp32_acc`) and the real-weight evidence above is the
+justification; what has to move with them is `SYNTHETIC_PCC_BAR` and the argument in §13.
+
+Two further fields, unchanged for reasons that are not about margin:
+
+* **`in_proj_ba` stays float32.** bfloat16 is *free* accuracy-wise and also free
+  performance-wise (1.166 vs 1.167 ms, inside noise), so there is nothing to buy; it is 2.6 MB
+  and it feeds the two gates of the state recurrence.
+* **KV cache stays BFP8.** BF16 is the same speed (1.094 both ways) at the same PCC and twice
+  the memory.
+* **Weight matmuls stay LoFi.** HiFi2 costs 0.52 ms of decode and 4.4 ms of prefill.
 
 ## 10. Decode SDPA: a 4-9x row that cannot be taken (OPT-002)
 
@@ -644,6 +683,7 @@ Collected with advice enabled (`probes/run_perf.sh`, `tracy/<kind>/<phase>_perf_
 | "No output subblock size found" | the DRAM-sharded decode matmuls | **not actionable**: `MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig` has no output-subblock field (`in0_block_w`, `per_core_M`, `per_core_N`, `fused_activation` only). Reported as a `tt-perf-report` improvement candidate: the advice does not apply to this program class. |
 | "Output subblock 1x1 is small" | `32 x 5120 x 128`, the `b\|a` projection, 28 us | **not taken**: the whole output is four tiles wide, so there is no larger subblock to have. |
 | (no advice; found by auditing the profile) | the causal conv's 1.9 ms of tilize/untilize | **rejected with an exact blocker — §18.** |
+| "in0_block_w=1 is small, try in0_block_w=2 or above" | `b={48} x 64 x 128 x 128`, the largest batched delta-rule group | **rejected with measurement — §17.** 2 and 4 were swept: 10.1 us and 10.4 us against 9.8 us at 1. The operands are already L1-resident, which is why the DRAM-sharded rows' preference for a large `in0_block_w` does not carry over. |
 
 ---
 
@@ -655,14 +695,15 @@ device time, `probes/sweep.py` for end-to-end, both at position 2048, batch 1).
 Roofline: bytes the measured path must move per token / aggregate DRAM bandwidth. Weight bytes
 at their stored dtypes plus the KV-cache read.
 
-**`linear_attention`** — `mlp_gate` + `mlp_up` 2 x 50.14 MB (BFP4), `mlp_down` 94.70 MB (BFP8),
-`in_proj_qkv` 55.71 MB, `in_proj_z` 33.42 MB, `out_proj` 33.42 MB (BFP8), `in_proj_ba` 2.29 MB
-(FP32), the gated-delta-net recurrent state read and written once (2 x 3.15 MB at batch 1), and
-norms plus conv taps 0.10 MB ⇒ **326,209,536 B = 326.21 MB**.
+**`linear_attention`** — `mlp_gate` + `mlp_up` 2 x 50,135,040 B (BFP4), `mlp_down` 94,699,520 B
+(BFP8), `in_proj_qkv` 55,705,600 B, `in_proj_z` 33,423,360 B, `out_proj` 33,423,360 B (BFP8),
+`in_proj_ba` 2,293,760 B (FP32), the gated-delta-net recurrent state read and written once
+(2 x 3,145,728 B at batch 1), conv taps 61,440 B and norms 40,960 B
+⇒ **326,209,536 B = 326.21 MB**.
 
 **`full_attention`** — `mlp_gate` + `mlp_up` 100.3 MB, `mlp_down` 94.7 MB, `wqkv` 44.6 MB,
-`wgate` 33.4 MB, `o_proj` 33.42 MB, norms 0.02 MB ⇒ 306.42 MB, plus the paged KV read at position
-2048: 2 x 4 heads x 2049 x 256 x 1.0625 B = 4.46 MB ⇒ **310,880,256 B = 310.88 MB**.
+`wgate` 33.4 MB, `o_proj` 33,423,360 B, norms 40,960 B ⇒ 306,421,760 B, plus the paged KV read at position 2048
+(2 x 4 heads x 2049 x 256 x 1.0625 B = 4,458,624 B) ⇒ **310,880,384 B = 310.88 MB**.
 
 At the 512 GB/s aggregate DRAM bandwidth of one Blackhole chip, and against the device time
 from `tracy/<kind>/decode_perf_report.csv` and the end-to-end time from `probes/sweep.py`:
@@ -672,8 +713,8 @@ from `tracy/<kind>/decode_perf_report.csv` and the end-to-end time from `probes/
 | `linear_attention` decode | 0.637 ms | 1.072 ms | 1.099 ms | 0.027 ms | 59.4 % |
 | `full_attention` decode | 0.607 ms | 1.082 ms | 1.094 ms | 0.012 ms | 56.1 % |
 
-`tt-perf-report`'s own modeled figure agrees: 51.1 % of the DRAM roofline, 262 GB/s, for both
-kinds (`tracy/*/decode_perf_report.console.log`).
+`tt-perf-report`'s own modeled figure agrees: 54.0 % (276 GB/s) for `linear_attention` and
+51.1 % (262 GB/s) for `full_attention` (`tracy/*/decode_perf_report.console.log`).
 
 **end-to-end = device time + dispatch gap + host work.** The measured op-to-op gap inside the
 signposted window is 43.2 us per token (`linear_attention`) and 39.4 us (`full_attention`),
@@ -768,20 +809,20 @@ BFP8 fallback and nothing else changed (`logs/long_context_bfp8_control.log`).
 | metric at 262143, synthetic weights | BFP4 gate/up (default) | **BFP8 gate/up control** |
 |---|---|---|
 | `full_attention` prefill tail | **0.985447** | **0.997937** |
-| `linear_attention` prefill tail | **0.996597** | **0.999062** |
-| `linear_attention` recurrent state | 0.999672 | 0.999671 |
-| `linear_attention` conv state | 0.999880 | 0.999880 |
-| `full_attention` paged K cache | 0.999849 | 0.999849 |
-| `full_attention` paged V cache | 0.999856 | 0.999856 |
+| `linear_attention` prefill tail | **0.996595** | **0.999062** |
+| `linear_attention` recurrent state | 0.9996713171204474 | 0.9996713171204474 |
+| `linear_attention` conv state | 0.9998795422648572 | 0.9998795422648572 |
+| `full_attention` paged K cache | 0.9998489692671497 | 0.9998489692671497 |
+| `full_attention` paged V cache | 0.9998555337257882 | 0.9998555337257882 |
 
 The attribution holds at the full context: swapping only the MLP gate/up dtype moves both
 prefill tails back above 0.995, and every quantity the MLP does not touch — the recurrent state,
 the conv state, both KV caches — is **identical to the last digit** between the two runs. There
 is no length-dependent second effect hiding under the relaxed bar.
 
-(Both runs report two failures. The default's is the inherited `full_attention` decode-SDPA
-defect; the control adds `linear_attention` because a BFP8 gate/up decode matmul overflows L1 at
-the selected geometry, which is the same thing this section records as the cost of the fallback.
+(Both runs report two failures. The default's are the inherited `full_attention` decode-SDPA
+defect plus its own; the control's are both the BFP8 gate/up decode matmul overflowing L1 at the
+selected geometry, which is the same thing this section records as the cost of the fallback.
 Neither affects the prefill-tail numbers above, which are recorded before the decode step.)
 
 
@@ -909,31 +950,73 @@ slower configuration for the rest of the process.
 ## 17. O10 — program configs for the batched delta-rule matmuls
 
 `tt-perf-report` puts "No program_config specified, try using one to override `in0_block_w` and
-`out_subblock_h/w`" on 96 rows of the `linear_attention` prefill, worth 2.5 ms of 30.5 ms. These
-are the per-chunk delta-rule matmuls inside the L1-resident loop (the fusing stage's `F21`).
+`out_subblock_h/w`" on the `linear_attention` prefill's batched delta-rule matmuls (the fusing
+stage's `F21` loop). An earlier revision of this section rejected it on the grounds that a
+program config would fix a core grid across a loop whose shapes change with the ragged final
+chunk — the same objection `_prefill_linear` already solves by caching per shape. So it was
+measured.
 
-Measured on the two shapes that carry the advice, float32 operands out of L1, HiFi4
-(`probes/probe_gdn_prefill_ops.py`, `logs/probe_gdn_prefill_ops.log`). Every candidate is
-PCC-checked against the default; all returned **PCC 1.0**, i.e. bit-identical:
+**The first implementation was too broad and this section records that.** It measured two shapes
+and then applied one fixed 8x6 config to *every* tile-aligned batched matmul. The triangular
+inverse's single-tile base case got **slower**: comparing the profile at the first stage commit
+with the one after, over identical op counts, `b={768} x 32 x 32 x 32` went **271.5 -> 535.9 us**
+and `b={384} x 32 x 32 x 32` went **41.5 -> 69.4 us**. A 48-core grid is narrower than what the
+default program picks for a 768-deep batch of one-tile matmuls.
 
-| shape | default | 8x8 | **8x6** | 4x8 | 8x4 |
+So every shape the prefill actually dispatches was swept — grid x `in0_block_w` x
+`out_subblock_h`, PCC-gated against the default (`probes/batched_matmul_sweep.py`,
+`logs/batched_matmul_sweep.log`):
+
+| shape | share of prefill | default | **11x10** | 8x6 | 8x8 |
 |---|---|---|---|---|---|
-| `b=48 x 64 x 128 x 64` (`q @ k^T`) | 17.55 us | 10.16 us | **9.30 us** | 9.87 us | 12.17 us |
-| `b=48 x 64 x 64 x 128` (`inv @ v_beta`) | 14.55 us | 9.48 us | **9.21 us** | 10.85 us | 9.95 us |
+| `b=48 x 64 x 128 x 128` | 1976 us / 128 ops | 20.3 us | **9.8** | 12.7 | 10.5 |
+| `b=384 x 64 x 128 x 64` | 218 us / 4 ops | 57.0 us | **25.4** | 34.6 | 29.8 |
+| `b=48 x 64 x 64 x 128` | 576 us / 96 ops | 14.5 us | 13.6 | **9.4** | 9.7 |
+| `b=768 x 32 x 32 x 32` | 536 us / 32 ops | **11.9** | 15.6 | 17.8 | 14.8 |
+| `b=384 x 32 x 32 x 32` | 69 us / 8 ops | 11.6 us | 12.0 | **10.0** | 21.7 |
 
-`MatmulMultiCoreReuse` is the batched, non-multicast program: it wants `per_core_N` to be the
-whole N and `per_core_M` to divide M, which these shapes satisfy exactly. The 8x6 = 48-core grid
-is the interesting part — it matches the 48 value heads, so each core owns exactly one head's
-matmul. `in0_block_w` barely matters here (9.30 vs 9.49 at 1 vs 4), which is the opposite of the
-DRAM-sharded decode rows and consistent with these operands already being L1-resident.
+Two rules fall out, and both are in `_batched_program_config`:
 
-Whole-layer effect, real weights: `linear_attention` prefill **32.12 -> 31.18 ms** (-2.9 %),
-decode unchanged at 1.099 ms, prefill PCC 0.999432 -> 0.999436 and decode 0.999899 -> 0.999897
-(`logs/sweep_o10_check.log`).
+* **a matmul one tile tall is left alone.** There is nothing to spread over a fixed grid, and the
+  default program beats every explicit candidate at the batch depth that matters (11.9 us against
+  a best of 14.8). This is what fixes the regression above.
+* **above that, the grid follows K**: the full 11x10 worker grid when K is 4 tiles or more, the
+  48-core grid (one per value head) for the narrower K.
 
-Shapes the reuse program refuses are cached as `None` after one failed dispatch and fall back to
-the ttnn-chosen program, so the ragged final chunk costs one wasted dispatch per shape and not a
-correctness risk.
+`in0_block_w = 1` and `out_subblock_h = 1` are the measured optimum for every shape here, not an
+unexplored floor: 2 and 4 were swept and are 3-10 % slower (`11x10_ibw2` 10.1 us and `ibw4`
+10.4 us against 9.8 us on the largest shape). That is the answer to the
+`in0_block_w=1 is small, try in0_block_w=2 or above` advice this group carries in the profile,
+and it belongs in §11's table as a measured rejection.
+
+Whole-layer effect on `linear_attention` prefill, real weights: **32.12 -> 31.18 ms** with the
+first implementation, **-> 30.96 ms** with the shape-aware one. In the profile, device time over
+the signposted window goes 30,480 us (pre-`O10`) -> 29,406 (first implementation) -> **29,140**
+(shape-aware), and the two regressed rows are back where they started:
+
+| row | pre-`O10` | first `O10` | shape-aware `O10` |
+|---|---|---|---|
+| `b={768} x 32 x 32 x 32` | 271.5 us | **535.9** | **274.7** |
+| `b={384} x 32 x 32 x 32` | 41.5 us | **69.4** | **41.6** |
+| `b={48} x 64 x 64 x 128` | 863.2 us | 576.0 | 572.7 |
+| `b={48} x 64 x 128 x 128` | 2074.4 us | 1976.2 | 1994.7 |
+| `b={384} x 64 x 128 x 64` | 475.8 us | 217.5 | 218.3 |
+
+Worth noting where the model and the isolated sweep disagree: the sweep has
+`b={48} x 64 x 128 x 128` at 9.8 us on 11x10 against 12.7 on 8x6, but in the layer both land at
+~15.5 us per dispatch. The isolated probe runs 20 identical matmuls back to back with nothing
+else on the device; in the layer each one is interleaved with the slices and elementwise ops of
+the chunk loop, so the grid it is given matters less than the contention it sees. The rule is
+still chosen on the sweep because that is the only place the shapes can be compared cleanly, and
+the whole-layer number is what is reported.
+
+Decode is untouched (1.099 ms) and PCC moves 0.999432 -> 0.999436
+(`logs/sweep_o10_check.log`, `logs/sweep_o10b_check.log`).
+
+The candidates are **not** bit-identical, as an earlier revision of this section said: the
+measured PCC against the default program is 0.99999997, and the whole-layer prefill PCC moves in
+the seventh digit. Shapes the reuse program refuses are cached as `None` after one failed
+dispatch and fall back to the default.
 
 ---
 
@@ -968,6 +1051,25 @@ more memory than available even with maximum slicing.
 
 That is an exact op-contract blocker, not a first API error: the op's own auto-slicer reports it
 cannot fit a 10240-channel depthwise conv in 1.46 MB of L1 at any slicing it can generate.
+
+Because a depthwise conv does not mix channels, splitting the width is an **exact**
+decomposition rather than an approximation, so the shape was adapted and retried at 2, 4, 8 and
+16 splits. Every one is blocked, and the blocker changes:
+
+| splits | channels each | result |
+|---|---|---|
+| 1 | 10240 | `DRAM Auto slice could not find valid slice configuration ... even with maximum slicing` |
+| 2 | 5120 | the same auto-slicer failure |
+| 4 | 2560 | `Out of Memory: Not enough space to allocate 1040 B L1_SMALL buffer across 65 banks ... bank size is 0 B` |
+| 8 | 1280 | the same `L1_SMALL` failure |
+| 16 | 640 | the same `L1_SMALL` failure |
+
+Below 2560 channels the op stops failing on capacity and starts failing on a device contract:
+`ttnn.conv1d` wants an `l1_small_size` region reserved at `open_mesh_device` time, and this
+decoder's mesh is opened without one because nothing else in the layer needs it. Reserving it
+would take L1 away from the DRAM-sharded decode matmuls, which is the budget `O2` and `O6` are
+already fighting for. So the rejection is: blocked on capacity at wide splits, blocked on a
+device-open contract at narrow ones, with the exact message for each.
 
 The remaining structural fix is `O5`'s kernel, which subsumes the conv, the chunk loop and the
 triangular inverse — and is rejected upstream on accuracy (§7). Recorded as the largest named
