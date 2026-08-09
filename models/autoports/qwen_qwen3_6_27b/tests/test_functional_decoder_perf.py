@@ -90,6 +90,13 @@ def test_perf_decode_traced(mesh_device, layer_idx):
     hidden = ref.synthetic_hidden_states(lut.config, 1, PERF_DECODE_POS, stats)
     H.run_tt_prefill(lut, hidden)
     H.prepare_decode(lut)
+    # Drain the profiler here as well as after the warm-up.  The set-up prefill alone is ~1e3
+    # device ops, which overflows the 12000-marker-per-core DRAM buffer; post-processing then
+    # asserts ("Device data missing: Op ... not present in cpp_device_perf_report.csv") instead
+    # of silently dropping, so the drain has to happen before the buffer fills, not only before
+    # the measured window.
+    ttnn.synchronize_device(mesh_device)
+    ttnn.ReadDeviceProfiler(mesh_device)
 
     runner = H.TracedDecode(lut, batch=1)
     token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=400)

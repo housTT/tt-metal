@@ -552,6 +552,53 @@ class FusedDecoder(LightweightModule):
         """L1 for tensors that comfortably fit, DRAM otherwise (``F6``)."""
         return ttnn.L1_MEMORY_CONFIG if nbytes <= L1_BUDGET_BYTES else ttnn.DRAM_MEMORY_CONFIG
 
+    @staticmethod
+    def _l1_groups(leading: int, bytes_per_unit: int) -> int:
+        """Fewest equal leading-dim groups whose working set fits comfortably in L1 (``F21``).
+
+        A batched matmul over a DRAM-resident operand costs ~1.06 us per batch element; the same
+        matmul out of L1 costs ~0.043 us.  The gated delta rule's whole-prefill operands are too
+        big for L1 as one piece, but they are indexed by chunk, so running them a few chunks at a
+        time puts every one of those matmuls in L1.  Half of :data:`L1_BUDGET_BYTES` is used here
+        because two of these regions can be live at once.
+        """
+        for groups in (1, 2, 4, 8, 16, 32, 64):
+            if leading % groups:
+                continue
+            if bytes_per_unit * (leading // groups) <= L1_BUDGET_BYTES // 2:
+                return groups
+        return leading
+
+    def _grouped_matmul(self, a, b, leading: int, heads: int, rows: int, width: int, *, transpose_b=False):
+        """``a @ b`` over the leading chunk axis, a few chunks at a time out of L1 (``F21``)."""
+        groups = self._l1_groups(leading, 3 * heads * rows * max(width, rows) * 4)
+        if groups == 1:
+            return ttnn.matmul(
+                a, b, transpose_b=transpose_b, dtype=ttnn.float32, compute_kernel_config=self.compute_cfg
+            )
+        per_group = leading // groups
+        pieces = []
+        for g in range(groups):
+            lo, hi = g * per_group, (g + 1) * per_group
+            a_g = ttnn.slice(a, [lo, 0, 0, 0], [hi, heads, rows, width], memory_config=ttnn.L1_MEMORY_CONFIG)
+            b_g = ttnn.slice(b, [lo, 0, 0, 0], [hi, heads, rows, width], memory_config=ttnn.L1_MEMORY_CONFIG)
+            pieces.append(
+                ttnn.matmul(
+                    a_g,
+                    b_g,
+                    transpose_b=transpose_b,
+                    dtype=ttnn.float32,
+                    compute_kernel_config=self.compute_cfg,
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+            )
+            ttnn.deallocate(a_g)
+            ttnn.deallocate(b_g)
+        out = ttnn.concat(pieces, dim=0)
+        for piece in pieces:
+            _free(piece, out)
+        return out
+
     def _tri_mem(self, a, size: int):
         """Memory config for one level of :meth:`_unit_tri_inverse`.
 
@@ -858,16 +905,16 @@ class FusedDecoder(LightweightModule):
         # instead of a multiply into a temporary followed by an add.  Measured on the real
         # shape ([1, 1, 2051, 10240] fp32, 4 taps): 15.38 ms -> 13.74 ms, three fewer ops and
         # three fewer 84 MB temporaries (doc/fused_decoder/logs/probe_conv.log).
-        acc = None
-        for j in range(k):
+        # F22: `window` is `prefix` (K-1 rows) followed by `mixed_qkv`, so tap K-1 covers exactly
+        # `mixed_qkv` - taking it directly saves a slice at a non-tile-aligned row, which TTNN
+        # implements as untilize -> slice -> retilize on an 84 MB tensor.
+        acc = ttnn.multiply(mixed_qkv, self.w["conv_taps"][k - 1])
+        for j in range(k - 1):
             tap = ttnn.slice(window, [0, 0, j, 0], [1, 1, j + length, s.conv_dim])
-            if acc is None:
-                acc = ttnn.multiply(tap, self.w["conv_taps"][j])
-            else:
-                updated = ttnn.addcmul(acc, tap, self.w["conv_taps"][j], value=1.0)
-                ttnn.deallocate(acc)
-                acc = updated
+            updated = ttnn.addcmul(acc, tap, self.w["conv_taps"][j], value=1.0)
+            ttnn.deallocate(acc)
             ttnn.deallocate(tap)
+            acc = updated
         new_state = ttnn.slice(window, [0, 0, logical - 1, 0], [1, 1, logical - 1 + k, s.conv_dim])
         _free(window, new_state)
         activations = ttnn.silu(acc)
@@ -1085,40 +1132,46 @@ class FusedDecoder(LightweightModule):
         ttnn.deallocate(beta_h)
         ttnn.deallocate(v)
 
-        # F12: transpose folded into the matmul.
-        kk = ttnn.matmul(
-            k_beta,
-            k,
-            transpose_b=True,
-            dtype=ttnn.float32,
-            compute_kernel_config=self.compute_cfg,
-            memory_config=mem,
-        )
+        # F21: `kk` a few chunks at a time in L1.  As one [nc, nv, chunk, dk] x [.., dk, chunk]
+        # batched matmul out of DRAM it ran on 4 of 110 cores at 5.4 % of roofline (4.57 ms).
+        kk = self._grouped_matmul(k_beta, k, nc, nv, chunk, s.head_k_dim, transpose_b=True)
         # F14: `neg_strict_lower` carries both the sign and the strict-lower mask.
         scaled_decay = ttnn.multiply(decay, self.const["neg_strict_lower"], memory_config=mem)
         attn0 = ttnn.multiply(kk, scaled_decay, memory_config=mem)
         ttnn.deallocate(scaled_decay)
         ttnn.deallocate(kk)
 
-        inv = self._unit_tri_inverse(attn0, chunk)
+        # F21: the whole triangular inverse in L1, a few chunks at a time.  As one piece its top
+        # level needs ~126 MB and falls back to DRAM, where its two matmuls ran on 1 core at 2.3 %
+        # of DRAM roofline (3.2 ms); split into groups it fits, and `_tri_mem` then picks L1 at
+        # every level by itself.
+        groups = self._l1_groups(nc, 5 * nv * chunk * chunk * 4)
+        if groups == 1:
+            inv = self._unit_tri_inverse(attn0, chunk)
+        else:
+            per_group = nc // groups
+            pieces = []
+            for g in range(groups):
+                part = ttnn.slice(
+                    attn0,
+                    [g * per_group, 0, 0, 0],
+                    [(g + 1) * per_group, nv, chunk, chunk],
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+                pieces.append(self._unit_tri_inverse(part, chunk))
+                _free(part, pieces[-1])
+            inv = pieces[0] if groups == 1 else ttnn.concat(pieces, dim=0)
+            for piece in pieces:
+                _free(piece, inv)
         ttnn.deallocate(attn0)
 
-        value = ttnn.matmul(
-            inv, v_beta, dtype=ttnn.float32, compute_kernel_config=self.compute_cfg, memory_config=mem
-        )
-        ttnn.deallocate(v_beta)
         exp_gcum = ttnn.exp(g_cum, memory_config=mem)
         k_beta_decayed = ttnn.multiply(k_beta, exp_gcum, memory_config=mem)
-        k_cumdecay = ttnn.matmul(
-            inv,
-            k_beta_decayed,
-            dtype=ttnn.float32,
-            compute_kernel_config=self.compute_cfg,
-            memory_config=mem,
-        )
-        ttnn.deallocate(k_beta_decayed)
-        ttnn.deallocate(inv)
         ttnn.deallocate(k_beta)
+        # F21: `value = inv @ v_beta` and `k_cumdecay = inv @ k_beta_decayed` used to be two whole
+        # -prefill batched matmuls out of DRAM, 8 of 110 cores at 8.6 % of roofline (2.87 ms each).
+        # The per-chunk loop below already slices both results one chunk at a time, so the matmuls
+        # move into it and run out of L1 on the slices instead.
 
         g_last = ttnn.slice(g_cum, [0, 0, chunk - 1, 0], [nc, nv, chunk, 1], memory_config=mem)
         decay_to_end = ttnn.exp(ttnn.subtract(g_last, g_cum, memory_config=mem), memory_config=mem)
@@ -1134,9 +1187,11 @@ class FusedDecoder(LightweightModule):
             sl = lambda t, w: ttnn.slice(t, [i, 0, 0, 0], [i + 1, nv, chunk, w], memory_config=loop_mem)  # noqa: E731
             q_i = sl(q, s.head_k_dim)
             k_i = sl(k, s.head_k_dim)
-            v_i = sl(value, s.head_v_dim)
+            inv_i = sl(inv, chunk)
+            v_i = self._mm(inv_i, sl(v_beta, s.head_v_dim), loop_mem)
+            kc_i = self._mm(inv_i, sl(k_beta_decayed, s.head_k_dim), loop_mem)
+            _free(inv_i, inv)
             d_i = sl(decay, chunk)
-            kc_i = sl(k_cumdecay, s.head_k_dim)
             qd_i = sl(q_decayed, s.head_k_dim)
             kd_i = sl(k_decayed, s.head_k_dim)
             gl_i = ttnn.slice(exp_g_last, [i, 0, 0, 0], [i + 1, nv, 1, 1], memory_config=loop_mem)
@@ -1167,10 +1222,12 @@ class FusedDecoder(LightweightModule):
             ttnn.deallocate(update)
             ttnn.deallocate(state)
             state = new_state
-            for tensor in (q_i, k_i, v_i, d_i, kc_i, qd_i, kd_i, gl_i):
-                _free(tensor, q, k, value, decay, k_cumdecay, q_decayed, k_decayed, exp_g_last)
+            ttnn.deallocate(v_i)
+            ttnn.deallocate(kc_i)
+            for tensor in (q_i, k_i, d_i, qd_i, kd_i, gl_i):
+                _free(tensor, q, k, decay, q_decayed, k_decayed, exp_g_last)
 
-        for tensor in (q, k, value, decay, k_cumdecay, q_decayed, k_decayed, exp_g_last, g_cum):
+        for tensor in (q, k, decay, q_decayed, k_decayed, exp_g_last, g_cum, inv, v_beta, k_beta_decayed):
             ttnn.deallocate(tensor)
 
         # F19: the per-chunk outputs are [1, nv, chunk, Dv] and chunk i holds tokens
@@ -1181,14 +1238,16 @@ class FusedDecoder(LightweightModule):
         if len(outputs) > 1:
             for tensor in outputs:
                 ttnn.deallocate(tensor)
-        core = ttnn.permute(core, (0, 2, 1, 3))  # [1, L, nv, Dv]
-
+        # core is [1, nv, L, Dv] - head-major, which is what the gated norm wants (it reduces
+        # over Dv) *and* what the dedicated head-concat op wants.
         normed = self._rms_norm(ttnn.typecast(core, ttnn.bfloat16), self.w["gated_norm"])
         ttnn.deallocate(core)
-        # F20: flatten the *norm output* back to [1, 1, L, value_dim] and multiply against ``z``
-        # where it already is.  Reshaping ``z`` into head shape instead cost 3.1 ms; this
-        # direction is a view.  F10 keeps z's SiLU as an input activation of that multiply.
-        normed_flat = ttnn.reshape(normed, (1, 1, padded, s.value_dim))
+        # F20: `permute([0, 2, 1, 3]) -> reshape` back to [1, 1, L, value_dim] is the graph-fusing
+        # skill's prefill head-concat pattern, and `nlp_concat_heads` is its dedicated op.  The
+        # permute was 625 us and the reshape 2.93 ms (a last-dim change, so untilize + retilize);
+        # the op does both in 0.12 ms.  Reshaping `z` into head shape instead was measured at
+        # 3.1 ms.  F10 keeps z's SiLU as an input activation of the multiply that follows.
+        normed_flat = ttnn.experimental.nlp_concat_heads(normed)
         _free(normed, normed_flat)
         gated = ttnn.multiply(normed_flat, z, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
         ttnn.deallocate(normed_flat)

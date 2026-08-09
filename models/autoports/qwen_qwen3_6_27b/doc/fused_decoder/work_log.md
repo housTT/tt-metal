@@ -16,10 +16,10 @@ layout, DRAM interleaved everywhere. Re-measured in this stage as the baseline
 
 | run | device time | ops in window |
 |---|---|---|
-| `linear_attention` prefill 2048 | 150.23 ms | 805 |
-| `linear_attention` traced decode | 3032.2 µs/token | 96 |
-| `full_attention` prefill 2048 | 18.60 ms | 44 |
-| `full_attention` traced decode | 2425.2 µs/token | 50 |
+| `linear_attention` prefill 2048 | 150.38 ms | 805 |
+| `linear_attention` traced decode | 3035.5 µs/token | 96 |
+| `full_attention` prefill 2048 | 18.55 ms | 44 |
+| `full_attention` traced decode | 2420.6 µs/token | 50 |
 
 Re-aggregating `baseline/tracy/*/*_perf_report.csv` by op code — step 2 of the graph-fusing
 skill. The full op tables are in those CSVs; this is the shape of the problem:
@@ -347,31 +347,71 @@ q, k, v all bit-identical to the reshape path (maxdiff = 0)
 **−8.1 ms, no extra weights, no decode cost.** Landed as F17. The `[nv, nc, chunk, D]` reshape and
 permute that follow are leading-dimension operations and stay.
 
-## 8. What is left in `linear_attention` prefill, and why
+## 8. F21/F22 — the rest of `linear_attention` prefill, and what is left
 
-After everything, 67.4 ms:
+The second pass of §3's finding. After F17 the profile still had **13.5 ms (20 %)** in batched
+matmuls flagged `SLOW`, running on 1–8 of 110 cores at 2.3–8.6 % of DRAM roofline, while the
+*same geometries* appeared elsewhere in the same profile in L1 at full occupancy:
 
 ```
-BinaryNg                            9.1 ms  13.6 %  180 ops - the delta rule's own elementwise work
-Ternary (addcmul, causal conv)      6.3 ms   9.3 %    3 ops
-Matmul 2048x5120x34816 (MLP)        6.1 ms   9.1 %  at roofline
-Matmul b={1536} 64x64x128           5.7 ms   8.5 %  inv @ v_beta, inv @ k_beta_decay
-Slice                               4.8 ms   7.2 %  274 ops - the per-chunk loop's eight slices x 32
-Matmul b={1536} 64x128x128          4.6 ms   6.8 %  kk
-Matmul 2048x17408x5120 (MLP down)   3.3 ms   5.0 %  at roofline
-Matmul b={1536} 32x32x32            3.2 ms   4.7 %  triangular inverse, top level (DRAM by budget)
+kk            b={1536} 64x128x128  DRAM  4570.3 us   4 cores   5.4 % DRAM   -> 2.98 us / batch element
+inv @ v_beta  b={1536} 64x64x128   DRAM  2867.7 us   8 cores   8.6 % DRAM   -> 1.87 us / batch element
+inv @ k_bd    b={1536} 64x64x128   DRAM  2868.1 us   8 cores   8.6 % DRAM
+tri-inverse   b={1536} 32x32x32    DRAM  1595.0 us   1 core    2.3 % DRAM   -> 1.04 us / batch element
+   versus, in the same profile:
+              b={48}   64x128x128  L1    2069.1 us 110 cores               -> 0.673 us / batch element
+              b={48}   64x64x128   L1     284.2 us 110 cores               -> 0.185 us / batch element
+              b={3072} 32x32x32    L1     269.5 us 110 cores               -> 0.011 us / batch element
 ```
 
-The remaining bookkeeping is gone: `ReshapeView` has dropped out of the top ops entirely, the
-conv taps no longer untilize, and the output path no longer permutes. What is left is the
-arithmetic of the gated delta rule itself — bandwidth on 25–50 MB float32 tensors — plus the
-32-iteration loop that the only dedicated alternative (`gated_delta_attn_seq`, §9.1) is both
-slower and less accurate than.
+The operands are indexed by chunk, so **F21** runs each of them a few chunks at a time, sized by
+`_l1_groups` so the group's working set fits half of `L1_BUDGET_BYTES`:
 
-The one identified but untaken lever is the triangular inverse's **top** level, still in DRAM
-because `_tri_mem` estimates its live set at 126 MB against a 96 MB budget. Raising the budget
-risks the L1 exhaustion quoted in §3, which is a hard failure rather than a slow path, so it was
-left alone; it is 4.7 % of the layer.
+* the triangular inverse is called per chunk-group; `_tri_mem` then picks L1 at *every* level by
+  itself, instead of the top level falling back to DRAM at 126 MB;
+* `kk` goes through `_grouped_matmul`, which slices both operands into L1 per group;
+* `value = inv @ v_beta` and `k_cumdecay = inv @ k_beta_decayed` move **into** the per-chunk
+  recurrence loop, which was already slicing both results one chunk at a time in L1 anyway.
+
+**F22** removes one more untilize/retilize: `window` is `prefix` followed by `mixed_qkv`, so tap
+`K-1` covers exactly `mixed_qkv` and needs no slice at all.
+
+Result: 67.4 → 53.6 ms, and `SLOW`-flagged time 13.5 → 4.9 ms. This is the one place where the
+op count goes **up** (805 → 944 in the window): grouping costs slices and concats and buys a 24×
+per-batch-element speed-up. `test_fused_graph_is_the_fused_graph` therefore asserts the
+*layout-conversion* count there (76 → 36 device ops) and bounds the total instead.
+
+Then **F20** took the last big layout op: the gated norm's output had to become
+`[1, 1, L, value_dim]`, which was a `permute` (625 µs) plus a last-dim `reshape` (2.93 ms). With
+F19 leaving `core` head-major, that pair is exactly the graph-fusing skill's prefill head-concat
+pattern, and `ttnn.experimental.nlp_concat_heads` does both in 0.12 ms. 53.6 → 50.2 ms.
+
+### What is left, honestly
+
+At 50.18 ms:
+
+```
+BinaryNg                            9.4 ms  18.7 %  196 ops - the delta rule's own elementwise work
+Ternary (addcmul, causal conv)      6.3 ms  12.6 %    3 ops
+Matmul 2048x5120x34816 (MLP)        6.1 ms  12.2 %  at roofline
+Slice                               4.7 ms   9.3 %  332 ops - the per-chunk loop and F21's grouping
+Matmul 2048x17408x5120 (MLP down)   3.3 ms   6.6 %  at roofline
+Matmul 2048x5120x10240 (in_proj_qkv) 2.2 ms  4.5 %  at roofline
+Matmul b={48} 64x128x128 (loop)     2.1 ms   4.1 %  L1, 110 cores
+UntilizeWithUnpadding               2.0 ms   3.9 %    7 ops  <- see below
+Concat                              1.9 ms   3.9 %   23 ops - F21's group joins
+Tilize                              1.5 ms   3.1 %    4 ops  <- see below
+Transpose                           1.3 ms   2.6 %   74 ops
+```
+
+The 3.5 ms of untilize/tilize is the causal conv's two remaining non-tile-aligned tap slices
+(rows 1 and 2 of `window`); TTNN implements those as untilize → slice → retilize. Doing the
+untilize **once** on a shared row-major window and retiling only the taps was implemented and
+measured: **50.38 ms versus 50.18 ms**, i.e. no better, so it was reverted — ttnn's per-slice
+path is already equivalent. `ttnn.conv1d`, the op that would remove the slicing entirely, is
+rejected in §9.6. The remaining 4.9 ms of `SLOW` time is the per-chunk loop's own small matmuls,
+which are already in L1 at 110 cores; `tt-perf-report` flags them because a `[1, 48, 64, 128]`
+matmul cannot saturate DRAM, not because they are misconfigured.
 
 ## 9. Rejected, with the measurement
 
@@ -519,7 +559,7 @@ export TT_METAL_LOGS_PATH=$ART/watcher TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPE
        TT_METAL_WATCHER_NOINLINE=1 TT_METAL_WATCHER_DISABLE_ETH=1
 python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py \
   -k "test_traced_decode_pcc or (test_decode_pcc and 2049) or test_bfloat8_kv_cache \
-      or test_fused_graph_is_smaller" -v -s
+      or test_fused_graph_is_the_fused_graph" -v -s
 #   -> logs/watcher_run.log, watcher/WATCHER_AUDIT.md  (7 passed, log clean)
 
 # perf, one at a time, profiler build
@@ -530,17 +570,17 @@ cd $REPO/models/autoports/qwen_qwen3_6_27b/doc/fused_decoder
 # evidence
 python -m models.autoports.qwen_qwen3_6_27b.scripts.collect_evidence $ART/logs/*.log \
     --out $ART/pcc_evidence.json
-#   -> 282 records, 276 numeric, exactly one under the bar (the inherited gap)
+#   -> 290 records, 284 numeric, exactly one under the bar (the inherited gap)
 ```
 
 Record-by-record comparison against the functional stage's `pcc_evidence.json`: **258 shared
 numeric measurements, none worse by more than 1e-4**, mean change +7.5e-6, worst −9.2e-5, best
 +9.8e-4. Per-class minima are in [`README.md`](README.md).
 
-Device op counts from `ttnn.graph` capture, asserted by `test_fused_graph_is_smaller` (these cover
+Device op counts from `ttnn.graph` capture, asserted by `test_fused_graph_is_the_fused_graph` (these cover
 the whole call including the input upload, so they are larger than the signposted perf window's
-counts): `linear_attention` prefill 996 → 916, decode 98 → 70; `full_attention` prefill 111 → 71,
-decode 56 → 42.
+counts): `linear_attention` prefill 996 → 1095 total but 76 → 36 layout-conversion ops (the F21
+residency trade, §8), decode 98 → 70; `full_attention` prefill 111 → 71, decode 56 → 42.
 
 ## 12. What the stage review changed
 
@@ -556,11 +596,19 @@ was done about each:
 | `ttnn.conv1d` rejected on a single auto-slicing failure | retried with explicit slicing at five slice counts; every one exhausts the allocator (§9.6) |
 | a `SLOW`, 4-core, 9.5 %-DRAM matmul introduced by F5 was unmentioned | swept and fixed with an explicit 4x8 core grid (F18), 63 → 35 µs |
 | the RoPE saving was stated as 2.9 ms and the shared-record count as 262 | corrected to 269 µs and 258, from the CSVs and the two evidence files |
-| a Python-level op spy cannot prove a fusion | replaced with `ttnn.graph` device-op counting (`test_fused_graph_is_smaller`) |
+| a Python-level op spy cannot prove a fusion | replaced with `ttnn.graph` device-op counting (`test_fused_graph_is_the_fused_graph`) |
 
-Net effect of the second pass, on top of the first: `linear_attention` prefill 78.7 → 67.4 ms,
-its decode 2395 → 2255 µs/token; `full_attention` prefill 18.28 → 17.70 ms, its decode
-2214 → 2201 µs/token.
+Net effect of the second pass, on top of the first: `linear_attention` prefill 78.7 → 50.2 ms,
+its decode 2395 → 2250 µs/token; `full_attention` prefill 18.28 → 17.70 ms, its decode
+2214 → 2202 µs/token.
+
+A **third** review pass added two more findings, both acted on here: (a) §8's claim that the
+layout churn was gone was contradicted by the CSV — the "view" reshape was 2.93 ms and the conv
+taps still untilized — which produced F20's `nlp_concat_heads` and the measured-and-rejected
+row-major window; (b) 20 % of the layer sat in `SLOW` 1–8-core DRAM matmuls whose L1 twins were
+in the same profile, which produced F21. It also corrected `test_no_runtime_host_fallback` to
+scan from the end of the module docstring (so a helper added above the first one is covered) and
+the `F5`/`F18`/matmul-share figures in `README.md`.
 
 ## 13. Hardware notes
 

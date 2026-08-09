@@ -193,9 +193,11 @@ def test_no_runtime_host_fallback(mesh_device, layer_idx):
     # Scan every line of the implementation except the module docstring and the body of
     # ``from_state_dict``, the documented setup-time torch boundary.  That leaves the
     # module-level helpers, ``__init__`` and everything after the setup section.
-    helpers = source.split("def _prefill_alignment", 1)
-    assert len(helpers) == 2, "expected the module-level helpers to start at _prefill_alignment"
-    helper_region = helpers[1].split(class_anchor, 1)[0]
+    # Everything after the module docstring and before the class: this deliberately starts at the
+    # end of the docstring rather than at a named function, so a helper added above the first one
+    # is still scanned.
+    docstring_end = source.index('"""', source.index('"""') + 3) + 3
+    helper_region = source[docstring_end:].split(class_anchor, 1)[0]
     class_body = source.split(class_anchor, 1)[1]
     constructor_region = class_body.split("    @classmethod", 1)[0]
     body = source.split("def from_state_dict", 1)
@@ -208,8 +210,12 @@ def test_no_runtime_host_fallback(mesh_device, layer_idx):
     )
     for region, label in regions:
         assert region.strip(), f"{label} region came out empty - the scan anchors moved"
+        # Comment lines are prose - both modules discuss torch in their commentary (e.g. "a
+        # float32 torch attention on identical inputs" in the SDPA k-chunk note) - so the scan
+        # looks at code only.
+        code = "\n".join(l for l in region.splitlines() if not l.lstrip().startswith("#"))
         for pattern in (r"\btorch\b", r"from_torch", r"to_torch", r"\bas_tensor\b", r"\.cpu\(\)"):
-            assert not re.search(pattern, region), f"{label} references {pattern!r}"
+            assert not re.search(pattern, code), f"{label} references {pattern!r}"
 
     lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
     hidden = ref.synthetic_hidden_states(lut.config, 1, 2049, _stats())

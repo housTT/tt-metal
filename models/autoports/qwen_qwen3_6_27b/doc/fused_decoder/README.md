@@ -8,7 +8,7 @@ Same math and same public contract as the functional decoder, fewer and larger o
 * Tests: [`../../tests/test_fused_decoder.py`](../../tests/test_fused_decoder.py),
   [`../../tests/test_fused_decoder_perf.py`](../../tests/test_fused_decoder_perf.py)
 * Narrative, every rewrite tried and every one rejected: [`work_log.md`](work_log.md)
-* Every measured number: [`pcc_evidence.json`](pcc_evidence.json) (282 records, 276 numeric)
+* Every measured number: [`pcc_evidence.json`](pcc_evidence.json) (290 records, 284 numeric)
 * Before/after performance: [`perf_summary.json`](perf_summary.json)
 * Context capability: [`../context_contract.json`](../context_contract.json)
 
@@ -24,22 +24,29 @@ device profiler inside signposted windows. The baseline was **re-measured in thi
 to back with the fused runs from the same test bodies, so the two columns differ only in the
 decoder class.
 
-| layer kind | phase | functional | **fused** | Δ | ops in window |
+| layer kind | phase | functional | **fused** | Δ | ops / layout ops in window |
 |---|---|---|---|---|---|
-| `linear_attention` | prefill 2048 | 150.23 ms | **67.44 ms** | **−55.1 %** | 805 → 761 |
-| `linear_attention` | traced decode | 3032.2 µs/token | **2254.5 µs/token** | **−25.6 %** | 96 → 68 |
-| `full_attention` | prefill 2048 | 18.60 ms | **17.70 ms** | **−4.8 %** | 44 → 24 |
-| `full_attention` | traced decode | 2425.2 µs/token | **2200.6 µs/token** | **−9.3 %** | 50 → 36 |
+| `linear_attention` | prefill 2048 | 150.38 ms | **50.18 ms** | **−66.6 %** | 805 → 944 / 37 → 17 |
+| `linear_attention` | traced decode | 3035.5 µs/token | **2249.6 µs/token** | **−25.9 %** | 96 → 68 / 26 → 14 |
+| `full_attention` | prefill 2048 | 18.55 ms | **17.70 ms** | **−4.6 %** | 44 → 24 / 0 → 0 |
+| `full_attention` | traced decode | 2420.6 µs/token | **2202.2 µs/token** | **−9.0 %** | 50 → 36 / 0 → 0 |
 
-Host wall time moves the same way: `linear_attention` prefill 161.1 → 71.1 ms, its traced
-decode 3.410 → 2.310 ms/token; `full_attention` prefill 20.16 → 19.01 ms, its traced decode
-2.480 → 2.255 ms/token.
+Host wall time moves the same way: `linear_attention` prefill 161.2 → 53.8 ms, its traced
+decode 3.412 → 2.302 ms/token; `full_attention` prefill 20.16 → 19.03 ms, its traced decode
+2.474 → 2.258 ms/token.
 
 Both traced-decode paths beat the functional baseline, which is the gate this stage is measured
-on. Both are now dominated by matmuls at the DRAM roofline: **89 %** of a `full_attention`
-decode step and **82 %** of a `linear_attention` one is matmul or SDPA running at 80–84 % of
-peak DRAM bandwidth, which no graph rewrite can move. `full_attention` prefill is the same
-story at 83 %.
+on, and both are now dominated by matmuls at the DRAM roofline: **93.7 %** of a `full_attention`
+decode step and **85.5 %** of a `linear_attention` one is matmul or SDPA running at 80–84 % of
+peak DRAM bandwidth, which no graph rewrite can move. `full_attention` prefill is the same story
+at **83.1 %**.
+
+`linear_attention` prefill is the one case where the op count **rises** (805 → 944) while the
+time falls by two thirds. That is deliberate and is the stage's largest single lever: the
+triangular inverse and the two big batched matmuls run a few chunks at a time so their operands
+fit L1, which costs extra slices and concats and buys a 24× per-batch-element speed-up on the
+matmuls themselves (F6/F21). The count that measures the *fusion* rather than the residency
+trade — layout-conversion ops — falls from 37 to 17 there, and the tests assert on that.
 
 Artifacts, per layer kind, under [`tracy/`](tracy/) (fused) and [`baseline/tracy/`](baseline/tracy/)
 (functional): `<phase>_ops.csv`, `<phase>_ops.csv.provenance`, `<phase>_perf_report.txt`,
@@ -84,11 +91,13 @@ into the norm weight together with the `1/√head_k_dim` query scale.
 | F6 | L1 residency for the triangular inverse and the per-chunk recurrence loop | the largest single win: `linear_attention` prefill −45 ms |
 | F15 | width-sharded decode RMSNorm | 103.8 → 24.6 µs per norm, twice per decode step, both kinds |
 | F7 | `TRI_INV_BASE` 16 → 32 | one recursion level fewer; a 32×32 block fills a whole tile |
-| F19 | concatenate the per-chunk outputs along the **sequence** axis, not the chunk axis | removes a permute and a 2.3 ms reshape |
-| F20 | flatten the gated norm's output instead of reshaping `z` into head shape | removes a 3.1 ms reshape |
+| F19 | concatenate the per-chunk outputs along the **sequence** axis, not the chunk axis | leaves the result head-major, which is what F20 and the gated norm want |
+| F20 | head-concat of the gated norm output via `ttnn.experimental.nlp_concat_heads` | replaces a 625 µs permute + a 2.93 ms reshape with one 0.12 ms op |
+| F21 | run the triangular inverse, `kk` and `inv @ ·` a few chunks at a time so their operands fit L1 | 13.5 ms of `SLOW` 1–8-core DRAM matmuls → 4.9 ms; `linear_attention` prefill 67.4 → 53.6 ms |
+| F22 | the last conv tap **is** `mixed_qkv`, so it needs no slice | removes one untilize/slice/retilize of an 84 MB tensor |
 | F8 | decode conv state as `conv_kernel_size − 1` per-tap row buffers | removes 4 untilize/slice/retilize round trips per step |
-| F5 | `in_proj_b` + `in_proj_a` → one shared-LHS matmul with a fused bias | `linear_attention` decode −60 µs |
-| F18 | explicit 4×8 core grid for that small `32 × 5120 × 128` projection | 63 → 35 µs, clears its `SLOW` flag |
+| F5 | `in_proj_b` + `in_proj_a` → one shared-LHS matmul with a fused bias | `linear_attention` decode 120.7 → 30.8 µs/token, −90 µs |
+| F18 | explicit 4×8 core grid for that small `32 × 5120 × 128` projection | 60.4 → 30.6 µs/token; still `SLOW` on 4 cores, but at 19 % of DRAM roofline instead of 9.5 % |
 
 F6 is worth stating plainly because it is not an op-count change and it is where most of the
 `linear_attention` prefill win came from. A batched `32×32×32` matmul costs **1.06 µs per batch
@@ -155,7 +164,7 @@ stages share, none regressed by more than 1e-4**; mean change +7.5e-6, worst −
 
 | measurement class | n | functional | **fused** |
 |---|---|---|---|
-| min over all numeric records except the known gap | 276 | 0.998817 | **0.998815** |
+| min over all numeric records except the known gap | 284 | 0.998817 | **0.998815** |
 | prefill vs HF, lengths 1/17/128/2048/2049/4096/5000 — `linear_attention` | 7 | 0.999888 | 0.999893 |
 | prefill vs HF, same lengths — `full_attention` | 7 | 0.999423 | 0.999433 |
 | decode vs HF, 4 steps after prefill 17/2048/2049/5000 — `linear_attention` | 16 | 0.999927 | 0.999925 |
@@ -191,27 +200,31 @@ unchanged and are what an upstream issue needs. Fusing neither caused nor could 
 
 PCC alone cannot tell a fused graph from a functional one that happens to pass, and — as F1/F9
 showed — a Python-level check cannot either, because ttnn composites lower back to the sequence
-they look like they replace. `test_fused_graph_is_smaller` therefore captures the **device** op
+they look like they replace. `test_fused_graph_is_the_fused_graph` therefore captures the **device** op
 stream with `ttnn.graph` for one prefill and one decode of each decoder class and asserts the
 fused one is strictly smaller:
 
 | | prefill | decode |
 |---|---|---|
-| `linear_attention` functional → fused | 996 → **916** | 98 → **70** |
-| `full_attention` functional → fused | 111 → **71** | 56 → **42** |
+| `linear_attention` functional → fused, all device ops | 996 → **1095** | 98 → **70** |
+| `linear_attention` functional → fused, layout-conversion ops | 76 → **36** | 27 → **15** |
+| `full_attention` functional → fused, all device ops | 111 → **71** | 56 → **42** |
+| `full_attention` functional → fused, layout-conversion ops | 6 → 6 | 3 → 3 |
 
 (These counts cover the whole call, including the input upload the signposted perf window
-excludes, which is why they differ from the table at the top.) It also asserts that
-`RotaryEmbeddingHfDeviceOperation` (F2) and `TernaryDeviceOperation` (F16, `addcmul`) appear in
-the fused stream and in neither functional one. `test_matches_functional_decoder` then compares
+excludes, which is why they differ from the table at the top.) The `linear_attention` prefill row is the F21 residency trade described above, so the assertion
+there is the layout-conversion count plus a 1.25× bound on the total; everywhere else the total
+must strictly fall. It also asserts that `RotaryEmbeddingHfDeviceOperation` (F2) and
+`TernaryDeviceOperation` (F16, `addcmul`) appear in the fused stream and in neither functional
+one. `test_matches_functional_decoder` then compares
 the two implementations against **each other** on identical weights — prefill output, decode
 output and the un-paged K/V cache.
 
 ### Stress and repeats
 
 `test_repeated_prefill_decode_stress` runs 12 back-to-back prefill+decode passes per layer kind
-and asserts (a) every repeat is **bit-identical** to the first, (b) the PCC never drops below
-the bar, and (c) `total_bytes_allocated_per_bank` in DRAM does not move after the first warm
+and asserts (a) every repeat produces the identical PCC, i.e. no drift (bit-identity itself is
+asserted separately by `test_determinism`), (b) the PCC never drops below the bar, and (c) `total_bytes_allocated_per_bank` in DRAM does not move after the first warm
 pass — a leak in the fused path, or L1 fragmentation, shows up there. `test_determinism`
 additionally asserts bit-identical prefill and decode for both kinds, as before.
 
@@ -298,9 +311,12 @@ Model-free op probes, under [`probes/`](probes/):
 * **`full_attention` decode at very long positions** — inherited unchanged; see above.
 * The bfloat16 causal conv (a further ~14 % of `linear_attention` prefill) is measured but not
   taken: it is a precision trade for the optimization stage, not a graph rewrite.
-* `linear_attention` prefill is still 9 % causal conv and 14 % elementwise work in the delta
-  rule itself; both are bandwidth on 25–50 MB float32 tensors, and the remaining op-level
-  bookkeeping around them has been removed. See [`work_log.md` §8](work_log.md).
+* `linear_attention` prefill's residue is 18.7 % elementwise, 12.6 % causal-conv `addcmul`,
+  9.3 % slices (332 of them, the per-chunk loop) and 7.0 % untilize/tilize that the conv's two
+  remaining non-tile-aligned tap slices still pay. An explicit shared row-major window for those
+  taps was tried and is not faster (50.38 ms vs 50.18 ms). See [`work_log.md` §8](work_log.md).
+* 4.9 ms of `linear_attention` prefill (9.8 %) is still flagged `SLOW` by `tt-perf-report`, down
+  from 13.5 ms; the residue is the per-chunk loop's own small matmuls, which are already in L1.
 * The `_decode_norm_config` grid search falls back to the interleaved (single-core) kernel if no
   candidate core count divides the hidden size in tiles. It does not for this model
   (5120 / 32 = 160 tiles, 10 cores), but a different hidden size could land there and would
