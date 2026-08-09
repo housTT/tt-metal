@@ -10,8 +10,10 @@ so the fused layer is held to *exactly* the bar the functional layer passed.
 
 On top of that this module adds what is specific to a fused implementation:
 
-* :func:`test_fused_ops_are_used` — the measured path really dispatches the fused ops.  Without
-  it a silent fallback to a functional-shaped graph would still pass every PCC test.
+* :func:`test_fused_graph_is_smaller` — the measured path really dispatches fewer **device**
+  ops than the unfused one, counted with ``ttnn.graph``.  Without it a silent fallback to a
+  functional-shaped graph would still pass every PCC test, and a Python-level check would not
+  help: several ttnn helpers are composites that lower back to the sequence they replace.
 * :func:`test_matches_functional_decoder` — fused vs unfused on identical weights and inputs,
   which is the equivalence the graph-fusing transform actually promises.
 * :func:`test_repeated_prefill_decode_stress` — many back-to-back passes, checking the PCC
@@ -61,80 +63,79 @@ def test_inherited_suite_is_complete():
 
 # --------------------------------------------------------------- fused-path assertions
 
-#: The dedicated ops the fused graph is *supposed* to dispatch, per layer kind and phase.
-#: ``ttnn.swiglu`` is the MLP fusion (F1) and is common to both kinds;
-#: ``rotary_embedding_hf`` is the partial-RoPE fusion (F2), ``full_attention`` only.
-FUSED_OPS = {
-    "linear_attention": {"swiglu"},
-    "full_attention": {"swiglu", "rotary_embedding_hf"},
-}
-
-#: Ops the *unfused* graph used that the fused graph must no longer dispatch on the measured
-#: path.  ``neg`` and ``sigmoid`` were the RoPE rotate-half and the attention output gate;
-#: ``rsqrt`` was the hand-rolled L2 norm.  Their absence is what proves the fused ops replaced
-#: the primitive sequences rather than running alongside them.
-RETIRED_OPS = {
-    "linear_attention": {"rsqrt"},
-    "full_attention": {"neg", "sigmoid", "rsqrt"},
+#: Device ops the fused graph must dispatch that the unfused one never does.  These are the
+#: names ``ttnn.graph`` reports, i.e. the ops that actually reach the device — not the Python
+#: helper that was called.  That distinction matters: ``ttnn.swiglu`` and
+#: ``ttnn.linear(activation=...)`` are *composites* on this build and lower back to the very
+#: sequences they look like they replace, so a Python-level spy would have happily "proved" a
+#: fusion that never happened (see ``doc/fused_decoder/work_log.md`` §5).
+FUSED_DEVICE_OPS = {
+    "linear_attention": {"TernaryDeviceOperation"},          # F16, ttnn.addcmul in the causal conv
+    "full_attention": {"RotaryEmbeddingHfDeviceOperation"},  # F2, the partial-RoPE fusion
 }
 
 
-class _OpSpy:
-    """Record which ttnn ops a block of code dispatches."""
+def _device_ops(fn) -> list[str]:
+    """Device-op names dispatched by ``fn``, in order, via ``ttnn.graph`` capture."""
+    ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NORMAL)
+    try:
+        fn()
+    finally:
+        graph = ttnn.graph.end_graph_capture()
+    names = [
+        node["params"].get("name", "")
+        for node in graph
+        if node.get("node_type") == "function_start"
+    ]
+    return [
+        name
+        for name in names
+        if name.endswith("Operation") and "::" not in name and not name.startswith("ttnn.")
+    ]
 
-    def __init__(self, names):
-        self.names = names
-        self.seen = set()
-        self._saved = {}
 
-    def __enter__(self):
-        for name in self.names:
-            holder = ttnn.experimental if name == "rotary_embedding_hf" else ttnn
-            original = getattr(holder, name)
-            self._saved[name] = (holder, original)
-
-            def _wrap(fn=original, key=name):
-                def _spy(*args, **kwargs):
-                    self.seen.add(key)
-                    return fn(*args, **kwargs)
-
-                return _spy
-
-            setattr(holder, name, _wrap())
-        return self
-
-    def __exit__(self, *exc):
-        for name, (holder, original) in self._saved.items():
-            setattr(holder, name, original)
-        return False
+def _prefill_decode_ops(mesh_device, layer_idx, decoder_cls):
+    """``(prefill_ops, decode_ops)`` for one decoder class, on identical inputs."""
+    lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=8192, decoder_cls=decoder_cls)
+    stats = ref.load_weight_stats()
+    hidden = ref.synthetic_hidden_states(lut.config, 1, 2049, stats)
+    H.run_tt_prefill(lut, hidden)  # warm the program cache first
+    prefill = _device_ops(lambda: H.run_tt_prefill(lut, hidden))
+    H.prepare_decode(lut)
+    token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=31)
+    H.run_tt_decode(lut, token, torch.tensor([2049]))
+    decode = _device_ops(lambda: H.run_tt_decode(lut, token, torch.tensor([2049])))
+    H.release_layers()
+    return prefill, decode
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_fused_ops_are_used(mesh_device, layer_idx):
-    """The measured prefill and decode dispatch the fused ops and none of the retired ones.
+def test_fused_graph_is_smaller(mesh_device, layer_idx):
+    """The fused layer dispatches strictly fewer **device** ops than the unfused one.
 
-    This is the test that distinguishes "fused" from "functional with a different file name".
+    This is the test that distinguishes "fused" from "functional with a different file name",
+    and it counts what reaches the device rather than which Python helper was called — the
+    two differ for every composite in ttnn.
     """
-    lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
-    kind = lut.config.layer_types[layer_idx]
-    assert isinstance(lut.tt_layer, FusedDecoder)
-    expected = FUSED_OPS[kind]
-    retired = RETIRED_OPS[kind]
+    kind = ref.load_text_config().layer_types[layer_idx]
+    fused_prefill, fused_decode = _prefill_decode_ops(mesh_device, layer_idx, FusedDecoder)
+    base_prefill, base_decode = _prefill_decode_ops(mesh_device, layer_idx, FunctionalDecoder)
 
-    hidden = ref.synthetic_hidden_states(lut.config, 1, 2049, ref.load_weight_stats())
-    with _OpSpy(expected | retired) as spy:
-        H.run_tt_prefill(lut, hidden)
-    H.record("fused_ops_prefill", sorted(spy.seen), kind=kind)
-    assert expected <= spy.seen, f"prefill did not dispatch {sorted(expected - spy.seen)}"
-    assert not (retired & spy.seen), f"prefill still dispatches retired ops {sorted(retired & spy.seen)}"
-
-    H.prepare_decode(lut)
-    token = ref.synthetic_hidden_states(lut.config, 1, 1, ref.load_weight_stats(), seed=31)
-    with _OpSpy(expected | retired) as spy:
-        H.run_tt_decode(lut, token, torch.tensor([2049]))
-    H.record("fused_ops_decode", sorted(spy.seen), kind=kind)
-    assert expected <= spy.seen, f"decode did not dispatch {sorted(expected - spy.seen)}"
-    assert not (retired & spy.seen), f"decode still dispatches retired ops {sorted(retired & spy.seen)}"
+    for phase, fused_ops, base_ops in (
+        ("prefill", fused_prefill, base_prefill),
+        ("decode", fused_decode, base_decode),
+    ):
+        H.record(f"device_ops_{phase}_functional", len(base_ops), kind=kind)
+        H.record(f"device_ops_{phase}_fused", len(fused_ops), kind=kind)
+        assert len(fused_ops) < len(base_ops), (
+            f"{kind} {phase}: fused dispatches {len(fused_ops)} device ops, "
+            f"unfused {len(base_ops)} - the rewrite removed nothing"
+        )
+        expected = FUSED_DEVICE_OPS[kind]
+        assert expected <= set(fused_ops), f"{kind} {phase} missing {sorted(expected - set(fused_ops))}"
+        assert not (expected & set(base_ops)), (
+            f"{kind} {phase}: {sorted(expected & set(base_ops))} is not actually fusion-specific"
+        )
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)

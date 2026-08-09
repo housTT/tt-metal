@@ -112,7 +112,10 @@ def release_layers() -> None:
             tensors.extend(value if isinstance(value, list) else [value])
         tensors.extend(layer.const.values())
         tensors.extend(layer.kv_cache or ())
-        tensors.extend(t for t in (layer.conv_state, layer.recurrent_state) if t is not None)
+        for value in (layer.conv_state, layer.recurrent_state):
+            if value is None:
+                continue
+            tensors.extend(value if isinstance(value, list) else [value])
         tensors.extend(t for t in layer.user_conv_state if t is not None)
         tensors.extend(t for t in layer.user_recurrent_state if t is not None)
         if lut.page_table_tt is not None:

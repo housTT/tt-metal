@@ -9,60 +9,85 @@ module stays as the unfused reference the equivalence tests compare against.
 What was fused, and why
 -----------------------
 
+Full derivations, measurements and rejected candidates are in
+``doc/fused_decoder/work_log.md``; every claim below was checked against the profiler or a
+``ttnn.graph`` device-op count, because several ttnn helpers that look like fusions are
+composites that lower back to the sequence they appear to replace.
+
 **Dedicated fused ops** (highest priority — a hand-written kernel replaces a spelled-out
 primitive sequence):
 
-``F1`` SwiGLU MLP
-    ``slice → slice → silu → multiply`` becomes :func:`ttnn.swiglu`.  ``ttnn.swiglu(x)`` is
-    ``x[..., :n] * silu(x[..., n:])``, so the gate/up weights are concatenated **up first**
-    (the functional module concatenates gate first).
 ``F2`` Partial rotary embedding
     ``slice ×3 → neg → concat → mul → mul → add → slice → concat`` (ten ops per tensor)
-    becomes a single :func:`ttnn.experimental.rotary_embedding_hf`.  That op applies the
-    HF *rotate-half* over the **whole** head, while Qwen3.5 rotates only the leading
-    ``rotary_dim`` (64 of 256) channels.  The two are made to agree by permuting the head
-    channels of ``q``/``k`` (and of ``q_norm``/``k_norm``) **host-side, at load time** so the
-    rotary pair ``(j, j + rotary_dim/2)`` lands on ``(j, j + head_dim/2)`` — exactly the pair
-    a full-width rotate-half touches — and by giving the non-rotary channels ``cos = 1``,
-    ``sin = 0``.  See :func:`rope_channel_permutation`.  A permutation applied identically to
-    ``q`` and ``k`` leaves ``q · k`` unchanged, so attention is unaffected; ``v``, the output
-    gate and ``o_proj`` are untouched.
+    becomes a single :func:`ttnn.experimental.rotary_embedding_hf`.  That op applies the HF
+    *rotate-half* over the **whole** head, while Qwen3.5 rotates only the leading ``rotary_dim``
+    (64 of 256) channels.  The two are made to agree by permuting the head channels of ``q``/``k``
+    (and of ``q_norm``/``k_norm``) **host-side, at load time** so the rotary pair
+    ``(j, j + rotary_dim/2)`` lands on ``(j, j + head_dim/2)`` — exactly the pair a full-width
+    rotate-half touches — and by giving the non-rotary channels ``cos = 1``, ``sin = 0``.  See
+    :func:`rope_channel_permutation`.  A permutation applied identically to ``q`` and ``k`` leaves
+    ``q · k`` unchanged, so attention is unaffected; ``v``, the output gate and ``o_proj`` are
+    untouched.
+``F17`` Head split
+    ``slice → reshape → permute`` per tensor becomes two overlapping
+    :func:`ttnn.experimental.nlp_create_qkv_heads` calls.  That op wants K and V to have the same
+    head count and this mixer has 16 key heads and 48 value heads, but 48 value heads are three
+    consecutive groups of 16, so two calls over overlapping column ranges express it exactly.
+    Measured 11.25 ms → 3.14 ms, bit-identical.
 ``F3`` L2 normalisation of the gated-delta-net ``q``/``k``
     ``multiply → sum → add → rsqrt → multiply`` (plus a scale multiply for ``q``) becomes one
     :func:`ttnn.rms_norm`.  ``rms_norm(x, eps') = x·sqrt(D)/sqrt(sum(x²) + D·eps')``, so with
     ``eps' = 1e-6/D`` it *is* the HF ``l2norm(x, eps=1e-6)`` up to the constant ``sqrt(D)``,
     which is folded into the norm weight together with the ``1/sqrt(head_k_dim)`` query scale.
-``F4`` Fused paged cache update — **assessed and rejected**
-    :func:`ttnn.experimental.paged_fused_update_cache` would merge the two decode
-    ``paged_update_cache`` dispatches, but it requires its two inputs on disjoint core ranges
-    while ``nlp_create_qkv_heads_decode`` puts K and V on the same batch cores; the reshard
-    that would fix it costs the dispatch the fusion saves.  See ``_full_attention_decode``.
+``F16`` Causal-conv taps
+    ``multiply → add`` per tap becomes :func:`ttnn.addcmul`: 15.38 ms → 13.73 ms and three fewer
+    84 MB temporaries.
 
 **Graph rewrites** (structural / algebraic, no new kernel):
 
-``F5`` Shared-LHS projections
-    ``in_proj_b`` and ``in_proj_a`` share their LHS, so they become one matmul over the
-    concatenated weight (padded so both slices start on a tile boundary).
 ``F6`` L1 residency for the gated-delta-rule small tensors
-    Not an op-count change but the single largest measured win: a batched ``32x32x32``
-    matmul costs ~1.06 µs per batch element out of DRAM and ~0.043 µs out of L1 (24x —
+    Not an op-count change but the single largest measured win: a batched ``32x32x32`` matmul
+    costs ~1.06 us per batch element out of DRAM and ~0.043 us out of L1 (24x —
     ``doc/fused_decoder/probes/probe_fused_ops2.py``).  The triangular inverse is thousands of
-    such matmuls, so the recursion, the decay masks and the per-chunk loop run in L1 whenever
-    the chunk's footprint fits :data:`L1_BUDGET_BYTES`.
+    such matmuls, so the recursion and the per-chunk loop run in L1 whenever their estimated peak
+    live footprint fits :data:`L1_BUDGET_BYTES`.
+``F15`` Width-sharded decode RMSNorm
+    The interleaved layernorm kernel parallelises over tile *rows* and a decode activation has
+    exactly one, so both full-width norms ran on a single core at 102 us each.  Width-sharding
+    takes them to 24.6 us.
 ``F7`` ``TRI_INV_BASE`` 16 → 32
-    One recursion level fewer, and the base case's ``32x32`` blocks fill a whole tile instead
-    of wasting three quarters of one.
-``F8`` decode conv state kept as ``conv_kernel_size`` separate row buffers
-    removes the ``slice`` + ``concat`` that rebuilt the window every step.
+    One recursion level fewer, and the base case's ``32x32`` blocks fill a whole tile instead of
+    wasting three quarters of one.
+``F19`` Concatenate the per-chunk recurrence outputs along the **sequence** axis
+    Chunk ``i`` holds tokens ``[i*chunk, (i+1)*chunk)``, so this lands directly in the layout the
+    gated norm wants; the unfused order needed a permute and a 2.3 ms reshape afterwards.
+``F20`` Flatten the gated norm's output instead of reshaping ``z`` into head shape
+    Same result, but this reshape direction is a view and the other cost 3.1 ms.
+``F8`` Decode conv state as ``conv_kernel_size - 1`` per-tap row buffers
+    A tap then reads its buffer directly instead of slicing a non-tile-aligned row out of one
+    window tensor, which TTNN implements as untilize → slice → retilize.
+``F5`` Shared-LHS ``b``/``a`` projection
+    ``in_proj_b`` and ``in_proj_a`` share their LHS, so one matmul emits both (the ``b`` half
+    padded up to a tile so both output slices start on a tile boundary).
+``F18`` Explicit core grid for that projection at decode
+    ``32 x 5120 x 128`` is four output tiles, so the default program picks four cores and runs at
+    9.5 % of DRAM roofline; a 4x8 grid takes it from 63 us to 35 us.
 
-**Op merging** (fold a neighbour into an op that is already running):
+**Op merging** (fold a neighbour into an op that is already running).  Note what does *not*
+work here: :func:`ttnn.swiglu` is a composite that dispatches ``split → swish → multiply``
+(``unary_composite_op.cpp:293``), and ``ttnn.linear(activation=...)`` applies its activation as a
+separate ``unary_chain`` unless a program config or ``core_grid`` is given (``matmul.cpp:295``).
+Both were tried and left the op stream unchanged.  What does work is the activation as an **input
+argument of an eltwise binary the graph already contains**:
 
-``F9``  ``matmul → sigmoid`` on the attention output gate → ``ttnn.linear(activation="sigmoid")``.
-``F10`` ``matmul → silu`` on the gated-delta-net ``z`` → ``ttnn.linear(activation="silu")``.
-``F11`` ``matmul → add(dt_bias)`` → ``ttnn.linear(bias=...)`` on the fused ``b|a`` projection.
-``F12`` ``transpose → matmul`` → ``ttnn.matmul(..., transpose_b=True)``.
-``F13`` ``tril → exp → tril`` for the decay mask → ``add(triu_neg_inf) → exp``.
-``F14`` ``multiply → tril → neg`` for ``attn0`` → ``multiply(..., activation) → tril``.
+``F1``  SwiGLU MLP → ``slice ×2 → multiply(SiLU on b)``; −1 device op, −471 us of prefill.
+``F9``  Attention output gate → ``multiply(sigmoid on b)``; −1 device op, −166 us of prefill.
+``F10`` Gated-delta-net ``z`` → ``multiply(SiLU on b)`` at the gated norm.
+``F11`` ``dt_bias`` → ``ttnn.linear(bias=...)``; this one *is* a real matmul feature.
+``F13`` Decay mask: ``tril → exp → tril`` → ``add(triu -inf) → exp``.
+``F14`` ``attn0``: ``multiply → tril → neg`` → ``multiply → multiply(mask)``.
+``F12`` ``transpose → matmul`` → ``ttnn.matmul(transpose_b=True)``: kept for clarity, but it is
+        **not** a fusion on this build — ttnn still emits a separate ``TransposeDeviceOperation``.
 
 Contract differences from :class:`~.functional_decoder.FunctionalDecoder`
 ------------------------------------------------------------------------
@@ -393,10 +418,9 @@ class FusedDecoder(LightweightModule):
             "post_attention_layernorm": _norm_w(_get("post_attention_layernorm.weight"), one_centred=True),
         }
 
-        # F1: ttnn.swiglu computes ``first * silu(second)``, so **up** goes first.
         gate_w = _get("mlp.gate_proj.weight")
         up_w = _get("mlp.up_proj.weight")
-        weights["mlp_up_gate"] = _linear_w(torch.cat([up_w, gate_w], dim=0))
+        weights["mlp_gate_up"] = _linear_w(torch.cat([gate_w, up_w], dim=0))
         weights["mlp_down"] = _linear_w(_get("mlp.down_proj.weight"))
 
         constants: dict = {}
@@ -481,9 +505,17 @@ class FusedDecoder(LightweightModule):
             cache_shape = (max_num_blocks, shapes.num_key_value_heads, block_size, shapes.head_dim)
             kv_cache = tuple(_tt(torch.zeros(cache_shape), cache_dtype) for _ in range(2))
         else:
-            conv_state = _tt(
-                torch.zeros(1, max_batch, shapes.conv_kernel_size, shapes.conv_dim), state_dtype
-            )
+            # F8: the decode conv window is `conv_kernel_size - 1` history rows plus the current
+            # token.  Holding them as separate `[1, 1, max_batch, conv_dim]` buffers (batch on the
+            # tile height, one buffer per tap) means a decode step reads each tap directly, with
+            # no slice at a non-tile-aligned row and therefore no untilize/retilize round trip -
+            # which is what a single `[1, batch, K, conv_dim]` buffer cost (measured 15 us of
+            # untilize+tilize per tap per step).  Separate buffers also keep stable addresses for
+            # trace replay.
+            conv_state = [
+                _tt(torch.zeros(1, 1, max_batch, shapes.conv_dim), state_dtype)
+                for _ in range(shapes.conv_kernel_size - 1)
+            ]
             recurrent_state = _tt(
                 torch.zeros(1, max_batch * shapes.num_v_heads, shapes.head_k_dim, shapes.head_v_dim),
                 state_dtype,
@@ -565,22 +597,27 @@ class FusedDecoder(LightweightModule):
         return out
 
     def _mlp(self, x):
-        """F1: fused up|gate matmul + ``ttnn.swiglu`` + down projection — three ops."""
-        rows = int(x.shape[-2])
-        up_gate = ttnn.linear(
-            x, self.w["mlp_up_gate"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
+        """F1: SwiGLU as ``matmul → slice ×2 → multiply(SiLU on b)`` — four ops, not five.
+
+        ``ttnn.swiglu`` was tried first and is **not** a fusion on this build: it is a
+        composite that dispatches ``split → swish → multiply`` (``unary_composite_op.cpp:293``),
+        i.e. exactly the sequence it was meant to replace, and it additionally reports the
+        tile-padded height as its logical height, which forced a trim on every decode step.
+        Folding the SiLU into the multiply's ``input_tensor_b_activations`` is a real merge:
+        it removes the separate ``UnaryDeviceOperation`` (526 us of ``full_attention``
+        prefill, 5 us of a decode step).  See ``work_log.md`` §5.
+        """
+        inter = self.shapes.intermediate_size
+        gate_up = ttnn.linear(
+            x, self.w["mlp_gate_up"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
         )
-        activated = ttnn.swiglu(up_gate)
-        ttnn.deallocate(up_gate)
-        # ttnn.swiglu reports the *tile-padded* height as its logical height, so a decode pass
-        # with batch < 32 comes back 32 rows tall and would broadcast against the residual.
-        # Prefill chunks are always a multiple of the tile, so this only fires on decode.
-        if int(activated.shape[-2]) != rows:
-            trimmed = ttnn.slice(
-                activated, [0, 0, 0, 0], [1, 1, rows, self.shapes.intermediate_size]
-            )
-            _free(activated, trimmed)
-            activated = trimmed
+        lead = _shape(gate_up)[:3]
+        gate = ttnn.slice(gate_up, [0, 0, 0, 0], [*lead, inter])
+        up = ttnn.slice(gate_up, [0, 0, 0, inter], [*lead, 2 * inter])
+        _free(gate_up, gate, up)
+        activated = ttnn.multiply(up, gate, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
+        ttnn.deallocate(gate)
+        ttnn.deallocate(up)
         out = ttnn.linear(
             activated, self.w["mlp_down"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
         )
@@ -590,19 +627,10 @@ class FusedDecoder(LightweightModule):
     # ------------------------------------------------------- full attention
 
     def _attn_projections(self, x, *, decode: bool):
-        """Return ``(q, k, v, gate)`` with heads split out.
-
-        ``F9``: the sigmoid of the output gate is the projection's fused activation.
-        """
+        """Return ``(q, k, v, gate)`` with heads split out; ``gate`` is pre-sigmoid (``F9``)."""
         s = self.shapes
         qkv = ttnn.linear(x, self.w["wqkv"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg)
-        gate = ttnn.linear(
-            x,
-            self.w["wgate"],
-            dtype=ttnn.bfloat16,
-            compute_kernel_config=self.compute_cfg,
-            activation="sigmoid",
-        )
+        gate = ttnn.linear(x, self.w["wgate"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg)
         if decode:
             q, k, v = ttnn.experimental.nlp_create_qkv_heads_decode(
                 qkv, num_heads=s.num_attention_heads, num_kv_heads=s.num_key_value_heads
@@ -619,8 +647,14 @@ class FusedDecoder(LightweightModule):
         return q, k, v, gate
 
     def _attn_epilogue(self, attn_out, gate):
-        """``gate`` already carries its sigmoid (``F9``)."""
-        gated = ttnn.multiply(attn_out, gate)
+        """F9: the output gate's sigmoid is an input activation of the multiply already here.
+
+        ``ttnn.linear(activation="sigmoid")`` was tried first and does **not** fuse unless a
+        program config / ``core_grid`` is given - ``matmul.cpp:295`` applies the activation as a
+        separate ``ttnn::unary_chain`` dispatch, which the profiler confirmed (a 192 us
+        ``UnaryDeviceOperation`` right after the gate matmul, identical to the unfused one).
+        """
+        gated = ttnn.multiply(attn_out, gate, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
         ttnn.deallocate(attn_out)
         ttnn.deallocate(gate)
         out = ttnn.linear(
@@ -770,8 +804,10 @@ class FusedDecoder(LightweightModule):
     def _gdn_inputs(self, x):
         """Shared GatedDeltaNet input projections.
 
-        ``F5`` + ``F11``: one fp32 matmul with a fused bias emits both ``b`` and ``a``.
-        ``F10``: ``z``'s SiLU is the projection's fused activation.
+        ``F5`` + ``F11``: one fp32 matmul with a genuinely fused bias emits both ``b`` and ``a``
+        (the profiler shows no separate add after it).  ``z`` is returned pre-SiLU; ``F10``
+        folds that SiLU into the gated-norm multiply instead of into the matmul, which does
+        not fuse it (see :meth:`_attn_epilogue`).
         """
         s = self.shapes
         # The ``b`` half is padded up to a tile so ``a`` starts on a tile boundary (F5).
@@ -779,19 +815,19 @@ class FusedDecoder(LightweightModule):
         mixed_qkv = ttnn.linear(
             x, self.w["in_proj_qkv"], dtype=ttnn.float32, compute_kernel_config=self.compute_cfg
         )
-        z = ttnn.linear(
-            x,
-            self.w["in_proj_z"],
-            dtype=ttnn.bfloat16,
-            compute_kernel_config=self.compute_cfg,
-            activation="silu",
-        )
+        z = ttnn.linear(x, self.w["in_proj_z"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg)
+        # F18: at decode the b|a projection is 32 x 5120 x 128 - only four output tiles, so the
+        # default program picks four cores and runs at 9.5 % of DRAM roofline (61 us, flagged
+        # SLOW by tt-perf-report).  An explicit 4x8 core grid takes it to 35 us; wider padded N
+        # and an 8x8 grid were both measured and are worse (logs/probe_review_followups.log).
+        # Prefill has 2048 rows and does not want the restriction.
         ba = ttnn.linear(
             x,
             self.w["in_proj_ba"],
             bias=self.w["ba_bias"],
             dtype=ttnn.float32,
             compute_kernel_config=self.compute_cfg,
+            **({"core_grid": ttnn.CoreGrid(y=4, x=8)} if int(x.shape[-2]) <= ttnn.TILE_SIZE else {}),
         )
         lead = _shape(ba)[:-1]
         starts = [0] * len(lead)
@@ -924,6 +960,59 @@ class FusedDecoder(LightweightModule):
         _free(bottom, out)
         return out
 
+    def _prefill_heads(self, conv_out, padded: int):
+        """F17: split the fused conv output into per-head ``q``/``k``/``v`` with a dedicated op.
+
+        ``conv_out`` is ``[1, 1, L, 2*key_dim + value_dim]`` = ``[q(16*128) | k(16*128) |
+        v(48*128)]``.  The obvious ``reshape → permute`` head split is a last-dim change, which
+        TTNN implements as untilize + retilize: measured 11.25 ms for the three tensors at
+        ``L`` = 2048, 14 % of the whole layer.
+
+        ``ttnn.experimental.nlp_create_qkv_heads`` is the dedicated kernel for exactly this, but
+        it requires K and V to have the same head count, and this mixer has 16 key heads and 48
+        value heads.  Two overlapping calls express it anyway, because 48 value heads are three
+        consecutive groups of 16:
+
+            call A over columns [0, 6144)      -> q,      k,       v heads 0-15
+            call B over columns [4096, 10240)  -> (v0),   v 16-31, v 32-47
+
+        Measured 11.25 ms -> 3.14 ms, **bit-identical** to the reshape path
+        (``logs/probe_headsplit_narrow.log``).  The duplicated ``v0`` output of call B is the
+        only waste and is one third of one of the two calls.
+        """
+        s = self.shapes
+        group = s.key_dim  # 16 heads x head_k_dim, and the width of one third of v
+        assert s.value_dim == 3 * group and s.key_dim == s.num_k_heads * s.head_k_dim, (
+            "the two-call head split assumes value_dim == 3 * key_dim (48 v-heads / 16 k-heads)"
+        )
+        first = ttnn.slice(conv_out, [0, 0, 0, 0], [1, 1, padded, 3 * group])
+        q, k, v0 = ttnn.experimental.nlp_create_qkv_heads(
+            first,
+            num_heads=s.num_k_heads,
+            num_kv_heads=s.num_k_heads,
+            transpose_k_heads=False,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(first)
+        second = ttnn.slice(conv_out, [0, 0, 0, 2 * group], [1, 1, padded, s.conv_dim])
+        v0_again, v1, v2 = ttnn.experimental.nlp_create_qkv_heads(
+            second,
+            num_heads=s.num_k_heads,
+            num_kv_heads=s.num_k_heads,
+            transpose_k_heads=False,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(second)
+        ttnn.deallocate(v0_again)
+        v = ttnn.concat([v0, v1, v2], dim=1)
+        for tensor in (v0, v1, v2):
+            _free(tensor, v)
+        q_rep = ttnn.repeat_interleave(q, s.v_per_k, dim=1)
+        _free(q, q_rep)
+        k_rep = ttnn.repeat_interleave(k, s.v_per_k, dim=1)
+        _free(k, k_rep)
+        return q_rep, k_rep, v
+
     def _linear_attention_prefill_chunk(self, x, *, state, conv_prefix, length):
         """One prefill chunk of the gated delta rule.
 
@@ -936,9 +1025,6 @@ class FusedDecoder(LightweightModule):
         mixed_qkv, z, beta, g = self._gdn_inputs(x)
         conv_out, new_conv_state = self._causal_conv(mixed_qkv, conv_prefix, length)
         ttnn.deallocate(mixed_qkv)
-        q_flat, k_flat, v_flat = self._split_qkv(conv_out)
-        ttnn.deallocate(conv_out)
-
         padded = int(x.shape[-2])
         assert padded % chunk == 0, f"prefill chunk length {padded} must be a multiple of {chunk}"
         nc = padded // chunk
@@ -958,22 +1044,14 @@ class FusedDecoder(LightweightModule):
         beta = _zero_after_seq(beta, length, padded)
         g = _zero_after_seq(g, length, padded)
 
-        def to_heads(flat, num_heads, head_dim, repeat: int):
-            t = ttnn.reshape(flat, (1, padded, num_heads, head_dim))
-            t = ttnn.permute(t, (0, 2, 1, 3))  # [1, H, L, D]
-            if repeat > 1:
-                rep = ttnn.repeat_interleave(t, repeat, dim=1)
-                _free(t, flat, rep)
-                t = rep
+        q, k, v = self._prefill_heads(conv_out, padded)
+        ttnn.deallocate(conv_out)
+
+        def to_chunks(t, head_dim):
             t = ttnn.reshape(t, (nv, nc, chunk, head_dim))
             return ttnn.permute(t, (1, 0, 2, 3))  # [nc, H, chunk, D]
 
-        q = to_heads(q_flat, s.num_k_heads, s.head_k_dim, s.v_per_k)
-        k = to_heads(k_flat, s.num_k_heads, s.head_k_dim, s.v_per_k)
-        v = to_heads(v_flat, nv, s.head_v_dim, 1)
-        _free(q_flat, q)
-        _free(k_flat, k)
-        _free(v_flat, v)
+        q, k, v = (to_chunks(t, d) for t, d in ((q, s.head_k_dim), (k, s.head_k_dim), (v, s.head_v_dim)))
 
         # F3: l2norm + query scale as a single rms_norm each.
         q = self._l2_rms(q, "q_l2_scale", mem)
@@ -1095,28 +1173,30 @@ class FusedDecoder(LightweightModule):
         for tensor in (q, k, value, decay, k_cumdecay, q_decayed, k_decayed, exp_g_last, g_cum):
             ttnn.deallocate(tensor)
 
-        if len(outputs) == 1:
-            core = outputs[0]
-        else:
-            core = ttnn.concat(outputs, dim=0, memory_config=mem)  # [nc, nv, chunk, head_v_dim]
+        # F19: the per-chunk outputs are [1, nv, chunk, Dv] and chunk i holds tokens
+        # [i*chunk, (i+1)*chunk), so concatenating along the *sequence* axis lands directly in
+        # [1, nv, L, Dv].  Concatenating along the chunk axis instead, as the unfused code did,
+        # then needs a permute and a reshape to get there - and that reshape was 2.3 ms.
+        core = outputs[0] if len(outputs) == 1 else ttnn.concat(outputs, dim=2, memory_config=mem)
+        if len(outputs) > 1:
             for tensor in outputs:
                 ttnn.deallocate(tensor)
-        core = ttnn.permute(core, (1, 0, 2, 3))  # [nv, nc, chunk, Dv]
-        core = ttnn.reshape(core, (1, nv, padded, s.head_v_dim))
         core = ttnn.permute(core, (0, 2, 1, 3))  # [1, L, nv, Dv]
 
-        z_heads = ttnn.reshape(z, (1, padded, nv, s.head_v_dim))
         normed = self._rms_norm(ttnn.typecast(core, ttnn.bfloat16), self.w["gated_norm"])
         ttnn.deallocate(core)
-        gated = ttnn.multiply(normed, z_heads)  # F10: z already carries its SiLU
-        ttnn.deallocate(normed)
-        ttnn.deallocate(z_heads)
-        flat = ttnn.reshape(gated, (1, 1, padded, s.value_dim))
-        _free(gated, flat)
+        # F20: flatten the *norm output* back to [1, 1, L, value_dim] and multiply against ``z``
+        # where it already is.  Reshaping ``z`` into head shape instead cost 3.1 ms; this
+        # direction is a view.  F10 keeps z's SiLU as an input activation of that multiply.
+        normed_flat = ttnn.reshape(normed, (1, 1, padded, s.value_dim))
+        _free(normed, normed_flat)
+        gated = ttnn.multiply(normed_flat, z, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
+        ttnn.deallocate(normed_flat)
+        ttnn.deallocate(z)
         out = ttnn.linear(
-            flat, self.w["out_proj"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
+            gated, self.w["out_proj"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
         )
-        ttnn.deallocate(flat)
+        ttnn.deallocate(gated)
         return out, state, new_conv_state
 
     def _l2_rms(self, x, weight_key: str, mem=None):
@@ -1135,34 +1215,27 @@ class FusedDecoder(LightweightModule):
         # floats.  At batch 1 that is 3 MB and belongs in L1; at batch 32 it is 100 MB and does
         # not.  Everything here follows the same decision so a step never mixes the two.
         mem = self._mem(3 * batch * nv * s.head_k_dim * s.head_v_dim * 4)
-        x_rows = ttnn.reshape(x, (1, batch, 1, s.hidden_size))
-        mixed_qkv, z, beta, g = self._gdn_inputs(x_rows)
-        _free(x_rows, x)
+        # Everything here stays in the decode layout [1, 1, batch, ...].  The unfused decoder
+        # reshaped to [1, batch, 1, hidden] so that its conv window concat had the window on the
+        # height axis; F8's per-tap buffers removed that need, and keeping the batch on the
+        # height axis is what makes each conv-state buffer one tile row tall instead of `batch`
+        # of them (3.9 MB for the three buffers at batch 32 instead of 126 MB).
+        mixed_qkv, z, beta, g = self._gdn_inputs(x)
 
-        # F8: the conv window is `conv_state` rows 1..K-1 followed by this token.  Slicing the
-        # state and concatenating is two ops on a K-row tensor; taking the taps straight out of
-        # the state buffer and writing the shifted window back is the same arithmetic without
-        # the concat.
+        # F8: tap j reads conv_state[j] directly - no slice, so no untilize/retilize - and
+        # F16 folds each tap's multiply and add into one addcmul.  The write-back shifts the
+        # buffers by one token in place, which keeps their addresses stable for trace replay.
         acc = ttnn.multiply(mixed_qkv, self.w["conv_taps"][s.conv_kernel_size - 1], memory_config=mem)
         for j in range(s.conv_kernel_size - 1):
-            row = ttnn.slice(
-                self.conv_state, [0, 0, j + 1, 0], [1, batch, j + 2, s.conv_dim], memory_config=mem
+            updated = ttnn.addcmul(
+                acc, self.conv_state[j], self.w["conv_taps"][j], value=1.0, memory_config=mem
             )
-            # F16: one addcmul instead of multiply-then-add.
-            updated = ttnn.addcmul(acc, row, self.w["conv_taps"][j], value=1.0, memory_config=mem)
             ttnn.deallocate(acc)
-            ttnn.deallocate(row)
             acc = updated
-        window = ttnn.concat(
-            [
-                ttnn.slice(self.conv_state, [0, 0, 1, 0], [1, batch, s.conv_kernel_size, s.conv_dim]),
-                mixed_qkv,
-            ],
-            dim=-2,
-        )
+        for j in range(s.conv_kernel_size - 2):
+            ttnn.copy(self.conv_state[j + 1], self.conv_state[j])
+        ttnn.copy(mixed_qkv, self.conv_state[s.conv_kernel_size - 2])
         ttnn.deallocate(mixed_qkv)
-        ttnn.copy(window, self.conv_state)
-        ttnn.deallocate(window)
         conv_out = ttnn.silu(acc, memory_config=mem)
         ttnn.deallocate(acc)
 
@@ -1219,18 +1292,18 @@ class FusedDecoder(LightweightModule):
 
         core = ttnn.reshape(out, (1, batch, nv, s.head_v_dim))
         _free(out, core)
-        z_heads = ttnn.reshape(z, (1, batch, nv, s.head_v_dim))
         normed = self._rms_norm(ttnn.typecast(core, ttnn.bfloat16), self.w["gated_norm"])
         ttnn.deallocate(core)
-        gated = ttnn.multiply(normed, z_heads)  # F10: z already carries its SiLU
-        ttnn.deallocate(normed)
-        ttnn.deallocate(z_heads)
-        flat = ttnn.reshape(gated, (1, 1, batch, s.value_dim))
-        _free(gated, flat)
+        # F20 + F10, as in prefill: flatten the norm output rather than reshaping z into heads.
+        normed_flat = ttnn.reshape(normed, (1, 1, batch, s.value_dim))
+        _free(normed, normed_flat)
+        gated = ttnn.multiply(normed_flat, z, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
+        ttnn.deallocate(normed_flat)
+        ttnn.deallocate(z)
         result = ttnn.linear(
-            flat, self.w["out_proj"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
+            gated, self.w["out_proj"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
         )
-        ttnn.deallocate(flat)
+        ttnn.deallocate(gated)
         return result
 
     # ------------------------------------------------------------- forwards
@@ -1393,7 +1466,7 @@ class FusedDecoder(LightweightModule):
         ttnn.deallocate(self.user_conv_state[user_id])
         self.user_conv_state[user_id] = ttnn.zeros(
             (1, 1, s.conv_kernel_size, s.conv_dim),
-            dtype=self.conv_state.dtype,
+            dtype=self.conv_state[0].dtype,
             layout=ttnn.TILE_LAYOUT,
             device=self.mesh_device,
         )
@@ -1410,9 +1483,20 @@ class FusedDecoder(LightweightModule):
         merged_recurrent = ttnn.concat(self.user_recurrent_state, dim=1)
         ttnn.copy(merged_recurrent, self.recurrent_state)
         _free(merged_recurrent, *self.user_recurrent_state)
-        merged_conv = ttnn.concat(self.user_conv_state, dim=1)
-        ttnn.copy(merged_conv, self.conv_state)
-        _free(merged_conv, *self.user_conv_state)
+        # F8: the per-user prefill state is [1, 1, K, conv_dim] with the window on the height
+        # axis; the decode buffers are one per tap with the batch on the height axis, so the
+        # fold transposes.  This runs once, outside any traced region.
+        s = self.shapes
+        for tap in range(s.conv_kernel_size - 1):
+            rows = [
+                ttnn.slice(state, [0, 0, tap + 1, 0], [1, 1, tap + 2, s.conv_dim])
+                for state in self.user_conv_state
+            ]
+            plane = rows[0] if len(rows) == 1 else ttnn.concat(rows, dim=2)
+            ttnn.copy(plane, self.conv_state[tap])
+            _free(plane, *rows)
+            for row in rows:
+                _free(row, *self.user_conv_state)
 
 
 def _round_up(value: int, multiple: int) -> int:

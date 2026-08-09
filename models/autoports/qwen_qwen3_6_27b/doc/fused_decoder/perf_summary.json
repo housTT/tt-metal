@@ -1,9 +1,9 @@
 {
   "units": {
-    "device_time": "microseconds (tt-perf-report 'Device Time' column, summed over the signposted window)",
+    "device_time": "microseconds (tt-perf-report 'Device Time' summed over the signposted window)",
     "wall": "milliseconds (host time.perf_counter around the signposted window)"
   },
-  "note": "Baseline = tt/functional_decoder.py, fused = tt/fused_decoder.py, both re-measured in one sitting on device 2 with the same test bodies, signposts and iteration counts. Decode is traced: capture once, then 8 execute_trace replays inside the window.",
+  "note": "baseline = tt/functional_decoder.py, fused = tt/fused_decoder.py.  Same test bodies, signposts, iteration counts and device; the baseline was re-measured in this stage rather than reused. Decode is traced: capture once, then 8 execute_trace replays inside the window, so per-iteration = total / 8.",
   "runs": {
     "linear_attention/prefill": {
       "layer_kind": "linear_attention",
@@ -53,50 +53,50 @@
         "report_csv": "baseline/tracy/linear_attention/prefill_perf_report.csv"
       },
       "fused": {
-        "device_time_us_total": 78688.6,
-        "device_time_us_per_iteration": 78688.6,
-        "ops_in_window": 769,
-        "ops_per_iteration": 769,
-        "op_to_op_gap_us_total": 1209.2,
-        "wall_line": "PERF prefill layer_idx=0 kind=linear_attention seq_len=2048 wall_e2e_ms=82.564",
+        "device_time_us_total": 67441.9,
+        "device_time_us_per_iteration": 67441.9,
+        "ops_in_window": 761,
+        "ops_per_iteration": 761,
+        "op_to_op_gap_us_total": 1205.3,
+        "wall_line": "PERF prefill layer_idx=0 kind=linear_attention seq_len=2048 wall_e2e_ms=71.149",
         "top_ops_by_device_time": [
           {
-            "op": "ReshapeViewDeviceOperation",
-            "device_time_us": 12133.8,
-            "count": 5
-          },
-          {
             "op": "BinaryNgDeviceOperation",
-            "device_time_us": 9260.6,
+            "device_time_us": 9325.5,
             "count": 181
           },
           {
             "op": "TernaryDeviceOperation",
-            "device_time_us": 6294.5,
+            "device_time_us": 6295.6,
             "count": 3
           },
           {
             "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-            "device_time_us": 6110.2,
+            "device_time_us": 6104.9,
             "count": 1
           },
           {
             "op": "MatmulDeviceOperation b={1536} x 64 x 64 x 128",
-            "device_time_us": 5735.8,
+            "device_time_us": 5735.9,
             "count": 2
           },
           {
             "op": "SliceDeviceOperation",
-            "device_time_us": 4759.6,
-            "count": 275
+            "device_time_us": 4859.0,
+            "count": 274
+          },
+          {
+            "op": "MatmulDeviceOperation b={1536} x 64 x 128 x 128",
+            "device_time_us": 4570.3,
+            "count": 1
           }
         ],
         "ops_csv": "tracy/linear_attention/prefill_ops.csv",
         "report_txt": "tracy/linear_attention/prefill_perf_report.txt",
         "report_csv": "tracy/linear_attention/prefill_perf_report.csv"
       },
-      "device_time_delta_pct": -47.6,
-      "ops_delta_pct": -4.5
+      "device_time_delta_pct": -55.1,
+      "ops_delta_pct": -5.5
     },
     "linear_attention/decode": {
       "layer_kind": "linear_attention",
@@ -146,21 +146,21 @@
         "report_csv": "baseline/tracy/linear_attention/decode_perf_report.csv"
       },
       "fused": {
-        "device_time_us_total": 19161.6,
-        "device_time_us_per_iteration": 2395.2,
-        "ops_in_window": 688,
-        "ops_per_iteration": 86,
-        "op_to_op_gap_us_total": 3458.1,
-        "wall_line": "PERF decode layer_idx=0 kind=linear_attention iters=8 wall_total_ms=22.805 wall_per_iter_ms=2.851",
+        "device_time_us_total": 18036.1,
+        "device_time_us_per_iteration": 2254.5,
+        "ops_in_window": 544,
+        "ops_per_iteration": 68,
+        "op_to_op_gap_us_total": 357.3,
+        "wall_line": "PERF decode layer_idx=0 kind=linear_attention iters=8 wall_total_ms=18.478 wall_per_iter_ms=2.310",
         "top_ops_by_device_time": [
           {
             "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-            "device_time_us": 6933.5,
+            "device_time_us": 6943.6,
             "count": 8
           },
           {
             "op": "MatmulDeviceOperation 32 x 17408 x 5120",
-            "device_time_us": 3505.5,
+            "device_time_us": 3482.9,
             "count": 8
           },
           {
@@ -170,26 +170,26 @@
           },
           {
             "op": "MatmulDeviceOperation 32 x 6144 x 5120",
-            "device_time_us": 1234.0,
+            "device_time_us": 1228.9,
             "count": 8
           },
           {
             "op": "MatmulDeviceOperation 32 x 5120 x 6144",
-            "device_time_us": 1189.4,
+            "device_time_us": 1192.0,
             "count": 8
           },
           {
             "op": "ReshapeViewDeviceOperation",
-            "device_time_us": 763.0,
-            "count": 88
+            "device_time_us": 613.9,
+            "count": 80
           }
         ],
         "ops_csv": "tracy/linear_attention/decode_ops.csv",
         "report_txt": "tracy/linear_attention/decode_perf_report.txt",
         "report_csv": "tracy/linear_attention/decode_perf_report.csv"
       },
-      "device_time_delta_pct": -21.0,
-      "ops_delta_pct": -10.4
+      "device_time_delta_pct": -25.6,
+      "ops_delta_pct": -29.2
     },
     "full_attention/prefill": {
       "layer_kind": "full_attention",
@@ -239,41 +239,41 @@
         "report_csv": "baseline/tracy/full_attention/prefill_perf_report.csv"
       },
       "fused": {
-        "device_time_us_total": 18278.5,
-        "device_time_us_per_iteration": 18278.5,
-        "ops_in_window": 26,
-        "ops_per_iteration": 26,
-        "op_to_op_gap_us_total": 13.0,
-        "wall_line": "PERF prefill layer_idx=3 kind=full_attention seq_len=2048 wall_e2e_ms=19.865",
+        "device_time_us_total": 17702.1,
+        "device_time_us_per_iteration": 17702.1,
+        "ops_in_window": 24,
+        "ops_per_iteration": 24,
+        "op_to_op_gap_us_total": 12.0,
+        "wall_line": "PERF prefill layer_idx=3 kind=full_attention seq_len=2048 wall_e2e_ms=19.014",
         "top_ops_by_device_time": [
           {
             "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-            "device_time_us": 6101.0,
+            "device_time_us": 6107.6,
             "count": 1
           },
           {
             "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-            "device_time_us": 3334.6,
+            "device_time_us": 3333.9,
             "count": 1
           },
           {
             "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
-            "device_time_us": 1600.5,
+            "device_time_us": 1597.2,
             "count": 1
           },
           {
             "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
-            "device_time_us": 1238.1,
+            "device_time_us": 1238.4,
             "count": 1
           },
           {
             "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
-            "device_time_us": 1221.8,
+            "device_time_us": 1222.2,
             "count": 1
           },
           {
             "op": "SDPAOperation",
-            "device_time_us": 1220.3,
+            "device_time_us": 1221.4,
             "count": 1
           }
         ],
@@ -281,8 +281,8 @@
         "report_txt": "tracy/full_attention/prefill_perf_report.txt",
         "report_csv": "tracy/full_attention/prefill_perf_report.csv"
       },
-      "device_time_delta_pct": -1.7,
-      "ops_delta_pct": -40.9
+      "device_time_delta_pct": -4.8,
+      "ops_delta_pct": -45.5
     },
     "full_attention/decode": {
       "layer_kind": "full_attention",
@@ -332,41 +332,41 @@
         "report_csv": "baseline/tracy/full_attention/decode_perf_report.csv"
       },
       "fused": {
-        "device_time_us_total": 17708.2,
-        "device_time_us_per_iteration": 2213.5,
-        "ops_in_window": 312,
-        "ops_per_iteration": 39,
-        "op_to_op_gap_us_total": 368.9,
-        "wall_line": "PERF decode layer_idx=3 kind=full_attention iters=8 wall_total_ms=18.181 wall_per_iter_ms=2.273",
+        "device_time_us_total": 17604.4,
+        "device_time_us_per_iteration": 2200.6,
+        "ops_in_window": 288,
+        "ops_per_iteration": 36,
+        "op_to_op_gap_us_total": 336.2,
+        "wall_line": "PERF decode layer_idx=3 kind=full_attention iters=8 wall_total_ms=18.042 wall_per_iter_ms=2.255",
         "top_ops_by_device_time": [
           {
             "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-            "device_time_us": 6935.2,
+            "device_time_us": 6932.3,
             "count": 8
           },
           {
             "op": "MatmulDeviceOperation 32 x 17408 x 5120",
-            "device_time_us": 3447.9,
+            "device_time_us": 3462.6,
             "count": 8
           },
           {
             "op": "SdpaDecodeDeviceOperation",
-            "device_time_us": 2055.7,
+            "device_time_us": 2056.4,
             "count": 8
           },
           {
             "op": "MatmulDeviceOperation 32 x 5120 x 8192",
-            "device_time_us": 1622.2,
+            "device_time_us": 1620.8,
             "count": 8
           },
           {
             "op": "MatmulDeviceOperation 32 x 6144 x 5120",
-            "device_time_us": 1242.6,
+            "device_time_us": 1237.1,
             "count": 8
           },
           {
             "op": "MatmulDeviceOperation 32 x 5120 x 6144",
-            "device_time_us": 1190.8,
+            "device_time_us": 1189.2,
             "count": 8
           }
         ],
@@ -374,8 +374,8 @@
         "report_txt": "tracy/full_attention/decode_perf_report.txt",
         "report_csv": "tracy/full_attention/decode_perf_report.csv"
       },
-      "device_time_delta_pct": -8.7,
-      "ops_delta_pct": -22.0
+      "device_time_delta_pct": -9.3,
+      "ops_delta_pct": -28.0
     }
   }
 }
