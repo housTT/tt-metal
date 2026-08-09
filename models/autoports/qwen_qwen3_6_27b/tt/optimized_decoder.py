@@ -358,6 +358,11 @@ class PrecisionPolicy:
     #: ``full_attention`` projections.  ``qkv`` is the packed Q|K|V weight, ``gate`` the
     #: per-head output gate half of ``q_proj``, ``out`` the output projection.
     attn_qkv: object = ttnn.bfloat8_b
+    #: ``O14`` tried bfloat4_b here and it is **rejected**.  It is worth 6.7 us of every
+    #: ``full_attention`` decode step and clears the bar on the suite's own decode-token draw
+    #: (0.996131 at seq 17), but sweeping only the draw puts its worst at **0.994316** - below
+    #: the 0.995 real-weight bar - where the shipped bfloat8_b reads 0.996181 on the same six
+    #: draws.  work_log.md §23; the rule it fails is stated in §9.
     attn_gate: object = ttnn.bfloat8_b
     attn_out: object = ttnn.bfloat8_b
 
@@ -386,9 +391,12 @@ class PrecisionPolicy:
     #: HiFi2, and LoFi is legal (and usually faster) for both BFP8 and BFP4 weights.
     proj_fidelity: object = ttnn.MathFidelity.LoFi
     #: ``fp32_dest_acc_en`` for the weight matmuls.  Kept on: turning it off is worth 5.4-5.5 us
-    #: of decode and holds the real-weight bar everywhere (worst 0.997682 at seq 17), but it puts
-    #: two synthetic-weight suite cases at 0.9789 against the 0.98 structural bar, and 0.5 % of a
-    #: decode step does not justify moving that bar again.  work_log.md §9 has both tables.
+    #: of decode, 0.5 %, and costs real-weight accuracy that a single sweep row hides.  Over six
+    #: decode-token draws at seq 743 on real weights it takes ``linear_attention``'s worst-case
+    #: decode PCC from 0.996689 to 0.995077 - onto the 0.995 bar, which the shipped
+    #: ``test_real_weight_pcc_at_disputed_lengths`` catches because it happens to draw the worst
+    #: one.  It also puts two synthetic structural cases at 0.9789 against the 0.98 bar.
+    #: work_log.md §9 has the per-draw table and both rejections.
     proj_fp32_acc: bool = True
 
     #: Fidelity of prefill / decode SDPA.
@@ -461,9 +469,10 @@ def rope_channel_permutation(head_dim: int, rotary_dim: int) -> list[int]:
 
 #: Core grids tried, in order, for the sharded decode RMSNorm (``F15``).  The first whose core
 #: count divides the hidden size in tiles wins.  Measured on this Blackhole part for
-#: ``[1, 1, 32, 5120]`` (``doc/fused_decoder/logs/probe_sharded_norm.log``): the default
-#: interleaved kernel runs the whole norm on **one** core at 103.5 us, while these width-sharded
-#: configurations take 20.3 us (5x2), 27.1 us (8x4) and 32.6 us (8x5).  The interleaved kernel
+#: ``[1, 1, 32, 5120]`` (``doc/fused_decoder/logs/probe_norm.log`` — the inherited comment cited a
+#: ``probe_sharded_norm.log`` that the fused stage never wrote): the default interleaved kernel
+#: runs the whole norm on **one** core at 103.8 us, while these width-sharded configurations take
+#: 23.7 us (5x2), 30.8 us (8x4) and 31.9 us (8x5).  The interleaved kernel
 #: parallelises over tile *rows*, and a decode norm has exactly one, which is why it is so slow.
 _DECODE_NORM_GRIDS = ((5, 2), (8, 4), (8, 5), (10, 4), (8, 8))
 
@@ -1534,7 +1543,7 @@ class OptimizedDecoder(LightweightModule):
         # F18: at decode the b|a projection is 32 x 5120 x 128 - only four output tiles, so the
         # default program picks four cores and runs at 9.5 % of DRAM roofline (61 us, flagged
         # SLOW by tt-perf-report).  An explicit 4x8 core grid takes it to 35 us; wider padded N
-        # and an 8x8 grid were both measured and are worse (logs/probe_review_followups.log).
+        # and an 8x8 grid were both measured and are worse (doc/fused_decoder/logs/probe_review_followups.log).
         # Prefill has 2048 rows and does not want the restriction.
         ba_in = x
         if decode:
@@ -1681,7 +1690,16 @@ class OptimizedDecoder(LightweightModule):
 
     @staticmethod
     def _batched_key(a, b, transpose_a: bool, transpose_b: bool):
-        """``(M, K, N, transpose_a, transpose_b)`` after transposition - the program-config key."""
+        """``(M, K, N, transpose_a, transpose_b)`` after transposition - the program-config key.
+
+        The **batch** dimension is deliberately not part of the key.  Every field
+        :meth:`_batched_program_config` sets is a function of ``M``, ``K`` and ``N`` only
+        (``in0_block_w``, ``out_subblock_h/w``, ``per_core_M``, ``per_core_N``, and a grid chosen
+        from ``k_tiles``); ``MatmulMultiCoreReuse`` spreads ``batch * M`` over the grid itself.
+        So ``b={48} x 64 x 128 x 128`` and ``b={384} x 64 x 128 x 128`` want the same config, and
+        keying on batch would only split the cache.  If a future field does depend on batch, it
+        has to be added here.
+        """
         shape_a, shape_b = _shape(a), _shape(b)
         return (
             shape_a[-1] if transpose_a else shape_a[-2],
@@ -1801,7 +1819,7 @@ class OptimizedDecoder(LightweightModule):
             call B over columns [4096, 10240)  -> (v0),   v 16-31, v 32-47
 
         Measured 11.25 ms -> 3.14 ms, **bit-identical** to the reshape path
-        (``logs/probe_headsplit_narrow.log``).  The duplicated ``v0`` output of call B is the
+        (``doc/fused_decoder/logs/probe_headsplit_narrow.log``).  The duplicated ``v0`` output of call B is the
         only waste and is one third of one of the two calls.
         """
         s = self.shapes
@@ -1896,6 +1914,15 @@ class OptimizedDecoder(LightweightModule):
         ttnn.deallocate(g)
 
         g_cum = ttnn.cumsum(g_h, dim=-2)
+        # ``O13``: the per-chunk total decay is the *last row* of ``g_cum``, and reading it as
+        # ``g_cum[:, :, chunk - 1 : chunk, :]`` is a row-shifted slice of a tiled tensor - the
+        # §18 audit found it costing 308.7 us of untilize/slice/tilize (op IDs 1089-1091 of the
+        # pre-``O13`` profile), the largest layout cost outside the causal conv.  A cumulative
+        # sum's last element is the plain sum, so a reduction over the chunk axis gives the same
+        # value while staying tiled.  ``keepdim`` preserves the ``[nc, nv, 1, 1]`` shape the two
+        # consumers broadcast against.
+        g_last = ttnn.sum(g_h, dim=-2, keepdim=True, memory_config=mem,
+                          compute_kernel_config=self.compute_cfg)
         ttnn.deallocate(g_h)
 
         # decay[i, j] = exp(g_cum[i] - g_cum[j]) for i >= j else 0.  F13: the strictly-upper
@@ -1954,7 +1981,6 @@ class OptimizedDecoder(LightweightModule):
         # The per-chunk loop below already slices both results one chunk at a time, so the matmuls
         # move into it and run out of L1 on the slices instead.
 
-        g_last = ttnn.slice(g_cum, [0, 0, chunk - 1, 0], [nc, nv, chunk, 1], memory_config=mem)
         decay_to_end = ttnn.exp(ttnn.subtract(g_last, g_cum, memory_config=mem), memory_config=mem)
         exp_g_last = ttnn.exp(g_last, memory_config=mem)
         ttnn.deallocate(g_last)

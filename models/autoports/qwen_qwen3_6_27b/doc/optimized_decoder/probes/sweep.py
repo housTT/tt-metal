@@ -134,6 +134,8 @@ CANDIDATE_GROUPS: dict = {
             "out_and_gate_bfp4", attn_out=B4, gdn_out=B4, attn_gate=B4, gdn_z=B4)})),
         ("out_bfp4", dict(decoder_kwargs={"precision": _p("out_bfp4", attn_out=B4, gdn_out=B4)})),
         ("no_fp32_acc_only", dict(decoder_kwargs={"precision": _p("no_fp32_acc_only", proj_fp32_acc=False)})),
+        ("attn_qkv_bfp4_only", dict(decoder_kwargs={"precision": _p("attn_qkv_bfp4_only", attn_qkv=B4)})),
+        ("attn_gate_bfp4_only", dict(decoder_kwargs={"precision": _p("attn_gate_bfp4_only", attn_gate=B4)})),
         # The stack the per-field table selects, plus the one variant that could go further.
         ("adopted", dict(decoder_kwargs={"precision": _p(
             "adopted", attn_out=B4, gdn_out=B4, proj_fp32_acc=False)})),
@@ -227,10 +229,14 @@ def measure(mesh_device, reference, label, build_kwargs, decode_replays=DECODE_R
         positions = torch.tensor([reference.seq_len])
         out = runner.warmup(reference.token, positions)
         row["decode_pcc_eager"] = H.pcc(reference.golden_decode, out)
-        runner.capture()
-        # The captured trace re-runs the same step from the *post-warmup* state, so restore
-        # the pre-decode state first and compare the replay against the same golden.
+        # The captured trace re-runs the same step from the *post-warmup* state, so the
+        # pre-decode state has to be restored before the replay.  Doing it before
+        # ``begin_trace_capture`` rather than after keeps ttnn from allocating device buffers
+        # while a trace is active, which it warns is unsafe; capture records ops instead of
+        # running them, so the fold is equivalent either way.  Same order as the suite's
+        # ``_timed_traced_decode``.
         H.prepare_decode(lut)
+        runner.capture()
         out = runner.replay(reference.token, positions)
         row["decode_pcc_traced"] = H.pcc(reference.golden_decode, out)
         ttnn.synchronize_device(mesh_device)

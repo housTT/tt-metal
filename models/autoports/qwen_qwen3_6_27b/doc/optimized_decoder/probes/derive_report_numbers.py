@@ -123,6 +123,57 @@ def layout_ops(kind: str, phase: str) -> list:
     return out
 
 
+def policy_rows(kind: str, phase: str) -> list:
+    """One row per distinct matmul: fidelity, dtypes, DRAM-sharded, in0_block_w, device us.
+
+    This is the OPT-013 table in work_log.md section 15, read out of the profile rather than
+    typed in, so a dtype or geometry change shows up as a diff instead of as stale prose.
+    """
+    agg = {}
+    for r in csv.DictReader(open(ROOT / "tracy" / kind / f"{phase}_perf_report.csv")):
+        code = (r["OP Code"] or "").strip()
+        if not code.startswith("MatmulDeviceOperation"):
+            continue
+        key = (code, r["Math Fidelity"].strip(), r["DRAM Sharded"].strip(),
+               r["Inner Dim Block Size"].strip())
+        entry = agg.setdefault(key, {"code": code, "fidelity": r["Math Fidelity"].strip(),
+                                     "dram_sharded": r["DRAM Sharded"].strip(),
+                                     "in0_block_w": r["Inner Dim Block Size"].strip(),
+                                     "us": 0.0, "n": 0})
+        entry["us"] += float(r["Device Time"] or 0)
+        entry["n"] += 1
+    rows = sorted(agg.values(), key=lambda e: -e["us"])
+    #: decode is profiled over 8 traced replays; report per-token cost.
+    if phase == "decode":
+        for row in rows:
+            row["us"] /= 8
+    return rows
+
+
+#: Shape -> the model role that owns it, for the OPT-013 table.  Keyed on ``K x N`` because the
+#: M dimension is the phase (32 padded decode rows, 2048 prefill tokens).
+_ROLES = {
+    ("5120", "17408"): "MLP gate, MLP up",
+    ("17408", "5120"): "MLP down",
+    ("5120", "10240"): "GDN `in_proj_qkv`",
+    ("5120", "6144"): {"linear_attention": "GDN `in_proj_z`", "full_attention": "`wgate`"},
+    ("6144", "5120"): {"linear_attention": "GDN `out_proj`", "full_attention": "`o_proj`"},
+    ("5120", "8192"): "`wqkv`",
+    ("5120", "128"): "`b\\|a`",
+}
+
+
+def _role(kind: str, code: str) -> str:
+    shape = code[len("MatmulDeviceOperation "):]
+    if shape.startswith("b={"):
+        return "delta-rule batched"
+    parts = shape.split(" x ")
+    role = _ROLES.get((parts[-2], parts[-1]))
+    if isinstance(role, dict):
+        return role[kind]
+    return role or "?"
+
+
 def wall_times() -> dict:
     out = {}
     for line in (ROOT / "logs" / "run_perf.log").read_text(errors="replace").splitlines():
@@ -149,7 +200,7 @@ def _rewrite_readme(perf, suite, longc, ctrl) -> None:
             f"| `{k}` | {p} | {R[f'{k}/{ph}']['baseline_ms']:.2f} ms | "
             f"**{R[f'{k}/{ph}']['optimized_ms']:.3f} ms** | **{R[f'{k}/{ph}']['speedup']:.2f}x** |\n"
             for k in KINDS for ph, p in (("prefill", "prefill 2048"), ("decode", "traced decode"))
-        ).replace("| prefill 2048 | 5", "| prefill 2048 | 5").replace(".000 ms**", " ms**"),
+        ),
         text)
     text = re.sub(
         r"\| `linear_attention` \| 0\.\d+ \(was.*\n\| `full_attention` \| 0\.\d+ \(was.*\n",
@@ -174,7 +225,8 @@ def _rewrite_readme(perf, suite, longc, ctrl) -> None:
         r"\| prefill speed-up \(`test_optimized_prefill_beats_fused`\) \|.*\n"
         r"\| worst real-weight PCC over lengths[^|]*\|.*\n"
         r"\| stress, 12 back-to-back passes, min PCC \|.*\n"
-        r"\| optimized vs fused, prefill / decode \|.*\n",
+        r"\| optimized vs fused, prefill / decode \|.*\n"
+        r"\| BF16/HiFi4 structural prefill[^|]*\|.*\n",
         f"| traced decode speed-up (`test_optimized_decode_beats_fused`) | "
         f"**{suite['traced_decode_speedup']['linear_attention']:.3f}x** | "
         f"**{suite['traced_decode_speedup']['full_attention']:.3f}x** |\n"
@@ -191,7 +243,10 @@ def _rewrite_readme(perf, suite, longc, ctrl) -> None:
         f"{f6(suite['optimized_vs_fused_prefill_pcc']['linear_attention'])} / "
         f"{f6(suite['optimized_vs_fused_decode_pcc']['linear_attention'])} | "
         f"{f6(suite['optimized_vs_fused_prefill_pcc']['full_attention'])} / "
-        f"{f6(suite['optimized_vs_fused_decode_pcc']['full_attention'])} |\n",
+        f"{f6(suite['optimized_vs_fused_decode_pcc']['full_attention'])} |\n"
+        f"| BF16/HiFi4 structural prefill, worst over the same lengths (bar 0.999) | "
+        f"{f6(suite['structural_worst_pcc']['linear_attention'])} | "
+        f"{f6(suite['structural_worst_pcc']['full_attention'])} |\n",
         text)
     text = re.sub(
         r"\| conv state / K cache \|.*\n\| recurrent state / V cache \|.*\n\| prefill tail \|.*\n"
@@ -205,10 +260,180 @@ def _rewrite_readme(perf, suite, longc, ctrl) -> None:
         f"| decode at 262143 | {f6(longc['full_context_decode_pcc']['linear_attention'])} | "
         f"**{f6(longc['full_context_decode_pcc']['full_attention'])}** |\n",
         text)
+    text = re.sub(
+        r"changed moves the `full_attention` prefill tail from 0\.\d+ to \*\*0\.\d+\*\* and the\n"
+        r"`linear_attention` tail from 0\.\d+ to \*\*0\.\d+\*\*",
+        f"changed moves the `full_attention` prefill tail from "
+        f"{f6(longc['full_context_prefill_tail_pcc']['full_attention'])} to "
+        f"**{f6(ctrl['full_context_prefill_tail_pcc']['full_attention'])}** and the\n"
+        f"`linear_attention` tail from {f6(longc['full_context_prefill_tail_pcc']['linear_attention'])} to "
+        f"**{f6(ctrl['full_context_prefill_tail_pcc']['linear_attention'])}**",
+        text)
     text = re.sub(r"Watcher \(`TT_METAL_WATCHER=10`[^)]*\): \*\*[^*]*\*\*",
                   f"Watcher (`TT_METAL_WATCHER=10`, `logs/watcher_run.log`, `watcher/watcher.log`): "
                   f"**{pytest_summary('watcher_run.log')}**", text)
     (ROOT / "README.md").write_text(text)
+
+
+#: Blocks in ``work_log.md`` this script owns.  Everything between the markers is regenerated
+#: from the shipped artifacts; the prose around them is not touched.
+_BLOCK = "<!-- generated:{} -->"
+_END = "<!-- /generated:{} -->"
+
+
+def _replace_block(text: str, name: str, body: str) -> str:
+    start, end = _BLOCK.format(name), _END.format(name)
+    if start not in text:
+        return text
+    head, rest = text.split(start, 1)
+    _stale, tail = rest.split(end, 1)
+    return f"{head}{start}\n{body.rstrip()}\n{end}{tail}"
+
+
+def _rewrite_work_log(perf, suite, longc, ctrl) -> None:
+    """Regenerate the marker-delimited tables in work_log.md.  Prose is never touched.
+
+    Only tables live inside markers.  Numbers quoted in prose are printed by ``main`` so a
+    re-run makes drift visible, but the wording around them is a human's to write.
+    """
+    R = perf["runs"]
+    text = (ROOT / "work_log.md").read_text()
+
+    reconcile = ["| | roofline | device time | end-to-end | device to e2e gap | roofline / device |",
+                 "|---|---|---|---|---|---|"]
+    for kind in KINDS:
+        d = R[f"{kind}/decode"]
+        reconcile.append(
+            f"| `{kind}` decode | {d['roofline_ms_per_token_estimate']:.3f} ms | "
+            f"{d['decode_ms_per_token_device']:.3f} ms | {d['optimized_ms']:.3f} ms | "
+            f"{d['optimized_ms'] - d['decode_ms_per_token_device']:.3f} ms | "
+            f"{d['roofline_fraction_of_device_time']*100:.1f} % |")
+    text = _replace_block(text, "accounting", "\n".join(reconcile))
+
+    def us(kind, code):
+        return profile(kind, "decode")["per_code"].get(code, 0.0)
+
+    small_codes = ("ReshapeViewDeviceOperation", "BinaryNgDeviceOperation",
+                   "LayerNormDeviceOperation", "CopyDeviceOperation", "TernaryDeviceOperation")
+    small = sum(us("linear_attention", c) for c in small_codes)
+    dec_l, dec_f = R["linear_attention/decode"], R["full_attention/decode"]
+    pre_l, pre_f = R["linear_attention/prefill"], R["full_attention/prefill"]
+    gate_up = us("linear_attention", "MatmulDeviceOperation 32 x 5120 x 17408")
+    narrative = [
+        "**end-to-end = device time + dispatch gap + host work.** The measured op-to-op gap inside",
+        f"the signposted window is {dec_l['op_to_op_gap_us']:.1f} us per token (`linear_attention`) and "
+        f"{dec_f['op_to_op_gap_us']:.1f} us (`full_attention`), which is *larger* than the "
+        f"{(dec_l['optimized_ms'] - dec_l['decode_ms_per_token_device']) * 1000:.0f} us / "
+        f"{(dec_f['optimized_ms'] - dec_f['decode_ms_per_token_device']) * 1000:.0f} us end-to-end excess -",
+        "i.e. the replay pipeline overlaps some of it, and there is **no host term left in the traced",
+        "decode loop**: the window contains `execute_trace` calls and nothing else, and the harness",
+        "uploads every input before the start signpost.  The distance between roofline and device time",
+        "is concentrated in two named places, both measured rather than assumed:",
+        "",
+        f"* the **BFP4 gate/up rows**: {gate_up:.1f} us of the {dec_l['device_time_us']:.0f} us step for "
+        f"100.3 MB, i.e. ~{100.3e6 / (gate_up * 1e-6) / 1e9:.0f} GB/s where every BFP8 row reaches",
+        "  442-477 GB/s.  At BFP8 those two rows would move 189 MB and take 397 us, so BFP4 is still the",
+        "  right choice; the efficiency gap is a ttnn-side property of the BFP4 read path at M = 32 (§3);",
+        f"* the **gated-delta-net decode's small state ops**: "
+        f"{us('linear_attention', 'ReshapeViewDeviceOperation'):.1f} us of `ReshapeView` (the per-head",
+        "  layout change, a last-dim reshape and therefore an untilize/retilize), "
+        f"{us('linear_attention', 'BinaryNgDeviceOperation'):.1f} us of `BinaryNg`,",
+        f"  {us('linear_attention', 'LayerNormDeviceOperation'):.1f} us of `LayerNorm`, "
+        f"{us('linear_attention', 'CopyDeviceOperation'):.1f} us of `Copy` and "
+        f"{us('linear_attention', 'TernaryDeviceOperation'):.1f} us of `Ternary`",
+        f"  - about {small:.0f} us of the {dec_l['device_time_us']:.0f} us `linear_attention` step spent on",
+        "  tensors small enough that fixed per-op cost dominates, after `O9` removed 55 us of it.",
+        f"  `full_attention` has the equivalent in its {us('full_attention', 'SdpaDecodeDeviceOperation'):.1f} us "
+        "`SdpaDecode` row (§10).",
+        "",
+        f"Prefill reconciles the same way: {pre_l['device_time_us'] / 1000:.2f} ms of device time against "
+        f"{pre_l['profiled_wall_ms']:.2f} ms measured inside the",
+        f"signpost for `linear_attention` ({pre_l['op_to_op_gap_us'] / 1000:.2f} ms of op-to-op gap over "
+        f"{pre_l['device_ops']} ops), and {pre_f['device_time_us'] / 1000:.2f} ms against",
+        f"{pre_f['profiled_wall_ms']:.2f} ms for `full_attention` ({pre_f['op_to_op_gap_us']:.0f} us of gap over "
+        f"{pre_f['device_ops']} ops).  Prefill is compute-bound,",
+        "not DRAM-bound, so its 5.4 % / 15.5 % DRAM figure is expected rather than a finding; the FLOP",
+        "column of `tracy/full_attention/prefill_perf_report.txt` is the relevant one there.",
+    ]
+    text = _replace_block(text, "accounting-narrative", "\n".join(narrative))
+
+    def pct(metric, kind, digits=6):
+        return f"{suite[metric][kind]:.{digits}f}"
+
+    gates = [
+        "| gate | result | log |", "|---|---|---|",
+        f"| `tests/test_optimized_decoder.py` | **{pytest_summary('suite_main.log')}** | `logs/suite_main.log` |",
+        f"| `--long-context`, prompt 262143 and decode at 262143 | {pytest_summary('long_context.log')} - the "
+        f"failure is the inherited `full_attention` decode-SDPA defect at "
+        f"{longc['full_context_decode_pcc']['full_attention']:.6f} (section 10) | `logs/long_context.log` |",
+        f"| watcher, `TT_METAL_WATCHER=10` | **{pytest_summary('watcher_run.log')}**, `watcher.log` clean | "
+        f"`logs/watcher_run.log` |",
+        f"| stress, repeated prefill+decode passes | min PCC {pct('stress_prefill_pcc_min','linear_attention')} / "
+        f"{pct('stress_prefill_pcc_min','full_attention')} prefill, {pct('stress_decode_pcc_min','linear_attention')} / "
+        f"{pct('stress_decode_pcc_min','full_attention')} decode | in `logs/suite_main.log` |",
+        f"| BF16/HiFi4 structural prefill over the disputed lengths, bar 0.999 | worst "
+        f"{suite['structural_worst_pcc']['linear_attention']:.6f} / "
+        f"{suite['structural_worst_pcc']['full_attention']:.6f} | in `logs/suite_main.log` |",
+        f"| worst real-weight PCC over the disputed lengths, prefill and decode | "
+        f"**{pct('real_weight_worst_pcc','linear_attention')}** / "
+        f"**{pct('real_weight_worst_pcc','full_attention')}** | in `logs/suite_main.log` |",
+        f"| BFP4-attribution control at 262143 | prefill tails "
+        f"{longc['full_context_prefill_tail_pcc']['full_attention']:.6f} -> "
+        f"{ctrl['full_context_prefill_tail_pcc']['full_attention']:.6f} and "
+        f"{longc['full_context_prefill_tail_pcc']['linear_attention']:.6f} -> "
+        f"{ctrl['full_context_prefill_tail_pcc']['linear_attention']:.6f} with BFP8 gate/up; "
+        f"everything the MLP does not touch identical | `logs/long_context_bfp8_control.log` |",
+        "| runtime host-fallback audit | passes (source scan plus `forbid_host_fallback` around a "
+        "measured prefill and decode) | in `logs/suite_main.log` |",
+        "| batch 4 and 32, per-user page tables and positions | pass, eager and traced | "
+        "in `logs/suite_main.log` |",
+        f"| in-process speed-up, measured by the suite itself | decode "
+        f"{suite['traced_decode_speedup']['linear_attention']:.3f}x / "
+        f"{suite['traced_decode_speedup']['full_attention']:.3f}x, prefill "
+        f"{suite['prefill_speedup']['linear_attention']:.3f}x / "
+        f"{suite['prefill_speedup']['full_attention']:.3f}x | in `logs/suite_main.log` |",
+    ]
+    text = _replace_block(text, "gates", "\n".join(gates))
+
+    for phase in ("decode", "prefill"):
+        head = ["| matmul | role | fidelity / dtypes | DRAM-sharded program | `in0_block_w` | us |",
+                "|---|---|---|---|---|---|"]
+        seen = set()
+        for kind in KINDS:
+            for row in policy_rows(kind, phase):
+                shape = row["code"][len("MatmulDeviceOperation "):]
+                role = _role(kind, row["code"])
+                if (shape, role, row["fidelity"]) in seen:
+                    continue
+                seen.add((shape, role, row["fidelity"]))
+                head.append(f"| `{shape}` | {role} | {row['fidelity']} | "
+                            f"{'yes' if row['dram_sharded'] == 'True' else 'no'} | "
+                            f"{row['in0_block_w'] or '—'} | {row['us']:.1f} |")
+        text = _replace_block(text, f"policy-{phase}", "\n".join(head))
+
+    control = ["| metric at 262143, synthetic weights | BFP4 gate/up (default) | **BFP8 gate/up control** |",
+               "|---|---|---|"]
+    for label, metric, kind in (
+            ("`full_attention` prefill tail", "full_context_prefill_tail_pcc", "full_attention"),
+            ("`linear_attention` prefill tail", "full_context_prefill_tail_pcc", "linear_attention"),
+            ("`linear_attention` recurrent state", "full_context_recurrent_state_pcc", "linear_attention"),
+            ("`linear_attention` conv state", "full_context_conv_state_pcc", "linear_attention"),
+            ("`full_attention` paged K cache", "full_context_paged_k_cache_pcc", "full_attention"),
+            ("`full_attention` paged V cache", "full_context_paged_v_cache_pcc", "full_attention")):
+        got, want = longc.get(metric, {}).get(kind), ctrl.get(metric, {}).get(kind)
+        if got is None or want is None:
+            continue
+        mark = "**" if abs(got - want) > 1e-9 else ""
+        control.append(f"| {label} | {mark}{got:.6f}{mark} | {mark}{want:.6f}{mark} |")
+    text = _replace_block(text, "bfp4-control", "\n".join(control))
+
+    rows = layout_ops("linear_attention", "prefill")
+    layout = ["| op ID | us | op |", "|---|---|---|"]
+    layout += [f"| {op_id} | {us:.1f} | `{code}` |" for op_id, us, code in rows]
+    layout.append(f"| **total** | **{sum(us for _, us, _ in rows):.1f}** | {len(rows)} ops; "
+                  f"`full_attention` prefill has {len(layout_ops('full_attention', 'prefill'))} |")
+    text = _replace_block(text, "prefill-layout", "\n".join(layout))
+    (ROOT / "work_log.md").write_text(text)
 
 
 def main() -> None:
@@ -268,6 +493,7 @@ def main() -> None:
         json.dump(perf, open(ROOT / "perf_summary.json", "w"), indent=1)
         open(ROOT / "perf_summary.json", "a").write("\n")
         _rewrite_readme(perf, suite, longc, ctrl)
+        _rewrite_work_log(perf, suite, longc, ctrl)
 
     print("== headline (logs/sweep_final_{baseline,default}.log)")
     for kind in KINDS:
@@ -294,6 +520,13 @@ def main() -> None:
     for metric in sorted(set(longc) | set(ctrl)):
         print(f"  {metric:36s} {json.dumps({k: round(v,7) for k,v in longc.get(metric,{}).items()})} | "
               f"{json.dumps({k: round(v,7) for k,v in ctrl.get(metric,{}).items()})}")
+    print("== policy rows (OPT-013), one line per distinct matmul")
+    for kind in KINDS:
+        for phase in ("decode", "prefill"):
+            for row in policy_rows(kind, phase):
+                print(f"  {kind[:6]} {phase:7s} {row['code'][22:]:34s} {row['fidelity']:32s} "
+                      f"dram_sharded={row['dram_sharded']:5s} ibw={row['in0_block_w'] or '-':>3} "
+                      f"{row['us']:8.1f} us  n={row['n']}")
     print("== decode layout ops per token")
     for kind in KINDS:
         ops = layout_ops(kind, "decode")

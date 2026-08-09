@@ -41,6 +41,7 @@ from models.autoports.qwen_qwen3_6_27b.reference import hf_reference as ref
 from models.autoports.qwen_qwen3_6_27b.tests import harness as H
 from models.autoports.qwen_qwen3_6_27b.tests import test_functional_decoder as base
 from models.autoports.qwen_qwen3_6_27b.tt.fused_decoder import FusedDecoder
+from models.autoports.qwen_qwen3_6_27b.tt import optimized_decoder
 from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import DEFAULT_PRECISION, OptimizedDecoder
 
 LAYER_KINDS = base.LAYER_KINDS
@@ -65,12 +66,14 @@ LAYER_KINDS = base.LAYER_KINDS
 #:   checkpoint at the unmodified 0.995 bar** — that is the accuracy gate, and it has teeth: it
 #:   is what rejected a further BFP4 output-projection policy that looked fine at 2048 tokens
 #:   (work_log.md §9);
-#: A high-precision variant of the same lengths was tried as a second, precision-independent
-#: structural gate and does not work: pinning every weight to BF16 makes the prefill
-#: program-config search run out of L1 at short chunk lengths, because that search is sized for
-#: the shipped BFP4/BFP8 weights (``work_log.md`` §20).  What guards structure instead is that a
-#: structural break is not a small PCC loss - every one seen during this stage landed at
-#: 0.24-0.50, two orders of magnitude below this bar.
+#: * :func:`test_structural_prefill_at_high_precision` re-runs the same lengths with **every
+#:   weight pinned to BF16 and HiFi4**, which takes precision out of the picture entirely and
+#:   puts a 0.999 bar back under the prefill path.  Only prefill: the decode program cannot be
+#:   built at BF16 at all, because the DRAM-sharded decode config's ``per_core_N`` is sized for
+#:   BFP4/BFP8 tiles and a BF16 one overflows L1 (``work_log.md`` §20 has the exact throws).
+#:
+#: For decode, what guards structure is that a structural break is not a small PCC loss - every
+#: one seen during this stage landed at 0.24-0.50, two orders of magnitude below this bar.
 SYNTHETIC_PCC_BAR = 0.98
 
 #: Lengths where the synthetic bar above is doing work, re-checked on real weights: sub-tile,
@@ -332,6 +335,50 @@ def test_optimized_prefill_beats_fused(mesh_device, layer_idx):
         f"{kind}: optimized prefill {timings['optimized']:.3f} ms vs fused "
         f"{timings['fused']:.3f} ms is only {speedup:.2f}x"
     )
+
+
+#: Bar for the BF16/HiFi4 structural gate below.  Measured worst is 0.999434 (`full_attention`,
+#: seq 5000); the bar sits far enough under that to be a structural check rather than a
+#: precision one, and two orders of magnitude above where a real structural break lands.
+STRUCTURAL_PCC_BAR = 0.999
+
+
+@pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+def test_structural_prefill_at_high_precision(mesh_device, layer_idx):
+    """The disputed lengths with precision taken out of the picture: BF16 weights, HiFi4.
+
+    :data:`SYNTHETIC_PCC_BAR` is 0.98 because BFP4 weights are lossy on a Gaussian, and a wide
+    bar is a weak structural check.  This restores a tight one for the prefill path by removing
+    the reason the bar was widened: ``FUSED_BASELINE_PRECISION`` pins every weight to bfloat16
+    and every matmul to HiFi4 + fp32 accumulation, on the *optimized* code path.  Anything that
+    then moves PCC is structure - padding, masking, chunking, cache fill, output slicing - not
+    dtype.
+
+    Prefill only.  ``work_log.md`` §20: the decode program cannot be built at BF16 because the
+    DRAM-sharded decode program config's ``per_core_N`` is chosen for BFP4/BFP8 tiles, so a
+    BF16 weight overflows L1 before the first dispatch.  That is a real limitation of the
+    optimized decode topology at a precision it never ships with, and it is recorded rather
+    than worked around.
+    """
+    lut = H.build_layer(
+        mesh_device, layer_idx, max_batch=1, max_seq_len=8192, real_weights=False,
+        decoder_cls=OptimizedDecoder,
+        decoder_kwargs={"precision": optimized_decoder.FUSED_BASELINE_PRECISION},
+    )
+    kind = lut.config.layer_types[layer_idx]
+    stats = ref.load_weight_stats()
+    worst = 1.0
+    for seq_len in DISPUTED_LENGTHS:
+        hidden = ref.synthetic_hidden_states(lut.config, 1, seq_len, stats)
+        cache = DynamicCache(config=lut.config)
+        value = H.pcc(H.reference_prefill(lut, hidden, cache), H.run_tt_prefill(lut, hidden))
+        H.record("structural_prefill_pcc", value, kind=kind, seq_len=seq_len)
+        assert value >= STRUCTURAL_PCC_BAR, (
+            f"BF16/HiFi4 prefill PCC {value} < {STRUCTURAL_PCC_BAR} at seq_len {seq_len}: "
+            "with precision removed, this is a structural regression"
+        )
+        worst = min(worst, value)
+    H.record("structural_worst_pcc", worst, kind=kind, lengths=str(DISPUTED_LENGTHS))
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
