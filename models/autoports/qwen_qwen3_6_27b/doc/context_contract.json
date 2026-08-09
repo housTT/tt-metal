@@ -1,0 +1,207 @@
+{
+ "model_id": "Qwen/Qwen3.6-27B",
+ "stage": "functional_decoder",
+ "branch": "agentic-research/hous/qwen3.6-27b-v2",
+ "scope": "one decoder layer per HF layer kind on a 1x1 Blackhole mesh (one chip of a p300c board)",
+ "target_context": 262144,
+ "current_supported_context": 262144,
+ "_flat_keys_note": "target_context and current_supported_context repeat hf_advertised_context.value and supported_context.value as plain integers, which is the shape .agents/scripts/check_context_contract.py reads.",
+ "hf_advertised_context": {
+  "value": 262144,
+  "source": "config.json text_config.max_position_embeddings",
+  "note": "rope_parameters.rope_type is 'default' (theta 1e7); there is no YaRN/NTK scaling factor to reinterpret, so the advertised context is the raw max_position_embeddings."
+ },
+ "supported_context": {
+  "value": 262144,
+  "reduced_from_advertised": false,
+  "reduction_reason": null,
+  "limiting_reason": null,
+  "note": "FunctionalDecoder.from_state_dict defaults max_seq_len to hf_config.max_position_embeddings and sizes the paged KV cache from the *padded* context; prefill_forward accepts any 1 <= seq_len <= max_seq_len with no divisibility requirement. Both layer kinds pass the PCC >= 0.995 bar at the full context in prefill, in the on-device cache/state, and in decode at the last addressable position."
+ },
+ "largest_context_tested": {
+  "prefill": 262143,
+  "decode_position": 262143,
+  "note": "prompt 262143 + one decoded token occupy exactly the advertised 262144 positions, so decode runs at the last addressable position; 262143 is divisible by none of the tile (32), page (64), SDPA chunk (256) or prefill chunk (2048)",
+  "test": "models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context",
+  "command": "cd /home/ttuser/dev/qwen/tt-metal && source models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh && python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py -k test_full_advertised_context --long-context -v -s",
+  "logs": [
+   "doc/functional_decoder/logs/long_context.log"
+  ],
+  "evidence_method": "A whole-prompt HF forward is impossible at this length, so the reference is built the only way that stays O(seq_len): linear_attention runs the HF layer in 16384-token segments with a carried DynamicCache (Qwen3_5GatedDeltaNet continues exactly from a populated cache), and full_attention builds the K/V cache from k_proj/v_proj + k_norm + RoPE only, validated torch.equal against a genuine short reference_prefill, then runs the real HF layer on the last 256 queries against it. A prefix-consistency check would be a tautology - the first outputs of a causal prefill do not depend on the later 250k tokens - and is deliberately not used.",
+  "results": {
+   "linear_attention": {
+    "prefill_tail_8192_pcc": 0.9999471293445713,
+    "conv_state_pcc": 0.9999946280463557,
+    "recurrent_state_pcc": 0.9999840404148437,
+    "decode_at_262143_pcc": 0.999955257734366,
+    "verdict": "passes the 0.995 bar"
+   },
+   "full_attention": {
+    "paged_k_cache_pcc": 0.9999887280695877,
+    "paged_v_cache_pcc": 0.9999926599608485,
+    "prefill_tail_256_pcc": 0.9980307630901388,
+    "decode_at_262143_pcc": 0.9992007728649125,
+    "verdict": "passes the 0.995 bar"
+   }
+  }
+ },
+ "largest_context_with_hf_reference_pcc": {
+  "linear_attention": {
+   "seq_len": 262143,
+   "prefill_tail_pcc": 0.9999471293445713
+  },
+  "full_attention": {
+   "seq_len": 262143,
+   "prefill_tail_pcc": 0.9980307630901388
+  },
+  "single_shot_reference_limit": {
+   "linear_attention": 16385,
+   "full_attention": 8191,
+   "reason": "cost of a whole-prompt HF forward on the host, not a device limit; beyond these lengths the reference is built segmentally / by projection only"
+  }
+ },
+ "decode_context_tested_against_hf_reference": {
+  "max_position": 262143,
+  "min_pcc_at_max_position": 0.9992007728649125,
+  "test": "test_full_advertised_context",
+  "shorter_decode_coverage": "test_decode_pcc prefills 17 / 2048 / 2049 / 5000 and decodes 4 steps from each; min PCC 0.999211"
+ },
+ "upstream_defects_affecting_long_context": {
+  "note": "Neither reduces the advertised capability; both are characterised with model-free reproducers and both are recorded here because they are what the long-context numbers above are bounded by.",
+  "prefill_sdpa_merge_scale": {
+   "op": "ttnn.transformer.chunked_scaled_dot_product_attention",
+   "symptom": "the softmax denominator loses a little on every k-chunk merge, one-sidedly, so the normalised output comes out uniformly too large. PCC on the op output cannot see a pure scale; the layer's residual and o_proj expose it.",
+   "measured": "device/float32-golden scale 1.091 at 262144 keys in 512 merges, 1.204 in 1024 merges (synthetic worst case: random Q/K/V give a maximally flat softmax)",
+   "mitigation": "SDPA_MAX_K_CHUNKS = 512 caps the merge count; 512 is also the floor, being the largest k chunk that fits L1 at head_dim 256",
+   "reproducer": "doc/functional_decoder/probes/probe_sdpa_synthetic.py",
+   "log": "doc/functional_decoder/logs/sdpa_long_sweep_v2.log",
+   "layer_level_effect": "full_attention full-context prefill tail PCC 0.998031, above the 0.995 bar"
+  },
+  "decode_sdpa": {
+   "op": "ttnn.transformer.paged_scaled_dot_product_attention_decode",
+   "status": "FIXED on this branch",
+   "symptom_before": "37.7x output scale at position 262143 with the default program config; with an explicit config the cross-core tree reduction is correct only when num_k_chunks == 1 or num_k_chunks % (2 * cores_per_head) == 0, and num_k_chunks = ceil((cur_pos+1)/k_chunk) is a runtime quantity while the config is compile-time. Violations are catastrophic: 3705x at position 1023, NaN at 261887.",
+   "fix": "ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_program_factory.cpp promotes the core-local flash accumulators (running max, softmax denominator, exp_max_diff, output accumulator) to Float32 when fp32_dest_acc_en is set AND the caller explicitly requested max_cores_per_head_batch == 1; the layer pins k_chunk = 512 and max_cores_per_head_batch = 1, which also removes the tree reduction entirely.",
+   "blast_radius": "Strictly opt-in. The derived num_cores_per_head == 1 is NOT sufficient to trigger it - that value also collapses to 1 for ordinary batched decode when B * num_kv_heads >= the core grid - so the gate additionally requires the caller to have set max_cores_per_head_batch == 1 by name. Measured three ways: (1) repo-wide grep finds no caller outside this autoport passing 1; (2) the max_cores_per_head_batch=16 probe row is digit-for-digit identical before and after; (3) tests/ttnn/unit_tests/operations/sdpa/test_sdpa_decode.py + test_paged_sdpa_decode_flexible_geometry.py = 21 passed, 1 skipped.",
+   "measured_after": "device/float32-golden scale 0.995-1.017 at positions 1023, 4095, 12287, 16383, 65535, 131071, 261887 and 262143",
+   "cost": "4 active cores instead of 64 for the decode attention op - a correctness-first choice, flagged for the optimization stage",
+   "reproducer": "doc/functional_decoder/probes/probe_sdpa_decode_synthetic.py",
+   "logs": [
+    "doc/functional_decoder/logs/sdpa_decode_default_v2.log",
+    "doc/functional_decoder/logs/sdpa_decode_cfg_sweep_v2.log",
+    "doc/functional_decoder/logs/sdpa_decode_fp32acc_v2.log"
+   ],
+   "remaining_upstream_bug": "the cross-core tree reduction itself is still wrong for most positions. This stage sidesteps it rather than fixing it, and records a model-free reproducer. No upstream issue was filed: filing is an outward-facing action this autonomous stage does not take, so it is handed off with the reproducer attached.",
+   "necessity_control": {
+    "method": "rebuilt with the .cpp change reverted, ran the same probe and the same layer test",
+    "probe_stock_main_k512_cores1_alpha": {
+     "261887": 1.3096,
+     "262143": 1.28984
+    },
+    "probe_with_fix_k512_cores1_alpha": {
+     "261887": 1.01684,
+     "262143": 1.00635
+    },
+    "layer_stock_main_full_context_decode_pcc": 0.9778876147135307,
+    "layer_with_fix_full_context_decode_pcc": 0.9992007728649125,
+    "layer_prefill_tail_pcc_both": 0.9980307630901388,
+    "conclusion": "the change is load-bearing for the shipped config: stock main fails the 0.995 bar at the full context, prefill is bit-identical either way",
+    "logs": [
+     "doc/functional_decoder/logs/sdpa_decode_stock_baseline.log",
+     "doc/functional_decoder/logs/long_context_stock_control.log",
+     "doc/functional_decoder/logs/ttnn_sdpa_decode_op_tests.log"
+    ]
+   }
+  }
+ },
+ "device_capacity": {
+  "probe": "doc/functional_decoder/probes/probe_capacity.py",
+  "log": "doc/functional_decoder/logs/capacity_probe.log",
+  "dram_allocatable_gib_measured": 31,
+  "dram_probe_failure_at_next_gib": "RuntimeError: TT_FATAL @ tt_metal/impl/allocator/bank_manager.cpp:462",
+  "bytes_at_full_context_batch1": {
+   "linear_attention_layer": {
+    "weights_bf16": 766443520,
+    "conv_plus_recurrent_state_fp32_per_user": 3309568,
+    "total": 769753088,
+    "note": "gated-delta-net state size is independent of context length"
+   },
+   "full_attention_layer": {
+    "weights_bf16": 744488960,
+    "paged_kv_cache_bf16": 1073741824,
+    "blocks_per_user": 4096,
+    "total": 1818230784
+   }
+  },
+  "worst_case_single_layer_batch1_bytes": 1818230784,
+  "worst_case_fraction_of_measured_dram": 0.0546,
+  "conclusion": "The full advertised context fits with ~18x headroom for a single layer at batch 1, so no capability reduction was made or needed at this stage."
+ },
+ "batch_contract": {
+  "prefill": "single user per call by construction (chunked paged SDPA requires page-table batch == query batch, and paged_fill_cache addresses one user); batched prefill is a loop over user_id",
+  "decode": "batch == max_batch in one call",
+  "largest_batch_tested": 32,
+  "batch_test": "test_batched_users[32-*] with 32 unequal prompt lengths 64..3071, permuted page table",
+  "min_pcc_at_batch_32": 0.99924,
+  "note": "Batch 32 was tested at max_seq_len 8192, not at 262144. A batch-32 full_attention layer at 262144 would need 32 * 1.07 GB = 34.4 GB of KV cache, above the 31 GiB measured; that is a batch x context product limit for later stages to schedule, not a reduction of the advertised context, which is tested in full at batch 1."
+ },
+ "non_aligned_length_coverage": {
+  "smoke": [
+   1,
+   17,
+   128
+  ],
+  "at_boundary": [
+   2048,
+   4096
+  ],
+  "just_across_boundary": [
+   2049
+  ],
+  "long_non_divisible": [
+   5000,
+   8191,
+   16385,
+   262143
+  ],
+  "pad_amount_below_one_tile": [
+   735,
+   736,
+   737,
+   743,
+   767,
+   768
+  ],
+  "note": "pad_amount_below_one_tile is the regression range for the ttnn.pad aliasing hazard; every length listed here is asserted by a test - 735..768 by test_prefill_decode_pad_below_one_tile, which checks prefill PCC and a following decode step."
+ },
+ "acceptance": {
+  "pcc_bar": 0.995,
+  "bar_source": "functional-decoder skill default; no model-specific reason to move it",
+  "records": 264,
+  "numeric_records": 260,
+  "min_numeric_pcc": 0.9980307630901388,
+  "records_below_bar": 0,
+  "evidence": "doc/functional_decoder/pcc_evidence.json"
+ },
+ "hardware": {
+  "note": "two p300c boards of two Blackhole chips each",
+  "boards": {
+   "000004613192404C": {
+    "chips": [
+     "/dev/tenstorrent/0",
+     "/dev/tenstorrent/1"
+    ],
+    "state": "chip 0 ARC wedged (needs an operator power cycle); chip 1 healthy"
+   },
+   "0000046131924022": {
+    "chips": [
+     "/dev/tenstorrent/2",
+     "/dev/tenstorrent/3"
+    ],
+    "state": "both healthy"
+   }
+  },
+  "used_by_this_stage": "/dev/tenstorrent/2 (TT_VISIBLE_DEVICES=2), a chip of the intact board",
+  "source": "/sys/class/tenstorrent/*/tt_card_type and tt_serial"
+ }
+}

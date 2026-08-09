@@ -1,0 +1,165 @@
+2026-08-09 17:22:04.368 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen/tt-metal/python_env/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 57 items / 56 deselected / 1 selected
+
+models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention] PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_k_cache_pcc", "seq_len": 262143, "value": 0.9999887280695877}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_v_cache_pcc", "seq_len": 262143, "value": 0.9999926599608485}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 256, "value": 0.9980307630901388}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_decode_pcc", "position": 262143, "value": 0.9778876147135307}
+FAILED
+
+=================================== FAILURES ===================================
+_________________ test_full_advertised_context[full_attention] _________________
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+request = <FixtureRequest for <Function test_full_advertised_context[full_attention]>>
+
+    @pytest.mark.timeout(0)  # see LONG_TEST_TIMEOUT_NOTE
+    @pytest.mark.long_context
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_full_advertised_context(mesh_device, layer_idx, request):
+        """Prefill 262143 tokens and decode at position 262143, checked against the HF reference.
+
+        A whole-prompt HF forward is impossible at this length, so the reference is built the only
+        way that stays O(seq_len):
+
+        * ``linear_attention`` — the HF layer runs in :data:`LONG_SEGMENT`-token segments with a
+          carried ``DynamicCache``. ``Qwen3_5GatedDeltaNet`` continues exactly from a populated
+          cache (it prepends ``conv_state`` and passes ``recurrent_state`` as ``initial_state``),
+          so this is the same computation as one long call. The last segment's output, the final
+          conv/recurrent state and a following decode step are all compared.
+        * ``full_attention`` — the K/V cache is built from ``k_proj``/``v_proj`` + ``k_norm`` +
+          RoPE only (no attention), then the real HF layer runs on the last :data:`LONG_TAIL`
+          queries against that cache, followed by a decode step. The construction is validated
+          against a genuine short ``reference_prefill`` first, so it cannot silently diverge from
+          what ``Qwen3_5Attention.forward`` writes.
+
+        This is what the earlier prefix-consistency version could not check: the first outputs of
+        a causal prefill do not depend on anything the later 250k tokens do, so comparing them
+        proved only that the run completed.
+        """
+        if not request.config.getoption("--long-context"):
+            pytest.skip("needs --long-context")
+        context = ref.load_text_config().max_position_embeddings
+        assert LONG_PROMPT + 1 == context
+        lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=context)
+        tail = LONG_TAIL[_kind(lut)]
+        stats = _stats()
+        hidden = ref.synthetic_hidden_states(lut.config, 1, LONG_PROMPT, stats)
+
+        got = H.run_tt_prefill(lut, hidden)
+        assert got.shape == (1, LONG_PROMPT, lut.config.hidden_size)
+        assert torch.isfinite(got).all(), "long prefill produced non-finite values"
+
+        if lut.is_full_attention:
+            # Control: the O(L) cache construction must reproduce a real short reference prefill.
+            probe_len = 512
+            probe = hidden[:, :probe_len, :].contiguous()
+            real_cache = DynamicCache(config=lut.config)
+            H.reference_prefill(lut, probe, real_cache)
+            built_cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, probe, built_cache)
+            real_k, real_v = H.reference_cache_kv(lut, real_cache, probe_len)
+            built_k, built_v = H.reference_cache_kv(lut, built_cache, probe_len)
+            assert torch.equal(real_k, built_k), "hand-built reference K cache differs from HF's"
+            assert torch.equal(real_v, built_v), "hand-built reference V cache differs from HF's"
+
+            cache = DynamicCache(config=lut.config)
+            H.fill_reference_kv_cache(lut, hidden[:, : LONG_PROMPT - tail, :].contiguous(), cache)
+            golden = H.reference_prefill(lut, hidden[:, LONG_PROMPT - tail :, :].contiguous(), cache)
+
+            keys, values = H.read_paged_kv(lut, user_id=0, seq_len=LONG_PROMPT)
+            ref_keys, ref_values = H.reference_cache_kv(lut, cache, LONG_PROMPT)
+            k_pcc, v_pcc = H.pcc(ref_keys, keys), H.pcc(ref_values, values)
+            H.record("full_context_paged_k_cache_pcc", k_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_paged_v_cache_pcc", v_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert k_pcc >= H.PCC_BAR, f"paged K cache at {LONG_PROMPT} tokens: PCC {k_pcc}"
+            assert v_pcc >= H.PCC_BAR, f"paged V cache at {LONG_PROMPT} tokens: PCC {v_pcc}"
+        else:
+            golden, cache = H.reference_prefill_segmented(lut, hidden, LONG_SEGMENT)
+            golden = golden[:, -tail:, :]
+
+            conv_state, recurrent_state = H.read_linear_state(lut, user_id=0)
+            ref_conv = cache.layers[lut.layer_idx].conv_states[0].to(torch.float32)
+            ref_recurrent = cache.layers[lut.layer_idx].recurrent_states[0].to(torch.float32)
+            conv_pcc = H.pcc(ref_conv, conv_state.T)
+            rec_pcc = H.pcc(ref_recurrent, recurrent_state)
+            H.record("full_context_conv_state_pcc", conv_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            H.record("full_context_recurrent_state_pcc", rec_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
+            assert conv_pcc >= H.PCC_BAR, f"conv state after {LONG_PROMPT} tokens: PCC {conv_pcc}"
+            assert rec_pcc >= H.PCC_BAR, f"recurrent state after {LONG_PROMPT} tokens: PCC {rec_pcc}"
+
+        tail_pcc = H.pcc(golden, got[:, -tail:, :])
+        H.record("full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
+        assert tail_pcc >= H.PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
+
+        H.prepare_decode(lut)
+        token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=99)
+        golden_decode = H.reference_decode(lut, token, LONG_PROMPT, cache)
+        decoded = H.run_tt_decode(lut, token, torch.tensor([LONG_PROMPT]))
+        decode_pcc = H.pcc(golden_decode, decoded)
+        H.record("full_context_decode_pcc", decode_pcc, kind=_kind(lut), position=LONG_PROMPT)
+>       assert decode_pcc >= H.PCC_BAR, f"decode at position {LONG_PROMPT}: PCC {decode_pcc}"
+E       AssertionError: decode at position 262143: PCC 0.9778876147135307
+E       assert 0.9778876147135307 >= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:524: AssertionError
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+66.36s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+0.99s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+0.11s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+=========================== short test summary info ============================
+FAILED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention] - AssertionError: decode at position 262143: PCC 0.9778876147135307
+assert 0.9778876147135307 >= 0.995
+ +  where 0.995 = H.PCC_BAR
+=========== 1 failed, 56 deselected, 2 warnings in 68.12s (0:01:08) ============
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x72f8f7c85848 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x72f8f7849388 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 250 functions!
+ - leaked function "devices"
+ - leaked function ""
+ - leaked function "get_layout"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "get_dtype"
+ - leaked function "pad"
+ - leaked function "device_coords"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

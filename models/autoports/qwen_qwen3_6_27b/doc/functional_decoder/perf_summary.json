@@ -1,0 +1,170 @@
+{
+ "note": "Warmed measurements on one Blackhole chip (device 2 of a p300c board), batch 1, from Tracy device-profiler runs with the measured window delimited by signposts. Device time is the 'Device Time' column of the tt-perf-report --csv output, in MICROSECONDS (the raw Tracy ops CSV exposes the same quantity as 'DEVICE KERNEL DURATION [ns]'). Decode is traced: capture once, then replay execute_trace 8x inside the window.",
+ "core_count_note": "tt-perf-report's Cores column reports the op's program grid, not the number of cores doing work. SdpaDecodeDeviceOperation shows Cores 64 (the 8x8 grid the program config asks for) while num_active_cores = num_cores_per_head * num_kv_heads * B = 1 * 4 * 1 = 4; the other 60 are idle. That is the cost the README's 'one core per head' note refers to.",
+ "command": "doc/functional_decoder/probes/run_perf.sh <layer_kind> <prefill|decode>",
+ "prefill_tokens": 2048,
+ "decode_position": 2048,
+ "decode_replays": 8,
+ "measurements": {
+  "linear_attention/prefill": {
+   "layer_kind": "linear_attention",
+   "phase": "prefill",
+   "ops_in_window": 801,
+   "ops_per_pass": 801,
+   "device_kernel_time_ms": 151.07,
+   "host_wall_ms": 161.978,
+   "periodicity_check": "single pass",
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+     "device_time_us": 6382.9
+    },
+    {
+     "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+     "device_time_us": 6380.6
+    },
+    {
+     "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+     "device_time_us": 6380.1
+    },
+    {
+     "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+     "device_time_us": 6379.2
+    },
+    {
+     "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+     "device_time_us": 6377.2
+    }
+   ],
+   "artifacts": {
+    "ops_csv": "tracy/linear_attention/prefill_ops.csv",
+    "ops_csv_provenance": "tracy/linear_attention/prefill_ops.csv.provenance",
+    "report_txt": "tracy/linear_attention/prefill_perf_report.txt",
+    "report_csv": "tracy/linear_attention/prefill_perf_report.csv",
+    "console_log": "tracy/linear_attention/prefill_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_linear_attention_prefill.log",
+    "ops_csv_gz": "tracy/linear_attention/prefill_ops.csv.gz"
+   }
+  },
+  "linear_attention/decode": {
+   "layer_kind": "linear_attention",
+   "phase": "decode",
+   "ops_in_window": 736,
+   "ops_per_pass": 92,
+   "device_kernel_time_ms": 3.04,
+   "host_wall_ms": 3.413,
+   "periodicity_check": "736 ops over 8 replays = 92 ops per replay, exact; all replays were captured whole",
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 869.7
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.6
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.0
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.9
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.0
+    }
+   ],
+   "artifacts": {
+    "ops_csv": "tracy/linear_attention/decode_ops.csv",
+    "ops_csv_provenance": "tracy/linear_attention/decode_ops.csv.provenance",
+    "report_txt": "tracy/linear_attention/decode_perf_report.txt",
+    "report_csv": "tracy/linear_attention/decode_perf_report.csv",
+    "console_log": "tracy/linear_attention/decode_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_linear_attention_decode.log",
+    "ops_csv_gz": "tracy/linear_attention/decode_ops.csv.gz"
+   }
+  },
+  "full_attention/prefill": {
+   "layer_kind": "full_attention",
+   "phase": "prefill",
+   "ops_in_window": 44,
+   "ops_per_pass": 44,
+   "device_kernel_time_ms": 18.633,
+   "host_wall_ms": 20.049,
+   "periodicity_check": "single pass",
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+     "device_time_us": 6108.8
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+     "device_time_us": 3305.9
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
+     "device_time_us": 1598.7
+    },
+    {
+     "op": "SDPAOperation",
+     "device_time_us": 1278.4
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+     "device_time_us": 1238.2
+    }
+   ],
+   "artifacts": {
+    "ops_csv": "tracy/full_attention/prefill_ops.csv",
+    "ops_csv_provenance": "tracy/full_attention/prefill_ops.csv.provenance",
+    "report_txt": "tracy/full_attention/prefill_perf_report.txt",
+    "report_csv": "tracy/full_attention/prefill_perf_report.csv",
+    "console_log": "tracy/full_attention/prefill_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_full_attention_prefill.log",
+    "ops_csv_gz": "tracy/full_attention/prefill_ops.csv.gz"
+   }
+  },
+  "full_attention/decode": {
+   "layer_kind": "full_attention",
+   "phase": "decode",
+   "ops_in_window": 400,
+   "ops_per_pass": 50,
+   "device_kernel_time_ms": 2.271,
+   "host_wall_ms": 2.329,
+   "periodicity_check": "400 ops over 8 replays = 50 ops per replay, exact; all replays were captured whole",
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 870.3
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.9
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.5
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.0
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 866.9
+    }
+   ],
+   "artifacts": {
+    "ops_csv": "tracy/full_attention/decode_ops.csv",
+    "ops_csv_provenance": "tracy/full_attention/decode_ops.csv.provenance",
+    "report_txt": "tracy/full_attention/decode_perf_report.txt",
+    "report_csv": "tracy/full_attention/decode_perf_report.csv",
+    "console_log": "tracy/full_attention/decode_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_full_attention_decode.log",
+    "ops_csv_gz": "tracy/full_attention/decode_ops.csv.gz"
+   }
+  }
+ }
+}

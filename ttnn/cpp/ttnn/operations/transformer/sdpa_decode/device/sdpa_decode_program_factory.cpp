@@ -438,6 +438,33 @@ ProgramDescriptor SdpaDecodeDeviceOperation::create_descriptor(
         (input_tensor_q.dtype() == DataType::FLOAT32) ? tt::DataFormat::Float32 : tt::DataFormat::Float16_b;
     const tt::DataFormat im_df = tt::DataFormat::Float16_b;
     const tt::DataFormat stats_df = tt::DataFormat::Float16_b;
+    // Flash-decode keeps its running max, running softmax denominator and running output
+    // accumulator in Float16_b.  The denominator is a sum of positive terms, so after m k-chunk
+    // merges each new chunk adds about 1/m of the running total; once 1/m drops below
+    // bfloat16's half-ULP (2**-9) whole chunks are swallowed by round-to-nearest, the
+    // denominator stops growing, and the *normalised* output comes out uniformly too large.
+    // The symptom is a pure scale error, which PCC on the attention output cannot see.
+    // Measured on Blackhole with head_dim 256, 24 q / 4 kv heads and one core per head, as
+    // device/float32-golden scale: at k_chunk 512 (512 merges at the full 262144 context) the
+    // stock kernel returns 1.290 at position 262143 and 1.310 at 261887, and the model layer
+    // that wraps it scores 0.9779 against a 0.995 PCC bar.  With this promotion the same
+    // measurements are 1.006 / 1.017 and the layer scores 0.9992.
+    //
+    // Promote the *core-local* accumulators to fp32 when the caller asked for fp32 destination
+    // accumulation.  Two conditions, both required:
+    //
+    //  * num_cores_per_head == 1, so there is no cross-core tree reduction.  c_16/c_17/c_18/c_19
+    //    are packet formats shared with the reader and writer kernels and with the sibling cores;
+    //    widening them would change the wire format and the reduction CB footprint as well.
+    //  * the caller *explicitly asked* for one core per head.  num_cores_per_head is also 1
+    //    whenever num_cores_available / (B * num_kv_heads) < 2 - ordinary batched decode, e.g.
+    //    B=32 with 4 KV heads on a 64-core grid - so keying only off the derived value would
+    //    silently change the CB footprint and the numerics of callers that never asked for it.
+    //    Requiring max_cores_per_head_batch == 1 makes this strictly opt-in.
+    const bool fp32_local_accumulators = fp32_dest_acc_en && num_cores_per_head == 1 && program_config.has_value() &&
+                                         program_config->max_cores_per_head_batch == 1;
+    const tt::DataFormat acc_df = fp32_local_accumulators ? tt::DataFormat::Float32 : im_df;
+    const tt::DataFormat acc_stats_df = fp32_local_accumulators ? tt::DataFormat::Float32 : stats_df;
 
     // ========== Tile Configurations ==========
     const auto half_tile = tt::tt_metal::Tile({16, 32});
@@ -457,8 +484,10 @@ ProgramDescriptor SdpaDecodeDeviceOperation::create_descriptor(
     const uint32_t mask_tile_size = mask_tile.get_tile_size(mask_df);
     const uint32_t out_tile_size = out_tile.get_tile_size(out_df);
     const uint32_t scalar_tile_size = scalar_tile.get_tile_size(scalar_df);
-    const uint32_t im_tile_size = im_tile.get_tile_size(im_df);
     const uint32_t stats_tile_size = stats_tile.get_tile_size(stats_df);
+    const uint32_t im_tile_size_qk = im_tile.get_tile_size(im_df);
+    const uint32_t acc_tile_size = im_tile.get_tile_size(acc_df);
+    const uint32_t acc_stats_tile_size = stats_tile.get_tile_size(acc_stats_df);
 
     // ========== Debug Logging ==========
     log_debug(tt::LogOp, "Dimensions: B={}, PNH={}, S={}, DH={}, vDH={}, Bkv={}", B, PNH, S, DH, vDH, Bkv);
@@ -590,17 +619,17 @@ ProgramDescriptor SdpaDecodeDeviceOperation::create_descriptor(
     }
 
     // Intermediate CBs
-    add_cb(CBIndex::c_24, qk_tiles * im_tile_size, im_df, im_tile_size, &im_tile);
-    add_cb(CBIndex::c_25, out_tiles * im_tile_size, im_df, im_tile_size, &im_tile);
-    add_cb(CBIndex::c_26, out_tiles * im_tile_size, im_df, im_tile_size, &im_tile);
-    add_cb(CBIndex::c_27, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_28, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_29, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_30, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_31, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_21, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_22, statistics_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
-    add_cb(CBIndex::c_23, out_tiles * im_tile_size, im_df, im_tile_size, &im_tile);
+    add_cb(CBIndex::c_24, qk_tiles * im_tile_size_qk, im_df, im_tile_size_qk, &im_tile);
+    add_cb(CBIndex::c_25, out_tiles * acc_tile_size, acc_df, acc_tile_size, &im_tile);
+    add_cb(CBIndex::c_26, out_tiles * acc_tile_size, acc_df, acc_tile_size, &im_tile);
+    add_cb(CBIndex::c_27, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_28, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_29, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_30, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_31, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_21, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_22, statistics_tiles * acc_stats_tile_size, acc_stats_df, acc_stats_tile_size, &stats_tile);
+    add_cb(CBIndex::c_23, out_tiles * acc_tile_size, acc_df, acc_tile_size, &im_tile);
 
     // Output CBs
     add_cb(CBIndex::c_16, out_tiles * stats_tile_size, stats_df, stats_tile_size, &stats_tile);
