@@ -660,7 +660,18 @@ repo commit and the `sha256` of the three decoder sources into each run's `.prov
 measured source is pinned to the committed source; and the watcher/stress/op-count wording in
 `README.md` was brought back in line with the artifacts.
 
-## 13. Hardware notes
+## 13. Review record
+
+| pass | commit | verdict |
+|---|---|---|
+| 1 | `16414454e72` | more-work-needed — `ttnn.swiglu`/`linear(activation=)` are composites, head-split rejected on arithmetic, `conv1d` rejected on one failure, an unmentioned `SLOW` row, two wrong doc figures |
+| 2 | `9f971941d5c` | more-work-needed — §8's residue claims contradicted by its own CSV; 20 % of the layer in `SLOW` 1–8-core DRAM matmuls whose L1 twins were in the same profile |
+| 3 | `9851755611f` | more-work-needed — `ttnn.repeat_interleave` an unassessed composite with a hidden bf16 round trip; residue sentences still contradicted |
+| 4 | `6de7f702eb4` | **clean-pass**, no required work; its "other concerns" (all documentation) are fixed in `7900984cc07` |
+
+Repo `tt-metal`, branch `agentic-research/hous/qwen3.6-27b`; nothing pushed.
+
+## 14. Hardware notes
 
 `tt-smi -ls --local` still hangs on this host (chip 0's ARC is wedged, as the functional stage
 recorded); it is not a fault of this stage and does not block it, because the stage only ever
