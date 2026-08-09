@@ -300,24 +300,38 @@ checked against a total rather than taken on trust:
 | `full_attention` | 11 | 10.1 | 6x `InterleavedToSharded`, 4x `ShardedToInterleaved`, 1x `Reshard` |
 <!-- /generated:decode-layout -->
 
-Three families make up those counts. **The sharded norms' own conversions** — an
-interleaved-to-sharded on the way in and one per consumer on the way out, around each of the two
-residual-stream RMSNorms — are the largest group in `full_attention` and are the cost `O3`
-already minimised rather than removed (§4's first table: removing them entirely by keeping the
-residual sharded end to end is what `O3` does, and what is left is the boundary with ops that
-will not take a shard). **The `full_attention` head path** adds the q/k norm round trip and the
-SDPA input/output conversions. **One `Reshard`** is ttnn overriding the caller's grid (§19).
+Every one of those, in dispatch order, with the reason it is paid. The table is generated from
+the same profile as the counts above and each row is keyed to a written reason, so a topology
+change produces an **unexplained** row rather than a quietly shorter list:
 
-The individual boundaries, and why each one is paid:
+<!-- generated:decode-boundaries -->
+| layer kind | us / token | op | why it is paid |
+|---|---|---|---|
+| `linear_attention` | 1.34 | `InterleavedToSharded` | the entry residual arrives DRAM-interleaved at the layer boundary and is sharded once for the input RMSNorm - the one conversion `O3` cannot remove, because the boundary contract is interleaved |
+| `linear_attention` | 1.60 | `ShardedToInterleaved` | `in_proj_qkv`'s output to the causal conv: a DRAM-sharded matmul must write a sharded tensor and the gated-delta-net decode path works on interleaved ones |
+| `linear_attention` | 1.54 | `ShardedToInterleaved` | the post-norm activation to `in_proj_ba`, which is outside the DRAM-sharded family - its 112-column output is narrower than one shard row |
+| `linear_attention` | 1.64 | `InterleavedToSharded` | the gated norm's output into `z`'s activation shard, so the gating multiply and `out_proj` both run sharded (`O2`/`O3`); the alternative is an interleaved multiply and a wider conversion after it |
+| `linear_attention` | 1.90 | `Reshard` | the `ReshardDeviceOperation` of section 19: the DRAM-sharded matmul writes its own row-wise core set instead of the rectangle this layer asks for, and the rectangle cannot be given up because the sharded layernorm rejects a non-rectangular grid |
+| `full_attention` | 1.34 | `InterleavedToSharded` | the entry residual, as above |
+| `full_attention` | 0.71 | `InterleavedToSharded` | the rotary `cos` table, uploaded DRAM-interleaved by the caller and sharded once per step for `rotary_embedding_hf` |
+| `full_attention` | 0.69 | `InterleavedToSharded` | the rotary `sin` table, same reason |
+| `full_attention` | 1.60 | `ShardedToInterleaved` | `wqkv`'s output to `nlp_create_qkv_heads_decode`, which takes an interleaved input |
+| `full_attention` | 0.66 | `ShardedToInterleaved` | the q heads out of head creation to the per-head RMSNorm, which takes a DRAM-interleaved input |
+| `full_attention` | 0.69 | `ShardedToInterleaved` | the k heads, same reason |
+| `full_attention` | 0.72 | `InterleavedToSharded` | the normed q heads back to the height shard `rotary_embedding_hf` wants |
+| `full_attention` | 0.73 | `InterleavedToSharded` | the normed k heads, same reason |
+| `full_attention` | 0.66 | `ShardedToInterleaved` | the q heads to the decode SDPA kernel, which takes interleaved inputs |
+| `full_attention` | 0.69 | `InterleavedToSharded` | the SDPA output to the head shard `nlp_concat_heads_decode` wants - the kernel rejects a sharded output for GQA (`sdpa_decode_device_operation.cpp:405`), carried over from the fused stage |
+| `full_attention` | 1.57 | `Reshard` | the `ReshardDeviceOperation` of section 19, as above |
+<!-- /generated:decode-boundaries -->
 
-| boundary | op | why |
-|---|---|---|
-| `wqkv` → `nlp_create_qkv_heads_decode` | one sharded→L1-interleaved conversion | the head-creation op takes an interleaved input, and a DRAM-sharded matmul must write a sharded one |
-| `in_proj_qkv` → causal conv | one sharded→L1-interleaved conversion | the gated-delta-net decode path works on interleaved tensors; the tensor is 1.3 MB |
-| residual → `in_proj_ba` | one sharded→L1-interleaved conversion | `in_proj_ba` is outside the DRAM-sharded family (its 112-column output is smaller than one shard row) |
-| SDPA-decode output | `to_memory_config` to the head shard | the decode SDPA kernel rejects a sharded output for GQA (`sdpa_decode_device_operation.cpp:405`), carried over from the fused stage |
-| mixer output → output projection | one `ReshardDeviceOperation`, **1.83 us** (`linear_attention`) / **1.56 us** (`full_attention`) per token | the DRAM-sharded matmul writes its own row-wise core set instead of the rectangle this layer asks for, and the rectangle cannot be given up because the sharded layernorm rejects a non-rectangular grid — see §19 |
-| q/k head norm (`full_attention`) | two sharded→interleaved (0.66, 0.68 us) and two interleaved→sharded (0.72, 0.73 us) per token, **2.79 us** total | the per-head RMSNorm on q and k takes a DRAM-interleaved input and the head tensors arrive height-sharded from `nlp_create_qkv_heads_decode`, so each of the two norms pays a round trip. Inherited from the fused stage's head layout; it is 0.26 % of the step and no sharded variant of that norm accepts the height-sharded head shape |
+Two corrections an earlier revision of this section needed, both found by review round 7. It
+listed three of the five `linear_attention` boundaries and seven of the eleven `full_attention`
+ones; and it attributed the largest group to "the sharded norms' own conversions", which the
+shipped profile contradicts — **both residual RMSNorms take a width-sharded input and emit a
+width-sharded output**, with no adjacent conversion at all. That is what `O3` bought. The largest
+group in `full_attention` is the q/k head path (six ops, 4.14 us), and the single largest op in
+`linear_attention` is the `Reshard` ttnn forces on the output projection.
 
 ---
 
@@ -396,13 +410,13 @@ probe now times the consumer path directly, model-free, at the decode shape
 
 **Rejected on measured evidence, by a much larger margin than the estimate suggested.** The
 packed consumer path costs **47.3 us against 11.8 us** — a 35.5 us penalty, ten times the 3.6 us
-the earlier revision guessed, and six times the 5.6 us the packed matmul saves. The reason is
+the earlier revision guessed, and seven times the 4.9 us the packed matmul saves. The reason is
 visible in the split: the wider conversion is actually *cheaper* (7.4 us against 11.8 us, because
 `sharded_to_interleaved` on more columns still moves the data once), and the cost is the two
 width slices at 20.7 and 19.3 us. Slicing a 14336-wide interleaved tensor at decode is
 expensive in a way that packing cannot amortise.
 
-So packed loses **~30 us of a 1094 us decode step** as well as 466 us of prefill, 5.0 %. The
+So packed loses **~31 us of a 1094 us decode step** as well as 470.5 us of prefill, 5.1 %. The
 estimate happened to reach the right verdict for the wrong magnitude, which is exactly why the
 measurement was worth taking. Both projection-packing groups are now measurements rather than
 analogies, and no part of the comparison is an estimate.
@@ -663,10 +677,14 @@ Two clean rejections come straight out of this:
 That last sentence started as an assertion and is now a measurement. The draw-sensitivity table
 below puts a number on "noise around the bar": holding the code, the weights and the prompt
 fixed and changing only which decode token is drawn moves real-weight decode PCC by up to
-**0.0048** on `linear_attention` and **0.0013** on `full_attention`. So the working rule for the
+**0.0048** on `linear_attention` at seq 743, and the later seq-17 sweep of §23 measures
+**0.0018** on `full_attention` for the shipped policy and 0.0027 for the BFP4 candidate — so
+~0.002, not ~0.001, is the width of the band this rule is guarding. So the working rule for the
 rest of this stage, applied to `O14` as well as to the rejections here, is: **a candidate whose
-worst measured real-weight PCC is within ~0.001 of the bar has not been shown to hold it, and
-needs the draw sweep before it can be adopted.**
+worst measured real-weight PCC is within ~0.002 of the bar has not been shown to hold it, and
+needs the draw sweep before it can be adopted.** (The threshold started at ~0.001, from the
+`linear_attention` numbers alone; §23's `full_attention` sweep widened it. Both candidates the
+rule caught were inside either version of it.)
 
 The rest — `attn_qkv`, `attn_out`, `gdn_out`, `proj_fp32_acc=False` — all looked **correct on
 real weights and faster on both layer kinds** at this point, and OPT-007 is explicit that margin
@@ -887,9 +905,9 @@ Every advice string in the four final CSVs, with nothing omitted:
 
 | advice, verbatim | rows it fires on | device time | action |
 |---|---|---|---|
-| "No output subblock size found" | `32 x 5120 x 17408` decode (the BFP4 gate/up pair), both kinds | 2603.4 us / 2605.9 us over 16 dispatches = 325.4 us per token | **not actionable**: this row runs under `MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig`, which has no output-subblock field at all (`in0_block_w`, `per_core_M`, `per_core_N`, `fused_activation`). Reported as a `tt-perf-report` improvement candidate — the advice should not ask a DRAM-sharded program for a field its config class does not have. |
+| "No output subblock size found" | `32 x 5120 x 17408` decode (the BFP4 gate/up pair), both kinds | 2604.8 us (`linear_attention`) / 2603.4 us (`full_attention`) over 16 dispatches = 325.6 / 325.4 us per token | **not actionable**: this row runs under `MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig`, which has no output-subblock field at all (`in0_block_w`, `per_core_M`, `per_core_N`, `fused_activation`). Reported as a `tt-perf-report` improvement candidate — the advice should not ask a DRAM-sharded program for a field its config class does not have. |
 | "Use HiFi2 or HiFi4 with BF16 activations for improved accuracy" | the same two rows | as above | **rejected with measurement**: those rows are LoFi by policy (§2/§3). HiFi2 across the projections costs 0.53 ms of decode and 4.4 ms of prefill (§9) for real-weight PCC that is already 0.9977 worst-case. |
-| "Output subblock 1x1 is small, try out_subblock_h * out_subblock_w >= 2 if possible" | `32 x 5120 x 128` decode, the `b\|a` projection, `linear_attention` | 221.3 us over 8 dispatches = 27.7 us per token | **not taken**: the whole output is four tiles wide and one tile high, so there is no larger subblock to have. |
+| "Output subblock 1x1 is small, try out_subblock_h * out_subblock_w >= 2 if possible" | `32 x 5120 x 128` decode, the `b\|a` projection, `linear_attention` | 221.8 us over 8 dispatches = 27.7 us per token | **not taken**: the whole output is four tiles wide and one tile high, so there is no larger subblock to have. |
 | "HiFi2 may also work, it discards the lowest bit of the activations and has 2x the throughput of HiFi4" | `32 x 5120 x 128` decode and `2048 x 5120 x 128` prefill, both the `b\|a` projection | 27.7 us per token, 152.4 us of prefill | **not taken**: `b\|a` feeds the `sigmoid`/`softplus` gates of the state recurrence and is the one weight this stage deliberately keeps at float32/HiFi4 (§9, and the functional stage's cancellation finding). It is 2.5 % of a decode step. |
 | "If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)" | `2048 x 5120 x 128` prefill, the `b\|a` projection | 152.4 us | **not taken**: input 0 is the 2048x5120 bfloat16 post-norm activation, 20 MB. It is shared by the `qkv`, `z` and `b\|a` projections in the same block, and §6's configs already bind on L1 for the two large consumers; pinning a 20 MB interleaved-L1 residency to save part of 152 us would take the block's headroom away from them. |
 | "in0_block_w=2 and output subblock 1x4 look good 🤷" | the same row | — | already satisfied. |
@@ -1111,6 +1129,11 @@ match the profile is exactly the kind of thing this document should not contain:
 | 1133 | 3.9 | `g` to per-head scalars | as above |
 | **1144** | **16.0** | `core = reshape(out, (1, batch, nv, head_v_dim))` before the gated norm | de-pads `batch*nv` single-row heads into `ceil(batch*nv/32)` dense tile-rows |
 | 1147 | 3.3 | `normed_flat` back to `[1, 1, batch, value_dim]` | the output projection wants the flat residual shape |
+
+The 16.0 us figure is device time from the traced profile; the probe below is an **eager
+wall-clock** comparison of the two arrangements, which is the regime a model-free probe can
+measure. The two agree on the ordering, not on the absolute numbers, and the conclusion does not
+depend on which regime is read: the alternative has one *fewer* dispatch and is still not faster.
 
 The 16.0 us one is worth a measurement rather than an assumption, because RMSNorm reduces over
 the last dimension and both shapes already have `head_v_dim` last — so the reshape looks
@@ -1465,7 +1488,7 @@ for shard shapes `[32,160]`, `[32,192]` and `[32,544]` — the residual, the 614
 and the MLP intermediate. The DRAM-sharded matmul lays 32 cores out **row-wise across the whole
 11-wide device grid**, not as the 8x4 rectangle `_find_grid` produces, and silently uses its own.
 The visible cost is one `ReshardDeviceOperation` per decode step in the attention epilogue —
-**1.83 us (`linear_attention`) and 1.56 us (`full_attention`)** — where the next op expects the
+**1.90 us (`linear_attention`) and 1.57 us (`full_attention`)** — where the next op expects the
 rectangle.
 
 Matching the op's choice was implemented and **is not legal for this decoder**:
@@ -1749,7 +1772,7 @@ more than that:
   but it now runs **three draws at the two tightest points** (`full_attention` seq 17,
   `linear_attention` seq 743), which are exactly where `O14` and `gdn_out` BFP4 hid. Seeds 11 and
   2024 are in that set, so both would now fail the gate directly. A candidate landing within
-  ~0.001 of the bar anywhere else still needs `probes/probe_draw_sensitivity.py`;
+  ~0.002 of the bar anywhere else still needs `probes/probe_draw_sensitivity.py`;
 * **the shipped policy's real margin is measured, not assumed, and the suite now reports it.**
   `full_attention` decode at seq 17 is the tightest point in the whole precision policy at
   **0.996181**, and `linear_attention` decode at seq 743 is next at **0.996689**. Those two

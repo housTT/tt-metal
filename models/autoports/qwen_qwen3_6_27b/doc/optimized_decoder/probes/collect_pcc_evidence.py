@@ -39,7 +39,7 @@ def records() -> tuple[list, list]:
         for match in re.finditer(r"^PCCEVIDENCE (\{.*\})$", text, re.M):
             row = json.loads(match.group(1))
             if isinstance(row.get("value"), (int, float)) and not isinstance(row["value"], bool):
-                row["source_log"] = str(path)
+                row["source_log"] = f"logs/{path.name}"
                 out.append(row)
                 found += 1
         for match in re.finditer(r"^DRAWS (\{.*\})$", text, re.M):
@@ -50,9 +50,9 @@ def records() -> tuple[list, list]:
                 out.append({"kind": row["kind"], "metric": "real_weight_decode_pcc_by_draw",
                             "candidate": row["candidate"], "seq_len": row["seq_len"],
                             "seed": int(key[len("decode_pcc_seed"):]), "value": value,
-                            "source_log": str(path)})
+                            "source_log": f"logs/{path.name}"})
                 found += 1
-        sources.append(f"{path}:{found}")
+        sources.append(f"logs/{path.name}:{found}")
     return out, sources
 
 

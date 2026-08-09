@@ -51,8 +51,9 @@ LAYER_KINDS = base.LAYER_KINDS
 #:
 #: The optimized decoder stores the MLP gate and up projections in BFP4 (one shared exponent per
 #: 16 values), which is worth 145 us of a 1.10 ms decode step and 2.5 ms of prefill.  On the
-#: **real** Qwen3.6-27B weights that costs almost nothing — worst prefill/decode PCC 0.997501
-#: across lengths 1 to 5000 — but on a synthetic Gaussian of the same variance it costs an order
+#: **real** Qwen3.6-27B weights that costs almost nothing — worst prefill/decode PCC 0.996689
+#: (`linear_attention`) / 0.996181 (`full_attention`) across lengths 1 to 5000, over the draws
+#: this suite samples — but on a synthetic Gaussian of the same variance it costs an order
 #: of magnitude more: 0.994762 at 64 tokens and 0.986536 at 2049.  A structureless weight matrix
 #: produces a structureless output, and a block-float format that shares an exponent across 16
 #: values has nothing to hide the quantisation in.

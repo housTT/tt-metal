@@ -189,6 +189,169 @@ def packattn_consumers() -> list:
     return packattn("decode_consumers")
 
 
+#: Why each decode layout op exists, in dispatch order per layer kind.  Generated tables can
+#: count and time the boundaries; only a human can say why each is paid, so the two are joined
+#: here and the count is asserted - if the topology changes, an unexplained row appears rather
+#: than a silently shorter table.  Review round 7 found the hand-written version listing three of
+#: five and five of eleven, and attributing them to the wrong family.
+_BOUNDARY_WHY = {
+    ("linear_attention", 0): "the entry residual arrives DRAM-interleaved at the layer boundary "
+                             "and is sharded once for the input RMSNorm - the one conversion "
+                             "`O3` cannot remove, because the boundary contract is interleaved",
+    ("linear_attention", 1): "`in_proj_qkv`'s output to the causal conv: a DRAM-sharded matmul "
+                             "must write a sharded tensor and the gated-delta-net decode path "
+                             "works on interleaved ones",
+    ("linear_attention", 2): "the post-norm activation to `in_proj_ba`, which is outside the "
+                             "DRAM-sharded family - its 112-column output is narrower than one "
+                             "shard row",
+    ("linear_attention", 3): "the gated norm's output into `z`'s activation shard, so the gating "
+                             "multiply and `out_proj` both run sharded (`O2`/`O3`); the "
+                             "alternative is an interleaved multiply and a wider conversion after it",
+    ("linear_attention", 4): "the `ReshardDeviceOperation` of section 19: the DRAM-sharded matmul "
+                             "writes its own row-wise core set instead of the rectangle this layer "
+                             "asks for, and the rectangle cannot be given up because the sharded "
+                             "layernorm rejects a non-rectangular grid",
+    ("full_attention", 0): "the entry residual, as above",
+    ("full_attention", 1): "the rotary `cos` table, uploaded DRAM-interleaved by the caller and "
+                           "sharded once per step for `rotary_embedding_hf`",
+    ("full_attention", 2): "the rotary `sin` table, same reason",
+    ("full_attention", 3): "`wqkv`'s output to `nlp_create_qkv_heads_decode`, which takes an "
+                           "interleaved input",
+    ("full_attention", 4): "the q heads out of head creation to the per-head RMSNorm, which takes "
+                           "a DRAM-interleaved input",
+    ("full_attention", 5): "the k heads, same reason",
+    ("full_attention", 6): "the normed q heads back to the height shard `rotary_embedding_hf` wants",
+    ("full_attention", 7): "the normed k heads, same reason",
+    ("full_attention", 8): "the q heads to the decode SDPA kernel, which takes interleaved inputs",
+    ("full_attention", 9): "the SDPA output to the head shard `nlp_concat_heads_decode` wants - "
+                           "the kernel rejects a sharded output for GQA "
+                           "(`sdpa_decode_device_operation.cpp:405`), carried over from the fused stage",
+    ("full_attention", 10): "the `ReshardDeviceOperation` of section 19, as above",
+}
+
+
+def decode_boundaries(kind: str) -> list:
+    """``(us per token, op code, why)`` for every decode layout op, in dispatch order."""
+    ops = layout_ops(kind, "decode")
+    per_token = len(ops) // 8 if ops else 0
+    out = []
+    for slot in range(per_token):
+        same = [ops[i] for i in range(slot, len(ops), per_token)]
+        us = sum(t for _, t, _ in same) / len(same)
+        why = _BOUNDARY_WHY.get((kind, slot), "**unexplained - the topology changed, this row "
+                                              "needs a reason in work_log.md section 4**")
+        out.append((us, same[0][2].replace("DeviceOperation", ""), why))
+    return out
+
+
+#: ``doc/context_contract.json`` fields this script owns.  Three review rounds in a row found a
+#: hand-maintained number in that file stale - and round 7 found the same quantity recorded twice
+#: with two different values - so the measured ones are now written from the logs.
+def _rewrite_context_contract(suite, longc, ctrl) -> None:
+    path = ROOT.parent / "context_contract.json"
+    doc = json.load(open(path))
+    stage = doc["optimized_decoder"]
+
+    results = stage["re_verified_at_full_context"]["results"]
+    for kind, keys in (("linear_attention", (("conv_state_pcc", "full_context_conv_state_pcc"),
+                                             ("recurrent_state_pcc", "full_context_recurrent_state_pcc"),
+                                             ("prefill_tail_8192_pcc", "full_context_prefill_tail_pcc"),
+                                             ("decode_at_262143_pcc", "full_context_decode_pcc"))),
+                       ("full_attention", (("paged_k_cache_pcc", "full_context_paged_k_cache_pcc"),
+                                           ("paged_v_cache_pcc", "full_context_paged_v_cache_pcc"),
+                                           ("prefill_tail_256_pcc", "full_context_prefill_tail_pcc"),
+                                           ("decode_at_262143_pcc", "full_context_decode_pcc")))):
+        for field, metric in keys:
+            if kind in longc.get(metric, {}):
+                results[kind][field] = longc[metric][kind]
+
+    control = stage["test_results"].get("bfp4_control_at_full_context")
+    if control:
+        for kind in KINDS:
+            key = f"{kind}_prefill_tail_pcc"
+            if key in control and kind in longc.get("full_context_prefill_tail_pcc", {}):
+                control[key]["bfp4_default"] = longc["full_context_prefill_tail_pcc"][kind]
+                control[key]["bfp8_control"] = ctrl["full_context_prefill_tail_pcc"][kind]
+
+    worst = stage["test_results"]["worst_real_weight_pcc_over_disputed_lengths"]
+    for kind in KINDS:
+        if kind in suite.get("real_weight_worst_pcc", {}):
+            worst[kind] = suite["real_weight_worst_pcc"][kind]
+    structural = stage["test_results"].get("structural_gate")
+    if structural and suite.get("structural_worst_pcc"):
+        structural["worst"] = dict(suite["structural_worst_pcc"])
+    stage["test_results"]["suite"] = (
+        f"{pytest_summary('suite_main.log').split(',')[0]}, "
+        f"{pytest_summary('suite_main.log').split(',')[1].strip()} "
+        "(the two --long-context cases, run separately)")
+    stage["test_results"]["watcher"] = f"{pytest_summary('watcher_run.log').split(',')[0]}, watcher.log clean"
+    json.dump(doc, open(path, "w"), indent=1)
+    open(path, "a").write("\n")
+
+
+#: Numbers that appear in prose outside the generated markers and must agree with the artifacts.
+#: A generated block cannot protect the sentence next to it; this can.  Each entry is
+#: ``(label, derive -> str, files)`` and the string simply has to occur somewhere in each file.
+def _check(perf, suite, longc, ctrl) -> int:
+    R = perf["runs"]
+    ms = perf["model_scale"]
+    layout = layout_ops("linear_attention", "prefill")
+    checks = [
+        ("linear prefill speed-up", f"{R['linear_attention/prefill']['speedup']:.2f}x", ["README.md"]),
+        ("full prefill speed-up", f"{R['full_attention/prefill']['speedup']:.2f}x", ["README.md"]),
+        ("decode ms/token, model scale", f"{ms['decode_optimized_ms_per_token']:.1f} ms", ["README.md"]),
+        ("worst real-weight PCC, linear",
+         f"{suite['real_weight_worst_pcc']['linear_attention']:.6f}",
+         ["README.md", "work_log.md", "../context_contract.json",
+          "../../tests/test_optimized_decoder.py"]),
+        ("worst real-weight PCC, full",
+         f"{suite['real_weight_worst_pcc']['full_attention']:.6f}",
+         ["README.md", "work_log.md", "../context_contract.json",
+          "../../tests/test_optimized_decoder.py"]),
+        ("structural gate worst, full", f"{suite['structural_worst_pcc']['full_attention']:.6f}",
+         ["README.md", "work_log.md"]),
+        ("prefill layout total", f"{sum(t for _, t, _ in layout) / 1000:.2f} ms",
+         ["README.md", "work_log.md", "perf_summary.json"]),
+        ("prefill layout op count", f"{len(layout)} ops", ["README.md", "work_log.md",
+                                                           "perf_summary.json"]),
+        ("full-context prefill tail, full",
+         f"{longc['full_context_prefill_tail_pcc']['full_attention']:.6f}",
+         ["README.md", "work_log.md"]),
+        ("BFP8 control tail, full",
+         f"{ctrl['full_context_prefill_tail_pcc']['full_attention']:.6f}",
+         ["README.md", "work_log.md"]),
+    ]
+    def json_floats(node):
+        if isinstance(node, dict):
+            for child in node.values():
+                yield from json_floats(child)
+        elif isinstance(node, list):
+            for child in node:
+                yield from json_floats(child)
+        elif isinstance(node, float):
+            yield node
+
+    bad = 0
+    for label, value, files in checks:
+        for name in files:
+            path = (ROOT / name).resolve()
+            if not path.exists():
+                print(f"MISSING {name}")
+                bad += 1
+                continue
+            text = path.read_text(errors="replace")
+            found = value in text
+            if not found and path.suffix == ".json":
+                # JSON keeps full precision where prose rounds; compare numerically.
+                digits = len(value.split(".")[1]) if "." in value else 0
+                found = any(f"{f:.{digits}f}" == value for f in json_floats(json.loads(text)))
+            if not found:
+                print(f"STALE   {name}: {label} should read {value}")
+                bad += 1
+    print("check: clean" if not bad else f"check: {bad} stale reference(s)")
+    return bad
+
+
 def wall_times() -> dict:
     out = {}
     for line in (ROOT / "logs" / "run_perf.log").read_text(errors="replace").splitlines():
@@ -471,6 +634,12 @@ def _rewrite_work_log(perf, suite, longc, ctrl) -> None:
         layout.append(f"| `{kind}` | {per_token} | {sum(t for _, t, _ in ops) / 8:.1f} | {breakdown} |")
     text = _replace_block(text, "decode-layout", "\n".join(layout))
 
+    bounds = ["| layer kind | us / token | op | why it is paid |", "|---|---|---|---|"]
+    for kind in KINDS:
+        for us, code, why in decode_boundaries(kind):
+            bounds.append(f"| `{kind}` | {us:.2f} | `{code}` | {why} |")
+    text = _replace_block(text, "decode-boundaries", "\n".join(bounds))
+
     consumers = packattn_consumers()
     if consumers:
         table = ["| family | matmul output width | sharded-to-interleaved | width slices | consumer total |",
@@ -493,7 +662,10 @@ def _rewrite_work_log(perf, suite, longc, ctrl) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--write", action="store_true", help="rewrite perf_summary.json in place")
+    parser.add_argument("--write", action="store_true", help="rewrite the generated blocks in place")
+    parser.add_argument("--check", action="store_true",
+                        help="exit non-zero if a number this script derives is contradicted by "
+                             "the reports; catches prose that a re-run left behind")
     args = parser.parse_args()
 
     sys.path.insert(0, "/home/ttuser/dev/qwen/tt-metal")
@@ -558,6 +730,10 @@ def main() -> None:
         open(ROOT / "perf_summary.json", "a").write("\n")
         _rewrite_readme(perf, suite, longc, ctrl)
         _rewrite_work_log(perf, suite, longc, ctrl)
+        _rewrite_context_contract(suite, longc, ctrl)
+
+    if args.check:
+        sys.exit(1 if _check(perf, suite, longc, ctrl) else 0)
 
     print("== headline (logs/sweep_final_{baseline,default}.log)")
     for kind in KINDS:
