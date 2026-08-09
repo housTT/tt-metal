@@ -16,12 +16,12 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_functional_d
     -v -s
 ```
 
-Result: **9 passed, 48 deselected** in 56.76 s — both layer kinds, paged prefill at 2049,
+Result: **9 passed, 50 deselected** in 56.99 s — both layer kinds, paged prefill at 2049,
 paged decode, trace capture + replay at batch 1 *and* batch 4, the BFP8 KV-cache path, and
 the two alternate page block sizes (32 and 128) through prefill *and* decode.
 Run log: `../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (1720 lines, 6 dumps over 12 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (1712 lines, 6 dumps over 12 `Dump` header/footer
 lines).
 
 ## Clean-run audit
@@ -37,11 +37,11 @@ Line categories present, all normal watcher bookkeeping:
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
     792 Device
-    285 k_ids:
-    273 k_ids:607|606|608|608|608
-     58 k_ids:1183|1182|1185|1185|1185
-     52 k_ids:1183|1182|1184|1184|1184
-     42 k_ids:2133|2132|2134|2134|2134
+    330 k_ids:607|606|608|608|608
+    243 k_ids:
+    101 k_ids:330|329|331|331|331
+     70 k_ids:952|951|954|954|954
+     40 k_ids:952|951|953|953|953
 ```
 
 `Dump` lines (12 of them: a header and a footer for each of the 6 dumps, the last being

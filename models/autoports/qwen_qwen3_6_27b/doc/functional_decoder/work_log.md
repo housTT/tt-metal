@@ -273,7 +273,7 @@ Rebuild: `ninja -C build_Release install` (`logs/rebuild_sdpa_decode.log`).
 | **512** | **0.995** | **0.997** | **0.997** | **0.998** | **0.999** | **1.000** | **1.017** | **1.006** |
 
 The stock-main control for exactly this configuration — the row a stage review pointed out was
-missing — is `logs/sdpa_decode_stock_baseline.log`, measured on a rebuild with the `.cpp`
+missing — is `logs/controls/sdpa_decode_stock_baseline.log`, measured on a rebuild with the `.cpp`
 change reverted:
 
 | k chunk / cores | 1023 | 65535 | 131071 | 261887 | 262143 |
@@ -282,7 +282,7 @@ change reverted:
 | 512 / 1, with the fix | 0.995 | 0.999 | 1.000 | **1.017** | **1.006** |
 
 and at the layer level, same code, same test, only the `.cpp` differing
-(`logs/long_context_stock_control.log` vs `logs/long_context.log`):
+(`logs/controls/long_context_stock_control.log` vs `logs/long_context.log`):
 
 | `test_full_advertised_context[full_attention]` | stock main | with the fix |
 |---|---|---|
@@ -348,12 +348,12 @@ needed.
 
 | gate | result | artifact |
 |---|---|---|
-| functional suite | **55 passed, 2 skipped** in 7:33 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
+| functional suite | **57 passed, 2 skipped** in 7:39 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
 | full advertised context, both layer kinds | **2 passed** in 6:24 | `logs/long_context.log` |
-| watcher (`TT_METAL_WATCHER=10`) | **9 passed**, log clean, 0 fatal/assert/sanitize lines in 1720 | `logs/watcher_run.log`, `watcher/WATCHER_AUDIT.md` |
+| watcher (`TT_METAL_WATCHER=10`) | **9 passed**, log clean, 0 fatal/assert/sanitize lines in 1712 | `logs/watcher_run.log`, `watcher/WATCHER_AUDIT.md` |
 | tt-metal `sdpa_decode` op suites (blast-radius control for the `.cpp` change) | **21 passed, 1 skipped** | `logs/ttnn_sdpa_decode_op_tests.log` |
 | profiling | 4 Tracy runs, marker-drop-free windows (exact op-count periodicity) | `perf_summary.json`, `tracy/*/*_perf_report.txt` |
-| recorded measurements | 264 records, 260 numeric, **minimum 0.998031**, **0 below the 0.995 bar** | `pcc_evidence.json` |
+| recorded measurements | 268 records (260 PCC, 4 scale, 4 booleans), **minimum PCC 0.998031**, **0 below the 0.995 bar**; scale ratios 0.99493-0.99853 | `pcc_evidence.json` |
 | context contract | OK, target = supported = 262144 | `../context_contract.json` |
 | runtime fallback audit | source scan + live stubbed-`ttnn` run, both layer kinds | `test_no_runtime_host_fallback` |
 | determinism | bit-identical prefill and decode, both layer kinds | `test_determinism` |
@@ -362,10 +362,10 @@ Performance, warmed, batch 1, one Blackhole chip (`perf_summary.json`):
 
 | layer kind | phase | ops/pass | device kernel time | host wall |
 |---|---|---|---|---|
-| `linear_attention` | prefill 2048 | 801 | 151.07 ms | 161.98 ms |
-| `linear_attention` | traced decode | 92 | 3.040 ms | 3.413 ms |
-| `full_attention` | prefill 2048 | 44 | 18.63 ms | 20.05 ms |
-| `full_attention` | traced decode | 50 | 2.271 ms | 2.329 ms |
+| `linear_attention` | prefill 2048 | 801 | 151.24 ms | 162.26 ms |
+| `linear_attention` | traced decode | 92 | 3.034 ms | 3.409 ms |
+| `full_attention` | prefill 2048 | 44 | 18.63 ms | 20.15 ms |
+| `full_attention` | traced decode | 50 | 2.271 ms | 2.333 ms |
 
 ### Repo changes owned by this stage
 
@@ -446,3 +446,74 @@ never-push constraint, so it is handed off instead: the model-free reproducer
 (`num_k_chunks % (2 * cores_per_head) != 0` and `num_k_chunks < cores_per_head`), and the
 measured signatures (3705x at position 1023, NaN at 261887, both with `k_chunk = 128,
 max_cores_per_head_batch = 16`) are all recorded here and in `doc/context_contract.json`.
+
+## 7. Repo checkpoint
+
+```
+repo   /home/ttuser/dev/qwen/tt-metal
+branch agentic-research/hous/qwen3.6-27b-v2
+base   837e8da3e9b
+commit 9d18c856aaa9b203804d6e5dd5e726fcec65b772   (92 files)
+```
+
+Committed with an explicit pathspec so the pre-existing dirty `.agents/` and `scripts/` files —
+which this stage did not touch and which the runner staged before it started — stayed out of the
+checkpoint. `git show --name-only` on that commit contains only
+`models/autoports/qwen_qwen3_6_27b/**` and the one `sdpa_decode_program_factory.cpp`. Not pushed.
+
+Two artifact-shape notes for anyone reading the tree:
+
+* the repo's pre-commit hooks reformatted the Python and the C++ (black/isort/autoflake,
+  clang-format). The reformat is cosmetic — line reflow and import order — but `ttnn` was
+  rebuilt afterwards and **every** run in §5 was repeated against the reformatted sources and
+  the rebuilt binary, so no recorded number predates the formatting;
+* the raw Tracy ops CSVs are 0.9–3.2 MB, over the repo's 500 KB commit limit, so `tracy/*/`
+  carries `<phase>_ops.csv.gz` plus the uncompressed `<phase>_perf_report.csv`. The
+  `.provenance` files still record the original absolute path and copy timestamp.
+
+## 8. Second stage review — findings and what changed
+
+The second `$stage-review` confirmed both round-1 P-findings resolved and returned
+`more-work-needed` on four new ones, all of which were real.
+
+* **`H.pcc()` scored 1.0 for a degenerate output.** A tensor with zero variance has no
+  direction, and the old guard returned `1.0` whenever the denominator vanished — so an
+  all-zero output, a saturated gate or a trace replay that never ran would have passed every
+  assertion in the suite with a perfect record. Latent (nothing produces a constant today) but
+  it undermined the metric behind all 260 records. `pcc()` now returns `1.0` only when *both*
+  sides are constant and `0.0` when one is.
+* **`block_size` had a documented but unenforced invariant.** `PREFILL_CHUNK` must be a whole
+  number of pages and of padded chunks; nothing checked it. `block_size = 96` is legal as far
+  as `paged_update_cache` is concerned, gives `lcm(256, 96) = 768`, and would have made chunk 1
+  start writing K/V at token 2016 instead of 2048 — silent cache corruption that every existing
+  length assertion still passes, and that neither tested block size (32, 128, both dividing
+  2048) could see. `from_state_dict` now rejects it, with
+  `test_block_size_incompatible_with_prefill_chunk_is_rejected` as the guard.
+* **The documented evidence command contradicted the headline claim.** `collect_evidence
+  logs/*.log` picked up the deliberately-failing reverted-build control and, with the round-1
+  min-wins de-duplication, reported a record below the bar. The two control logs moved to
+  `logs/controls/`, one level below the flat glob, and both the collector's docstring and the
+  README now say why. Re-running the documented command now reproduces the committed artifact
+  exactly.
+* **Stale, missing and corrupt artifacts.** `logs/tri_inv_base_sweep.log` was cited but did not
+  exist; it has been regenerated on real weights against this branch, and `TRI_INV_BASE`'s
+  docstring now quotes those numbers (204.7 / 161.1 / 136.4 ms, recurrent-state PCC
+  0.999993 / 0.999992 / 0.999988) instead of the earlier pass's. `logs/sdpa_fit_sweep_v2.log`
+  had been corrupted to NUL-padded binary by a `tee` race and was re-captured as clean text
+  (it reproduces the same table). `probes/README.md` carried earlier-branch numbers (1.465,
+  0.9838) and pointed at work-log sections that do not exist here; it now quotes this branch's
+  measurements with the backing log named, and says so explicitly at the bottom.
+
+Smaller items also fixed: the perf test's "~55 device ops" comment (it is 92), a work-log
+cross-reference for the `ttnn.pad` hazard, `release_layers` swallowing every `RuntimeError`
+during teardown (the one error class the `_free()` design exists to prevent), and the traced
+decode's host-side update dropping the mesh mapper that its allocation used.
+
+**The reviewer's "no magnitude assertion anywhere" concern is now closed rather than noted.**
+`H.scale_ratio` was added and `test_full_advertised_context` asserts it inside
+`SCALE_TOLERANCE = (0.98, 1.02)` for both prefill tail and decode, on both layer kinds. That is
+the check that fails on the stock decode kernel (scale 1.29) while PCC alone still reads 0.978,
+so the stage's own headline defect class is now gated, not just narrated. Measured:
+0.99853 / 0.99836 (`linear_attention`) and 0.99744 / 0.99493 (`full_attention`).
+
+Everything in §5 was re-run after these changes.

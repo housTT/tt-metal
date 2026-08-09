@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Self-contained fixtures for the Qwen3.6-27B functional-decoder tests.
+"""Fixtures for the Qwen3.6-27B functional-decoder tests.
 
-The autoport tests deliberately do not depend on the tt-metal root ``conftest.py`` so they
-can be run from any working directory.  The repo-root ``pytest.ini`` still applies when the
-working directory is inside the checkout, which is where its 300 s per-test timeout comes
-from; see ``doc/functional_decoder/work_log.md`` section 2.3.
+This file supplies what the suite needs of its own - the 1x1 ``mesh_device``, the
+``--long-context`` option and the per-test device-tensor release - rather than pulling in the
+heavyweight tt-metal root ``conftest.py`` fixtures.  The root ``conftest.py`` is still on the
+collection path when pytest runs from the repo root, which is where ``expect_error`` comes
+from, and the root ``pytest.ini`` is where the 300 s per-test timeout comes from; see
+``doc/functional_decoder/work_log.md`` section 2.3.
 """
 
 from __future__ import annotations

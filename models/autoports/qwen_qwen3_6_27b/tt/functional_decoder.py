@@ -179,12 +179,20 @@ PADDED_HEADS = 32
 DEFAULT_BLOCK_SIZE = 64
 
 #: Block size at which :meth:`FunctionalDecoder._unit_tri_inverse` stops recursing and falls
-#: back to the Neumann doubling product.  Chosen by measurement on real checkpoint weights
-#: (``doc/functional_decoder/probes/probe_tri_inv_base.py``): 8, 16 and 32 all give the same
-#: layer-level PCC to six decimals, but the recursion's blocks are stored in 32x32 tiles and
-#: run single-core, so a smaller base costs real time - 204.6 ms (8), 160.5 ms (16) and
-#: 135.8 ms (32) for a warmed 2048-token prefill.  16 is the fastest base whose recurrent
-#: state PCC still matches base 8 exactly (0.999991 vs 0.999986 at base 32).
+#: back to the Neumann doubling product.  Chosen by measurement on **real checkpoint weights**
+#: (``doc/functional_decoder/probes/probe_tri_inv_base.py``,
+#: ``doc/functional_decoder/logs/tri_inv_base_sweep.log``), because the recursion's blocks are
+#: stored in 32x32 tiles and run single-core, so a smaller base costs real time:
+#:
+#:     base | prefill PCC | recurrent state PCC | decode PCC | warmed 2048-token prefill
+#:     8    | 0.999970    | 0.999993            | 0.999985   | 204.7 ms
+#:     16   | 0.999969    | 0.999992            | 0.999986   | 161.1 ms
+#:     32   | 0.999970    | 0.999988            | 0.999986   | 136.4 ms
+#:
+#: All three clear the bar with room to spare.  16 is taken as the default because it is 21 %
+#: faster than 8 while its recurrent-state PCC is still within 1e-6 of it; base 32 is faster
+#: again and is the first base whose recurrent state moves by more than that, so that trade is
+#: handed to the optimization stage with the numbers attached rather than taken here.
 TRI_INV_BASE = 16
 
 
@@ -362,6 +370,19 @@ class FunctionalDecoder(LightweightModule):
 
         shapes = decoder_shapes(hf_config, layer_idx)
         max_seq_len = max_seq_len or shapes.max_position_embeddings
+        # PREFILL_CHUNK must be a whole number of pages *and* a whole number of padded chunks,
+        # or chunk N's page-table slice starts inside chunk N-1's tokens and paged_fill_cache
+        # silently overwrites the tail of the previous chunk. block_size = 96, for example, is
+        # accepted by paged_update_cache (it only needs block_size % TILE_HEIGHT == 0) and gives
+        # _prefill_alignment = lcm(256, 96) = 768, so chunk 1 would start writing at token 2016
+        # instead of 2048 while every existing length assertion still passed. Fail here instead.
+        alignment = _prefill_alignment(shapes.layer_type, block_size)
+        if PREFILL_CHUNK % block_size or PREFILL_CHUNK % alignment:
+            raise ValueError(
+                f"block_size {block_size} is incompatible with PREFILL_CHUNK {PREFILL_CHUNK}: "
+                f"the prefill chunk must be a whole number of pages and of padded chunks "
+                f"(alignment {alignment})"
+            )
         if max_num_blocks is None:
             # The final prefill chunk is padded up to the layer's alignment and the caller's
             # page table has to cover that padded span, so size the cache from the padded
@@ -753,8 +774,9 @@ class FunctionalDecoder(LightweightModule):
             [[L11, 0], [L21, L22]]**-1 == [[X11, 0], [X22 @ a21 @ X11, X22]]
 
         Both diagonal blocks are inverted in a single batched call.  Measured max absolute
-        error on the same captured ``attn0``: 3.3e-2 at base 32, 8.8e-3 at base 16 and
-        1.8e-3 at :data:`TRI_INV_BASE` = 8, against 3.3 for the plain doubling product.
+        error on the captured real-weight ``attn0``: 3.3e-2 at base 32, 8.8e-3 at
+        :data:`TRI_INV_BASE` = 16 and 1.8e-3 at base 8, against 3.3 for the plain doubling
+        product.  See :data:`TRI_INV_BASE` for why 16 is the default.
         """
         if size <= TRI_INV_BASE:
             eye = self.const["eye_base"]

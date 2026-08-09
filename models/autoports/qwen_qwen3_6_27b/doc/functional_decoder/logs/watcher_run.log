@@ -1,4 +1,4 @@
-2026-08-09 18:06:01.793 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+2026-08-09 18:59:25.534 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
 ============================= test session starts ==============================
 platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen/tt-metal/python_env/bin/python
@@ -10,7 +10,7 @@ plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeo
 timeout: 300.0s
 timeout method: signal
 timeout func_only: False
-collecting ... collected 57 items / 48 deselected / 9 selected
+collecting ... collected 59 items / 50 deselected / 9 selected
 
 models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention] [transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
 PCCEVIDENCE {"kind": "linear_attention", "metric": "decode_pcc", "prefill_len": 2049, "step": 0, "value": 0.9999392241210125}
@@ -70,31 +70,31 @@ PASSED
 ==================================== PASSES ====================================
 - generated xml file: /home/ttuser/dev/qwen/tt-metal/generated/test_reports/most_recent_tests.xml -
 ============================= slowest 25 durations =============================
-6.96s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention]
-6.46s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[linear_attention]
-5.87s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
-5.79s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[full_attention]
-5.68s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_bfloat8_kv_cache
-5.66s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[32]
-5.66s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[128]
-5.66s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[linear_attention]
-5.23s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[full_attention]
-0.99s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention]
-0.21s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[32]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[linear_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_bfloat8_kv_cache
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[linear_attention]
+6.92s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention]
+6.54s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[linear_attention]
+5.93s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
+5.92s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[full_attention]
+5.70s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_bfloat8_kv_cache
+5.69s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[linear_attention]
+5.67s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[32]
+5.62s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[128]
+5.22s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[full_attention]
+0.97s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention]
 0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[full_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[128]
 0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[full_attention]
-0.19s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_bfloat8_kv_cache
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[128]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[32]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[linear_attention]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[linear_attention]
 0.16s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[full_attention]
+0.06s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_bfloat8_kv_cache
+0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[full_attention]
+0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
 0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[128]
-0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[linear_attention]
 0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[linear_attention]
-0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention]
-0.04s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
-0.04s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_alternate_page_block_size[32]
+0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_pcc[linear_attention]
 =========================== short test summary info ============================
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_decode_pcc[2049-full_attention]
@@ -105,11 +105,11 @@ PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_bfloat8_kv_cache
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_traced_decode_batched[full_attention]
-================ 9 passed, 48 deselected, 2 warnings in 56.76s =================
+================ 9 passed, 50 deselected, 2 warnings in 56.99s =================
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 nanobind: leaked 2 instances!
- - leaked instance 0x705d5d945388 of type "ttnn._ttnn.tensor.MemoryConfig"
- - leaked instance 0x705d5dd997e8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x73acb2da1388 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x73acb31f5818 of type "ttnn._ttnn.tensor.CoreRangeSet"
 nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
@@ -124,15 +124,15 @@ nanobind: leaked 20 types!
  - ... skipped remainder
 nanobind: leaked 250 functions!
  - leaked function ""
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "pop_current_command_queue_id_for_thread"
  - leaked function ""
  - leaked function ""
  - leaked function "__init__"
- - leaked function "worker_core_from_logical_core"
- - leaked function ""
- - leaked function "get_device_ids"
- - leaked function "get_device_id"
- - leaked function ""
- - leaked function "get_view"
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
 See https://nanobind.readthedocs.io/en/latest/refleaks.html

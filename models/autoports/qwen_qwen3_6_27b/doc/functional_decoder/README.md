@@ -15,7 +15,7 @@ Hardware: this host has **two p300c boards of two Blackhole chips each**
   [`../../tests/test_functional_decoder_perf.py`](../../tests/test_functional_decoder_perf.py)
 * Bringup narrative, provenance and the two upstream defects: [`work_log.md`](work_log.md)
 * Context capability: [`../context_contract.json`](../context_contract.json)
-* Every measured number: [`pcc_evidence.json`](pcc_evidence.json) (264 records, 260 numeric)
+* Every measured number: [`pcc_evidence.json`](pcc_evidence.json) (268 records: 260 PCC, 4 full-context scale ratios, 4 determinism booleans)
 
 ## Layer kinds
 
@@ -77,7 +77,7 @@ is the module docstring of `tt/functional_decoder.py`.
 cd /home/ttuser/dev/qwen/tt-metal
 source models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh
 
-# full functional suite (55 tests + 2 long-context skips, ~8.5 min)
+# full functional suite (57 tests + 2 long-context skips, ~7.5 min)
 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py -v -s
 
 # full advertised context, 262143-token prompt + decode at 262143 (2 tests, ~13 min)
@@ -104,9 +104,16 @@ Regenerate the stats with
 ## Correctness
 
 Acceptance bar: **PCC >= 0.995** (the skill default; no model-specific reason to move it).
-**Minimum over all 260 numeric records: 0.998031.** There is no exception, no waiver and no
-open gap: every measurement in the stage clears the bar. The other 4 records are the boolean
-determinism flags, all `true`.
+**Minimum over all 260 PCC records: 0.998031.** There is no exception, no waiver and no open
+gap: every measurement of the shipped configuration clears the bar. The remaining records are
+the boolean determinism flags, all `true`, and the four full-context scale ratios (0.99493
+to 0.99853, all inside the ±2 % `SCALE_TOLERANCE` the long-context tests assert — see below).
+
+`pcc_evidence.json` is collected from the three run logs directly under `logs/` — the suite, the
+long-context pair and the watcher run. `logs/controls/` holds the two deliberately-failing
+reverted-build controls behind the decode fix (see [`work_log.md`](work_log.md) §3.4); they are
+one directory down precisely so the flat `logs/*.log` glob cannot fold a run that is *supposed*
+to fail into the stage's evidence.
 
 | measurement | `linear_attention` | `full_attention` |
 |---|---|---|
@@ -126,6 +133,13 @@ determinism flags, all `true`.
 | **full context 262143** — prefill tail vs HF | **0.999947** (last 8192) | **0.998031** (last 256) |
 | **full context 262143** — state / paged cache vs HF | conv 0.999995, recurrent 0.999984 | K 0.999989, V 0.999993 |
 | **full context 262143** — decode at position 262143 | **0.999955** | **0.999201** |
+| **full context 262143** — best-fit *scale* vs HF, prefill tail / decode | 0.99853 / 0.99836 | 0.99744 / 0.99493 |
+
+The scale row exists because PCC is scale-invariant and both SDPA defects this stage works
+around are *pure scale errors*. `test_full_advertised_context` asserts `H.scale_ratio` inside
+`SCALE_TOLERANCE = (0.98, 1.02)` alongside PCC, so the exact failure mode the implementation is
+built to avoid is now a gate rather than a narrative — the stock decode kernel sits at 1.29
+there.
 
 `full_attention` sits systematically ~5e-4 below `linear_attention`; that is ordinary bfloat16
 attention accumulation, and it drifts slowly with context (0.99997 at seq 1 → 0.998031 at
@@ -171,7 +185,7 @@ The fix is also load-bearing rather than precautionary, shown by a stock-main co
 
 | claim | evidence | remaining risk |
 |---|---|---|
-| Both HF layer kinds implemented and correct | 55 functional tests, both kinds in every parametrised case; `logs/suite_main.log` = `55 passed, 2 skipped` | Only layers 0 and 3 are instantiated. `layer_types` has exactly two distinct values and `decoder_shapes` rejects a third. |
+| Both HF layer kinds implemented and correct | 57 functional tests, both kinds in every parametrised case; `logs/suite_main.log` = `57 passed, 2 skipped` | Only layers 0 and 3 are instantiated. `layer_types` has exactly two distinct values and `decoder_shapes` rejects a third. |
 | Advertised context 262144 supported, not reduced | `test_full_advertised_context` prefills 262143 and decodes at 262143 for both kinds, against a real HF reference; all four PCCs >= 0.998031 | The reference is built segmentally (`linear_attention`) or by projection-only cache fill validated `torch.equal` against a real short prefill (`full_attention`); a whole-prompt HF forward is impossible at this length. |
 | Paged KV cache correct under a non-trivial page table | Page tables are a shuffled permutation of all `batch * blocks_per_user` blocks; `test_linear_state_and_kv_cache_match_reference` un-pages the device cache and compares it against HF's own cache object (K 0.999989, V 0.999993) | Cache compare is at one length (2049) and batch 1; batched addressing covered indirectly by `test_batched_users[32]` and directly at full context. |
 | Page/block geometry is a parameter | `test_alternate_page_block_size` at 32 and 128 | Three block sizes tested. |
@@ -181,7 +195,7 @@ The fix is also load-bearing rather than precautionary, shown by a stock-main co
 | Real checkpoint weights load and pass | `test_real_weights`, prefill 0.999969 / 0.999964, decode 0.999990 / 0.999988 | One layer per kind, one length. |
 | No host fallback in a measured pass | `test_no_runtime_host_fallback`: source scan **and** a live run with `from_torch`/`to_torch`/`as_tensor` stubbed to raise | — |
 | Deterministic for repeated inputs | bit-identical prefill and decode output, both kinds | — |
-| Watcher clean | `watcher/WATCHER_AUDIT.md`, 9 passed, zero fatal/assert/sanitize lines in 1720 | Watcher subset is 9 tests, not the whole suite. |
+| Watcher clean | `watcher/WATCHER_AUDIT.md`, 9 passed, zero fatal/assert/sanitize lines in 1712 | Watcher subset is 9 tests, not the whole suite. |
 | Warmed prefill and traced warmed decode measured | `perf_summary.json` + `tracy/*/*_perf_report.txt`; measured windows provably complete (exact op-count periodicity) | Single chip, batch 1, unoptimised config; this stage claims no perf target. |
 
 ### Sequence-length coverage
@@ -266,10 +280,10 @@ once, then replay `execute_trace` inside the window.
 
 | layer kind | phase | ops in one pass | device kernel time | host wall |
 |---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 801 | **151.07 ms** | 161.98 ms |
-| `linear_attention` | traced decode, 1 token | 92 | **3.040 ms** | 3.413 ms |
-| `full_attention` | prefill, 2048 tokens | 44 | **18.63 ms** | 20.05 ms |
-| `full_attention` | traced decode, 1 token | 50 | **2.271 ms** | 2.329 ms |
+| `linear_attention` | prefill, 2048 tokens | 801 | **151.24 ms** | 162.26 ms |
+| `linear_attention` | traced decode, 1 token | 92 | **3.034 ms** | 3.409 ms |
+| `full_attention` | prefill, 2048 tokens | 44 | **18.63 ms** | 20.15 ms |
+| `full_attention` | traced decode, 1 token | 50 | **2.271 ms** | 2.333 ms |
 
 Decode numbers are the mean of 8 trace replays inside the window. Device time is the
 `Device Time` column of the `tt-perf-report --csv` output, **in microseconds** (the raw Tracy

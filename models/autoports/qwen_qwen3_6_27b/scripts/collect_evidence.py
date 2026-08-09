@@ -8,6 +8,10 @@ and can be collected without re-running anything on hardware::
 
     python -m models.autoports.qwen_qwen3_6_27b.scripts.collect_evidence \\
         models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/logs/*.log
+
+``logs/*.log`` is deliberately a *flat* glob. ``logs/controls/`` holds runs that are supposed to
+fail - the reverted-build control for the SDPA decode fix - and must never be folded into the
+stage's evidence; keeping them one directory down is what stops the glob from picking them up.
 """
 
 from __future__ import annotations
@@ -63,19 +67,32 @@ def main() -> None:
             by_key[key] = record
 
     records = [by_key[k] for k in sorted(by_key)]
-    numeric = [r for r in records if isinstance(r["value"], (int, float)) and not isinstance(r["value"], bool)]
+    numeric = [r for r in records if _is_number(r["value"])]
+    # Scale ratios are a different quantity from PCC and are bounded on both sides, so they must
+    # not be folded into the PCC minimum - a scale of 0.995 is excellent, a PCC of 0.995 is the
+    # bar. Split them by metric name.
+    pcc_records = [r for r in numeric if not r["metric"].endswith("_scale")]
+    scale_records = [r for r in numeric if r["metric"].endswith("_scale")]
     payload = {
         "sources": sources,
         "num_records": len(records),
-        "min_pcc": min((r["value"] for r in numeric), default=None),
-        "min_pcc_record": min(numeric, key=lambda r: r["value"], default=None),
+        "num_pcc_records": len(pcc_records),
+        "num_scale_records": len(scale_records),
+        "min_pcc": min((r["value"] for r in pcc_records), default=None),
+        "min_pcc_record": min(pcc_records, key=lambda r: r["value"], default=None),
+        "scale_range": (
+            [min(r["value"] for r in scale_records), max(r["value"] for r in scale_records)] if scale_records else None
+        ),
         "records": records,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as fh:
         json.dump(payload, fh, indent=2, sort_keys=False)
         fh.write("\n")
-    print(f"wrote {args.out}: {len(records)} records, min PCC {payload['min_pcc']}")
+    print(
+        f"wrote {args.out}: {len(records)} records "
+        f"({len(pcc_records)} PCC, {len(scale_records)} scale), min PCC {payload['min_pcc']}"
+    )
 
 
 if __name__ == "__main__":

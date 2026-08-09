@@ -300,10 +300,25 @@ def test_alternate_page_block_size(mesh_device, block_size):
     assert value >= H.PCC_BAR, f"decode PCC {value} with block_size={block_size}"
 
 
+@pytest.mark.parametrize("block_size", [96, 192])
+def test_block_size_incompatible_with_prefill_chunk_is_rejected(mesh_device, block_size, expect_error):
+    """A block size that does not divide the prefill chunk must fail loudly, not silently.
+
+    ``paged_update_cache`` only needs ``block_size % TILE_HEIGHT == 0``, so 96 is structurally
+    legal, but ``lcm(SDPA_CHUNK, 96) = 768`` does not divide ``PREFILL_CHUNK`` and chunk N's
+    page-table slice would start inside chunk N-1's tokens - a cache corruption that every
+    length assertion in this file would still pass.
+    """
+    with expect_error(ValueError, "incompatible with PREFILL_CHUNK"):
+        H.build_layer(mesh_device, H.FULL_LAYER_IDX, max_batch=1, max_seq_len=4096, block_size=block_size)
+
+
 # Lengths whose padded chunk exceeds the logical length by **less than one tile**, i.e.
 # ceil(len/32)*32 == round_up(len, alignment).  These are exactly the lengths that the
-# ttnn.pad aliasing bug corrupted (see doc/functional_decoder/work_log.md 2.1): pad returns a
-# view of its input when the padding fits inside the existing tile padding.  735/736 are the
+# ttnn.pad aliasing hazard corrupted: pad returns a view of its input when the padding fits
+# inside the existing tile padding, so freeing the input frees the result too.  The hazard and
+# the _free() guard that fixes it are in tt/functional_decoder.py; this range is its regression
+# test (doc/functional_decoder/work_log.md section 0 records which pass found it).  735/736 are the
 # neighbouring lengths that stayed correct and pin the boundary.
 PAD_ALIAS_SEQ_LENS = [735, 736, 737, 743, 767, 768]
 
@@ -430,6 +445,11 @@ LONG_SEGMENT = 16384
 #: Prompt length of the full-context test.  Prompt + one decoded token occupy exactly the
 #: advertised 262144 positions, so decode runs at the last addressable position.
 LONG_PROMPT = 262143
+#: Accepted range for the best-fit scale of the device output onto the HF reference at the full
+#: context.  Both SDPA defects the layer works around are one-sided scale errors that PCC cannot
+#: see, so the full-context tests bound the magnitude as well as the correlation.  The stock
+#: decode kernel sits at 1.29 here; the shipped configuration measures within 2e-3 of 1.
+SCALE_TOLERANCE = (0.98, 1.02)
 
 
 @pytest.mark.timeout(0)  # see LONG_TEST_TIMEOUT_NOTE
@@ -510,6 +530,14 @@ def test_full_advertised_context(mesh_device, layer_idx, request):
     tail_pcc = H.pcc(golden, got[:, -tail:, :])
     H.record("full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
     assert tail_pcc >= H.PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
+    # PCC is scale-invariant and both SDPA defects this layer works around are pure scale
+    # errors, so assert the magnitude too. This is the check that would have caught the
+    # stock-kernel decode (0.9779 PCC but a 1.29x attention scale) at the op level.
+    tail_scale = H.scale_ratio(golden, got[:, -tail:, :])
+    H.record("full_context_prefill_tail_scale", tail_scale, kind=_kind(lut), seq_len=LONG_PROMPT)
+    assert (
+        SCALE_TOLERANCE[0] <= tail_scale <= SCALE_TOLERANCE[1]
+    ), f"prefill tail at {LONG_PROMPT} tokens is scaled by {tail_scale}, outside {SCALE_TOLERANCE}"
 
     H.prepare_decode(lut)
     token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=99)
@@ -518,3 +546,8 @@ def test_full_advertised_context(mesh_device, layer_idx, request):
     decode_pcc = H.pcc(golden_decode, decoded)
     H.record("full_context_decode_pcc", decode_pcc, kind=_kind(lut), position=LONG_PROMPT)
     assert decode_pcc >= H.PCC_BAR, f"decode at position {LONG_PROMPT}: PCC {decode_pcc}"
+    decode_scale = H.scale_ratio(golden_decode, decoded)
+    H.record("full_context_decode_scale", decode_scale, kind=_kind(lut), position=LONG_PROMPT)
+    assert (
+        SCALE_TOLERANCE[0] <= decode_scale <= SCALE_TOLERANCE[1]
+    ), f"decode at position {LONG_PROMPT} is scaled by {decode_scale}, outside {SCALE_TOLERANCE}"

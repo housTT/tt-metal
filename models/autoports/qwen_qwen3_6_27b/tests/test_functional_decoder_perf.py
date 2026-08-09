@@ -39,9 +39,9 @@ PERF_PREFILL_LEN = 2048
 #: Absolute position the decode step runs at.
 PERF_DECODE_POS = 2048
 #: Trace replays inside the decode perf window.  Kept small on purpose: a ``linear_attention``
-#: decode step is ~55 device ops, and the profiler's per-core DRAM marker buffer holds 12000
-#: markers, so a larger count drops markers ("Profiler DRAM buffers were full") and silently
-#: truncates the report.
+#: decode step is 92 device ops (see ``doc/functional_decoder/perf_summary.json``), and the
+#: profiler's per-core DRAM marker buffer holds 12000 markers, so a larger count drops markers
+#: ("Profiler DRAM buffers were full") and silently truncates the report.
 PERF_DECODE_ITERS = 8
 
 

@@ -44,9 +44,32 @@ def pcc(golden: torch.Tensor, actual: torch.Tensor) -> float:
     assert torch.isfinite(b).all(), "actual tensor contains non-finite values"
     a = a - a.mean()
     b = b - b.mean()
-    denom = a.norm() * b.norm()
-    if denom == 0:
+    a_norm, b_norm = a.norm(), b.norm()
+    # A constant tensor has zero variance and no direction, so correlation is undefined. Two
+    # constants are trivially "equal"; one constant against a varying golden is a *failure* -
+    # an all-zero output, a saturated gate, a trace replay that never ran, a state buffer that
+    # was zeroed. Returning 1.0 there would make every assertion in this suite pass on a
+    # degenerate result, so score it 0.0 instead.
+    if a_norm == 0 and b_norm == 0:
         return 1.0
+    if a_norm == 0 or b_norm == 0:
+        return 0.0
+    return float((a @ b) / (a_norm * b_norm))
+
+
+def scale_ratio(golden: torch.Tensor, actual: torch.Tensor) -> float:
+    """``<golden, actual> / <golden, golden>`` - the best-fit scale of ``actual`` onto ``golden``.
+
+    PCC is scale-invariant, and both SDPA defects this stage works around show up as a pure
+    scale on the attention output (see ``tt/functional_decoder.py`` SDPA_MAX_K_CHUNKS and
+    SDPA_DECODE_K_CHUNK). A PCC-only assertion therefore cannot see the exact failure mode the
+    implementation is built to avoid; the long-context tests assert this alongside PCC.
+    """
+    a = golden.detach().to(torch.float64).flatten()
+    b = actual.detach().to(torch.float64).flatten()
+    assert a.shape == b.shape, f"shape mismatch {a.shape} vs {b.shape}"
+    denom = float(a @ a)
+    assert denom > 0, "golden is all zeros; scale ratio is undefined"
     return float((a @ b) / denom)
 
 
@@ -115,10 +138,11 @@ def release_layers() -> None:
         if lut.page_table_tt is not None:
             tensors.append(lut.page_table_tt)
         for tensor in tensors:
-            try:
+            # Only skip tensors already freed by an aliasing sibling in this same list; any
+            # other RuntimeError here is a real double-free and the _free() design exists to
+            # prevent it, so do not swallow it.
+            if tensor.is_allocated():
                 ttnn.deallocate(tensor)
-            except RuntimeError:
-                pass
 
 
 def build_layer(
@@ -492,7 +516,11 @@ class TracedDecode:
                 (sin, self.tt_sin, ttnn.bfloat16, ttnn.TILE_LAYOUT),
             ]
         for host, device_tensor, dtype, layout in pairs:
-            host_tensor = ttnn.from_torch(host, dtype=dtype, layout=layout)
+            # Same mapper as the allocation in _alloc(): on a 1x1 mesh it is a no-op, but a bare
+            # from_torch would silently produce a single-shard host tensor on a larger mesh.
+            host_tensor = ttnn.from_torch(
+                host, dtype=dtype, layout=layout, mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device)
+            )
             ttnn.copy_host_to_device_tensor(host_tensor, device_tensor)
 
     def _forward(self):

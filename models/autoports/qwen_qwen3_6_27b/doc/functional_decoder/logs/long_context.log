@@ -1,4 +1,4 @@
-2026-08-09 17:58:16.624 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+2026-08-09 18:51:42.073 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
 ============================= test session starts ==============================
 platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen/tt-metal/python_env/bin/python
@@ -10,18 +10,22 @@ plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeo
 timeout: 300.0s
 timeout method: signal
 timeout func_only: False
-collecting ... collected 57 items / 55 deselected / 2 selected
+collecting ... collected 59 items / 57 deselected / 2 selected
 
 models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention] [transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
 PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_conv_state_pcc", "seq_len": 262143, "value": 0.9999946280463557}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_recurrent_state_pcc", "seq_len": 262143, "value": 0.9999840404148437}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 8192, "value": 0.9999471293445713}
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_prefill_tail_scale", "seq_len": 262143, "value": 0.9985341217745319}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_decode_pcc", "position": 262143, "value": 0.999955257734366}
+PCCEVIDENCE {"kind": "linear_attention", "metric": "full_context_decode_scale", "position": 262143, "value": 0.9983599041607758}
 PASSED
 models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention] PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_k_cache_pcc", "seq_len": 262143, "value": 0.9999887280695877}
 PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_paged_v_cache_pcc", "seq_len": 262143, "value": 0.9999926599608485}
 PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_prefill_tail_pcc", "seq_len": 262143, "tail": 256, "value": 0.9980307630901388}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_prefill_tail_scale", "seq_len": 262143, "value": 0.9974432795186233}
 PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_decode_pcc", "position": 262143, "value": 0.9992007728649125}
+PCCEVIDENCE {"kind": "full_attention", "metric": "full_context_decode_scale", "position": 262143, "value": 0.9949287878196464}
 PASSED
 
 =============================== warnings summary ===============================
@@ -35,20 +39,20 @@ PASSED
 ==================================== PASSES ====================================
 - generated xml file: /home/ttuser/dev/qwen/tt-metal/generated/test_reports/most_recent_tests.xml -
 ============================= slowest 25 durations =============================
-315.58s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
-66.82s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
-1.00s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
+314.91s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
+66.78s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+0.96s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
 0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
-0.16s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
-0.04s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
+0.15s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+0.05s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
 =========================== short test summary info ============================
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
-=========== 2 passed, 55 deselected, 2 warnings in 384.49s (0:06:24) ===========
+=========== 2 passed, 57 deselected, 2 warnings in 383.73s (0:06:23) ===========
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 nanobind: leaked 2 instances!
- - leaked instance 0x7ef969dcd388 of type "ttnn._ttnn.tensor.MemoryConfig"
- - leaked instance 0x7ef96a405848 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7947cd229788 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7947ccdd5388 of type "ttnn._ttnn.tensor.MemoryConfig"
 nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
@@ -62,16 +66,16 @@ nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
  - ... skipped remainder
 nanobind: leaked 250 functions!
- - leaked function "buffer_address"
  - leaked function ""
- - leaked function "__repr__"
- - leaked function ""
- - leaked function ""
- - leaked function "reset_sub_device_stall_group"
+ - leaked function "clear_program_cache"
  - leaked function ""
  - leaked function ""
  - leaked function ""
- - leaked function "create_submesh"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "reshape"
+ - leaked function ""
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
 See https://nanobind.readthedocs.io/en/latest/refleaks.html
