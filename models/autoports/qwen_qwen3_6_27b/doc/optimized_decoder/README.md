@@ -18,10 +18,10 @@ The suite re-measures both independently, see "Test-suite results".
 
 | layer kind | phase | fused stage | **optimized** | speed-up |
 |---|---|---|---|---|
-| `linear_attention` | prefill 2048 | 51.64 ms | **30.96 ms** | **1.67x** |
-| `linear_attention` | traced decode | 2.280 ms | **1.099 ms** | **2.08x** |
-| `full_attention` | prefill 2048 | 20.05 ms | **9.29 ms** | **2.16x** |
-| `full_attention` | traced decode | 2.234 ms | **1.094 ms** | **2.04x** |
+| `linear_attention` | prefill 2048 | 51.60 ms | **29.132 ms** | **1.77x** |
+| `linear_attention` | traced decode | 2.28 ms | **1.098 ms** | **2.08x** |
+| `full_attention` | prefill 2048 | 20.34 ms | **9.300 ms** | **2.19x** |
+| `full_attention` | traced decode | 2.24 ms | **1.095 ms** | **2.05x** |
 
 Accuracy against the HF reference on the same real weights, same run:
 
@@ -35,8 +35,8 @@ BFP8 KV cache and a bfloat16 causal conv; each is attributed to its tensor group
 `work_log.md` §2, §8 and §9, and every one of them was decided on real weights.
 
 At the model's 48 `linear_attention` + 16 `full_attention` layers this is a layer stack of
-1.63 s of prefill per 2048 tokens against 2.80 s, and **70.3 ms per decoded token against
-145.2 ms** — 14.2 tok/s of layer-stack budget against 6.9. (Layer stack only: embedding, final
+1.55 s of prefill per 2048 tokens against 2.80 s, and **70.2 ms per decoded token against
+145.4 ms** — 14.2 tok/s of layer-stack budget against 6.9. (Layer stack only: embedding, final
 norm, LM head and sampling belong to the full-model stage.)
 
 ## What changed
@@ -54,8 +54,11 @@ norm, LM head and sampling belong to the full-model stage.)
 | `O5` | `ttnn.transformer.gated_delta_attn_seq` for the gated-delta-net prefill | **rejected**: 0.9829 state PCC on real activations, unchanged when every Python-side precision knob is raised to HiFi4/fp32 |
 | `O7` | packing `wgate` into `wqkv` / `in_proj_z` into `in_proj_qkv` | **rejected on measurement**: attention pair 5.6 us faster in decode and 466 us slower in prefill before split cost; GDN pair blocked by incompatible output dtypes |
 | — | explicit decode `SDPAProgramConfig` | **rejected**: 4-9x faster and wrong at some positions |
-| — | BFP4 attention/GDN output projections, `proj_fp32_acc=False` | **not adopted**: correct on real weights and 1.3 % faster, but would need the synthetic suite bar lowered a second time (0.98 → 0.96) — the whole trade is in `work_log.md` §9 |
+| — | BFP4 attention/GDN output projections | **rejected on real weights**: 0.993815 prefill / 0.994999 decode at seq 17 on `full_attention`, below the 0.995 bar — caught by `test_real_weight_pcc_at_disputed_lengths` after the 2048-token measurement said it was fine (`work_log.md` §9) |
+| — | `proj_fp32_acc=False` | **not adopted**: holds the real-weight bar everywhere and is worth 0.5 % of decode, but puts two synthetic structural cases at 0.9789 against the 0.98 bar (`work_log.md` §9) |
+| `O12` | the gated-delta-net chunk loop's recurrent state in L1 | `linear_attention` prefill 30.96 → 29.13 ms |
 | — | `ttnn.conv1d` for the gated-delta-net causal conv | **rejected**: exact L1 blocker at 10240 depthwise channels, and at every channel split tried |
+| — | matching ttnn's own row-wise decode shard grid (`O11`) | **rejected**: the sharded layernorm that carries the residual refuses a non-rectangular grid, and no core count is rectangular both ways — costs one 1.6-1.8 us reshard per decode step (`work_log.md` §19) |
 
 ## Contract
 
@@ -86,14 +89,14 @@ a later full-model stage wants exactly that layout at the layer boundary.
 
 ## Test-suite results
 
-`tests/test_optimized_decoder.py`: **70 passed, 2 skipped, 3 warnings in 701.44s (0:11:41)** (`logs/suite_main.log`). The
+`tests/test_optimized_decoder.py`: **70 passed, 2 skipped, 3 warnings in 705.19s (0:11:45)** (`logs/suite_main.log`). The
 two skips are the `--long-context` cases, run separately below. The suite re-measures the
 headline itself, in-process, on the same weights:
 
 | | `linear_attention` | `full_attention` |
 |---|---|---|
-| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.073x** | **2.041x** |
-| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.674x** | **2.180x** |
+| traced decode speed-up (`test_optimized_decode_beats_fused`) | **2.076x** | **2.037x** |
+| prefill speed-up (`test_optimized_prefill_beats_fused`) | **1.774x** | **2.187x** |
 | worst real-weight PCC over lengths 1/17/64/743/2049/5000, prefill **and** decode | **0.997766** | **0.997501** |
 | stress, 12 back-to-back passes, min PCC | 0.996253 | 0.985865 |
 | optimized vs fused, prefill / decode | 0.996582 / 0.996895 | 0.986884 / 0.985500 |
@@ -112,7 +115,7 @@ functional stage measured 0.550293 and the fused stage 0.551271 at the same posi
 `doc/context_contract.json` records it with model-free reproducers. That one assertion is the
 same failure those stages carry; everything else at the full advertised context passes.
 
-Watcher (`TT_METAL_WATCHER=10`, `logs/watcher_run.log`, `watcher/watcher.log`): **30 passed, 42 deselected, 3 warnings in 293.96s (0:04:53)**, clean across
+Watcher (`TT_METAL_WATCHER=10`, `logs/watcher_run.log`, `watcher/watcher.log`): **30 passed, 42 deselected, 3 warnings in 296.87s (0:04:56)**, clean across
 prefill PCC, decode PCC, traced decode, the repeated-pass stress and the state/cache checks.
 
 One thing that looks alarming in the logs and is not: the first prefill of a new chunk length
@@ -184,7 +187,11 @@ Two bars, deliberately:
   `test_real_weight_pcc_at_disputed_lengths` (lengths 1, 17, 64, 743, 2049, 5000, prefill and a
   following decode step, both layer kinds). Note the inherited `test_real_weights` asserts
   against `H.PCC_BAR`, which this module relaxes, so it is *not* a second 0.995 gate — the new
-  test is the only one;
+  test is the only one.  A precision-independent structural gate (the same lengths at BF16) was
+  built and does not work — the prefill program-config search is sized for the shipped weights
+  and runs out of L1 at BF16 on short chunks (`work_log.md` §20).  What guards structure instead
+  is that a structural break is not a small PCC loss: every one seen during this stage landed at
+  0.24-0.50;
 * **synthetic weights — 0.98** (`SYNTHETIC_PCC_BAR`), for the inherited suite, which runs on
   per-tensor Gaussians from `weight_stats.json`.
 

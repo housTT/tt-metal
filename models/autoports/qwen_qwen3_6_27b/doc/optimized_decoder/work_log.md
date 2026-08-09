@@ -102,7 +102,9 @@ Findings, in the order the audit produced them:
 | O7 | fuse `wgate` into `wqkv` / `in_proj_z` into `in_proj_qkv` | **rejected** | §5 |
 | O8 | gated-delta-net causal conv in bfloat16 | **kept** | §8 |
 | O9 | one reshape instead of two in the gated-delta-net decode head split | **kept** | §14 |
-| O10 | program configs for the batched delta-rule matmuls | **kept** | §17 |
+| O10 | shape-aware program configs for the batched delta-rule matmuls | **kept** | §17 |
+| O11 | matching ttnn's own row-wise decode shard grid | **rejected** (sharded layernorm needs a rectangle) | §19 |
+| O12 | the gated-delta-rule chunk loop's recurrent state in L1 | **kept** | §19 |
 | — | `ttnn.conv1d` for the gated-delta-net causal conv | **rejected** (exact L1 blocker) | §18 |
 
 ---
@@ -294,6 +296,7 @@ Where the shard contract is deliberately broken, and why:
 | `in_proj_qkv` → causal conv | one sharded→L1-interleaved conversion | the gated-delta-net decode path works on interleaved tensors; the tensor is 1.3 MB |
 | residual → `in_proj_ba` | one sharded→L1-interleaved conversion | `in_proj_ba` is outside the DRAM-sharded family (its 112-column output is smaller than one shard row) |
 | SDPA-decode output | `to_memory_config` to the head shard | the decode SDPA kernel rejects a sharded output for GQA (`sdpa_decode_device_operation.cpp:405`), carried over from the fused stage |
+| mixer output → output projection | one `ReshardDeviceOperation`, **1.83 us** (`linear_attention`) / **1.56 us** (`full_attention`) per token | the DRAM-sharded matmul writes its own row-wise core set instead of the rectangle this layer asks for, and the rectangle cannot be given up because the sharded layernorm rejects a non-rectangular grid — see §19 |
 
 ---
 
@@ -598,20 +601,58 @@ rather than waved away (`logs/sweep_v3_real.log`, `logs/sweep_v3_synth_*.log`,
 | default | linear | 1.0983 | 0.999436 | 0.996553 | 0.996778 |
 | outputs BFP4 + no fp32 acc | linear | **1.0849** | 0.998291 | 0.988272 | 0.989150 |
 
-**Decision: not adopted, and the reason is a specific one, not margin.** Every one of these
-passes on real weights. What blocks them is the *delivered test suite*: it runs on synthetic
-weights, and adopting the stack would put `full_attention` synthetic decode at 0.9685 and the
-`attn_qkv` variant at 0.9009 — below the 0.98 structural bar §13 already argues for. Adopting
-them therefore requires **a second relaxation of that bar, from 0.98 to about 0.96**, and what it
-buys is **1.3 % of a decode step** (14.5 us of 1094 us) — against the 12.6 % the first relaxation
-bought for BFP4 MLP weights. A bar at 0.96 stops catching the class of structural break this
-stage actually hit: the DRAM-sharded-weight matmul bug landed at 0.240 and 0.496, but a
-partially-corrupted chunk or a mis-shaped mask can land in the 0.96-0.98 band.
+**Decision: not adopted — and the deciding evidence is real-weight, not synthetic.**
 
-That is the whole trade, stated so it can be overruled in one line: **1.3 % of decode against a
-suite gate of 0.98 rather than 0.96**. If a later stage wants the 1.3 %, the policy fields are
-already there (`attn_out`, `gdn_out`, `proj_fp32_acc`) and the real-weight evidence above is the
-justification; what has to move with them is `SYNTHETIC_PCC_BAR` and the argument in §13.
+The stacked candidate looked good at 2048 tokens on real weights (0.998382 / 0.998291) and an
+earlier revision of this section rejected it only because it would have needed the synthetic
+suite bar lowered. That was the wrong reason, so the stack was adopted and the suite was run.
+`test_real_weight_pcc_at_disputed_lengths` — which exists precisely because 2048 tokens is not
+the whole contract — failed it:
+
+```
+real-weight prefill PCC 0.9936081444689238 < 0.995 at seq_len 17
+real-weight decode  PCC 0.9907796831867199 < 0.995 at seq_len 743
+```
+
+Re-measured field by field at the short lengths on real weights
+(`logs/sweep_v5_real_short_17.log`, `logs/sweep_v5_real_short_743.log`):
+
+| candidate | kind | seq 17 prefill | seq 17 decode | seq 743 prefill | seq 743 decode |
+|---|---|---|---|---|---|
+| default | full | 0.998295 | 0.997929 | 0.998961 | 0.999620 |
+| **outputs BFP4** | full | **0.993815** | **0.994999** | 0.997772 | 0.999311 |
+| `proj_fp32_acc=False` | full | 0.998117 | 0.997682 | 0.998775 | 0.999511 |
+| outputs BFP4 + no fp32 acc | full | **0.993608** | **0.994716** | 0.997561 | 0.999151 |
+| default | linear | 0.999213 | 0.999651 | 0.999367 | 0.999212 |
+| **outputs BFP4** | linear | 0.998054 | 0.999007 | 0.998430 | 0.996838 |
+| `proj_fp32_acc=False` | linear | 0.998731 | 0.999618 | 0.999084 | 0.998899 |
+
+So the two halves separate cleanly, and only one of them is a synthetic story:
+
+* **BFP4 output projections are rejected on real target weights.** `full_attention` at seq 17
+  gives 0.993815 prefill and 0.994999 decode, both below the 0.995 bar. That is
+  model-visible correctness loss on the model's own weights at a length the contract requires —
+  an OPT-012-permitted rejection, and one that a 2048-token measurement could not see. It is
+  also the answer to why the disputed-length real-weight test exists.
+* **`proj_fp32_acc=False` holds the real-weight bar everywhere** (worst 0.997682) and is worth
+  5.4-5.5 us of decode, 0.5 %. What stops it is the synthetic structural suite: with it on, two
+  cases land at **0.9789** against the 0.98 bar (`logs/suite_o13_trial.log`), so adopting it
+  needs that bar moved again. For 0.5 % of a decode step, against a bar whose job is to catch
+  structural breaks, that trade is not worth taking — and unlike the BFP4 MLP decision in §13,
+  there is no 12.6 % on the other side of it. Stated so it can be overruled: **0.5 % of decode
+  against a structural gate of 0.98 rather than 0.975.**
+
+`attn_qkv` BFP4 is rejected on the same real-weight grounds as the outputs, one step earlier:
+0.996002 at 2048 and 0.995052 in the stack are already inside noise of the bar before the short
+lengths are considered.
+
+One more data point from the same experiment, worth keeping because it is the hardest place to
+measure: with the BFP4 output projections in, the **full advertised context** degrades further
+than any short length suggested — the `full_attention` 262143-token prefill tail falls from
+0.985447 to **0.957102** and the `linear_attention` tail from 0.996595 to 0.988325
+(the `logs/long_context.log` written by that trial run). Whatever the short-length real-weight
+failure is, it compounds over 262k tokens, which is the opposite of what a 2048-token
+measurement would have predicted.
 
 Two further fields, unchanged for reasons that are not about margin:
 
@@ -682,6 +723,8 @@ Collected with advice enabled (`probes/run_perf.sh`, `tracy/<kind>/<phase>_perf_
 | "Use HiFi2 or HiFi4 with BF16 activations for improved accuracy" | every LoFi matmul | **rejected with measurement**: HiFi2 costs 0.53 ms of decode and 4.4 ms of prefill (§9) for PCC that is already far above the bar. |
 | "No output subblock size found" | the DRAM-sharded decode matmuls | **not actionable**: `MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig` has no output-subblock field (`in0_block_w`, `per_core_M`, `per_core_N`, `fused_activation` only). Reported as a `tt-perf-report` improvement candidate: the advice does not apply to this program class. |
 | "Output subblock 1x1 is small" | `32 x 5120 x 128`, the `b\|a` projection, 28 us | **not taken**: the whole output is four tiles wide, so there is no larger subblock to have. |
+| "HiFi2 is sufficient for BFP8 multiplication and has 2x the throughput of HiFi4" | `b={48} x 64 x 128 x 128`, the delta-rule chunk-loop matmuls, 1818 us | **not taken, and the advice is wrong about the row**: that row is `HiFi4 FP32 x FP32 => FP32`, not BFP8 — there is no BFP8 operand anywhere in the delta-rule state path. The fidelity there is the one thing §2 holds fixed, because the functional stage measured catastrophic cancellation in this arithmetic. Recorded as a `tt-perf-report` defect: the BFP8 advice should not fire on an FP32 x FP32 row. |
+| "HiFi2 may also work, it discards the lowest bit of the activations" | `32 x 5120 x 128` and `2048 x 5120 x 128`, the `b\|a` projection | **not taken** for the same reason: `b\|a` feeds the `sigmoid` and `softplus` gates of the state recurrence and is the one weight this stage deliberately leaves at float32/HiFi4 (§9). It is 28 us of a 1.10 ms step. |
 | (no advice; found by auditing the profile) | the causal conv's 1.9 ms of tilize/untilize | **rejected with an exact blocker — §18.** |
 | "in0_block_w=1 is small, try in0_block_w=2 or above" | `b={48} x 64 x 128 x 128`, the largest batched delta-rule group | **rejected with measurement — §17.** 2 and 4 were swept: 10.1 us and 10.4 us against 9.8 us at 1. The operands are already L1-resident, which is why the DRAM-sharded rows' preference for a large `in0_block_w` does not carry over. |
 
@@ -1074,3 +1117,145 @@ device-open contract at narrow ones, with the exact message for each.
 The remaining structural fix is `O5`'s kernel, which subsumes the conv, the chunk loop and the
 triangular inverse — and is rejected upstream on accuracy (§7). Recorded as the largest named
 `linear_attention` prefill opportunity rather than left implicit.
+
+
+---
+
+## 19. O11 and O12 — the decode shard grid, and the state operand of the chunk loop
+
+Two findings from auditing the shipped profile rather than the code.
+
+### O11 — ttnn picks its own decode shard grid, and this layer cannot follow it
+
+`logs/suite_main.log` carried **535** occurrences of
+
+```
+Mismatch between computed MemoryConfig(... grid=[{0,0}-{10,1}, {0,2}-{9,2}] ...)
+and provided MemoryConfig(... grid=[{0,0}-{7,3}] ...) ... Using computed config
+(matmul_device_operation.cpp:865)
+```
+
+for shard shapes `[32,160]`, `[32,192]` and `[32,544]` — the residual, the 6144-wide projections
+and the MLP intermediate. The DRAM-sharded matmul lays 32 cores out **row-wise across the whole
+11-wide device grid**, not as the 8x4 rectangle `_find_grid` produces, and silently uses its own.
+The visible cost is one `ReshardDeviceOperation` per decode step in the attention epilogue —
+**1.83 us (`linear_attention`) and 1.56 us (`full_attention`)** — where the next op expects the
+rectangle.
+
+Matching the op's choice was implemented and **is not legal for this decoder**:
+
+```
+Sharded layernorm does not support non-rectangular core grids. The shard spec grid has
+32 cores but its bounding box spans 33 cores (11 x 3).
+(layernorm_device_operation.cpp:187)
+```
+
+The residual norm carries the same shard, so the whole `O3` contract would have to give up the
+sharded layernorm. A core count that is rectangular *both* as a grid and row-wise on an 11-wide
+device would have to be at most 11 or a multiple of 11, while it also has to divide the tiled K
+of every role — 160 for the 5120-wide projections and 544 for the down projection — and no such
+count exists. So the rectangle stays and the reshard is now in §4's boundary table with its cost,
+rather than being contradicted by a docstring that claimed the epilogue added no layout op.
+
+Reported as a ttnn observation: the op should either accept the caller's grid or reject it, not
+override it 535 times per run.
+
+### O12 — the recurrent state was the only DRAM operand left in the chunk loop
+
+The `b={48} x 64 x 128 x 128` prefill group ran at 20.6 us per dispatch in the layer against
+9.8 us for the same shape in isolation, and §17 first put that down to contention. It was not:
+the two dispatches in that group that read the recurrent state (`v_prime = kc_i @ state` and
+`inter = qd_i @ state`) were the slow ones, while the neighbouring `b={48} x 64 x 64 x 128`
+dispatches ran *faster* in the layer than in the probe. The difference is operand placement —
+`state` came from `ttnn.zeros` with no memory config, so it was DRAM-interleaved for all 32
+chunks, and this module's own `_l1_groups` docstring records the rule that breaks: a batched
+matmul over a DRAM-resident operand costs ~1.06 us per batch element against ~0.043 us out of L1.
+
+The state is 3.1 MB at batch 1 against a 96 MB L1 budget, so it now moves to L1 for the duration
+of the loop and back once at the end, and `decayed_state`, `update` and `new_state` stay there
+with it.
+
+| | `linear_attention` prefill | decode | prefill PCC | decode PCC |
+|---|---|---|---|---|
+| state in DRAM | 30.96 ms | 1.099 ms | 0.999436 | 0.999897 |
+| **state in L1** | **29.13 ms** | 1.098 ms | 0.999436 | 0.999897 |
+
+**1.83 ms, 6 % of the prefill, at identical PCC** (`logs/sweep_o12_check.log`). `full_attention`
+is unaffected (9.29 -> 9.20 ms, inside noise) because it has no chunk loop.
+
+
+---
+
+## 20. A limitation found by trying to build a precision-independent structural gate
+
+§13 relaxes the synthetic-weight bar to 0.98 because BFP4 weights are lossy on a Gaussian. The
+obvious way to keep the structural sensitivity that gives up is a second gate that runs the same
+unfriendly lengths with precision taken out of the picture — BF16 weights, HiFi4 — on the
+optimized code path. That was built and it does not work, which is itself worth recording:
+
+```
+Statically allocated circular buffers on core range [0-0 - 7-9] grow to 2638592 B
+which is beyond max L1 size of 1572864 B                        (program.cpp:1582)
+Statically allocated circular buffers in program 224 clash with L1 buffers on core
+range [0-0 - 7-9]. L1 buffer allocated at 1511424 and static circular buffer region
+ends at 1524480                                                  (program.cpp:1639)
+```
+
+The prefill program-config search (§6) is sized for the shipped weights. A BF16 weight is 3.6x a
+BFP4 one per tile, so for the 5120x17408 projection the ``in1`` buffer alone is 2.23 MB at
+``in0_block_w = 8`` against a 1.5 MB L1, and at the short chunk lengths this gate uses there is
+no candidate left that both fits and is legal. At 2048 tokens BF16 weights are fine — that is
+the ``opt_bf16_hifi4`` row in §2, which is how the whole before/after comparison is made — so
+this is specific to short chunks.
+
+**The consequence for the contract**: `from_state_dict(weight_dtype=...)` remains a supported way
+to pin *narrower* dtypes (it is how `test_bfloat8_kv_cache` and the sweep's policies work), but
+pinning every weight to BF16 is not a supported prefill configuration at chunk lengths below
+2048. The shipped policy is the supported one. This is recorded rather than fixed because
+widening the search to cover BF16 would mean carrying candidates that are useless for the
+policy the layer actually ships.
+
+One useful thing came out of it. The second error above is the **occupancy-dependent** failure
+mode, not the shape-only one — a config that allocated once can clash later depending on what
+else is live in L1. `_prefill_linear` now re-searches when a *cached* config fails instead of
+trusting it forever, which is a real robustness improvement for the shipped policy too, and it
+closes the residual risk earlier revisions of this document could only name.
+
+
+---
+
+## 21. Hardware recovery, once
+
+Recorded because `$tt-device-usage` asks for it, and because it is infrastructure rather than a
+model result.
+
+**Failure signature.** Two gate chains were accidentally launched overlapping, so a second
+`pytest` waited on `CHIP_IN_USE_2_PCIe` while the first still held it. Killing the pair left the
+device unusable: `timeout 60 tt-smi -ls --local` hung (exit 124), and a bounded
+`timeout 180 tt-smi -r` failed with
+
+```
+Resetting all PCI devices: [0, 1, 2, 3]
+Error when re-initializing chips!
+Read 0xffffffff over PCIe ID 0: the board should be reset.
+```
+
+**Recovery.** `Read 0xffffffff` is the ARC signature the skill lists as recoverable.
+
+1. Killed only the stale processes from this run (`pgrep -f test_optimized_decoder`), nothing else
+   — no `CODEX_HOME`, no logs, no repo state.
+2. `timeout 240 tt-smi -r /dev/tenstorrent/2 /dev/tenstorrent/3` — the reset of the two chips this
+   stage uses succeeded; the command still exits non-zero because its post-reset re-init scan
+   walks **all four** PCI devices and trips over PCIe ID 0.
+3. That board is the one `doc/context_contract.json` already records as wedged and awaiting an
+   operator power cycle (`hardware.boards.000004613192404C`: "chip 0 ARC wedged"). It is not the
+   board this stage runs on, and `tt-smi -ls` therefore cannot complete on this host at all —
+   which is why the mesh smoke, not the device list, is the health check here.
+4. Mesh smoke on the stage's own device, per the skill:
+   `TT_VISIBLE_DEVICES=2 python -c "open_mesh_device(MeshShape(1,1)); close_mesh_device()"` →
+   **1 device, opened and closed cleanly**.
+5. Resumed the same stage from preserved state: no earlier evidence was regenerated, and the gate
+   chain was re-run once from the top.
+
+No profiler or watcher collection was attempted while the card was unhealthy, and no result in
+this document comes from a run that touched the failure.

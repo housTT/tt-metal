@@ -133,6 +133,7 @@ CANDIDATE_GROUPS: dict = {
         ("out_and_gate_bfp4", dict(decoder_kwargs={"precision": _p(
             "out_and_gate_bfp4", attn_out=B4, gdn_out=B4, attn_gate=B4, gdn_z=B4)})),
         ("out_bfp4", dict(decoder_kwargs={"precision": _p("out_bfp4", attn_out=B4, gdn_out=B4)})),
+        ("no_fp32_acc_only", dict(decoder_kwargs={"precision": _p("no_fp32_acc_only", proj_fp32_acc=False)})),
         # The stack the per-field table selects, plus the one variant that could go further.
         ("adopted", dict(decoder_kwargs={"precision": _p(
             "adopted", attn_out=B4, gdn_out=B4, proj_fp32_acc=False)})),

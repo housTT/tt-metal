@@ -249,6 +249,25 @@ def _dram_sharded_weight_config(k: int, n: int) -> ttnn.MemoryConfig:
 
 
 def _width_sharded_l1(rows: int, width: int, grid) -> ttnn.MemoryConfig:
+    """Width-sharded L1 config on a **rectangular** core grid (``O11``).
+
+    ttnn's DRAM-sharded matmul does not use a rectangle.  For 32 cores on an 11x10 Blackhole it
+    computes ``{0,0}-{10,1}`` plus ``{0,2}-{9,2}`` - row-wise across the whole device grid - and
+    logs ``Mismatch between computed MemoryConfig ... Using computed config`` for the output
+    config this layer asks for (535 times in one suite run).  Matching that core set was tried
+    and is **not legal for this decoder**: the sharded layernorm that carries the residual
+    rejects it outright,
+
+        ``Sharded layernorm does not support non-rectangular core grids. The shard spec grid
+        has 32 cores but its bounding box spans 33 cores (11 x 3).``
+        (``layernorm_device_operation.cpp:187``)
+
+    and a rectangular core count that is also row-wise-rectangular on an 11-wide grid would have
+    to be a multiple of 11 or at most 11, while the count also has to divide the tiled K of every
+    role (160 for the 5120-wide projections, 544 for the down projection) - and no such count
+    exists.  So the rectangle stays, and the cost is the one ``ReshardDeviceOperation`` per decode
+    step recorded in the boundary table of work_log.md section 4.
+    """
     return ttnn.create_sharded_memory_config(
         shape=(rows, width // grid.num_cores),
         core_grid=grid,
@@ -366,7 +385,10 @@ class PrecisionPolicy:
     #: Math fidelity of the weight matmuls above.  Independent of dtype: BFP8 does not imply
     #: HiFi2, and LoFi is legal (and usually faster) for both BFP8 and BFP4 weights.
     proj_fidelity: object = ttnn.MathFidelity.LoFi
-    #: ``fp32_dest_acc_en`` for those matmuls.
+    #: ``fp32_dest_acc_en`` for the weight matmuls.  Kept on: turning it off is worth 5.4-5.5 us
+    #: of decode and holds the real-weight bar everywhere (worst 0.997682 at seq 17), but it puts
+    #: two synthetic-weight suite cases at 0.9789 against the 0.98 structural bar, and 0.5 % of a
+    #: decode step does not justify moving that bar again.  work_log.md §9 has both tables.
     proj_fp32_acc: bool = True
 
     #: Fidelity of prefill / decode SDPA.
@@ -1041,20 +1063,37 @@ class OptimizedDecoder(LightweightModule):
     def _prefill_linear(self, x, weight, key: str, *, dtype, bias=None, out_memory_config=None):
         """Run a prefill matmul under the best program config that actually allocates.
 
-        The candidate order is the measured one (see :meth:`_prefill_program_configs`); the
-        first call for a given ``(M tiles, weight)`` searches down it and the result is cached,
-        so this is a compile-time search, not per-call work.  It exists because the kernel's
-        per-core circular-buffer footprint is not predictable from the shapes across the whole
-        range of prefill chunk lengths this decoder has to support - 1 to 2048 tokens, no
-        divisibility requirement - and a config that overflows L1 raises rather than degrading.
+        The candidate order is the measured one (see :meth:`_prefill_program_configs`); the first
+        call for a given ``(weight, M tiles)`` searches down it and the result is cached, so this
+        is a compile-time search, not per-call work.  It exists because the kernel's per-core
+        circular-buffer footprint is not predictable from the shapes across the whole range this
+        decoder supports - 1 to 2048 tokens, no divisibility requirement, and any weight dtype a
+        caller pins through ``from_state_dict`` - and a config that overflows L1 raises rather
+        than degrading.
+
+        There are **two** failure modes and both are handled.  One is shape-only
+        (``circular buffers ... grow to N B which is beyond max L1 size``) and is deterministic.
+        The other depends on what else is live in L1 at that moment
+        (``circular buffers in program N clash with L1 buffers on core range ...``), so a config
+        that allocated once can fail later - which is why the cached config is re-searched on
+        failure instead of being trusted forever.  A BF16 weight policy at short chunk lengths
+        reaches the second one, and did before this loop was written that way.
         """
         cache_key = (key, math.ceil(int(x.shape[-2]) / ttnn.TILE_SIZE))
-        cached = self._prefill_pc_cache.get(cache_key)
-        if cached is not None:
+
+        def attempt(config):
             return ttnn.linear(
                 x, weight, bias=bias, dtype=dtype, compute_kernel_config=self.proj_cfg,
-                program_config=cached, memory_config=out_memory_config,
+                program_config=config, memory_config=out_memory_config,
             )
+
+        cached = self._prefill_pc_cache.get(cache_key)
+        if cached is not None:
+            try:
+                return attempt(cached)
+            except RuntimeError:
+                self._prefill_pc_cache.pop(cache_key, None)  # L1 occupancy moved under it
+
         candidates = self._prefill_program_configs(int(x.shape[-2]), int(x.shape[-1]), weight)
         if not candidates:
             return ttnn.linear(
@@ -1064,12 +1103,10 @@ class OptimizedDecoder(LightweightModule):
         errors = []
         for program_config in candidates:
             try:
-                out = ttnn.linear(
-                    x, weight, bias=bias, dtype=dtype, compute_kernel_config=self.proj_cfg,
-                    program_config=program_config, memory_config=out_memory_config,
-                )
+                out = attempt(program_config)
             except RuntimeError as exc:  # an L1 or validation rejection, not a device fault
-                errors.append(str(exc).splitlines()[2] if len(str(exc).splitlines()) > 2 else str(exc))
+                lines = str(exc).splitlines()
+                errors.append(lines[2] if len(lines) > 2 else str(exc))
                 continue
             self._prefill_pc_cache[cache_key] = program_config
             return out
@@ -1307,8 +1344,11 @@ class OptimizedDecoder(LightweightModule):
         ``UnaryDeviceOperation`` right after the gate matmul, identical to the unfused one).
 
         ``O2`` + ``O3``: at decode the multiply runs in the output projection's activation
-        shard and the projection writes straight into the residual shard, so the whole
-        attention epilogue adds no layout op.
+        shard and the projection writes straight into the residual shard.  One layout op remains
+        here - a 1.6-1.8 us ``ReshardDeviceOperation`` - because the DRAM-sharded matmul writes
+        its own row-wise core set rather than the rectangle this layer asks for, and the
+        rectangle cannot be given up (the sharded layernorm rejects a non-rectangular grid; see
+        :func:`_width_sharded_l1`).  It is in the boundary table of work_log.md section 4.
         """
         plan = self._decode_plans.get("o_proj") if decode else None
         mem_cfg = plan.input_memory_config if plan is not None else None
@@ -1923,6 +1963,18 @@ class OptimizedDecoder(LightweightModule):
         q_decayed = ttnn.multiply(q, exp_gcum, memory_config=mem)
         ttnn.deallocate(exp_gcum)
 
+        # ``O12``: two of the loop's matmuls read the recurrent state, and it arrives DRAM
+        # interleaved.  This module's own ``_l1_groups`` docstring records the cost: a batched
+        # matmul over a DRAM-resident operand is ~1.06 us per batch element against ~0.043 us out
+        # of L1, and the profile showed exactly that - the two ``@ state`` dispatches ran at
+        # 20.6 us against 9.8 us for the same shape with both operands in L1.  The state is
+        # 3.1 MB at batch 1, so it goes to L1 for the duration of the loop and back to DRAM once.
+        state_home = state.memory_config()
+        if loop_mem is ttnn.L1_MEMORY_CONFIG:
+            state_l1 = ttnn.to_memory_config(state, ttnn.L1_MEMORY_CONFIG)
+            _free(state, state_l1)
+            state = state_l1
+
         outputs = []
         for i in range(nc):
             sl = lambda t, w: ttnn.slice(t, [i, 0, 0, 0], [i + 1, nv, chunk, w], memory_config=loop_mem)  # noqa: E731
@@ -1949,10 +2001,10 @@ class OptimizedDecoder(LightweightModule):
             ttnn.deallocate(intra)
             outputs.append(out_i)
 
-            decayed_state = ttnn.multiply(state, gl_i)
-            update = self._mm(kd_i, v_new, transpose_a=True)
+            decayed_state = ttnn.multiply(state, gl_i, memory_config=loop_mem)
+            update = self._mm(kd_i, v_new, memory_config=loop_mem, transpose_a=True)
             ttnn.deallocate(v_new)
-            new_state = ttnn.add(decayed_state, update)
+            new_state = ttnn.add(decayed_state, update, memory_config=loop_mem)
             ttnn.deallocate(decayed_state)
             ttnn.deallocate(update)
             ttnn.deallocate(state)
@@ -1964,6 +2016,10 @@ class OptimizedDecoder(LightweightModule):
 
         for tensor in (q, k, decay, q_decayed, k_decayed, exp_g_last, g_cum, inv, v_beta, k_beta_decayed):
             ttnn.deallocate(tensor)
+        if state.memory_config() != state_home:  # ``O12``: hand the state back where it came from
+            state_dram = ttnn.to_memory_config(state, state_home)
+            _free(state, state_dram)
+            state = state_dram
 
         # F19: the per-chunk outputs are [1, nv, chunk, Dv] and chunk i holds tokens
         # [i*chunk, (i+1)*chunk), so concatenating along the *sequence* axis lands directly in

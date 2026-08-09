@@ -48,22 +48,29 @@ LAYER_KINDS = base.LAYER_KINDS
 #: PCC bar for the inherited suite, which runs on the **synthetic** weights of
 #: ``weight_stats.json`` — per-tensor Gaussians with the real mean and standard deviation.
 #:
-#: The optimized decoder stores the MLP gate and up projections in BFP4 (one shared exponent
-#: per 16 values), which is worth 145 us of a 1.15 ms decode step and 2.5 ms of prefill.  On the
-#: **real** Qwen3.6-27B weights that costs almost nothing — prefill PCC 0.999432
-#: (``linear_attention``) and 0.999270 (``full_attention``) at 2048 tokens, 0.999007 and
-#: 0.997758 at 64 — but on a synthetic Gaussian of the same variance it costs an order of
-#: magnitude more: 0.994762 / 0.993334 at 64 tokens and 0.986536 at 2049.  A structureless
-#: weight matrix produces a structureless output, and a block-float format that shares an
-#: exponent across 16 values has nothing to hide the quantisation in.
+#: The optimized decoder stores the MLP gate and up projections in BFP4 (one shared exponent per
+#: 16 values), which is worth 145 us of a 1.10 ms decode step and 2.5 ms of prefill.  On the
+#: **real** Qwen3.6-27B weights that costs almost nothing — worst prefill/decode PCC 0.997501
+#: across lengths 1 to 5000 — but on a synthetic Gaussian of the same variance it costs an order
+#: of magnitude more: 0.994762 at 64 tokens and 0.986536 at 2049.  A structureless weight matrix
+#: produces a structureless output, and a block-float format that shares an exponent across 16
+#: values has nothing to hide the quantisation in.
 #:
-#: This is exactly the case ``$optimize`` OPT-012 is about, and this stage's goal states it
-#: outright: a synthetic PCC cannot veto a real-weight win.  So the inherited suite keeps its
-#: full structural coverage — every unfriendly length, the paged cache, determinism, tracing,
-#: batching, the pad-aliasing regression range — at a bar wide enough for the synthetic
-#: distribution, and :func:`test_real_weight_pcc_at_disputed_lengths` re-runs **exactly the
-#: lengths this affects on the real checkpoint at the unmodified 0.995 bar**.  The relaxation
-#: buys speed on the model; it does not buy a passing test.
+#: This is the case ``$optimize`` OPT-012 is about, and this stage's goal states it outright: a
+#: synthetic PCC cannot veto a real-weight win.  So the inherited suite runs at a bar wide enough
+#: for the synthetic distribution, and two other tests keep the coverage honest rather than
+#: merely green:
+#:
+#: * :func:`test_real_weight_pcc_at_disputed_lengths` re-runs the affected lengths on the **real
+#:   checkpoint at the unmodified 0.995 bar** — that is the accuracy gate, and it has teeth: it
+#:   is what rejected a further BFP4 output-projection policy that looked fine at 2048 tokens
+#:   (work_log.md §9);
+#: A high-precision variant of the same lengths was tried as a second, precision-independent
+#: structural gate and does not work: pinning every weight to BF16 makes the prefill
+#: program-config search run out of L1 at short chunk lengths, because that search is sized for
+#: the shipped BFP4/BFP8 weights (``work_log.md`` §20).  What guards structure instead is that a
+#: structural break is not a small PCC loss - every one seen during this stage landed at
+#: 0.24-0.50, two orders of magnitude below this bar.
 SYNTHETIC_PCC_BAR = 0.98
 
 #: Lengths where the synthetic bar above is doing work, re-checked on real weights: sub-tile,
