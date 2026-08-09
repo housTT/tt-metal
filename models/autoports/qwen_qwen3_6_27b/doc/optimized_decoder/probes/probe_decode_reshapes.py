@@ -36,13 +36,22 @@ def pcc(a, b):
 
 
 def timed(fn, device):
+    """Median-of-5 batches of ``REPEATS`` calls, with the spread, in microseconds per call.
+
+    The differences here are single-digit microseconds, so a single mean is not enough for a
+    reader to tell a result from noise; the spread is reported alongside it.
+    """
     fn()
     ttnn.synchronize_device(device)
-    start = time.perf_counter()
-    for _ in range(REPEATS):
-        fn()
-    ttnn.synchronize_device(device)
-    return (time.perf_counter() - start) * 1e6 / REPEATS
+    batches = []
+    for _ in range(5):
+        start = time.perf_counter()
+        for _ in range(REPEATS):
+            fn()
+        ttnn.synchronize_device(device)
+        batches.append((time.perf_counter() - start) * 1e6 / REPEATS)
+    batches.sort()
+    return batches[2], batches[-1] - batches[0]
 
 
 def main() -> None:
@@ -59,39 +68,69 @@ def main() -> None:
                                                math_approx_mode=False, fp32_dest_acc_en=True,
                                                packer_l1_acc=True)
 
-        def fresh():
-            return ttnn.from_torch(flat, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT,
-                                   device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
+        # The input is uploaded once and reused: the upload is ~280 us and would swamp a
+        # single-digit-microsecond difference if it sat inside the timed loop.
+        src = ttnn.from_torch(flat, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT,
+                              device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
+        #: The delta rule's own output dtype, which is what the typecast consumes.
+        src32 = ttnn.from_torch(flat, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT,
+                                device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
+        flat_shape = (1, 1, BATCH, NV * HEAD_V)
 
-        # A: shipped - reshape [1, b*nv, 1, D] -> [1, b, nv, D], then norm the dense tensor.
+        # A: shipped - de-pad to [1, b, nv, D], typecast, norm the dense tensor, then flatten.
+        # The typecast matters and an earlier revision of this probe left it out: the delta rule
+        # produces float32 and the gated norm runs in bfloat16, so `_linear_attention_decode`
+        # casts *between* the reshape and the norm.  On the un-reshaped tensor that cast would
+        # run on batch*nv tile-rows of 1/32 occupancy instead of ceil(batch*nv/32) dense ones,
+        # which is exactly the asymmetry the reshape exists to create.
         def shipped():
-            x = fresh()
-            core = ttnn.reshape(x, (1, BATCH, NV, HEAD_V))
-            out = ttnn.rms_norm(core, weight=w_tt, epsilon=1e-6, compute_kernel_config=cfg)
+            core = ttnn.reshape(src32, (1, BATCH, NV, HEAD_V))
+            cast = ttnn.typecast(core, ttnn.bfloat16)
+            out = ttnn.rms_norm(cast, weight=w_tt, epsilon=1e-6, compute_kernel_config=cfg)
+            flat_out = ttnn.reshape(out, flat_shape)
+            ttnn.deallocate(flat_out)
+
+        # B: norm the [1, b*nv, 1, D] tensor as produced, no reshape at all.  Not a candidate
+        # for the layer - the output projection needs the flat shape - but it isolates what the
+        # norm itself costs on the padded tensor.
+        def norm_only():
+            out = ttnn.rms_norm(src, weight=w_tt, epsilon=1e-6, compute_kernel_config=cfg)
             ttnn.deallocate(out)
 
-        # B: candidate - norm the [1, b*nv, 1, D] tensor directly, no reshape.
-        def no_reshape():
-            x = fresh()
-            out = ttnn.rms_norm(x, weight=w_tt, epsilon=1e-6, compute_kernel_config=cfg)
-            ttnn.deallocate(out)
+        # C: the real alternative - norm first on the padded tensor, then one reshape straight
+        # to the flat shape the output projection wants.  This is the arrangement the shipped
+        # order is being compared against, and the fifth review round was right that it was
+        # never timed.
+        def norm_then_flatten():
+            cast = ttnn.typecast(src32, ttnn.bfloat16)
+            out = ttnn.rms_norm(cast, weight=w_tt, epsilon=1e-6, compute_kernel_config=cfg)
+            flat_out = ttnn.reshape(out, flat_shape)
+            ttnn.deallocate(flat_out)
 
-        x = fresh()
-        core = ttnn.reshape(x, (1, BATCH, NV, HEAD_V))
-        a = ttnn.to_torch(ttnn.rms_norm(core, weight=w_tt, epsilon=1e-6,
-                                        compute_kernel_config=cfg)).float()
-        b = ttnn.to_torch(ttnn.rms_norm(fresh(), weight=w_tt, epsilon=1e-6,
-                                        compute_kernel_config=cfg)).float()
+        core = ttnn.reshape(src32, (1, BATCH, NV, HEAD_V))
+        a = ttnn.to_torch(ttnn.reshape(
+            ttnn.rms_norm(ttnn.typecast(core, ttnn.bfloat16), weight=w_tt, epsilon=1e-6,
+                          compute_kernel_config=cfg), flat_shape)).float()
+        c = ttnn.to_torch(ttnn.reshape(
+            ttnn.rms_norm(ttnn.typecast(src32, ttnn.bfloat16), weight=w_tt, epsilon=1e-6,
+                          compute_kernel_config=cfg), flat_shape)).float()
+        shipped_us, shipped_spread = timed(shipped, device)
+        norm_us, norm_spread = timed(norm_only, device)
+        alt_us, alt_spread = timed(norm_then_flatten, device)
         row = {
-            "shape_shipped": f"[1, {BATCH}, {NV}, {HEAD_V}] after reshape",
-            "shape_candidate": f"[1, {BATCH * NV}, 1, {HEAD_V}] as produced",
+            "shape_shipped": f"reshape to [1, {BATCH}, {NV}, {HEAD_V}] -> norm -> flatten",
+            "shape_alternative": f"norm on [1, {BATCH * NV}, 1, {HEAD_V}] -> flatten",
             "pcc_shipped_vs_torch": pcc(golden.reshape(-1), a.reshape(-1)),
-            "pcc_candidate_vs_torch": pcc(golden.reshape(-1), b.reshape(-1)),
-            "us_reshape_plus_norm": timed(shipped, device),
-            "us_norm_only": timed(no_reshape, device),
+            "pcc_alternative_vs_torch": pcc(golden.reshape(-1), c.reshape(-1)),
+            "pcc_shipped_vs_alternative": pcc(a.reshape(-1), c.reshape(-1)),
+            "us_shipped": shipped_us, "spread_shipped": shipped_spread,
+            "us_alternative": alt_us, "spread_alternative": alt_spread,
+            "us_norm_only_no_flatten": norm_us, "spread_norm_only": norm_spread,
         }
-        row["us_saved_by_removing_reshape"] = row["us_reshape_plus_norm"] - row["us_norm_only"]
+        row["us_alternative_minus_shipped"] = alt_us - shipped_us
         print("RESHAPE " + json.dumps(row), flush=True)
+        ttnn.deallocate(src)
+        ttnn.deallocate(src32)
     finally:
         ttnn.close_mesh_device(device)
 

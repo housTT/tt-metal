@@ -138,10 +138,26 @@ def conv1d_candidate(device):
         ttnn.deallocate(xs)
 
 
+#: ``ttnn.conv1d`` wants a device opened with an ``l1_small_size`` region.  The narrow-split
+#: retries above fail on exactly that, and an earlier revision of §18 dismissed reserving one
+#: with an argument rather than a measurement ("it would take L1 away from the DRAM-sharded
+#: decode matmuls").  The sixth stage review was right that this is the weakest rejection in the
+#: document, so the run below opens a second mesh *with* the reservation and retries.
+L1_SMALL = 32768
+
+
 def main():
     device = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)
     try:
         batched_matmul_configs(device)
+        conv1d_candidate(device)
+    finally:
+        ttnn.close_mesh_device(device)
+
+    emit(item="l1_small_retry", note=f"reopening the mesh with l1_small_size={L1_SMALL}")
+    device = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0,
+                                   l1_small_size=L1_SMALL)
+    try:
         conv1d_candidate(device)
     finally:
         ttnn.close_mesh_device(device)

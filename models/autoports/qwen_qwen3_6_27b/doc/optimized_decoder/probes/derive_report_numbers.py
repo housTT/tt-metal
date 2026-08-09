@@ -174,19 +174,19 @@ def _role(kind: str, code: str) -> str:
     return role or "?"
 
 
-def packattn_consumers() -> list:
-    """The ``decode_consumers`` rows of ``logs/probe_packed_attn.log``, for §5's O7 table."""
+def packattn(phase: str) -> list:
+    """``PACKATTN`` rows of ``logs/probe_packed_attn.log`` for one phase, for §5's O7 tables."""
     path = ROOT / "logs" / "probe_packed_attn.log"
     if not path.exists():
         return []
-    rows = []
-    for line in path.read_text(errors="replace").splitlines():
-        if not line.startswith("PACKATTN "):
-            continue
-        row = json.loads(line[len("PACKATTN "):])
-        if row.get("phase") == "decode_consumers":
-            rows.append(row)
-    return rows
+    return [row for row in
+            (json.loads(line[len("PACKATTN "):]) for line in
+             path.read_text(errors="replace").splitlines() if line.startswith("PACKATTN "))
+            if row.get("phase") == phase]
+
+
+def packattn_consumers() -> list:
+    return packattn("decode_consumers")
 
 
 def wall_times() -> dict:
@@ -441,6 +441,35 @@ def _rewrite_work_log(perf, suite, longc, ctrl) -> None:
         mark = "**" if abs(got - want) > 1e-9 else ""
         control.append(f"| {label} | {mark}{got:.6f}{mark} | {mark}{want:.6f}{mark} |")
     text = _replace_block(text, "bfp4-control", "\n".join(control))
+
+    matmuls = ["| | separate (`5120x8192` + `5120x6144`) | packed (`5120x14336`) |", "|---|---|---|"]
+    for phase, label in (("decode", "decode matmul, DRAM-sharded, 32 cores"),
+                         ("prefill", "prefill matmul, best legal 2D")):
+        parts = {}
+        for row in packattn(phase):
+            if "total_us" in row:
+                parts[row["family"]] = row
+            elif row["family"] == "separate":
+                parts.setdefault("sep_rows", []).append(row["us"])
+        if "separate" not in parts or "packed" not in parts:
+            continue
+        sep = " + ".join(f"{u:.1f}" for u in parts.get("sep_rows", []))
+        matmuls.append(f"| {label} | {sep} = **{parts['separate']['total_us']:.1f} us** | "
+                       f"**{parts['packed']['total_us']:.1f} us** |")
+    pccs = {row["family"]: row["pcc"] for row in packattn("decode") if "pcc" in row}
+    if len(matmuls) > 2 and pccs:
+        matmuls.append(f"| PCC against the separate path | {pccs.get('separate', 0):.6f} | "
+                       f"{pccs.get('packed', 0):.6f} |")
+        text = _replace_block(text, "o7-matmuls", "\n".join(matmuls))
+
+    layout = ["| layer kind | layout ops per token | us per token | breakdown |", "|---|---|---|---|"]
+    for kind in KINDS:
+        ops = layout_ops(kind, "decode")
+        per_token = len(ops) // 8
+        counts = collections.Counter(code.replace("DeviceOperation", "") for _, _, code in ops)
+        breakdown = ", ".join(f"{n // 8}x `{code}`" for code, n in counts.most_common())
+        layout.append(f"| `{kind}` | {per_token} | {sum(t for _, t, _ in ops) / 8:.1f} | {breakdown} |")
+    text = _replace_block(text, "decode-layout", "\n".join(layout))
 
     consumers = packattn_consumers()
     if consumers:

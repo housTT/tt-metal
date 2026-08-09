@@ -290,7 +290,25 @@ Worth 15 us (1.4 %). Small because the fused stage had already width-sharded the
 themselves (F15); what O3 removes is the four `to_memory_config` round trips around them.
 `linear_attention` behaves the same way (1.167 vs 1.180 ms).
 
-Where the shard contract is deliberately broken, and why:
+First the accounting, straight from the two decode profiles, so the explanations below can be
+checked against a total rather than taken on trust:
+
+<!-- generated:decode-layout -->
+| layer kind | layout ops per token | us per token | breakdown |
+|---|---|---|---|
+| `linear_attention` | 5 | 8.0 | 2x `InterleavedToSharded`, 2x `ShardedToInterleaved`, 1x `Reshard` |
+| `full_attention` | 11 | 10.1 | 6x `InterleavedToSharded`, 4x `ShardedToInterleaved`, 1x `Reshard` |
+<!-- /generated:decode-layout -->
+
+Three families make up those counts. **The sharded norms' own conversions** — an
+interleaved-to-sharded on the way in and one per consumer on the way out, around each of the two
+residual-stream RMSNorms — are the largest group in `full_attention` and are the cost `O3`
+already minimised rather than removed (§4's first table: removing them entirely by keeping the
+residual sharded end to end is what `O3` does, and what is left is the boundary with ops that
+will not take a shard). **The `full_attention` head path** adds the q/k norm round trip and the
+SDPA input/output conversions. **One `Reshard`** is ttnn overriding the caller's grid (§19).
+
+The individual boundaries, and why each one is paid:
 
 | boundary | op | why |
 |---|---|---|
@@ -299,6 +317,7 @@ Where the shard contract is deliberately broken, and why:
 | residual → `in_proj_ba` | one sharded→L1-interleaved conversion | `in_proj_ba` is outside the DRAM-sharded family (its 112-column output is smaller than one shard row) |
 | SDPA-decode output | `to_memory_config` to the head shard | the decode SDPA kernel rejects a sharded output for GQA (`sdpa_decode_device_operation.cpp:405`), carried over from the fused stage |
 | mixer output → output projection | one `ReshardDeviceOperation`, **1.83 us** (`linear_attention`) / **1.56 us** (`full_attention`) per token | the DRAM-sharded matmul writes its own row-wise core set instead of the rectangle this layer asks for, and the rectangle cannot be given up because the sharded layernorm rejects a non-rectangular grid — see §19 |
+| q/k head norm (`full_attention`) | two sharded→interleaved (0.66, 0.68 us) and two interleaved→sharded (0.72, 0.73 us) per token, **2.79 us** total | the per-head RMSNorm on q and k takes a DRAM-interleaved input and the head tensors arrive height-sharded from `nlp_create_qkv_heads_decode`, so each of the two norms pays a round trip. Inherited from the fused stage's head layout; it is 0.26 % of the step and no sharded variant of that norm accepts the height-sharded head shape |
 
 ---
 
@@ -346,14 +365,18 @@ the same L1 wall". That argument does not survive this stage's own sweep: the BF
 fine at `per_core_N = 17` while packed gate/up fails at 34, and packed `wqkv|wgate` is only 14.
 So it was measured instead:
 
+<!-- generated:o7-matmuls -->
 | | separate (`5120x8192` + `5120x6144`) | packed (`5120x14336`) |
 |---|---|---|
-| decode matmul, DRAM-sharded, 32 cores | 97.7 + 72.2 = **169.9 us** | **164.3 us** (`in0_block_w` 5, `per_core_N` 14) |
-| prefill matmul, best legal 2D | 761.5 + 541.9 = **1303.4 us** | **1769.9 us** |
+| decode matmul, DRAM-sharded, 32 cores | 96.4 + 72.6 = **169.0 us** | **164.1 us** |
+| prefill matmul, best legal 2D | 767.1 + 541.5 = **1308.6 us** | **1779.1 us** |
 | PCC against the separate path | 0.999883 | 0.999883 |
+<!-- /generated:o7-matmuls -->
 
-Packed wins decode by **5.6 us of a 1094 us step (0.5 %)** and loses prefill by **466 us of a
-9230 us prefill (5.0 %)** — and that is *before* the packed form pays for its consumers. The two
+Packed wins the decode matmul by **4.9 us of a 1094 us step (0.4 %)** and loses the prefill
+matmul by **470 us of a 9286 us prefill (5.1 %)** — and that is *before* the packed form pays for
+its consumers. (Those two deltas are read off the generated table above, so a re-run moves them;
+an earlier revision quoted 5.6 us and 466 us from a previous sitting of the same probe.) The two
 halves go to different places: `qkv` has to reach `nlp_create_qkv_heads_decode` interleaved and
 `gate` has to reach `o_proj`'s activation shard. Separate, each projection writes its consumer's
 layout directly and the only conversion is one sharded-to-interleaved on the 8192-wide half.
@@ -550,11 +573,14 @@ the real shape (`logs/probe_gdn_kernel.log`):
 | 128 | 77.7 ms | **5.07 ms** |
 | 2048 | 196.1 ms | **28.89 ms** |
 
-**28.89 ms for the delta rule alone, against 27.11 ms of device time for the entire shipped
-`linear_attention` layer** — projections, causal conv, delta rule, both norms and the MLP
-included (`tracy/linear_attention/prefill_perf_report.csv`). In the form that exists and can be
-called, this kernel path is not a prefill win at all; it is slower than everything the layer
-currently does put together.
+**28.89 ms for the delta rule alone, against 28.899 ms of warmed wall time for the entire
+shipped `linear_attention` layer** — projections, causal conv, delta rule, both norms and the
+MLP included (`logs/sweep_final_default.log`; the layer's *device* time is 27.11 ms, and the
+warmed wall figure is the like-for-like one because the kernel number is also wall). In the form
+that exists and can be called, this kernel path is not a prefill win at all: it takes as long as
+everything the layer currently does put together. It is also measured at `chunk_size=128`, which
+the kernel requires and the layer does not use, and it carries the adapter's own preprocessing —
+both noted so the number is not read as a clean kernel latency.
 
 That does not mean the *kernel* is slow — the adapter carries its own preprocessing matmuls and
 the `L_inv` solve, and those are Python-side and untuned. It does mean the opportunity was
@@ -686,11 +712,35 @@ Re-measured field by field at the short lengths on real weights
 
 So the two halves separate cleanly, and only one of them is a synthetic story:
 
-* **BFP4 output projections are rejected on real target weights.** `full_attention` at seq 17
-  gives 0.993815 prefill and 0.994999 decode, both below the 0.995 bar. That is
-  model-visible correctness loss on the model's own weights at a length the contract requires —
-  an OPT-012-permitted rejection, and one that a 2048-token measurement could not see. It is
-  also the answer to why the disputed-length real-weight test exists.
+* **`attn_out` BFP4 is rejected on real target weights.** `full_attention` at seq 17 gives
+  0.993815 prefill and 0.994999 decode, both below the 0.995 bar. That is model-visible
+  correctness loss on the model's own weights at a length the contract requires — an
+  OPT-012-permitted rejection, and one that a 2048-token measurement could not see. It is also
+  the answer to why the disputed-length real-weight test exists.
+* **`gdn_out` BFP4 is rejected too, and needed its own evidence.** The sweep measured the two
+  output projections together as `out_bfp4`, and the fifth stage review pointed out that the
+  numbers above are `full_attention` rows, where **`gdn_out` does not exist** — §9 itself says
+  (above) that a `gdn_*` field is dead in `full_attention`. Read strictly, this section was
+  rejecting `gdn_out` on a measurement of a different tensor in a different layer kind, while
+  its own `linear_attention` rows showed it passing at 0.998054 / 0.999007 / 0.998430 / 0.996838
+  and saving 7.3 us of decode.
+
+  So it was measured on its own, with the draw sweep the rule above requires
+  (`probes/probe_draw_sensitivity.py --kinds linear --candidates default,gdn_out_bfp4`,
+  `logs/probe_draws_gdnout_seq17.log`, `logs/probe_draws_gdnout_seq743.log`,
+  `logs/probe_draws_gdnout_seq5000.log`, real weights, `linear_attention` decode):
+
+  | seq | config | 777 | suite's draw | 11 | 12345 | 2024 | 4242 | worst |
+  |---|---|---|---|---|---|---|---|---|
+  | 743 | shipped BFP8 | 0.999211 | 0.997799 | 0.999365 | 0.999748 | 0.996689 | 0.999864 | **0.996689** |
+  | 743 | **`gdn_out` BFP4** | 0.996842 | **0.994368** | **0.994194** | 0.999234 | **0.994902** | 0.999233 | **0.994194** |
+  | 17 | `gdn_out` BFP4 | 0.999006 | 0.999366 | 0.999491 | 0.999396 | 0.998575 | 0.999338 | 0.998575 |
+  | 5000 | `gdn_out` BFP4 | 0.997974 | 0.998325 | 0.996595 | 0.998715 | 0.997778 | 0.999351 | 0.996595 |
+
+  **`gdn_out` BFP4 is below the bar on three of six draws at seq 743**, worst 0.994194. The
+  rejection stands; the reason is now `gdn_out`'s own numbers. Note also that the row this
+  section originally leaned on — 0.996838 at seq 743 — is seed 777, reproduced here to the digit
+  as 0.996842, and it is the third-best of the six draws.
 * **`proj_fp32_acc=False` fails the real-weight bar too** — and an earlier revision of this
   section got that wrong, so the correction is spelled out below rather than edited away.
 
@@ -858,7 +908,7 @@ recurrent state to L1 they are neither, and their `Bound` column is now empty.
 | "in0_block_w=1 is small, try in0_block_w=2 or above" (`perf_report.py:1425`) | `b={48} x 64 x 128 x 128`, the largest batched delta-rule group | **rejected with measurement — §17.** 2 and 4 were swept: 10.1 us and 10.4 us against 9.8 us at 1. The operands are L1-resident, which is why the DRAM-sharded rows' preference for a large `in0_block_w` does not carry over. |
 | "If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)" (`perf_report.py:1411`) | the same group | **taken — `O12`, §19.** This one was right and was misread for a while: the DRAM operand was the recurrent state, and moving it to L1 took 1.83 ms off the prefill. The group now runs 998.9 us over 128 dispatches, **7.8 us each**, below the 9.8 us the isolated sweep measured. |
 | "HiFi2 is sufficient for BFP8 multiplication and has 2x the throughput of HiFi4" (`perf_report.py:681-683`) | `b={48} x 64 x 128 x 128`, `HiFi4 FP32 x FP32 => FP32` | **not taken, and the advice is wrong about the row.** There is no BFP8 operand anywhere in the delta-rule state path. The cause is in the tool: the BFP8 branch is selected by `in1_bits >= 7 and out_bits >= 7`, which float32 satisfies, so an FP32 x FP32 => FP32 row is told it is a BFP8 multiplication. Recorded as a `tt-perf-report` defect with the source line rather than only the string, because the string itself is no longer reproducible from the shipped profile. |
-| (no advice; found by auditing the profile) | the causal conv's 1.9 ms of tilize/untilize | **rejected with an exact blocker — §18.** |
+| (no advice; found by auditing the profile) | the causal conv's 1.61 ms of tilize/untilize over 11 ops, after `O13` removed a 12th and 13th that were not the conv at all | **rejected with an exact blocker — §18, §22.** |
 
 ---
 
@@ -1064,13 +1114,29 @@ match the profile is exactly the kind of thing this document should not contain:
 
 The 16.0 us one is worth a measurement rather than an assumption, because RMSNorm reduces over
 the last dimension and both shapes already have `head_v_dim` last — so the reshape looks
-removable. `probes/probe_decode_reshapes.py` times both at the real shapes
-(`logs/probe_decode_reshapes.log`): reshape + norm on the dense `[1, 1, 48, 128]` against norm
-alone on the `[1, 48, 1, 128]` the delta rule produces, identical PCC (0.9999961 both).
-Removing the reshape saves **7.0 us** of the pair — but it does not remove the work, it moves it:
-the following `normed_flat` reshape would then have to de-pad instead, which is the 16 us this
-one is paying. The shipped order pays the de-pad once, at the point where the norm afterwards is
-`ceil(48/32) = 2` tile-rows instead of 48 padded ones. Kept.
+removable. `probes/probe_decode_reshapes.py` times the two *complete* arrangements at the real
+shapes, median of five batches of 200 with the input uploaded once
+(`logs/probe_decode_reshapes.log`):
+
+| arrangement | us per call | spread over 5 batches |
+|---|---|---|
+| **shipped**: reshape to `[1, 1, 48, 128]` → typecast → norm → flatten | **33.01** | 0.72 |
+| alternative: typecast → norm on `[1, 48, 1, 128]` → flatten | 33.04 | 1.13 |
+| (norm alone on the padded tensor, neither flatten nor cast — for scale) | 13.80 | 0.43 |
+
+**A dead heat: 0.04 us apart, inside either spread**, at PCC 0.999999999999997 against each
+other. The reshape does not add work, it *relocates* it — whichever arrangement is chosen, the
+de-pad happens once, either before the norm or in the flatten afterwards. Kept, on the grounds
+that it is free and the shipped order is the one every other number in this document was
+measured on.
+
+Two things about how this was measured are worth recording, because the first version of the
+probe got both wrong and reported a spurious 7.0 us win for the alternative. It left the
+`ttnn.from_torch` upload inside the timed loop, so a single-digit-microsecond difference was
+riding on a ~285 us host-bound baseline; and it omitted the **float32 → bfloat16 typecast** that
+sits between the reshape and the norm in the layer, which is precisely the op the de-padding
+helps most (48 tile-rows at 1/32 occupancy against 2 dense ones). Hoisting the upload and adding
+the cast turned a 7.0 us win into a 0.04 us tie.
 
 
 ---
@@ -1340,14 +1406,43 @@ decomposition rather than an approximation, so the shape was adapted and retried
 
 Below 2560 channels the op stops failing on capacity and starts failing on a device contract:
 `ttnn.conv1d` wants an `l1_small_size` region reserved at `open_mesh_device` time, and this
-decoder's mesh is opened without one because nothing else in the layer needs it. Reserving it
-would take L1 away from the DRAM-sharded decode matmuls, which is the budget `O2` and `O6` are
-already fighting for. So the rejection is: blocked on capacity at wide splits, blocked on a
-device-open contract at narrow ones, with the exact message for each.
+decoder's mesh is opened without one because nothing else in the layer needs it.
 
-The remaining structural fix is `O5`'s kernel, which subsumes the conv, the chunk loop and the
-triangular inverse — and is rejected upstream on accuracy (§7). Recorded as the largest named
-`linear_attention` prefill opportunity rather than left implicit.
+An earlier revision stopped there and dismissed reserving one with an argument — "it would take
+L1 away from the DRAM-sharded decode matmuls". The sixth stage review called that the weakest
+rejection in the document, and it was right: a device-open flag is a one-line change, not a
+blocker. So the probe now reopens the mesh with `l1_small_size = 32768` and retries
+(`probes/probe_gdn_prefill_ops.py`, `logs/probe_gdn_prefill_ops.log`):
+
+| splits | channels each | with `l1_small_size` reserved | per split | **total for 10240 channels** |
+|---|---|---|---|---|
+| 2 | 5120 | still the auto-slicer failure | — | — |
+| 4 | 2560 | **runs** | 1158.4 us | **4633.8 us** |
+| 8 | 1280 | **runs** | 768.4 us | 6147.4 us |
+| 16 | 640 | **runs** | 547.2 us | 8754.5 us |
+
+**`ttnn.conv1d` is legal after all, and it loses.** The shipped causal conv — every op from the
+prefix concat through the typecast back to float32, layout and arithmetic together — is
+**4451.1 us** in the profile (op IDs 921-940, `tracy/linear_attention/prefill_perf_report.csv`).
+The best conv1d decomposition is 4633.8 us, **4 % slower**, and that is before it does any of
+the work it does not cover: the ragged-chunk prefix concat and the conv-state save still have to
+happen for chunked prefill to continue across calls, and they are two of the four layout sites
+in the table above. Splitting further makes it worse, monotonically — the per-split cost falls
+much more slowly than the split count rises, which is the signature of a fixed per-dispatch cost
+dominating a 2048-row depthwise conv.
+
+So the rejection is now a measurement rather than a contract error: **the dedicated op runs, and
+the hand-written sum of row-shifted views is faster.** The `l1_small_size` reservation is not
+needed and is not taken.
+
+The structural fix that would subsume the conv, the chunk loop and the triangular inverse in one
+op is `O5`'s kernel, rejected upstream on accuracy (§7) — and, once it was finally timed, not a
+latency win either: 28.89 ms warmed at 2048 tokens against this layer's 28.90 ms warmed prefill
+for *everything* (28.899 ms, `logs/sweep_final_default.log` — the like-for-like comparison is
+warmed wall against warmed wall, not against the 27.11 ms of device time an earlier revision
+quoted; it is a dead heat, not a loss, and either way not a win). So the honest ranking of what
+is left is: **1.61 ms of conv layout, whose dedicated replacement is measurably slower**, and no
+fused alternative that is currently both accurate and fast.
 
 
 ---
@@ -1358,7 +1453,7 @@ Two findings from auditing the shipped profile rather than the code.
 
 ### O11 — ttnn picks its own decode shard grid, and this layer cannot follow it
 
-`logs/suite_main.log` carried **535** occurrences of
+`logs/suite_main.log` carries **555** occurrences of
 
 ```
 Mismatch between computed MemoryConfig(... grid=[{0,0}-{10,1}, {0,2}-{9,2}] ...)
@@ -1389,7 +1484,7 @@ count exists. So the rectangle stays and the reshard is now in §4's boundary ta
 rather than being contradicted by a docstring that claimed the epilogue added no layout op.
 
 Reported as a ttnn observation: the op should either accept the caller's grid or reject it,
-not override it silently — the warning fires once per affected dispatch, 375 times in the
+not override it silently — the warning fires once per affected dispatch, **555** times in the
 shipped `logs/suite_main.log`, which is noise that hides real warnings.
 
 ### O12 — the recurrent state was the only DRAM operand left in the chunk loop

@@ -17,13 +17,20 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-LOGS = ("suite_main.log", "long_context.log", "long_context_bfp8_control.log", "watcher_run.log",
-        "probe_draws_fp32acc_seq743.log", "probe_draws_o14_seq17.log")
+#: Fixed gate logs, plus *every* draw-sensitivity log by glob - a hard-coded list of those went
+#: stale the moment a new candidate was swept, which is exactly what happened in review round 6.
+FIXED_LOGS = ("suite_main.log", "long_context.log", "long_context_bfp8_control.log",
+              "watcher_run.log")
+
+
+def log_names() -> list:
+    draws = sorted(p.name for p in (ROOT / "logs").glob("probe_draws_*.log"))
+    return list(FIXED_LOGS) + draws
 
 
 def records() -> tuple[list, list]:
     out, sources = [], []
-    for name in LOGS:
+    for name in log_names():
         path = ROOT / "logs" / name
         if not path.exists():
             continue

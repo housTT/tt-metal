@@ -254,7 +254,7 @@ def _width_sharded_l1(rows: int, width: int, grid) -> ttnn.MemoryConfig:
     ttnn's DRAM-sharded matmul does not use a rectangle.  For 32 cores on an 11x10 Blackhole it
     computes ``{0,0}-{10,1}`` plus ``{0,2}-{9,2}`` - row-wise across the whole device grid - and
     logs ``Mismatch between computed MemoryConfig ... Using computed config`` for the output
-    config this layer asks for (535 times in one suite run).  Matching that core set was tried
+    config this layer asks for (555 times in one suite run).  Matching that core set was tried
     and is **not legal for this decoder**: the sharded layernorm that carries the residual
     rejects it outright,
 
