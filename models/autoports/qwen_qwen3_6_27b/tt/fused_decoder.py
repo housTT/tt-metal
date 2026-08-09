@@ -92,7 +92,7 @@ argument of an eltwise binary the graph already contains**:
 Contract differences from :class:`~.functional_decoder.FunctionalDecoder`
 ------------------------------------------------------------------------
 
-Exactly one, and it is a consequence of ``F2``:
+Two, one from ``F2`` and one from ``F24``:
 
 * ``rot_mats`` are ``head_dim``-wide, not ``rotary_dim``-wide, and carry ``cos = 1`` /
   ``sin = 0`` in the non-rotary channels, in the permuted channel order.
@@ -101,6 +101,13 @@ Exactly one, and it is a consequence of ``F2``:
 * Consequently the ``full_attention`` **paged K cache holds permuted head channels**.  ``V``
   does not (it never sees RoPE).  :attr:`FusedDecoder.kv_channel_permutation` exposes the
   permutation so a reader can invert it; nothing inside the layer needs to.
+
+* The gated-delta-net **recurrent and conv state are stored in permuted value-head order**
+  (``F24``).  :func:`value_head_permutation` returns the order and
+  :attr:`FusedDecoder.value_head_permutation` exposes it; anything that reads
+  ``user_recurrent_state`` / ``user_conv_state`` and compares against HF must invert it, as
+  ``harness.read_linear_state`` does.  Every weight indexed by a value head is permuted at load
+  time, so nothing else in the contract moves.
 
 Everything else — prefill/decode signatures, arbitrary ``1 <= seq_len <= max_seq_len``, the
 paged page-table protocol, per-user state, ``prepare_decode_state`` semantics, determinism and
@@ -803,10 +810,11 @@ class FusedDecoder(LightweightModule):
     def _full_attention_decode(self, x, *, current_pos, page_table, rot_mats):
         """Decode attention.
 
-        ``F2`` + ``F4``: ``q``/``k`` leave ``nlp_create_qkv_heads_decode`` height-sharded, take a
-        detour through DRAM only for the two head norms (``rms_norm`` rejects height-sharded
-        inputs), come back sharded for one ``rotary_embedding_hf`` each, and ``k``/``v`` then go
-        straight into a single ``paged_fused_update_cache``.  ``v`` never leaves L1.
+        ``F2``: ``q``/``k`` leave ``nlp_create_qkv_heads_decode`` height-sharded, take a detour
+        through DRAM only for the two head norms (``rms_norm`` rejects height-sharded inputs) and
+        come back sharded for one ``rotary_embedding_hf`` each.  ``k`` and ``v`` then go into two
+        ``paged_update_cache`` calls - ``paged_fused_update_cache`` would merge them but cannot be
+        used here, see the comment at the call site.  ``v`` never leaves L1.
         """
         s = self.shapes
         cos_in, sin_in = rot_mats

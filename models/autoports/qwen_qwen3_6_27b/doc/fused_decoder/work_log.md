@@ -354,7 +354,7 @@ matmuls flagged `SLOW`, running on 1–8 of 110 cores at 2.3–8.6 % of DRAM roo
 *same geometries* appeared elsewhere in the same profile in L1 at full occupancy:
 
 ```
-kk            b={1536} 64x128x64   DRAM  4570.3 us   4 cores   5.4 % DRAM   -> 2.98 us / batch element
+kk            b={1536} 64x128x128 DRAM  4570.3 us   (the profiler's op code; logically 64x128x64 after transpose_b)   4 cores   5.4 % DRAM   -> 2.98 us / batch element
 inv @ v_beta  b={1536} 64x64x128   DRAM  2867.7 us   8 cores   8.6 % DRAM   -> 1.87 us / batch element
 inv @ k_bd    b={1536} 64x64x128   DRAM  2868.1 us   8 cores   8.6 % DRAM
 tri-inverse   b={1536} 32x32x32    DRAM  1595.0 us   1 core    2.3 % DRAM   -> 1.04 us / batch element
@@ -379,7 +379,7 @@ The operands are indexed by chunk, so **F21** runs each of them a few chunks at 
 Result: 67.4 → 53.6 ms, and `SLOW`-flagged time 13.5 → 4.9 ms. This is the one place where the
 op count goes **up** (805 → 944 in the window): grouping costs slices and concats and buys a 24×
 per-batch-element speed-up. `test_fused_graph_is_the_fused_graph` therefore asserts the
-*layout-conversion* count there (76 → 36 device ops) and bounds the total instead.
+*layout-conversion* count there (76 → 28 device ops) and bounds the total instead.
 
 Then **F20** took the last big layout op: the gated norm's output had to become
 `[1, 1, L, value_dim]`, which was a `permute` (625 µs) plus a last-dim `reshape` (2.93 ms). With
@@ -412,7 +412,15 @@ projection along its last axis instead produces exactly the same head order at a
 boundary: decode 2256.7 µs and its layout ops 14 → 10 per token.
 
 PCC moved slightly **up**, consistent with removing the bfloat16 round trip: `linear_attention`
-prefill 0.999940 → 0.999944 at 2049, decode 0.999929 → 0.999936.
+prefill 0.9999403 → 0.9999435 at 2049 and its four decode steps 0.9999249 → 0.9999340 (step 0),
+with **no** record regressing anywhere in the suite.
+
+The trade is not free on the decode side, and it is worth naming: the removed composite was
+30.4 µs/token, but the replacement concat plus the reshapes it widens (the flat tensor is 3x
+wider) costs 62.6 µs/token, so traced `linear_attention` decode goes **2249.6 → 2256.7 µs/token,
++7.1 µs (+0.3 %)**. It was taken anyway for the 1.33 ms of prefill, for removing a precision
+defect the stage's own docs said should not exist, and because the alternative head-axis concat
+was worse still (2280.9 µs). The reported final number is the reproduced one.
 
 ### What is left, honestly
 
@@ -424,7 +432,7 @@ Ternary (addcmul, causal conv)      6.3 ms  12.9 %    3 ops
 Matmul 2048x5120x34816 (MLP)        6.1 ms  12.5 %  at the DRAM roofline
 Slice                               4.6 ms   9.5 %  332 ops - the per-chunk loop and F21's grouping
 Matmul 2048x17408x5120 (MLP down)   3.3 ms   6.8 %  at the DRAM roofline
-Matmul 2048x5120x10240 (in_proj_qkv) 2.2 ms  4.6 %  SLOW: 110 cores, 18.3 % DRAM but 62.9 % FLOP
+Matmul 2048x5120x10240 (in_proj_qkv) 2.2 ms  4.6 %  SLOW: 110 cores, 18.3 % DRAM but 63.0 % FLOP
 Matmul b={48} 64x128x128 (loop)     2.1 ms   4.2 %  L1, 110 cores
 UntilizeWithUnpadding               2.0 ms   4.0 %    7 ops  <- see below
 Concat                              1.7 ms   3.5 %   23 ops - F21's group joins and F24's repeats
@@ -440,7 +448,7 @@ remove the slicing entirely, is rejected in §9.6.
 
 The residual `SLOW` time is 4.94 ms (10.1 %), down from 18.44 ms. It is **not** all "small L1
 matmuls that tt-perf-report mislabels": 2.24 ms of it is the `in_proj_qkv` projection
-(`2048 x 5120 x 10240`, 110 cores, 18.3 % of DRAM roofline but **62.9 % of the HiFi4 FLOP
+(`2048 x 5120 x 10240`, 110 cores, 18.3 % of DRAM roofline but **63.0 % of the HiFi4 FLOP
 roofline**, fp32 output) — a fidelity/precision item for the optimization stage, not a graph
 one; 0.15 ms is F5/F18's `b|a` projection on 64 cores; the remaining ~2.55 ms is the per-chunk
 loop's own `b={48}` matmuls, which are already L1-resident on 110 cores at ~19 % DRAM.
@@ -632,7 +640,7 @@ was done about each:
 | a Python-level op spy cannot prove a fusion | replaced with `ttnn.graph` device-op counting (`test_fused_graph_is_the_fused_graph`) |
 
 Net effect of the later passes, on top of the first: `linear_attention` prefill
-78.7 → 67.4 → 53.6 → 50.2 → **48.86 ms**, its decode 2395 → 2250 → **2256.7 µs/token**;
+78.7 → 67.4 → 53.6 → 50.2 → **48.86 ms**, its decode 2395 → 2250 → **2256.7 µs/token** (F24's +7.1 µs is explained in §8);
 `full_attention` prefill 18.28 → **17.67 ms**, its decode 2214 → **2205.5 µs/token**.
 
 A **third** review pass added two more findings, both acted on here: (a) §8's claim that the

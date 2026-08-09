@@ -31,15 +31,16 @@ decoder class.
 | `full_attention` | prefill 2048 | 18.55 ms | **17.67 ms** | **−4.7 %** | 44 → 24 / 0 → 0 |
 | `full_attention` | traced decode | 2420.6 µs/token | **2205.5 µs/token** | **−8.9 %** | 50 → 36 / 0 → 0 |
 
-Host wall time moves the same way: `linear_attention` prefill 161.2 → 52.3 ms, its traced
-decode 3.412 → 2.302 ms/token; `full_attention` prefill 20.16 → 19.31 ms, its traced decode
-2.474 → 2.254 ms/token.
+Host wall time moves the same way: `linear_attention` prefill 161.2 → 52.6 ms, its traced
+decode 3.412 → 2.303 ms/token; `full_attention` prefill 20.16 → 19.35 ms, its traced decode
+2.474 → 2.261 ms/token.
 
 Both traced-decode paths beat the functional baseline, which is the gate this stage is measured
-on, and both are now dominated by matmuls at the DRAM roofline: **93.7 %** of a `full_attention`
-decode step and **85.3 %** of a `linear_attention` one is matmul or SDPA running at 80–84 % of
-peak DRAM bandwidth, which no graph rewrite can move. `full_attention` prefill is the same story
-at **83.3 %**.
+on, and both are now dominated by matmul: **93.7 %** of a `full_attention` decode step and
+**85.3 %** of a `linear_attention` one is matmul or SDPA, and in decode those matmuls run at
+**80–84 % of peak DRAM bandwidth** — no graph rewrite can move them. `full_attention` prefill is
+83.3 % matmul, but there the bound is arithmetic rather than bandwidth: 15.8–17.4 % of DRAM and
+68–79 % of the HiFi4 **FLOP** roofline. Either way it is not a graph-level residue.
 
 `linear_attention` prefill is the one case where the op count **rises** (805 → 936) while the
 time falls by two thirds. That is deliberate and is the stage's largest single lever: the
@@ -95,7 +96,7 @@ into the norm weight together with the `1/√head_k_dim` query scale.
 | F20 | head-concat of the gated norm output via `ttnn.experimental.nlp_concat_heads` | replaces a 625 µs permute + a 2.93 ms reshape with one 0.12 ms op |
 | F21 | run the triangular inverse, `kk` and `inv @ ·` a few chunks at a time so their operands fit L1 | 13.5 ms of `SLOW` 1–8-core DRAM matmuls → 4.9 ms; `linear_attention` prefill 67.4 → 53.6 ms |
 | F22 | the last conv tap **is** `mixed_qkv`, so it needs no slice | removes one untilize/slice/retilize of an 84 MB tensor |
-| F24 | reorder the value heads host-side so key↔value matching is a `concat`, not `ttnn.repeat_interleave` | that helper is a composite (`typecast → untilize → concat → tilize → typecast`) costing 1.82 ms of prefill and 30.4 µs/token of decode, and silently round-tripping the float32 `q`/`k` through bfloat16 |
+| F24 | reorder the value heads host-side so key↔value matching is a `concat`, not `ttnn.repeat_interleave` | that helper is a composite (`typecast → untilize → concat → tilize → typecast`) that silently round-tripped the float32 `q`/`k` through bfloat16. Net **−1.33 ms** of prefill; net **+7.1 µs/token** of decode (the removed composite was 30.4 µs/token, the replacement concat and its wider reshapes 62.6 µs) — a trade taken for the precision defect and the prefill win, with PCC up on every affected record |
 | F8 | decode conv state as `conv_kernel_size − 1` per-tap row buffers | removes 4 untilize/slice/retilize round trips per step |
 | F5 | `in_proj_b` + `in_proj_a` → one shared-LHS matmul with a fused bias | `linear_attention` decode 120.7 → 30.8 µs/token, −90 µs |
 | F18 | explicit 4×8 core grid for that small `32 × 5120 × 128` projection | 60.4 → 30.6 µs/token; still `SLOW` on 4 cores, but at 19 % of DRAM roofline instead of 9.5 % |
@@ -159,24 +160,25 @@ changes did not disturb it: **55 passed, 2 skipped**, exactly as before
 (`logs/suite_functional_regression.log`).
 
 Both evidence files were compared record by record: of the **258 numeric measurements the two
-stages share, none regressed by more than 1e-4**; mean change +7.5e-6, worst −9.2e-5, best
-+9.8e-4. Minimum over the 276 numeric fused records, excluding the one inherited gap:
+stages share, none regressed by more than 1e-4**; mean change +9.0e-6, worst −9.2e-5, best
++9.8e-4. Minimum over the 268 PCC-like fused records (284 numeric in all, the other 16 being the
+device-op counts below), excluding the one inherited gap:
 **0.998815**, against the functional stage's 0.998817.
 
 | measurement class | n | functional | **fused** |
 |---|---|---|---|
-| min over all numeric records except the known gap | 284 | 0.998817 | **0.998815** |
-| prefill vs HF, lengths 1/17/128/2048/2049/4096/5000 — `linear_attention` | 7 | 0.999888 | 0.999893 |
+| min over all PCC-like records except the known gap | 268 | 0.998817 | **0.998815** |
+| prefill vs HF, lengths 1/17/128/2048/2049/4096/5000 — `linear_attention` | 7 | 0.999888 | 0.999903 |
 | prefill vs HF, same lengths — `full_attention` | 7 | 0.999423 | 0.999433 |
-| decode vs HF, 4 steps after prefill 17/2048/2049/5000 — `linear_attention` | 16 | 0.999927 | 0.999925 |
+| decode vs HF, 4 steps after prefill 17/2048/2049/5000 — `linear_attention` | 16 | 0.999927 | 0.999932 |
 | decode vs HF, same — `full_attention` | 16 | 0.998878 | 0.998941 |
 | batch 32, 32 unequal prompts — decode, `full_attention` | 32 | 0.999130 | 0.999106 |
-| batch 32, 32 unequal prompts — decode, `linear_attention` | 32 | 0.999931 | 0.999925 |
-| traced decode, replay output vs HF | 6 | 0.999201 | 0.999161 |
-| **real checkpoint weights** — prefill / decode @ 2049 | 2 / 2 | 0.999968 / 0.999987 | 0.999967 / 0.999987 |
+| batch 32, 32 unequal prompts — decode, `linear_attention` | 32 | 0.999931 | 0.999930 |
+| traced decode, replay output vs HF | 6 | 0.999201 | 0.999162 |
+| **real checkpoint weights** — prefill / decode @ 2049 | 2 / 2 | 0.999968 / 0.999987 | 0.999967 / 0.999989 |
 | pad-below-one-tile lengths 735..768 — prefill and decode | 24 | 0.999220 | 0.999307 |
-| longest reference-checkable prefill (16385 / 8191) | 2 | 0.999436 | 0.999446 |
-| BFP8 KV cache — prefill / decode @ 2049 | 2 | 0.999144 | 0.999263 |
+| longest reference-checkable prefill (16385 / 8191) | 2 | 0.999436 | 0.999447 |
+| BFP8 KV cache — prefill / decode @ 2049 | 2 | 0.999144 | 0.999264 |
 | full context 262143 — `linear_attention` prefill tail / decode | | 0.999942 / 0.999946 | 0.999940 / 0.999942 |
 | full context 262143 — `full_attention` prefill tail / K / V cache | | 0.998817 / 0.999989 / 0.999993 | 0.998815 / 0.999988 / 0.999993 |
 | full context 262143 — `full_attention` decode | | **0.550293** | **0.551271** |
@@ -244,7 +246,7 @@ Identical to the functional decoder — `from_state_dict` signature and key set,
 `1 <= seq_len <= max_seq_len` with no public divisibility requirement, the paged page-table
 protocol, per-user state, `prepare_decode_state` semantics, determinism, and "no `torch` after
 `from_state_dict`" (asserted by `test_no_runtime_host_fallback`, which now scans whichever
-decoder module is under test) — with **one** difference, forced by F2:
+decoder module is under test) — with **two** differences, forced by F2 and F24:
 
 * `rot_mats` are `head_dim`-wide (256), not `rotary_dim`-wide (64), and carry `cos = 1`,
   `sin = 0` in the non-rotary channels, in the permuted channel order.
@@ -255,6 +257,15 @@ decoder module is under test) — with **one** difference, forced by F2:
   RoPE). `FusedDecoder.kv_channel_permutation` exposes it; `harness.read_paged_kv` inverts it,
   so every cache-vs-HF comparison in the suite is against HF's channel order. Every later stage
   that reads or transfers this layer's K cache must honour it.
+
+And a second, from F24:
+
+* the gated-delta-net **recurrent and conv state are stored in permuted value-head order**.
+  `FusedDecoder.value_head_permutation` exposes it and `harness.read_linear_state` inverts it, so
+  every state-vs-HF comparison is in HF's order — but anything downstream that constructs,
+  checkpoints, transfers or shards `user_recurrent_state` / `user_conv_state` outside the harness
+  must invert it too. `../context_contract.json` records this under
+  `fused_decoder.layout_changes_that_are_not_capacity_changes.recurrent_state_head_order`.
 
 `_mem` and `_tri_mem` fall back to DRAM above `L1_BUDGET_BYTES`; F21's `_grouped_matmul` and
 chunk-grouped inverse instead *shrink the group* until it fits, and only fall through to one
