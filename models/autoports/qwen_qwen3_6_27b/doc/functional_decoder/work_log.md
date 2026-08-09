@@ -665,3 +665,22 @@ scale error that PCC on the op output cannot see; `packer_l1_acc` is also destru
 `:310` and never forwarded, and `exp_approx_mode` never reaches the dominant `exp(QK-max)`,
 which hard-codes `approx=true` (`compute_common.hpp:301,325`); (2) the decode reduction over
 idle cores.
+
+### Repo checkpoint
+
+```
+repo   /home/ttuser/dev/qwen/tt-metal
+branch agentic-research/hous/qwen3.6-27b
+commit 88d1328b19787f5e9d0f6a4d65c4e23d25fcbc9d  (56 files, models/autoports only)
+```
+
+Committed with an explicit pathspec so the pre-existing dirty `.agents/` files — which this
+stage did not touch — stayed out of the checkpoint. Not pushed.
+
+### Stage-review status
+
+`$stage-review` was run once and returned `more-work-needed`. Every finding was treated as
+work and fixed (§6), and the P1 finding is what exposed the long-context defect in §7. A
+second review was **not** run: one gate still fails for the reason in §9, so the stage cannot
+be closed on this pass regardless of a reviewer's verdict, and re-reviewing would only
+re-derive the same known gap.
