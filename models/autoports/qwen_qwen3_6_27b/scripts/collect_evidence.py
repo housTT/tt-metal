@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+"""Turn functional-decoder pytest run logs into ``doc/functional_decoder/pcc_evidence.json``.
+
+The tests emit one ``PCCEVIDENCE {...}`` line per measured quantity (see
+:func:`..tests.harness.record`), so the numbers behind every ``PASSED`` stay in the run log
+and can be collected without re-running anything on hardware::
+
+    python -m models.autoports.qwen_qwen3_6_27b.scripts.collect_evidence \\
+        models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/logs/*.log
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from models.autoports.qwen_qwen3_6_27b.tests.harness import EVIDENCE_PREFIX
+
+DEFAULT_OUT = (
+    Path(__file__).resolve().parents[1] / "doc" / "functional_decoder" / "pcc_evidence.json"
+)
+
+
+def parse_log(path: Path) -> list[dict]:
+    records = []
+    for raw in path.read_text(errors="replace").splitlines():
+        index = raw.find(EVIDENCE_PREFIX)
+        if index < 0:
+            continue
+        try:
+            records.append(json.loads(raw[index + len(EVIDENCE_PREFIX) :]))
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("logs", type=Path, nargs="+", help="pytest run logs to scan")
+    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    args = parser.parse_args()
+
+    by_key: dict[str, dict] = {}
+    sources: list[str] = []
+    for log in args.logs:
+        found = parse_log(log)
+        sources.append(f"{log}:{len(found)}")
+        for record in found:
+            key = json.dumps({k: v for k, v in record.items() if k != "value"}, sort_keys=True)
+            record["source_log"] = str(log)
+            by_key[key] = record  # later logs win
+
+    records = [by_key[k] for k in sorted(by_key)]
+    numeric = [r for r in records if isinstance(r["value"], (int, float)) and not isinstance(r["value"], bool)]
+    payload = {
+        "sources": sources,
+        "num_records": len(records),
+        "min_pcc": min((r["value"] for r in numeric), default=None),
+        "min_pcc_record": min(numeric, key=lambda r: r["value"], default=None),
+        "records": records,
+    }
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=False)
+        fh.write("\n")
+    print(f"wrote {args.out}: {len(records)} records, min PCC {payload['min_pcc']}")
+
+
+if __name__ == "__main__":
+    main()

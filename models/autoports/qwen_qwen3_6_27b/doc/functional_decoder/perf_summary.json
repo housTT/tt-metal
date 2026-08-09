@@ -1,0 +1,213 @@
+{
+  "units": {
+    "device_time": "microseconds (tt-perf-report --csv 'Device Time' column)",
+    "wall": "milliseconds (host time.perf_counter around the signposted window)"
+  },
+  "note": "Re-measured after the review fixes: TRI_INV_BASE 8 -> 16, fp32 destination accumulation on the SDPA kernels, and the SDPA_MAX_K_CHUNKS k-chunk cap. Device Time is the tt-perf-report filtered per-op kernel time for the signposted window; the raw Tracy ops CSV column is DEVICE KERNEL DURATION [ns].",
+  "runs": {
+    "linear_attention/prefill": {
+      "layer_kind": "linear_attention",
+      "phase": "prefill",
+      "iterations_in_window": 1,
+      "ops_in_window": 805,
+      "ops_per_iteration": null,
+      "repeating_period_confirms_iterations": null,
+      "device_time_us_total": 150394.2,
+      "device_time_us_per_iteration": 150394.2,
+      "op_to_op_gap_us_total": 8121.0,
+      "wall_line": "PERF prefill layer_idx=0 kind=linear_attention seq_len=2048 wall_e2e_ms=161.111",
+      "ops_csv": "tracy/linear_attention/prefill_ops.csv",
+      "report_txt": "tracy/linear_attention/prefill_perf_report.txt",
+      "report_csv": "tracy/linear_attention/prefill_perf_report.csv",
+      "provenance": [
+        "/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/generated/profiler/reports/2026_08_08_23_11_34/ops_perf_results_2026_08_08_23_11_34.csv",
+        "2026-08-08T23:11:35-04:00"
+      ],
+      "top_ops_by_device_time": [
+        {
+          "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+          "device_time_us": 6394.479,
+          "cores": "1.0",
+          "math_fidelity": "HiFi4 FP32 x FP32 => FP32"
+        },
+        {
+          "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+          "device_time_us": 6394.065,
+          "cores": "1.0",
+          "math_fidelity": "HiFi4 FP32 x FP32 => FP32"
+        },
+        {
+          "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+          "device_time_us": 6393.017,
+          "cores": "1.0",
+          "math_fidelity": "HiFi4 FP32 x FP32 => FP32"
+        },
+        {
+          "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+          "device_time_us": 6390.446,
+          "cores": "1.0",
+          "math_fidelity": "HiFi4 FP32 x FP32 => FP32"
+        },
+        {
+          "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
+          "device_time_us": 6385.359,
+          "cores": "1.0",
+          "math_fidelity": "HiFi4 FP32 x FP32 => FP32"
+        }
+      ]
+    },
+    "linear_attention/decode": {
+      "layer_kind": "linear_attention",
+      "phase": "decode",
+      "iterations_in_window": 8,
+      "ops_in_window": 768,
+      "ops_per_iteration": 96,
+      "repeating_period_confirms_iterations": true,
+      "device_time_us_total": 24248.8,
+      "device_time_us_per_iteration": 3031.1,
+      "op_to_op_gap_us_total": 2887.6,
+      "wall_line": "PERF decode layer_idx=0 kind=linear_attention iters=8 wall_total_ms=27.266 wall_per_iter_ms=3.408",
+      "ops_csv": "tracy/linear_attention/decode_ops.csv",
+      "report_txt": "tracy/linear_attention/decode_perf_report.txt",
+      "report_csv": "tracy/linear_attention/decode_perf_report.csv",
+      "provenance": [
+        "/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/generated/profiler/reports/2026_08_08_23_11_56/ops_perf_results_2026_08_08_23_11_56.csv",
+        "2026-08-08T23:11:57-04:00"
+      ],
+      "top_ops_by_device_time": [
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 867.701,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 867.292,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 867.283,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 866.51,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 866.022,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        }
+      ]
+    },
+    "full_attention/prefill": {
+      "layer_kind": "full_attention",
+      "phase": "prefill",
+      "iterations_in_window": 1,
+      "ops_in_window": 44,
+      "ops_per_iteration": null,
+      "repeating_period_confirms_iterations": null,
+      "device_time_us_total": 18569.3,
+      "device_time_us_per_iteration": 18569.3,
+      "op_to_op_gap_us_total": 27.4,
+      "wall_line": "PERF prefill layer_idx=3 kind=full_attention seq_len=2048 wall_e2e_ms=20.194",
+      "ops_csv": "tracy/full_attention/prefill_ops.csv",
+      "report_txt": "tracy/full_attention/prefill_perf_report.txt",
+      "report_csv": "tracy/full_attention/prefill_perf_report.csv",
+      "provenance": [
+        "/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/generated/profiler/reports/2026_08_08_23_12_08/ops_perf_results_2026_08_08_23_12_08.csv",
+        "2026-08-08T23:12:09-04:00"
+      ],
+      "top_ops_by_device_time": [
+        {
+          "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+          "device_time_us": 6109.264,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+          "device_time_us": 3334.728,
+          "cores": "110.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
+          "device_time_us": 1598.861,
+          "cores": "110.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+          "device_time_us": 1239.118,
+          "cores": "110.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "SDPAOperation",
+          "device_time_us": 1222.136,
+          "cores": "64",
+          "math_fidelity": "BF16, BF16 => BF16"
+        }
+      ]
+    },
+    "full_attention/decode": {
+      "layer_kind": "full_attention",
+      "phase": "decode",
+      "iterations_in_window": 8,
+      "ops_in_window": 400,
+      "ops_per_iteration": 50,
+      "repeating_period_confirms_iterations": true,
+      "device_time_us_total": 19356.6,
+      "device_time_us_per_iteration": 2419.6,
+      "op_to_op_gap_us_total": 355.2,
+      "wall_line": "PERF decode layer_idx=3 kind=full_attention iters=8 wall_total_ms=19.840 wall_per_iter_ms=2.480",
+      "ops_csv": "tracy/full_attention/decode_ops.csv",
+      "report_txt": "tracy/full_attention/decode_perf_report.txt",
+      "report_csv": "tracy/full_attention/decode_perf_report.csv",
+      "provenance": [
+        "/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/generated/profiler/reports/2026_08_08_23_12_22/ops_perf_results_2026_08_08_23_12_22.csv",
+        "2026-08-08T23:12:22-04:00"
+      ],
+      "top_ops_by_device_time": [
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 869.517,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 869.188,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 868.073,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 867.753,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        },
+        {
+          "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+          "device_time_us": 867.337,
+          "cores": "109.0",
+          "math_fidelity": "HiFi4 BF16 x BF16 => BF16"
+        }
+      ]
+    }
+  }
+}
