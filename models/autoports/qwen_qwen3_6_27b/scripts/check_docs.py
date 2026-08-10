@@ -104,6 +104,9 @@ def _is_identifier_fragment(text: str, match: re.Match) -> bool:
     while end < len(text) and (text[end].isalnum() or text[end] == "_"):
         end += 1
     run = text[start:end]
+    if len(match.group(1)) > 1 and match.group(1).startswith("0"):
+        # A leading zero means a serial or an id (board `0000046131924022`), not a quantity.
+        return True
     if run == match.group(1) + "x":
         # "3705x" is a multiplier, not an identifier - the documents write scale blow-ups that way.
         return False
@@ -234,9 +237,25 @@ def artifact_corpus(root: Path) -> str:
         # earlier_pass_reference.json is included deliberately: work_log.md section 3.5 compares
         # against the earlier pass, and those numbers need a committed artifact like any other.
         parts.append(path.read_text(errors="replace"))
-    parts.append((root / "doc" / "context_contract.json").read_text(errors="replace"))
+    # context_contract.json is deliberately NOT in the corpus: it is one of the documents being
+    # checked, so including it would make every number in it satisfy itself.  Its acceptance
+    # block is pinned separately against pcc_evidence.json in derive_evidence(), and its context
+    # numbers are pinned by the runner's .agents/scripts/check_context_contract.py.
     for path in sorted(doc.rglob("*_perf_report.csv")):
         parts.append(path.read_text(errors="replace"))
+    # Quantities the documents derive from the capacity probe rather than quote from it.
+    capacity = doc / "logs" / "capacity_probe.log"
+    if capacity.exists():
+        payload = capacity.read_text(errors="replace")
+        if "CAPACITY " in payload:
+            measured = json.loads(payload.split("CAPACITY ", 1)[1])
+            dram = measured["dram_probe_gib_allocated"] * (1 << 30)
+            worst = measured["worst_case_single_layer_batch1_bytes"]
+            parts.append(f"{worst / dram:.4f} {worst / dram:.3f} {worst / dram * 100:.2f}")
+            for entry in measured["per_layer_kind"].values():
+                kv = entry.get("kv_cache_bytes_at_full_context", 0)
+                if kv:
+                    parts.append(f"{32 * kv / 1e9:.1f} GB {kv / 1e9:.2f} GB {32 * kv} {dram}")
     watcher = doc / "watcher" / "generated" / "watcher" / "watcher.log"
     if watcher.exists():
         lines = watcher.read_text(errors="replace").splitlines()
@@ -468,6 +487,11 @@ def self_test() -> int:
     """Prove the checker rejects the mutations it claims to catch."""
     doc = ROOT / "doc" / "functional_decoder"
     mutations = [
+        (
+            "../context_contract.json",
+            lambda s: s.replace('"current_supported_context": 262144', '"current_supported_context": 264144', 1),
+            "an invented number in context_contract.json",
+        ),
         ("work_log.md", lambda s: s.replace("| 151.24 ms |", "| 251.24 ms |", 1), "a wrong perf row in the work log"),
         ("README.md", lambda s: s.replace("0.998031.**", "0.999500.**", 1), "a wrong PCC minimum in the README"),
         ("README.md", lambda s: s.replace("268 records", "999 records", 1), "a wrong record count"),
@@ -509,7 +533,7 @@ def self_test() -> int:
         with tempfile.TemporaryDirectory() as tmp:
             copy = Path(tmp) / "model"
             shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns("__pycache__"))
-            target = copy / "doc" / "functional_decoder" / filename
+            target = (copy / "doc" / "functional_decoder" / filename).resolve()
             before = target.read_text()
             after = mutate(before)
             if after == before:
