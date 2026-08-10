@@ -65,7 +65,10 @@ def main() -> None:
 
     histogram: dict[str, int] = {}
     for line in lines:
-        token = line.split(" ")[0] if line else ""
+        # ``awk '{print $1}'`` - which is the command this audit prints - splits on runs of
+        # whitespace and ignores leading blanks, so this must too, or the printed command and the
+        # printed output disagree by a line or two.
+        token = line.split()[0] if line.split() else ""
         histogram[token] = histogram.get(token, 0) + 1
     top = sorted(histogram.items(), key=lambda item: -item[1])[:6]
 

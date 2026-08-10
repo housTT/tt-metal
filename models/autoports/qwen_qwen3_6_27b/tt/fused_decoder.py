@@ -256,7 +256,7 @@ class FusedDecoder(FunctionalDecoder):
     FUSED_OPS = (
         "ttnn.transformer.chunk_gated_delta_rule",
         "ttnn.experimental.rotary_embedding_hf",
-        "ttnn.experimental.rotate_half",
+        "ttnn.addcmul",
     )
 
     def __init__(self, **kwargs):
@@ -509,15 +509,30 @@ class FusedDecoder(FunctionalDecoder):
 
         ``rotary_embedding_hf``'s decode mode needs a HEIGHT_SHARDED input *and* sharded per-user
         ``cos``/``sin``, and its prefill mode broadcasts ``cos``/``sin`` over dim 1 - the batch
-        axis in this layout - so it cannot serve per-user positions here.  The rotate-half itself
-        is still a dedicated op.
+        axis in this layout - so it cannot serve per-user positions here.  The rotate-half is
+        spelled out rather than dedicated, for the measured reason in the body.
         """
         rd = self.shapes.rotary_dim
         head_dim = self.shapes.head_dim
         lead = _shape(x)[:-1]
         starts = [0] * len(lead)
         rot = ttnn.slice(x, [*starts, 0], [*lead, rd])
-        rotated = ttnn.experimental.rotate_half(rot)
+        # The rotate-half here is *not* ``ttnn.experimental.rotate_half``, and that is a
+        # measurement rather than an oversight (§3.22).  That op's program factory pins
+        # ``CoreCoord({0, 0})``, so it is single-core by construction: in the committed reports it
+        # is the largest layout-ish row of the batch-32 ``full_attention`` decode, against a few
+        # microseconds for the four ops below, which run on 64 to 110 cores.  Swapping it out
+        # moved that whole traced pass by about one and a half percent and left batch 1 unchanged.
+        # Prefill still uses the dedicated ``rotary_embedding_hf``, a different op and a measured
+        # win (§3.2).
+        half = rd // 2
+        low = ttnn.slice(rot, [*starts, 0], [*lead, half])
+        high = ttnn.slice(rot, [*starts, half], [*lead, rd])
+        negated = ttnn.neg(high)
+        ttnn.deallocate(high)
+        rotated = ttnn.concat([negated, low], dim=-1)
+        ttnn.deallocate(negated)
+        ttnn.deallocate(low)
         direct = ttnn.multiply(rot, cos)
         crossed = ttnn.multiply(rotated, sin)
         embedded = ttnn.add(direct, crossed)
@@ -984,15 +999,30 @@ class FusedDecoder(FunctionalDecoder):
         _free(b_raw, b_h)
         _free(g, g_h)
 
-        # ``exp(g)`` rides on the state multiply as its b-operand activation, and ``sigmoid(b)`` on
-        # the ``delta`` multiply below: the skill's unary-into-binary merge, two dispatches fewer.
-        # Both operands are height-and-width broadcast, and both folds are bit-exact (max absolute
-        # difference 0.0) - measured in ``doc/fused_decoder/logs/probe_gdn_input_folds.log``.
-        state = ttnn.multiply(self.recurrent_state, g_h, input_tensor_b_activations=[ttnn.UnaryOpType.EXP])
+        # The state update is ``state * exp(g) + update``, which is one ``ttnn.addcmul`` - a single
+        # LLK ternary op on this checkout, not the composite an earlier round recorded (§3.21).  It
+        # replaces a full-size multiply *and* a full-size add with one pass over the carried state:
+        # at the advertised ``max_batch`` that state is 100 MB of float32, and the pair measured
+        # about three fifths of the pair's time for the fused form, bit-exact in place
+        # (the generated table is ``work_log.md`` section 3.21, from
+        # ``doc/fused_decoder/logs/probe_addcmul_state.log``).
+        #
+        # Two consequences.  ``exp(g)`` becomes its own tiny op again instead of riding on the
+        # multiply that no longer exists.  And the state read now consumes the *undecayed* state,
+        # with the decay applied to its ``[1, BH, 1, head_v_dim]`` result instead: ``g`` is one
+        # scalar per head, so ``k @ (state * g) == (k @ state) * g`` exactly, and the moved multiply
+        # is four orders of magnitude smaller than the one it came from.
+        decay = ttnn.exp(g_h)
         ttnn.deallocate(g_h)
-        kv_mem = ttnn.matmul(
-            k, state, dtype=ttnn.float32, compute_kernel_config=self.compute_cfg, core_grid=self.recurrence_read_grid
+        kv_raw = ttnn.matmul(
+            k,
+            self.recurrent_state,
+            dtype=ttnn.float32,
+            compute_kernel_config=self.compute_cfg,
+            core_grid=self.recurrence_read_grid,
         )
+        kv_mem = ttnn.multiply(kv_raw, decay)
+        ttnn.deallocate(kv_raw)
         residual = ttnn.subtract(v, kv_mem)
         delta = ttnn.multiply(residual, b_h, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
         ttnn.deallocate(residual)
@@ -1012,11 +1042,12 @@ class FusedDecoder(FunctionalDecoder):
         )
         ttnn.deallocate(delta)
         ttnn.deallocate(k)
-        # Fold the state write-back into the add that produces it: the traced decode needs the
-        # state to land at the persistent buffer's address, and ``output_tensor`` puts it there
-        # without a following ttnn.copy of a 3 MB float32 tensor.
-        ttnn.add(state, update, output_tensor=self.recurrent_state)
-        ttnn.deallocate(state)
+        # One pass: decay the carried state and add this step's update, straight into the
+        # persistent buffer.  ``output_tensor`` aliasing an input is what the traced decode needs
+        # (the state must land at the persistent address) and is bit-exact here - the probe checks
+        # the in-place form against torch as well as against the two-op form.
+        ttnn.addcmul(update, self.recurrent_state, decay, output_tensor=self.recurrent_state)
+        ttnn.deallocate(decay)
         ttnn.deallocate(update)
         out = ttnn.matmul(
             q,

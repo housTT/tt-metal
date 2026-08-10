@@ -42,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 151.078 ms | **26.113 ms** | **5.79x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.041 ms | **2.347 ms** | **1.30x** | 92 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.621 ms | **6.079 ms** | **6.02x** | 93 | 69 |
-| `full_attention` | prefill, 2048 tokens | 18.639 ms | **17.809 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.071 ms** | **1.10x** | 50 | 44 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.072 ms | **2.906 ms** | **1.06x** | 49 | 43 |
+| `linear_attention` | prefill, 2048 tokens | 151.012 ms | **26.076 ms** | **5.79x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.037 ms | **2.345 ms** | **1.29x** | 92 | 67 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.620 ms | **5.754 ms** | **6.36x** | 93 | 70 |
+| `full_attention` | prefill, 2048 tokens | 18.601 ms | **17.824 ms** | **1.04x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.068 ms** | **1.10x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.865 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -83,8 +83,9 @@ instead. In `linear_attention` decode at batch 32 the recurrence's own work is t
 carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
 reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
 `work_log.md` §3.6 and §6.1 record what was measured against it: eighteen core grids at both regimes
-(each shipped grid is the measured best in its regime, and the state read is keyed by regime
-because no one grid wins both), the `exp`/`sigmoid` folds (§3.19, taken), the Q/K-pair merge and
+(the state read is keyed by regime and is the fastest measured in each; the outer product's one
+grid is the fastest measured at 1536 head problems and inside the run-to-run spread of the fastest
+at 48 — §3.6's generated caption states which is which), the `exp`/`sigmoid` folds (§3.19, taken), the Q/K-pair merge and
 the norm-before-expand order (§6, both measured and slower). A per-head layout change that would
 trade the state's shape for its tile padding is **not** measured: it changes what
 `prepare_decode_state` writes and what the HF cache comparison reads, so §6 hands it to the stage
@@ -102,15 +103,16 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.481 ms | 1.876 ms | 1.907 ms | 13.470 ms | 1.812 ms | 1.804 ms |
-| `gated_delta_rule` | 2.794 ms | — | — | — | — | — |
-| `sdpa` | — | — | — | 1.280 ms | 0.105 ms | 0.863 ms |
+| `matmul` (projections, MLP, gated-norm constants) | 14.473 ms | 1.879 ms | 1.907 ms | 13.473 ms | 1.803 ms | 1.805 ms |
+| `gated_delta_rule` | 2.767 ms | — | — | — | — | — |
+| `sdpa` | — | — | — | 1.282 ms | 0.104 ms | 0.864 ms |
 | `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.252 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.785 ms | 0.179 ms | 0.984 ms | 1.073 ms | 0.037 ms | 0.048 ms |
-| `elementwise` | 3.678 ms | 0.204 ms | 1.905 ms | 1.017 ms | 0.042 ms | 0.043 ms |
-| `norm` | 0.376 ms | 0.028 ms | 0.031 ms | 0.544 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.425 ms | 0.048 ms | 0.119 ms |
-| **total** | **26.113 ms** | **2.347 ms** | **6.079 ms** | **17.809 ms** | **2.071 ms** | **2.906 ms** |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.774 ms | 0.179 ms | 0.982 ms | 1.087 ms | 0.044 ms | 0.056 ms |
+| `elementwise` | 3.686 ms | 0.173 ms | 0.877 ms | 1.015 ms | 0.046 ms | 0.045 ms |
+| `norm` | 0.376 ms | 0.028 ms | 0.031 ms | 0.540 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.427 ms | 0.045 ms | 0.066 ms |
+| `other` | — | 0.027 ms | 0.705 ms | — | — | — |
+| **total** | **26.076 ms** | **2.345 ms** | **5.754 ms** | **17.824 ms** | **2.068 ms** | **2.865 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
@@ -152,12 +154,12 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | prefill vs HF, seq 1 / 17 / 128 / 2048 / 2049 / 4096 / 5000 | min 0.999828 | min 0.999388 |
 | prefill vs HF, longest single-shot reference length | 0.999882 | 0.999415 |
 | decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000 | min 0.999869 | min 0.999178 |
-| batch 32 and 4, unequal prompts 64..3071, permuted page table - prefill | min 0.999889 | min 0.999383 |
-| batch 32 and 4 - decode | min 0.999864 | min 0.999268 |
+| batch 4 and 16 and 32, unequal prompts 64..3071, permuted page table - prefill | min 0.999889 | min 0.999383 |
+| batch 4 and 16 and 32 - decode | min 0.999864 | min 0.999268 |
 | **real checkpoint weights** - prefill @ 2049 | 0.999937 | 0.999964 |
-| **real checkpoint weights** - decode @ 2049 | 0.999973 | 0.999988 |
-| traced decode, replay output vs HF | min 0.999881 | min 0.999436 |
-| traced decode at batch 4, per-user positions | min 0.999858 | min 0.999278 |
+| **real checkpoint weights** - decode @ 2049 | 0.999974 | 0.999988 |
+| traced decode, replay output vs HF | min 0.999883 | min 0.999436 |
+| traced decode at batch 4 and 32, per-user positions | min 0.999858 | min 0.999278 |
 | paged K cache vs HF after prefill 2049 | — | 0.999989 |
 | paged V cache vs HF after prefill 2049 | — | 0.999993 |
 | conv state vs HF after prefill 2049 | 0.999995 | — |
@@ -173,9 +175,9 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | **full context 262143** - recurrent state vs HF | 0.999934 | — |
 | **full context 262143** - paged K cache vs HF | — | 0.999989 |
 | **full context 262143** - paged V cache vs HF | — | 0.999993 |
-| **full context 262143** - decode at position 262143 | 0.999915 | 0.999266 |
+| **full context 262143** - decode at position 262143 | 0.999916 | 0.999266 |
 | **full context 262143** - best-fit *scale* vs HF, prefill tail | 0.997682 | 0.997495 |
-| **full context 262143** - best-fit *scale* vs HF, decode | 0.996456 | 0.995766 |
+| **full context 262143** - best-fit *scale* vs HF, decode | 0.996399 | 0.995766 |
 | fused vs functional output, prefill and decode @ 2049 | min 0.999921 | min 0.999859 |
 
 Minimum over all 460 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
@@ -190,7 +192,7 @@ Every fused figure sits within a few times 1e-4 of the functional one, in both d
 |---|---|---|---|
 | `linear_attention` full-context prefill tail | 0.999947 | 0.999879 | -6.8e-05 |
 | `linear_attention` full-context recurrent state | 0.999984 | 0.999934 | -5.0e-05 |
-| `linear_attention` full-context decode @ 262143 | 0.999955 | 0.999915 | -4.0e-05 |
+| `linear_attention` full-context decode @ 262143 | 0.999955 | 0.999916 | -4.0e-05 |
 | `full_attention` full-context prefill tail | 0.998031 | 0.998030 | -4.4e-07 |
 | `full_attention` full-context decode @ 262143 | 0.999201 | 0.999266 | +6.5e-05 |
 <!-- END GENERATED:delta -->
@@ -224,7 +226,7 @@ The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out o
 [`pcc_evidence.json`](pcc_evidence.json):
 
 <!-- GENERATED:python_op_counts -->
-`full_attention` 53 -> 37 prefill, 55 -> 49 decode; `linear_attention` 780 -> 69 prefill, 78 -> 64 decode
+`full_attention` 53 -> 37 prefill, 55 -> 55 decode; `linear_attention` 780 -> 69 prefill, 78 -> 65 decode
 <!-- END GENERATED:python_op_counts -->
 
 ### Capability-contract evidence

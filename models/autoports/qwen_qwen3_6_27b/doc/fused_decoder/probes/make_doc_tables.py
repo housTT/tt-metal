@@ -366,12 +366,12 @@ CORRECTNESS_ROWS = (
     ("prefill vs HF, seq 1 / 17 / 128 / 2048 / 2049 / 4096 / 5000", "fused_prefill_pcc", "min "),
     ("prefill vs HF, longest single-shot reference length", "fused_long_prefill_pcc", ""),
     ("decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000", "fused_decode_pcc", "min "),
-    ("batch 32 and 4, unequal prompts 64..3071, permuted page table - prefill", "fused_batched_prefill_pcc", "min "),
-    ("batch 32 and 4 - decode", "fused_batched_decode_pcc", "min "),
+    ("batch {batches}, unequal prompts 64..3071, permuted page table - prefill", "fused_batched_prefill_pcc", "min "),
+    ("batch {batches} - decode", "fused_batched_decode_pcc", "min "),
     ("**real checkpoint weights** - prefill @ 2049", "fused_real_weight_prefill_pcc", ""),
     ("**real checkpoint weights** - decode @ 2049", "fused_real_weight_decode_pcc", ""),
     ("traced decode, replay output vs HF", "fused_traced_decode_replay_pcc", "min "),
-    ("traced decode at batch 4, per-user positions", "fused_batched_traced_decode_pcc", "min "),
+    ("traced decode at batch {batches}, per-user positions", "fused_batched_traced_decode_pcc", "min "),
     ("paged K cache vs HF after prefill 2049", "fused_paged_k_cache_pcc", ""),
     ("paged V cache vs HF after prefill 2049", "fused_paged_v_cache_pcc", ""),
     ("conv state vs HF after prefill 2049", "fused_conv_state_pcc", ""),
@@ -431,7 +431,20 @@ DELTA_ROWS = (
 def correctness_table() -> str:
     minima = _minima()
     rows = ["| measurement | `linear_attention` | `full_attention` |", "|---|---|---|"]
+    # ``{batches}`` in a label is filled from the records that row aggregates, so a row cannot
+    # claim narrower coverage than the evidence carries - a stage review found three labels naming
+    # batches 4 and 32 after batch 16 had been added, and one naming only batch 4.
+    batches_by_metric: dict[str, list[int]] = {}
+    for record in _evidence()["records"]:
+        batch = record.get("batch")
+        if isinstance(batch, int):
+            values = batches_by_metric.setdefault(record["metric"], [])
+            if batch not in values:
+                values.append(batch)
     for label, metric, prefix in CORRECTNESS_ROWS:
+        if "{batches}" in label:
+            found = sorted(batches_by_metric.get(metric, []))
+            label = label.format(batches=" and ".join(str(value) for value in found) if found else "?")
         cells = []
         for kind in KINDS:
             value = minima.get((metric, kind))
@@ -877,6 +890,54 @@ def coverage_claims() -> str:
     )
 
 
+def addcmul_state() -> str:
+    """The recurrent-state update as two ops or one, at both decode regimes."""
+    rows = ["| batch | multiply + add (was) | `addcmul` | `addcmul` in place | agreement |", "|---|---|---|---|---|"]
+    for batch in ("1", "32"):
+        match = re.search(
+            rf"addcmul batch=\s*{batch} shipped_us=\s*([\d.]+) \(\s*[\d.]+\) addcmul_us=\s*([\d.]+) "
+            rf"\(\s*[\d.]+\) in_place_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_in_place=([\d.]+) "
+            rf"pcc_shipped_vs_torch=([\d.]+) pcc_addcmul_vs_torch=([\d.]+) max_abs_diff=(\S+)",
+            _probe("probe_addcmul_state"),
+        )
+        if not match:
+            raise SystemExit(f"probe_addcmul_state.log has no batch {batch} row")
+        rows.append(
+            f"| {batch} | {match.group(1)} us | {match.group(2)} us | **{match.group(3)} us** | "
+            f"PCC {match.group(4)} in place, {match.group(6)} against torch, max abs diff {match.group(7)} |"
+        )
+    rows.append("")
+    rows.append(
+        "Median over 15 repeats, state uploaded once outside the timed region. The in-place form "
+        "is what ships: one pass over the carried state instead of two, landing at the persistent "
+        "buffer's address, and bit-exact against both the two-op form and torch."
+    )
+    return "\n".join(rows)
+
+
+def rope_half() -> str:
+    """The decode rotate-half, dedicated op against the four ops it replaces."""
+    rows = ["| batch | `ttnn.experimental.rotate_half` | spelled out (shipped) | agreement |", "|---|---|---|---|"]
+    for batch in ("1", "32"):
+        match = re.search(
+            rf"rope_half batch=\s*{batch} heads=\s*\d+ dedicated_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"spelled_out_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+) max_abs_diff=(\S+)",
+            _probe("probe_decode_rope_half"),
+        )
+        if not match:
+            raise SystemExit(f"probe_decode_rope_half.log has no batch {batch} row")
+        rows.append(
+            f"| {batch} | {match.group(1)} us | {match.group(2)} us | "
+            f"PCC {match.group(3)}, max abs diff {match.group(4)} |"
+        )
+    rows.append("")
+    rows.append(
+        "Median over 25 repeats, *wall clock*, so dispatch is on the critical path - which is why "
+        "this table favours the dedicated op and the traced pass measurement does not."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -900,6 +961,8 @@ BLOCKS = {
     "input_folds": input_fold_table,
     "run_totals": run_totals,
     "coverage_claims": coverage_claims,
+    "addcmul_state": addcmul_state,
+    "rope_half": rope_half,
     "slow_rows": slow_rows,
     "rejected_decode_variants": rejected_decode_variants,
     "rejected_shared_work": rejected_shared_work,

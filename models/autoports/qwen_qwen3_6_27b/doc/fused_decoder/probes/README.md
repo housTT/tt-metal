@@ -1,6 +1,6 @@
 # Fused-decoder probes
 
-Fifteen model-free probes and five pieces of tooling. Every probe is self-checking: it computes the
+Seventeen model-free probes and five pieces of tooling. Every probe is self-checking: it computes the
 same quantity two ways (device against torch, or fused against unfused) and prints the PCC next
 to the timing, so a number in this stage's documents can be reproduced without the model, the
 checkpoint or the test harness.
@@ -29,6 +29,8 @@ python models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/probes/<probe>.py
 | `probe_gdn_decode_heads.py` | should the decode Q/K L2 norm run before the GQA expansion instead of after? | no: normalising 16 heads instead of 48 is real work saved, but expanding on the flattened head axis costs more than it saves, at both batch sizes (work_log.md §6) | `../logs/probe_gdn_decode_heads.log` |
 | `probe_decode_qk_pair.py` | Q and K are the same shape and take the same path at decode - should they be one tensor through the norm, scale and rank change? | no: one `rms_norm` over twice the heads is real work saved, but concatenating Q and K and cutting the result apart costs more at batch 32 and ties at batch 1 (work_log.md §6) | `../logs/probe_decode_qk_pair.log` |
 | `probe_prefill_qkv_split.py` | should `in_proj_qkv` be three projections and three FIRs instead of one and three slices? | no: the packed chain is faster end to end, the same result §6.2 found for `wqkv`/`wgate` in the other direction | `../logs/probe_prefill_qkv_split.log` |
+| `probe_addcmul_state.py` | can the recurrent-state update be one `ttnn.addcmul` instead of a multiply and an add? | yes, and it is shipped: one pass over the 100 MB carried state instead of two, bit-exact in place (work_log.md §3.21) | `../logs/probe_addcmul_state.log` |
+| `probe_decode_rope_half.py` | is `ttnn.experimental.rotate_half` faster than the four ops it replaces at decode? | on wall clock yes, on traced device time no - the op is single-core by construction, so the spelled-out form ships on the decode path (work_log.md §3.22) | `../logs/probe_decode_rope_half.log` |
 | `probe_mlp_variants.py` | fused gate/up matmul or split, and where should the SiLU live? | the fused gate/up matmul with the SiLU folded into the multiply is the fastest of the three at prefill; splitting the matmul is a wash at decode (work_log.md §3.8) | `../logs/probe_mlp_variants.log` |
 
 Tooling:

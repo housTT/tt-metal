@@ -426,8 +426,11 @@ def test_fused_ops_are_dispatched(mesh_device, layer_idx):
     # Which dedicated ops a pass must dispatch depends on the layer kind: the gated delta rule is
     # linear_attention's mixer, RoPE is full_attention's.
     expected = {
-        "linear_attention": ["ttnn.transformer.chunk_gated_delta_rule"],
-        "full_attention": ["ttnn.experimental.rotary_embedding_hf", "ttnn.experimental.rotate_half"],
+        "linear_attention": ["ttnn.transformer.chunk_gated_delta_rule", "ttnn.addcmul"],
+        # ``rotate_half`` is deliberately *not* here: §3.22 measured the dedicated op against the
+        # four ops it replaces and kept the spelled-out form on the decode path, so requiring the
+        # dedicated one would pin a rewrite the stage measured and rejected.
+        "full_attention": ["ttnn.experimental.rotary_embedding_hf"],
     }[kind]
     for name in expected:
         # Recorded as a dict, not a bare int: ``scripts/collect_evidence.py`` folds every *numeric*
@@ -449,7 +452,6 @@ def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx, max_batch):
     ``rsqrt``     the gated norm's epsilon add carries it as its output activation (§3.17);
     ``sigmoid``   decode's ``beta`` rides on the ``delta`` multiply (§3.19), and the output gate
                   rides on the epilogue multiply (§3.14);
-    ``exp``       decode's decay rides on the recurrent-state multiply (§3.19);
     ``silu``      the MLP's gate and the causal conv's tail ride on their multiply/add (§3.8);
     ``ttnn.add``  ``dt_bias`` is the packed projection's ``bias=`` row (§3.9) - the graph still
                   has other adds, so this one is checked by op *count*, below.
@@ -457,7 +459,10 @@ def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx, max_batch):
     A regression here is silent: the PCC is identical either way, and only the op count moves.
     """
     lut = _build(mesh_device, layer_idx, max_batch=max_batch, max_seq_len=8192)
-    merged = ("ttnn.rsqrt", "ttnn.sigmoid", "ttnn.exp", "ttnn.silu")
+    # ``ttnn.exp`` is *not* in this set any more: §3.21 replaced the multiply it used to ride on
+    # with a single ``ttnn.addcmul`` over the carried state, which has no activation slot, and the
+    # exp is now one tiny op on a ``[1, BH, 1, 1]`` tensor against the 100 MB pass it bought.
+    merged = ("ttnn.rsqrt", "ttnn.sigmoid", "ttnn.silu")
     kind = _kind(lut)
 
     prefill_calls = _count_ops(merged)
@@ -489,12 +494,20 @@ def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx, max_batch):
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 def test_fused_graph_is_smaller(mesh_device, layer_idx):
-    """The fused graph dispatches strictly fewer ttnn ops than the functional one.
+    """The fused graph dispatches no more ttnn ops than the functional one, and fewer at prefill.
 
     Counted at the ``ttnn`` python boundary over one identical prefill and one identical decode.
     This is a topology check, not a performance claim - the latency evidence is the
     ``tt-perf-report`` tables in ``doc/fused_decoder/`` - but it is what catches a rewrite that
     was reverted or never taken.
+
+    Decode is ``<=`` rather than ``<`` on purpose: §3.22 measured ``ttnn.experimental.rotate_half``
+    against the four ops it replaces and kept the *spelled-out* form, because that op is
+    single-core by construction and the four run on 64-110 cores.  That trade costs six python-level
+    ops and buys device time, which is the metric the stage contract names ("fewer ops or cleaner
+    topology is not enough").  The `full_attention` decode therefore ties here, and
+    ``test_fused_decoder_docs.py::test_speedup_block_is_consistent`` is what holds the direction
+    that matters.
     """
     counts = {}
     for name, cls in (("functional", FunctionalDecoder), ("fused", FusedDecoder)):
@@ -518,7 +531,7 @@ def test_fused_graph_is_smaller(mesh_device, layer_idx):
         kind=_kind(lut),
     )
     assert counts["fused"][0] < counts["functional"][0], f"prefill op count did not fall: {counts}"
-    assert counts["fused"][1] < counts["functional"][1], f"decode op count did not fall: {counts}"
+    assert counts["fused"][1] <= counts["functional"][1], f"decode op count rose: {counts}"
 
 
 def _dram_allocated(mesh_device) -> int:
