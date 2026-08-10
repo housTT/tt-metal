@@ -1,4 +1,4 @@
-2026-08-10 07:09:22.695 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+2026-08-10 07:55:37.541 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
 ============================= test session starts ==============================
 platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen/tt-metal/python_env/bin/python
@@ -10,172 +10,715 @@ plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeo
 timeout: 300.0s
 timeout method: signal
 timeout func_only: False
-collecting ... collected 79 items / 68 deselected / 11 selected
+collecting ... collected 81 items / 64 deselected / 17 selected
 
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention] 2026-08-10 07:09:23.960 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
-2026-08-10 07:09:23.960 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
-2026-08-10 07:09:23.960 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
-2026-08-10 07:09:23.960 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
-2026-08-10 07:09:23.964 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
-2026-08-10 07:09:23.964 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
-2026-08-10 07:09:23.964 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
-2026-08-10 07:09:23.984 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:173)
-2026-08-10 07:09:23.984 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
-2026-08-10 07:09:23.984 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
-2026-08-10 07:09:23.984 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
-2026-08-10 07:09:23.984 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
-2026-08-10 07:09:23.984 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
-2026-08-10 07:09:24.032 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
-2026-08-10 07:09:24.087 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:433)
-2026-08-10 07:09:24.088 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
-2026-08-10 07:09:24.088 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
-2026-08-10 07:09:24.088 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1176)
-2026-08-10 07:09:24.088 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1422)
-2026-08-10 07:09:24.088 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2410)
-2026-08-10 07:09:24.088 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2418)
-2026-08-10 07:09:24.106 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/watcher/generated/watcher/watcher.log (watcher_server.cpp:296)
-2026-08-10 07:09:24.106 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:133)
-2026-08-10 07:09:24.106 | info     |       LLRuntime | Watcher server initialized, disabled features: ETH (watcher_server.cpp:565)
-2026-08-10 07:09:24.106 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention] 2026-08-10 07:55:38.816 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-10 07:55:38.816 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-10 07:55:38.816 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-10 07:55:38.816 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-10 07:55:38.819 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-10 07:55:38.819 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-10 07:55:38.819 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-10 07:55:38.839 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:173)
+2026-08-10 07:55:38.839 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-10 07:55:38.839 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
+2026-08-10 07:55:38.839 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-10 07:55:38.839 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-10 07:55:38.839 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
+2026-08-10 07:55:38.876 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
+2026-08-10 07:55:38.931 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:433)
+2026-08-10 07:55:38.932 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-10 07:55:38.932 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-10 07:55:38.932 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1176)
+2026-08-10 07:55:38.932 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1422)
+2026-08-10 07:55:38.932 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2410)
+2026-08-10 07:55:38.932 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2418)
+2026-08-10 07:55:38.950 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/watcher/generated/watcher/watcher.log (watcher_server.cpp:296)
+2026-08-10 07:55:38.950 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:133)
+2026-08-10 07:55:38.950 | info     |       LLRuntime | Watcher server initialized, disabled features: ETH (watcher_server.cpp:565)
+2026-08-10 07:55:38.950 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
 [transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
-2026-08-10 07:09:27.263 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.263 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.263 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.650 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.650 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.650 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.852 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.852 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.852 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.952 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.952 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:27.952 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.015 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.015 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.015 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.076 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.076 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.076 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.080 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.080 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.080 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.093 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.093 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.093 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.096 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.096 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.096 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.098 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.098 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:28.098 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.548 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.548 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.548 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.567 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.567 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.567 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.569 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.569 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.569 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.591 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.591 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.591 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.599 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.599 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.599 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.621 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.621 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.621 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.633 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.633 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.633 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.636 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.636 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.636 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.848 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.848 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:30.848 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.098 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.098 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.098 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.675 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.675 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.675 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.775 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.775 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.775 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.838 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.838 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.838 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.899 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.899 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.899 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.904 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.904 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.904 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.916 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.916 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.916 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.919 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.919 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.919 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.921 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.921 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:42.921 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.329 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.329 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.329 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.349 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.349 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.349 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.352 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.352 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.352 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.376 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.376 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.376 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.387 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.387 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.387 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.409 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.409 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.409 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.421 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.421 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.421 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.425 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.425 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.425 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.623 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.623 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:45.623 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 0, "value": 0.9998913771135448}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 1, "value": 0.9998685507449258}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 2, "value": 0.9999037654649497}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 3, "value": 0.9998927700643173}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-full_attention] 2026-08-10 07:09:34.118 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
-2026-08-10 07:09:34.234 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.234 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.234 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.361 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.361 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.361 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.367 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.367 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:34.367 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:36.771 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:36.771 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:36.771 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:36.999 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:36.999 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:36.999 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-full_attention] 2026-08-10 07:55:48.962 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:55:48.994 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:48.994 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:48.994 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:49.121 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:49.121 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:49.121 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:49.127 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:49.127 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:49.127 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:51.578 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:51.578 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:51.578 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:51.810 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:51.810 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:51.810 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 0, "value": 0.9994856175818095}
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 1, "value": 0.999346073989038}
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 2, "value": 0.9992590449476644}
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_decode_pcc", "prefill_len": 2049, "step": 3, "value": 0.9993641642586578}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[linear_attention] PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2050, "replay": 1, "value": 0.9998807498695885}
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-linear_attention] 2026-08-10 07:55:56.540 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.540 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.540 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 64, "user_id": 0, "value": 0.9999027456091212}
+2026-08-10 07:55:56.818 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.818 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.818 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.828 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.828 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.828 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.840 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.840 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.840 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.843 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.843 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:56.843 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 161, "user_id": 1, "value": 0.9999066365348052}
+2026-08-10 07:55:57.212 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.212 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.212 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.223 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.223 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.223 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.236 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.236 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.236 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.239 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.239 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.239 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 258, "user_id": 2, "value": 0.9999051787109401}
+2026-08-10 07:55:57.723 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.723 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.723 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.733 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.733 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.733 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.744 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.745 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.745 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.748 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.748 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:57.748 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 355, "user_id": 3, "value": 0.9999038910386739}
+2026-08-10 07:55:58.974 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:55:58.988 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:58.988 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:55:58.988 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:00.544 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:00.544 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:00.544 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:01.955 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:01.955 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:01.955 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:02.763 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:02.763 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:02.763 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 452, "user_id": 4, "value": 0.9999029369941185}
+2026-08-10 07:56:04.547 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:04.547 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:04.547 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:06.509 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:06.509 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:06.509 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:07.974 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:07.974 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:07.974 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:08.767 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:08.767 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:08.767 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:08.985 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 549, "user_id": 5, "value": 0.9999011063400398}
+2026-08-10 07:56:12.190 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:12.190 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:12.190 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:14.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:14.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:14.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:15.757 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:15.757 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:15.757 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:16.601 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:16.601 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:16.601 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 646, "user_id": 6, "value": 0.9999008831661138}
+2026-08-10 07:56:18.997 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:56:19.935 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:19.935 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:19.935 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:21.837 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:21.837 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:21.837 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:23.247 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:23.247 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:23.247 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:24.039 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:24.039 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:24.039 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 743, "user_id": 7, "value": 0.9999000261458347}
+2026-08-10 07:56:27.477 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:27.477 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:27.477 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:29.009 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:56:29.457 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:29.457 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:29.457 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:30.962 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:30.962 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:30.962 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:31.780 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:31.780 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:31.780 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 840, "user_id": 8, "value": 0.9998989665419207}
+2026-08-10 07:56:35.377 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:35.377 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:35.377 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:37.379 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:37.379 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:37.379 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:38.763 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:38.763 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:38.763 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:39.021 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:56:39.559 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:39.559 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:39.559 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 937, "user_id": 9, "value": 0.9998983331961494}
+2026-08-10 07:56:43.215 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:43.215 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:43.215 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:45.375 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:45.375 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:45.375 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:47.387 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:47.387 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:47.387 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:48.495 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:48.495 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:48.495 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:49.033 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1034, "user_id": 10, "value": 0.9998967037527327}
+2026-08-10 07:56:52.257 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:52.257 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:52.257 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:54.268 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:54.268 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:54.268 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:55.643 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:55.643 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:55.643 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:56.440 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:56.440 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:56:56.440 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1131, "user_id": 11, "value": 0.9998961556901118}
+2026-08-10 07:56:59.045 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:57:00.346 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:00.346 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:00.346 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:02.281 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:02.281 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:02.281 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:03.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:03.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:03.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:04.613 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:04.613 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:04.613 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1228, "user_id": 12, "value": 0.9998956134624057}
+2026-08-10 07:57:08.738 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:08.738 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:08.738 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:09.057 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:57:10.808 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:10.808 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:10.808 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:12.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:12.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:12.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:13.113 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:13.113 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:13.113 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1325, "user_id": 13, "value": 0.9998946324460297}
+2026-08-10 07:57:17.549 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:17.549 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:17.549 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:19.069 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:57:19.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:19.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:19.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:20.864 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:20.864 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:20.864 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:21.714 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:21.714 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:21.714 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1422, "user_id": 14, "value": 0.9998954659707733}
+2026-08-10 07:57:25.704 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:25.704 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:25.704 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:27.637 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:27.637 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:27.637 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:29.020 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:29.020 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:29.020 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:29.080 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:57:29.885 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:29.885 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:29.885 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1519, "user_id": 15, "value": 0.9998935770743301}
+2026-08-10 07:57:33.954 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:33.954 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:33.954 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:36.079 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:36.079 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:36.079 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:37.553 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:37.553 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:37.553 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:38.414 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:38.414 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:38.414 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:39.093 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1616, "user_id": 16, "value": 0.9998926008422054}
+2026-08-10 07:57:43.213 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:43.213 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:43.213 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:45.137 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:45.137 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:45.137 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:46.937 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:46.937 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:46.937 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:47.794 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:47.794 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:47.794 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:49.105 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1713, "user_id": 17, "value": 0.9998931589586273}
+2026-08-10 07:57:52.394 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:52.394 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:52.394 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:54.318 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:54.319 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:54.319 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:56.343 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:56.343 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:56.343 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:57.208 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:57.208 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:57:57.208 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1810, "user_id": 18, "value": 0.9998924346006001}
+2026-08-10 07:57:59.116 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:58:01.611 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:01.612 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:01.612 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:03.534 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:03.534 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:03.534 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:04.921 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:04.921 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:04.921 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:05.746 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:05.746 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:05.746 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1907, "user_id": 19, "value": 0.9998920777128211}
+2026-08-10 07:58:09.129 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:58:10.619 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:10.620 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:10.620 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2004, "user_id": 20, "value": 0.9998916748063912}
+2026-08-10 07:58:14.534 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:14.534 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:14.534 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2101, "user_id": 21, "value": 0.9998909258220074}
+2026-08-10 07:58:19.142 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:58:19.239 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:19.239 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:19.239 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2198, "user_id": 22, "value": 0.9998914576449518}
+2026-08-10 07:58:23.881 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:23.881 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:23.881 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:25.080 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:25.080 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:25.080 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:26.506 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:26.506 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:26.506 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:27.310 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:27.310 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:27.310 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2295, "user_id": 23, "value": 0.9998908894950935}
+2026-08-10 07:58:29.153 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:58:32.035 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:32.035 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:32.035 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2392, "user_id": 24, "value": 0.9998908207386477}
+2026-08-10 07:58:37.279 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:37.279 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:37.279 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:39.166 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:58:39.185 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:39.185 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:39.185 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:40.568 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:40.568 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:40.568 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:41.401 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:41.401 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:41.401 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2489, "user_id": 25, "value": 0.9998901399396953}
+2026-08-10 07:58:47.671 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:47.671 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:47.671 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:49.178 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2586, "user_id": 26, "value": 0.9998893123568431}
+2026-08-10 07:58:52.720 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:52.720 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:52.720 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:54.627 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:54.628 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:54.628 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:56.126 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:56.126 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:56.126 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:57.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:57.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:57.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:58:59.189 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2683, "user_id": 27, "value": 0.9998890006936899}
+2026-08-10 07:59:03.816 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:03.816 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:03.816 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2780, "user_id": 28, "value": 0.9998890016522163}
+2026-08-10 07:59:09.201 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:59:09.417 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:09.417 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:09.417 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:11.335 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:11.335 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:11.335 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:12.821 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:12.821 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:12.821 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:13.651 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:13.651 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:13.651 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2877, "user_id": 29, "value": 0.9998891301233593}
+2026-08-10 07:59:19.213 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:59:20.426 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:20.426 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:20.426 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2974, "user_id": 30, "value": 0.9998886464885324}
+2026-08-10 07:59:26.015 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:26.015 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:26.015 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:27.933 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:27.933 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:27.933 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:29.226 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:59:29.530 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:29.530 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:29.530 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:30.345 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:30.345 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:30.345 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 3071, "user_id": 31, "value": 0.9998888243712184}
+2026-08-10 07:59:34.294 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:34.294 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:34.294 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:35.018 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:35.018 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:35.018 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:35.430 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:35.430 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:35.430 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 0, "value": 0.9999219437086669}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 1, "value": 0.9999272383317955}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 2, "value": 0.9999091611747657}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 3, "value": 0.9999234407712305}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 4, "value": 0.9998966883024514}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 5, "value": 0.9998996265846783}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 6, "value": 0.9998922589106964}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 7, "value": 0.9999133024744497}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 8, "value": 0.9998972323881007}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 9, "value": 0.9998974321482937}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 10, "value": 0.999911047104793}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 11, "value": 0.9998948883220986}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 12, "value": 0.9999115163805956}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 13, "value": 0.9998856486527425}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 14, "value": 0.9998954412321749}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 15, "value": 0.9998643015233114}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 16, "value": 0.9998822036177768}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 17, "value": 0.9999008397013683}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 18, "value": 0.9998917459336978}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 19, "value": 0.9998783850410475}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 20, "value": 0.9998952580328893}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 21, "value": 0.9998893614509891}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 22, "value": 0.9998929024698159}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 23, "value": 0.9998946737538603}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 24, "value": 0.9998916296218032}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 25, "value": 0.9998804802829587}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 26, "value": 0.999883590722632}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 27, "value": 0.9998951213761424}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 28, "value": 0.9999148752159571}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 29, "value": 0.999905184268396}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 30, "value": 0.9998893759507593}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_batched_decode_pcc", "user_id": 31, "value": 0.9998833553036461}
+PASSED
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-full_attention] 2026-08-10 07:59:39.237 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 07:59:42.343 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:42.343 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:42.343 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 64, "user_id": 0, "value": 0.9996987959385392}
+2026-08-10 07:59:43.968 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:43.968 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:43.968 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 161, "user_id": 1, "value": 0.9996009083304477}
+2026-08-10 07:59:44.338 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:44.338 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:44.338 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 258, "user_id": 2, "value": 0.9995538697138009}
+2026-08-10 07:59:44.823 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:44.823 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:44.823 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 355, "user_id": 3, "value": 0.9995138394140168}
+2026-08-10 07:59:45.397 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:45.397 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:45.397 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 452, "user_id": 4, "value": 0.9994939855175182}
+2026-08-10 07:59:46.382 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:46.382 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:46.382 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:49.249 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 549, "user_id": 5, "value": 0.9994790368117717}
+2026-08-10 07:59:50.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:50.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:50.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 646, "user_id": 6, "value": 0.9994637431489362}
+2026-08-10 07:59:51.303 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:51.303 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:51.303 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 743, "user_id": 7, "value": 0.9994537304852581}
+2026-08-10 07:59:52.625 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:52.625 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:52.625 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 840, "user_id": 8, "value": 0.9994466609978369}
+2026-08-10 07:59:56.716 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:56.716 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:56.716 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 937, "user_id": 9, "value": 0.9994421704373664}
+2026-08-10 07:59:58.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:58.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:58.289 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 07:59:59.260 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1034, "user_id": 10, "value": 0.9994260350833523}
+2026-08-10 08:00:02.605 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:02.605 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:02.605 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1131, "user_id": 11, "value": 0.9994288966295779}
+2026-08-10 08:00:04.398 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:04.398 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:04.398 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1228, "user_id": 12, "value": 0.9994145825515102}
+2026-08-10 08:00:06.292 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:06.292 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:06.292 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:09.272 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1325, "user_id": 13, "value": 0.9994149080979446}
+2026-08-10 08:00:11.001 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:11.001 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:11.001 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1422, "user_id": 14, "value": 0.9994139188587333}
+2026-08-10 08:00:13.160 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:13.160 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:13.160 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1519, "user_id": 15, "value": 0.9994080484732729}
+2026-08-10 08:00:15.461 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:15.461 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:15.461 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:19.283 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1616, "user_id": 16, "value": 0.9993999555203155}
+2026-08-10 08:00:22.198 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:22.198 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:22.198 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1713, "user_id": 17, "value": 0.9994001960172417}
+2026-08-10 08:00:24.716 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:24.716 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:24.716 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1810, "user_id": 18, "value": 0.9994016699065053}
+2026-08-10 08:00:27.358 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:27.358 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:27.358 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 1907, "user_id": 19, "value": 0.9993959646996409}
+2026-08-10 08:00:29.295 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 08:00:30.107 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:30.107 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:30.107 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2004, "user_id": 20, "value": 0.999395958900843}
+2026-08-10 08:00:33.029 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:33.029 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:33.029 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2101, "user_id": 21, "value": 0.9993959497482742}
+2026-08-10 08:00:35.987 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:35.987 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:35.987 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2198, "user_id": 22, "value": 0.9993914685827102}
+2026-08-10 08:00:39.074 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:39.074 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:39.074 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:39.308 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2295, "user_id": 23, "value": 0.9993897796347888}
+2026-08-10 08:00:42.278 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:42.278 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:42.278 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2392, "user_id": 24, "value": 0.9993892819799955}
+2026-08-10 08:00:46.599 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:46.599 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:46.599 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2489, "user_id": 25, "value": 0.9993832638935186}
+2026-08-10 08:00:49.320 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 08:00:50.109 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:50.109 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:50.109 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2586, "user_id": 26, "value": 0.999387173807188}
+2026-08-10 08:00:54.708 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:54.708 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:54.708 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2683, "user_id": 27, "value": 0.99938636444301}
+2026-08-10 08:00:58.461 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:58.461 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:00:58.461 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2780, "user_id": 28, "value": 0.9993901493382736}
+2026-08-10 08:00:59.332 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 08:01:02.369 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:02.369 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:02.369 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2877, "user_id": 29, "value": 0.9993874681365073}
+2026-08-10 08:01:07.329 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:07.329 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:07.329 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 2974, "user_id": 30, "value": 0.9993908683883828}
+2026-08-10 08:01:09.345 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 08:01:11.458 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:11.458 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:11.458 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_prefill_pcc", "seq_len": 3071, "user_id": 31, "value": 0.9993880320015094}
+2026-08-10 08:01:11.963 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:11.963 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:11.963 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 0, "value": 0.9995250785151687}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 1, "value": 0.9994648277551214}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 2, "value": 0.9995573830414604}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 3, "value": 0.999475729360185}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 4, "value": 0.9995581958308991}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 5, "value": 0.9995139936848646}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 6, "value": 0.999444613258816}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 7, "value": 0.9994462232717293}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 8, "value": 0.9993416388383277}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 9, "value": 0.9994636441188586}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 10, "value": 0.9993510334283423}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 11, "value": 0.9994066211930904}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 12, "value": 0.999410825648549}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 13, "value": 0.9994075869734893}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 14, "value": 0.9994613576174739}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 15, "value": 0.9993907681538864}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 16, "value": 0.9994033722852655}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 17, "value": 0.9994128966667327}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 18, "value": 0.999507478265697}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 19, "value": 0.9994703096458858}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 20, "value": 0.9993439597375139}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 21, "value": 0.9993989558741295}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 22, "value": 0.999449172503522}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 23, "value": 0.9995160348023298}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 24, "value": 0.9994280423618906}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 25, "value": 0.9994571793758613}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 26, "value": 0.9994537172406391}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 27, "value": 0.9992678601884356}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 28, "value": 0.9995609634326984}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 29, "value": 0.999499225175724}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 30, "value": 0.999515689101131}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_batched_decode_pcc", "user_id": 31, "value": 0.9994219930748584}
+PASSED
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[linear_attention] 2026-08-10 08:01:19.358 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2050, "replay": 1, "value": 0.9998807498695885}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2051, "replay": 2, "value": 0.999907125599077}
 PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2052, "replay": 3, "value": 0.9998874547562994}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention] 2026-08-10 07:09:44.130 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
-PCCEVIDENCE {"kind": "full_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2050, "replay": 1, "value": 0.9995070289476644}
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention] PCCEVIDENCE {"kind": "full_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2050, "replay": 1, "value": 0.9995070289476644}
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2051, "replay": 2, "value": 0.9994401049145274}
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_traced_decode_replay_pcc", "position": 2052, "replay": 3, "value": 0.9994360185351477}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[linear_attention] 2026-08-10 07:09:53.069 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.069 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.069 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.349 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.349 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.349 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.359 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.359 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.359 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.370 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.370 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.370 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.373 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.373 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.373 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.747 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.747 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.747 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.769 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.769 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.769 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.772 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.772 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:53.772 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.142 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
-2026-08-10 07:09:54.241 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.241 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.241 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.250 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.250 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.250 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.261 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 16, return value: 144 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.261 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.261 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.264 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.264 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.264 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.295 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.295 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.295 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.669 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.669 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:54.669 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[linear_attention] 2026-08-10 08:01:29.372 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+2026-08-10 08:01:32.093 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:32.093 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:32.093 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:32.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:32.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:32.480 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"batch": 4, "kind": "linear_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 1, "user_id": 0, "value": 0.999914816395518}
 PCCEVIDENCE {"batch": 4, "kind": "linear_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 1, "user_id": 1, "value": 0.9999184153574665}
 PCCEVIDENCE {"batch": 4, "kind": "linear_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 1, "user_id": 2, "value": 0.9999144521106748}
@@ -185,21 +728,12 @@ PCCEVIDENCE {"batch": 4, "kind": "linear_attention", "metric": "fused_batched_tr
 PCCEVIDENCE {"batch": 4, "kind": "linear_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 2, "user_id": 2, "value": 0.9999194272917127}
 PCCEVIDENCE {"batch": 4, "kind": "linear_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 2, "user_id": 3, "value": 0.9999190691816476}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[full_attention] 2026-08-10 07:09:58.645 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:58.645 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:58.645 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:59.273 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:59.273 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:59.273 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:59.630 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:59.630 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:09:59.630 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:00.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:00.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:00.095 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:00.133 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:00.133 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:00.133 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[full_attention] 2026-08-10 08:01:36.414 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:36.414 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:36.414 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:37.863 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:37.863 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:37.863 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"batch": 4, "kind": "full_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 1, "user_id": 0, "value": 0.9995730783727163}
 PCCEVIDENCE {"batch": 4, "kind": "full_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 1, "user_id": 1, "value": 0.9995245736334332}
 PCCEVIDENCE {"batch": 4, "kind": "full_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 1, "user_id": 2, "value": 0.9995309750692128}
@@ -209,39 +743,51 @@ PCCEVIDENCE {"batch": 4, "kind": "full_attention", "metric": "fused_batched_trac
 PCCEVIDENCE {"batch": 4, "kind": "full_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 2, "user_id": 2, "value": 0.9994779422710899}
 PCCEVIDENCE {"batch": 4, "kind": "full_attention", "metric": "fused_batched_traced_decode_pcc", "replay": 2, "user_id": 3, "value": 0.9995447320285321}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32] 2026-08-10 07:10:03.956 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:03.956 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:03.956 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:04.154 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[1] 2026-08-10 08:01:39.384 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_conv_state_after_decode_pcc", "steps": 1, "value": 0.9999944435746725}
+PASSED
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[5] 2026-08-10 08:01:49.395 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"kind": "linear_attention", "metric": "fused_conv_state_after_decode_pcc", "steps": 5, "value": 0.9999944505955755}
+PASSED
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32] 2026-08-10 08:01:53.542 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:53.543 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:53.543 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"block_size": 32, "kind": "full_attention", "metric": "fused_alt_block_size_prefill_pcc", "seq_len": 2049, "value": 0.9993913393580489}
-2026-08-10 07:10:06.514 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:06.514 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:06.514 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:06.515 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:06.515 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:06.515 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:56.083 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:56.083 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:56.083 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:56.084 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:56.084 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:56.084 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"block_size": 32, "kind": "full_attention", "metric": "fused_alt_block_size_decode_pcc", "position": 2049, "value": 0.9994790257925279}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128] 2026-08-10 07:10:09.915 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:09.915 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:09.915 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128] 2026-08-10 08:01:59.388 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:59.388 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:59.388 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:01:59.408 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
 PCCEVIDENCE {"block_size": 128, "kind": "full_attention", "metric": "fused_alt_block_size_prefill_pcc", "seq_len": 2049, "value": 0.9993913393580489}
 PCCEVIDENCE {"block_size": 128, "kind": "full_attention", "metric": "fused_alt_block_size_decode_pcc", "position": 2049, "value": 0.9994790257925279}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_bfloat8_kv_cache 2026-08-10 07:10:14.167 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
-2026-08-10 07:10:18.265 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:18.266 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:18.266 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:18.275 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:18.275 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 07:10:18.275 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_bfloat8_kv_cache 2026-08-10 08:02:07.705 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:02:07.705 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:02:07.705 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:02:07.734 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 32, return value: 128 (dataflow_buffer.cpp:1695)
+2026-08-10 08:02:07.734 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 08:02:07.734 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_bfp8_cache_prefill_pcc", "seq_len": 2049, "value": 0.9993465191240201}
 PCCEVIDENCE {"kind": "full_attention", "metric": "fused_bfp8_cache_decode_pcc", "position": 2049, "value": 0.9994402906276924}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[linear_attention] PCCEVIDENCE {"cycles": 6, "decode_steps": 4, "kind": "linear_attention", "metric": "fused_repeated_run_bit_identical", "value": true}
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-linear_attention] 2026-08-10 08:02:09.420 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_merged_unary_calls", "phase": "decode", "value": {"dispatched": 0}}
+PCCEVIDENCE {"batch": 32, "kind": "linear_attention", "metric": "fused_merged_unary_calls", "phase": "prefill", "value": {"dispatched": 1}}
 PASSED
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention] 2026-08-10 07:10:24.179 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
-PCCEVIDENCE {"cycles": 6, "decode_steps": 4, "kind": "full_attention", "metric": "fused_repeated_run_bit_identical", "value": true}
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-full_attention] PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_merged_unary_calls", "phase": "decode", "value": {"dispatched": 0}}
+PCCEVIDENCE {"batch": 32, "kind": "full_attention", "metric": "fused_merged_unary_calls", "phase": "prefill", "value": {"dispatched": 0}}
+PASSED
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[linear_attention] 2026-08-10 08:02:19.434 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:415)
+PCCEVIDENCE {"cycles": 6, "decode_steps": 4, "kind": "linear_attention", "metric": "fused_repeated_run_bit_identical", "value": true}
+PASSED
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention] PCCEVIDENCE {"cycles": 6, "decode_steps": 4, "kind": "full_attention", "metric": "fused_repeated_run_bit_identical", "value": true}
 PASSED
 
 =============================== warnings summary ===============================
@@ -255,48 +801,54 @@ PASSED
 ==================================== PASSES ====================================
 - generated xml file: /home/ttuser/dev/qwen/tt-metal/generated/test_reports/most_recent_tests.xml -
 ============================= slowest 25 durations =============================
-6.10s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention]
-5.93s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-full_attention]
-5.92s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[linear_attention]
-5.87s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention]
-5.73s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128]
-5.70s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32]
+225.10s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-linear_attention]
+97.85s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-full_attention]
+6.00s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention]
+5.99s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-full_attention]
+5.84s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[5]
+5.80s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[linear_attention]
+5.70s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention]
 5.69s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_bfloat8_kv_cache
-5.50s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[linear_attention]
-5.16s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[full_attention]
-4.19s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[linear_attention]
-4.03s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention]
-0.99s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[linear_attention]
+5.64s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128]
+5.60s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32]
+5.57s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[1]
+5.38s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[linear_attention]
+5.35s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-full_attention]
+5.14s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[full_attention]
+4.15s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[linear_attention]
+4.04s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention]
+3.71s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-linear_attention]
+0.98s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention]
 0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[linear_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-full_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[full_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32]
 0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention]
-0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_bfloat8_kv_cache
-0.19s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention]
-0.19s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[linear_attention]
-0.18s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention]
-0.06s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention]
-0.06s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[5]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-linear_attention]
+0.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-full_attention]
 =========================== short test summary info ============================
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_decode_pcc[2049-full_attention]
+PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-linear_attention]
+PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_batched_users[32-full_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_pcc[full_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_traced_decode_batched[full_attention]
+PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[1]
+PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_conv_state_after_decode_matches_reference[5]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[32]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_alternate_page_block_size[128]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_bfloat8_kv_cache
+PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-linear_attention]
+PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_merged_unaries_are_not_dispatched[32-full_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[linear_attention]
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_repeated_runs_stable[full_attention]
-=========== 11 passed, 68 deselected, 2 warnings in 64.09s (0:01:04) ===========
+========== 17 passed, 64 deselected, 2 warnings in 408.27s (0:06:48) ===========
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 nanobind: leaked 2 instances!
- - leaked instance 0x764d67f913a8 of type "ttnn._ttnn.tensor.MemoryConfig"
- - leaked instance 0x764d685c9848 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7f42a24e9638 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7f42a1e91388 of type "ttnn._ttnn.tensor.MemoryConfig"
 nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
@@ -310,24 +862,24 @@ nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
  - ... skipped remainder
 nanobind: leaked 250 functions!
- - leaked function "sfpu_nan"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "buffer_address"
  - leaked function "__repr__"
+ - leaked function "__eq__"
  - leaked function ""
  - leaked function ""
- - leaked function "get_device_ids"
- - leaked function "pad_to_tile"
- - leaked function "to_torch"
- - leaked function "__init__"
  - leaked function ""
- - leaked function "get_submeshes"
+ - leaked function "item"
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
-See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-10 07:10:29.038 | info     |    BuildKernels | JIT cache stats: 1236/1242 hits (99.5%) [1236 cached, 884 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
-2026-08-10 07:10:29.038 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
-2026-08-10 07:10:29.040 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:613)
-2026-08-10 07:10:29.040 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:191)
-2026-08-10 07:10:29.054 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
-2026-08-10 07:10:29.054 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
-2026-08-10 07:10:29.218 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
-2026-08-10 07:10:29.218 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
-2026-08-10 07:10:29.218 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-10 08:02:28.056 | info     |    BuildKernels | JIT cache stats: 1291/3664 hits (35.2%) [1291 cached, 3392 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-10 08:02:28.056 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-10 08:02:28.063 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:613)
+2026-08-10 08:02:28.064 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:191)
+2026-08-10 08:02:28.074 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-10 08:02:28.074 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
+2026-08-10 08:02:28.204 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
+2026-08-10 08:02:28.204 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
+2026-08-10 08:02:28.204 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)

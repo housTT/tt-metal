@@ -273,6 +273,38 @@ def test_linear_state_and_kv_cache_match_reference(mesh_device, layer_idx):
         assert rec_pcc >= H.PCC_BAR, "recurrent state mismatch"
 
 
+@pytest.mark.parametrize("steps", [1, 5])
+def test_conv_state_after_decode_matches_reference(mesh_device, steps):
+    """The carried conv state is still HF's after N *decode* steps, not just after prefill.
+
+    ``test_linear_state_and_kv_cache_match_reference`` reads the state after a prefill.  The
+    fused decode keeps that state as per-row buffers instead of the functional layer's packed
+    ``[1, batch, K, conv_dim]`` tensor, so a stage review asked whether the packed view a later
+    stage would read is still correct once decode has advanced.  It is, and this is the check:
+    ``FusedDecoder.current_conv_state`` folds the buffers back and the result is compared against
+    HF's own cache object after the same number of steps.
+    """
+    lut = _build(mesh_device, H.LINEAR_LAYER_IDX, max_batch=1, max_seq_len=8192)
+    seq_len = 2049
+    hidden = ref.synthetic_hidden_states(lut.config, 1, seq_len, _stats())
+    H.run_tt_prefill(lut, hidden)
+    cache = DynamicCache(config=lut.config)
+    H.reference_prefill(lut, hidden, cache)
+    H.prepare_decode(lut)
+
+    for step in range(steps):
+        token = ref.synthetic_hidden_states(lut.config, 1, 1, _stats(), seed=900 + step)
+        H.run_tt_decode(lut, token, torch.tensor([seq_len + step]))
+        H.reference_decode(lut, token, seq_len + step, cache)
+
+    packed = ttnn.to_torch(lut.tt_layer.current_conv_state()).to(torch.float32)
+    got = packed.reshape(packed.shape[-2], packed.shape[-1])
+    expected = cache.layers[lut.layer_idx].conv_states[0].to(torch.float32)
+    value = H.pcc(expected, got.T)
+    H.record("fused_conv_state_after_decode_pcc", value, kind="linear_attention", steps=steps)
+    assert value >= H.PCC_BAR, f"conv state after {steps} decode steps mismatches HF: PCC {value}"
+
+
 @pytest.mark.parametrize("block_size", [32, 128])
 def test_alternate_page_block_size(mesh_device, block_size):
     """Page/block geometry is a parameter, not an assumption (``full_attention`` only)."""
@@ -493,7 +525,7 @@ def test_fused_persistent_state_delta(mesh_device, layer_idx):
     implementations = (("functional", FunctionalDecoder), ("fused", FusedDecoder))
     # Warm-up build/release of each: the *first* layer built in a session also allocates one-time
     # buffers that never come back, which would otherwise land on whichever implementation ran
-    # first (measured at 114688 bytes, enough to make the full_attention delta come out negative).
+    # first (measured at tens of kilobytes, enough to make the full_attention delta come out negative).
     for _name, cls in implementations:
         H.build_layer(mesh_device, layer_idx, max_batch=32, max_seq_len=8192, decoder_cls=cls)
         H.release_layers()

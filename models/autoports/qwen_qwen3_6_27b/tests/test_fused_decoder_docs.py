@@ -32,6 +32,7 @@ import csv
 import gzip
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -224,6 +225,13 @@ def test_prose_perf_figures_match_the_summary():
     four stale figures living in ``tt/fused_decoder.py``'s docstrings.
     """
     allowed = _allowed_figures()
+    # Byte counts come from the evidence file's measured records, not from a perf table.
+    evidence = json.loads((DOC / "pcc_evidence.json").read_text())
+    for record in evidence["records"]:
+        value = record["value"]
+        for item in value.values() if isinstance(value, dict) else (value,):
+            if isinstance(item, int) and not isinstance(item, bool):
+                allowed.add(str(item))
     # Generated blocks are exempt: they are written from the artifacts by construction, and
     # ``test_generated_blocks_are_current`` is what keeps them honest.  This check is for the
     # hand-written prose around them, which is where every stale figure four review rounds found
@@ -235,7 +243,7 @@ def test_prose_perf_figures_match_the_summary():
     for path, text in scanned.items():
         # ``x`` counts only when attached *and* carrying a decimal point (a speedup): ``8x8`` is a
         # core grid.  Microsecond figures count with or without a decimal point.
-        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}(?:\s*(ms|%|GB/s|us)|(x))\b", text)
+        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}(?:\s*(ms|%|GB/s|us|bytes)|(x))\b", text)
         for value, unit, attached in quoted:
             if not unit and "." not in value:
                 continue
@@ -422,7 +430,7 @@ def test_contract_prose_matches_the_evidence():
     unexplained = []
     for key, text in contract.items():
         for path, value in _walk_strings(key, text):
-            # Two shapes of figure: a unit-carrying one (``8290304 bytes``, ``0.78 %``) and a
+            # Two shapes of figure: a unit-carrying one (a byte count, a percentage) and a
             # bare PCC-like decimal (``0.999879``), which is how the largest_context prose
             # states its measurements.
             figures = re.findall(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(?:%|bytes|GiB|B\b)", value)
@@ -443,6 +451,169 @@ def _walk_strings(prefix, value):
     elif isinstance(value, list):
         for index, item in enumerate(value):
             yield from _walk_strings(f"{prefix}[{index}]", item)
+
+
+def test_every_cited_test_name_exists():
+    """Every ``test_...`` identifier the documents or sources quote is a real, collected test.
+
+    ``test_every_cited_path_resolves`` resolves file paths; nothing resolved test *names*, so a
+    renamed test kept being cited in four places across two rounds.  The names are collected from
+    the two test modules by parsing them, so this needs no pytest run.
+    """
+    defined = set()
+    for module in ("test_fused_decoder.py", "test_fused_decoder_docs.py", "test_fused_decoder_perf.py"):
+        source = (ROOT / "tests" / module).read_text()
+        defined.update(re.findall(r"^def (test_\w+)", source, re.MULTILINE))
+    # Stage 1's suite is cited too, and so is the shared harness's.
+    for module in (ROOT / "tests").glob("test_*.py"):
+        defined.update(re.findall(r"^def (test_\w+)", module.read_text(), re.MULTILINE))
+
+    modules = {path.stem for path in (ROOT / "tests").glob("test_*.py")}
+    unknown = {}
+    for path, text in list(_documents().items()) + [(path, path.read_text()) for path in SOURCES]:
+        for name in re.findall(r"\b(test_[a-z0-9_]+)\b", text):
+            # A module stem (``test_fused_decoder``), a wildcarded family (``test_traced_decode_*``,
+            # whose captured stem ends in ``_``) and the report directory are citations of things
+            # other than one test.
+            if name in defined or name in modules or name.endswith("_") or name == "test_reports":
+                continue
+            unknown.setdefault(path.name, set()).add(name)
+    assert not unknown, f"these cited test names are not defined in tests/: {unknown}"
+
+
+def test_every_artifact_the_gate_reads_is_tracked_by_git():
+    """Every artifact this stage's documents and tests read is committed, not just on disk.
+
+    The repository ignores ``*.log`` and ``*.csv``, so stage artifacts have to be force-added.
+    Three rounds of evidence were regenerated and never added, and because the files were present
+    in the working tree every gate stayed green while a fresh clone of the same commit could not
+    even run the generators.  This is the check that makes "committed artifact" mean it.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--", str(DOC.relative_to(ROOT.parents[2]))],
+        cwd=ROOT.parents[2],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split("\0")
+    tracked = {name for name in tracked if name}
+
+    required = [DOC / "perf_summary.json", DOC / "pcc_evidence.json", DOC / "watcher" / "WATCHER_AUDIT.md"]
+    required += [DOC / "logs" / f"{path.stem}.log" for path in (DOC / "probes").glob("probe_*.py")]
+    required += [DOC / "logs" / f"{name}.log" for name in ("suite_main", "long_context", "watcher_run", "doc_gate")]
+    for impl in IMPLS:
+        for kind in KINDS:
+            for phase in PHASES:
+                base = DOC / "tracy" / impl / kind
+                required += [
+                    base / f"{phase}_perf_report.csv",
+                    base / f"{phase}_perf_report.txt",
+                    base / f"{phase}_ops.csv.gz",
+                    base / f"{phase}_ops.csv.provenance",
+                ]
+                required.append(DOC / "logs" / f"tracy_{impl}_{kind}_{phase}.log")
+
+    missing = [
+        str(path.relative_to(ROOT.parents[2]))
+        for path in required
+        if str(path.relative_to(ROOT.parents[2])) not in tracked
+    ]
+    assert not missing, (
+        "these artifacts are read by the documents or this gate but are not tracked by git "
+        f"(force-add them; the repo ignores *.log and *.csv): {missing}"
+    )
+
+
+def _shipped_grids() -> dict[str, tuple[int, int] | None]:
+    """The ``core_grid`` constants the layer ships, read out of its source.
+
+    Parsed rather than imported so this test needs no device and no ``ttnn`` import; the names
+    are asserted present, so a rename fails here instead of silently checking nothing.
+    """
+    source = (ROOT / "tt" / "fused_decoder.py").read_text()
+    grids: dict[str, tuple[int, int] | None] = {}
+    for name in ("_RECURRENCE_READ_GRID", "_RECURRENCE_OUTER_GRID"):
+        match = re.search(rf"^{name} = \((\d+), (\d+)\)$", source, re.MULTILINE)
+        assert match, f"{name} is not a (y, x) literal in tt/fused_decoder.py"
+        grids[name] = (int(match.group(1)), int(match.group(2)))
+    for name in ("_AB_MATMUL_GRID", "_GROUP_SUM_GRID", "_GROUP_EXPAND_GRID"):
+        match = re.search(rf"^{name} = \{{(.+?)\}}$", source, re.MULTILINE)
+        assert match, f"{name} is not a one-line dict literal in tt/fused_decoder.py"
+        for phase, value in re.findall(r'"(\w+)": (\(\d+, \d+\)|None)', match.group(1)):
+            grids[f"{name}[{phase}]"] = None if value == "None" else tuple(int(v) for v in re.findall(r"\d+", value))
+    return grids
+
+
+def test_selected_grids_are_the_measured_best():
+    """Every shipped ``core_grid`` is within a stdev of the fastest one its probe measured.
+
+    The stage picks core grids from probe sweeps and then *states* the winner in prose and in a
+    generated table's "selected" column.  A stage review found one of those statements wrong -
+    the shipped recurrence grid was 6.3 % and ~2.3 stdevs slower than the log's own minimum,
+    inside a block labelled GENERATED, because the cell was a literal.  This re-derives the
+    comparison from the logs, at every regime each probe measured.
+    """
+    shipped = _shipped_grids()
+    tolerance_note = []
+
+    def check(label, grid, rows):
+        """``rows``: ``{(y, x) or None: (median, stdev)}`` for one measured regime."""
+        assert grid in rows, f"{label}: the shipped grid {grid} is not in the sweep {sorted(k for k in rows if k)}"
+        best = min((key for key in rows if key is not None), key=lambda key: rows[key][0])
+        best_median, best_stdev = rows[best]
+        median, stdev = rows[grid]
+        tolerance_note.append(f"{label}: shipped {grid} {median:.1f} us, best {best} {best_median:.1f} us")
+        # Tolerance is the two spreads added: "the shipped grid is not distinguishably slower
+        # than the fastest one".  Tighter than that and a 40 us op's run-to-run noise fails the
+        # gate; looser and the 6.3 %, ~2.3-stdev miss a stage review found would pass it.
+        assert median <= best_median + best_stdev + stdev, (
+            f"{label}: the shipped grid {grid} measures {median:.1f} +- {stdev:.1f} us, and {best} "
+            f"measures {best_median:.1f} +- {best_stdev:.1f} us - distinguishably faster"
+        )
+
+    recurrence = (DOC / "logs" / "probe_decode_recurrence.log").read_text(errors="replace")
+    for heads in (48, 48 * 32):
+        for name, prefix in (("_RECURRENCE_READ_GRID", "read"), ("_RECURRENCE_OUTER_GRID", "outer")):
+            token = "transpose_a " if prefix == "outer" else ""
+            rows = {}
+            for grid_y, grid_x, median, stdev in re.findall(
+                rf"{prefix}\s+heads={heads}\s+{token}core_grid (\d+)x(\d+)\s*median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
+                recurrence,
+            ):
+                rows[(int(grid_y), int(grid_x))] = (float(median), float(stdev))
+            assert rows, f"probe_decode_recurrence.log has no {prefix} sweep at {heads} heads"
+            check(f"{name} at {heads} heads", shipped[name], rows)
+
+    # The three small-N matmul grids, from probe_matmul_bound.log.  ``None`` means the default
+    # program factory won, which the log records as its own row.
+    bound = (DOC / "logs" / "probe_matmul_bound.log").read_text(errors="replace")
+    rows_by_label: dict[str, dict[tuple[int, int] | None, tuple[float, float]]] = {}
+    for label, median in re.findall(r"matmul (\S+\s+\S+)\s+\d+x\s*\d+x\s*\d+ out=\w+\+fp32dest_us=\s*([\d.]+)", bound):
+        rows_by_label.setdefault(" ".join(label.split()), {})[None] = (float(median), 0.0)
+    for label, grid_y, grid_x, median, stdev in re.findall(
+        r"matmul (\S+\s+\S+)\s+core_grid\s+(\d+)x\s*(\d+)\s+us=\s*([\d.]+) \(\s*([\d.]+)\)", bound
+    ):
+        rows_by_label.setdefault(" ".join(label.split()), {})[(int(grid_y), int(grid_x))] = (
+            float(median),
+            float(stdev),
+        )
+    named = {
+        ("_AB_MATMUL_GRID", "prefill"): "in_proj_ab prefill",
+        ("_AB_MATMUL_GRID", "decode"): "in_proj_ab decode",
+        ("_GROUP_SUM_GRID", "prefill"): "gated_norm_sum prefill",
+        ("_GROUP_SUM_GRID", "decode"): "gated_norm_sum decode",
+        ("_GROUP_EXPAND_GRID", "prefill"): "gated_norm_exp prefill",
+        ("_GROUP_EXPAND_GRID", "decode"): "gated_norm_exp decode",
+    }
+    for (name, phase), label in named.items():
+        rows = rows_by_label.get(label)
+        assert rows, f"probe_matmul_bound.log has no sweep for {label}"
+        # The default row has no spread of its own; give it the sweep's median spread so a tie
+        # with the default is not judged more harshly than a tie between two explicit grids.
+        spreads = [stdev for _, stdev in rows.values() if stdev]
+        rows = {key: (median, stdev or (sum(spreads) / len(spreads))) for key, (median, stdev) in rows.items()}
+        check(f"{name}[{phase}]", shipped[f"{name}[{phase}]"], rows)
+    assert tolerance_note  # the comparison actually ran
 
 
 def test_probe_readme_covers_every_probe():

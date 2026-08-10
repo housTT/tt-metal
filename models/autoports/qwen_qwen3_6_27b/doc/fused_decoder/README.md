@@ -41,12 +41,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.799 ms | **26.074 ms** | **5.78x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.043 ms | **2.344 ms** | **1.30x** | 92 | 65 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.624 ms | **6.202 ms** | **5.91x** | 93 | 68 |
-| `full_attention` | prefill, 2048 tokens | 18.621 ms | **17.765 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.064 ms** | **1.10x** | 50 | 44 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.066 ms | **2.912 ms** | **1.05x** | 49 | 43 |
+| `linear_attention` | prefill, 2048 tokens | 151.173 ms | **26.031 ms** | **5.81x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.045 ms | **2.346 ms** | **1.30x** | 92 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.618 ms | **6.163 ms** | **5.94x** | 93 | 69 |
+| `full_attention` | prefill, 2048 tokens | 18.585 ms | **17.793 ms** | **1.04x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.276 ms | **2.062 ms** | **1.10x** | 50 | 44 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.068 ms | **2.911 ms** | **1.05x** | 49 | 43 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -71,14 +71,15 @@ carries all six measured passes rather than the four the stage first measured. T
 the same 534 MB — one token or thirty-two, a decode step reads every weight once — so the
 `matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
 instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
-`batched_matmul` and `elementwise` buckets grow by more than an order of magnitude — the two
+`batched_matmul` and `elementwise` buckets grow by 24x and 10x — the two
 `decode b32` columns of the table below against their `decode b1` neighbours — because the
 carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
 reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
 `work_log.md` §6.1 records what was measured against it: thirteen core grids at both regimes
 (the shipped ones win at both), the `exp`/`sigmoid` folds (taken), and a per-head layout change
 that would trade the state's shape for its padding (measured slower, §6). The `full_attention`
-decode's batch-32 cost is dominated instead by SDPA, 0.105 → 0.864 ms, which is the one-core-per-head
+decode's batch-32 cost is dominated instead by SDPA — its `sdpa` bucket is eight times the
+batch-1 one, the two `sdpa` cells of the table below — which is the one-core-per-head
 workaround stage 1 pinned and handed to the optimization stage — 29.7 % of that step at batch 32
 against 5.1 % at batch 1.
 
@@ -90,15 +91,15 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.466 ms | 1.883 ms | 1.909 ms | 13.469 ms | 1.806 ms | 1.810 ms |
-| `gated_delta_rule` | 2.773 ms | — | — | — | — | — |
-| `sdpa` | — | — | — | 1.277 ms | 0.105 ms | 0.863 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.057 ms | 1.380 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.790 ms | 0.180 ms | 0.983 ms | 1.057 ms | 0.037 ms | 0.048 ms |
-| `elementwise` | 3.669 ms | 0.197 ms | 1.900 ms | 1.013 ms | 0.042 ms | 0.042 ms |
-| `norm` | 0.376 ms | 0.027 ms | 0.031 ms | 0.535 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.414 ms | 0.048 ms | 0.119 ms |
-| **total** | **26.074 ms** | **2.344 ms** | **6.202 ms** | **17.765 ms** | **2.064 ms** | **2.912 ms** |
+| `matmul` (projections, MLP, gated-norm constants) | 14.478 ms | 1.877 ms | 1.901 ms | 13.467 ms | 1.804 ms | 1.809 ms |
+| `gated_delta_rule` | 2.722 ms | — | — | — | — | — |
+| `sdpa` | — | — | — | 1.280 ms | 0.105 ms | 0.863 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.059 ms | 1.344 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.786 ms | 0.179 ms | 0.983 ms | 1.065 ms | 0.037 ms | 0.048 ms |
+| `elementwise` | 3.672 ms | 0.204 ms | 1.903 ms | 1.016 ms | 0.042 ms | 0.043 ms |
+| `norm` | 0.373 ms | 0.028 ms | 0.031 ms | 0.543 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.422 ms | 0.048 ms | 0.119 ms |
+| **total** | **26.031 ms** | **2.346 ms** | **6.163 ms** | **17.793 ms** | **2.062 ms** | **2.911 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
@@ -155,7 +156,7 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | **full context 262143** - best-fit *scale* vs HF, decode | 0.996456 | 0.995766 |
 | fused vs functional output, prefill and decode @ 2049 | min 0.999921 | min 0.999859 |
 
-Minimum over all 264 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
+Minimum over all 266 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
 <!-- END GENERATED:correctness -->
 
 ### Delta against the functional stage
@@ -191,7 +192,7 @@ graph is the one running:
 | `test_fused_ops_are_dispatched` | `chunk_gated_delta_rule`, `rotary_embedding_hf` and `rotate_half` are really dispatched on a real prefill/decode pass; the call counts are recorded in `pcc_evidence.json` rather than asserted, so a graph change that dispatches one more is not a failure |
 | `test_fused_graph_is_smaller` | `ttnn` op count per pass falls, counted at the python boundary (so it differs from the device op counts above) - see below |
 | `test_fused_matches_functional` | fused and functional agree with **each other** from identical weights and inputs, not only with HF |
-| `test_no_layout_round_trip_in_the_measured_prefill` (in `test_fused_decoder_docs.py`) | the committed `tt-perf-report` op sequence contains no `Tilize*` immediately followed by an `Untilize*`. Reading the *device* report is the point: `ttnn.concat` and `ttnn.slice` relayout inside themselves, so a python-level trap cannot see them - which is how a round trip over the whole conv window survived three review rounds |
+| `test_no_layout_round_trip_in_the_measured_pass` (in `test_fused_decoder_docs.py`) | the committed `tt-perf-report` op sequence contains no `Tilize*` immediately followed by an `Untilize*`. Reading the *device* report is the point: `ttnn.concat` and `ttnn.slice` relayout inside themselves, so a python-level trap cannot see them - which is how a round trip over the whole conv window survived three review rounds |
 | `test_no_redundant_relayout_in_measured_prefill` | the same property at the python-call level, on the calls the *layer itself* makes. Weaker than the report-level check above and kept alongside it, not instead of it |
 | `test_no_relayout_or_host_ops_in_measured_decode` | the layer asks for no `tilize`/`untilize`/`to_layout` in a measured decode, and its reshard count is **exactly** the set each remaining reshard's op contract justifies — 4 for `linear_attention`, 9 for `full_attention`, enumerated in the test |
 | `test_repeated_runs_stable` | six prefill+decode cycles bit-identical, with per-bank DRAM allocation unchanged from cycle 1 — no per-cycle device leak in the `_free` aliasing rules |
@@ -201,7 +202,7 @@ The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out o
 [`pcc_evidence.json`](pcc_evidence.json):
 
 <!-- GENERATED:python_op_counts -->
-`full_attention` 53 -> 37 prefill, 55 -> 49 decode; `linear_attention` 780 -> 69 prefill, 78 -> 63 decode
+`full_attention` 53 -> 37 prefill, 55 -> 49 decode; `linear_attention` 780 -> 69 prefill, 78 -> 64 decode
 <!-- END GENERATED:python_op_counts -->
 
 ### Capability-contract evidence
@@ -210,7 +211,7 @@ The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out o
 |---|---|---|
 | Both HF layer kinds implemented and correct through the fused graph | the whole fused suite, both kinds in every parametrised case except the five that are `full_attention`-only by construction; the pass counts are the generated block in [`work_log.md`](work_log.md) §4 | Only layers 0 and 3 are instantiated; `decoder_shapes` rejects a third kind |
 | Advertised context 262144 preserved, not reduced | `test_full_advertised_context` prefills 262143 and decodes at 262143 for both kinds against a real HF reference; all four PCCs >= 0.998030, all four scale ratios inside ±2 % | Reference is segmented (`linear_attention`) or projection-built and `torch.equal`-validated (`full_attention`), as in stage 1 |
-| Fusing did not change capacity | `test_fused_persistent_state_delta` reads the DRAM allocator around a real `from_state_dict` at batch 32: a `linear_attention` layer grows by 8290304 bytes and a `full_attention` layer by exactly 0, against 31 GiB of measured DRAM and a 1818230784-byte worst-case layer — `../context_contract.json` `fused_decoder` block | measured at one `max_batch` (32) |
+| Fusing did not change capacity | `test_fused_persistent_state_delta` reads the DRAM allocator around a real `from_state_dict` at batch 32: a `linear_attention` layer grows by 9601024 bytes and a `full_attention` layer by exactly 0, against 31 GiB of measured DRAM and a 1818230784-byte worst-case layer — `../context_contract.json` `fused_decoder` block | measured at one `max_batch` (32) |
 | Non-aligned logical lengths still work on the public API | 1, 17, 128, 2049, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts | — |
 | Paged KV cache still correct under a non-trivial page table | shuffled-permutation page tables; `test_linear_state_and_kv_cache_match_reference` un-pages the device cache and compares against HF's cache object (K 0.999989, V 0.999993) | one length (2049) at batch 1, plus full context |
 | Deterministic | bit-identical prefill and decode for repeated identical inputs, both kinds, plus six repeated whole cycles | — |

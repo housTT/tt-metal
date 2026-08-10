@@ -1,5 +1,5 @@
 {
- "note": "Warmed measurements on one Blackhole chip (device 2 of a p300c board), batch 1, from Tracy device-profiler runs with the measured window delimited by signposts. Device time is the sum of the 'Device Time' column of the tt-perf-report --csv output, in MICROSECONDS, divided by the replay count for decode. Decode is traced: capture once, then replay execute_trace 8x inside the window. 'functional' is tt/functional_decoder.py (the stage-1 baseline) and 'fused' is tt/fused_decoder.py, measured by the same script (probes/run_perf.sh) on the same machine against the same build, with --impl the only argument that differs; the .provenance file next to each ops CSV carries that run's timestamp, and the two halves are separate processes.",
+ "note": "Warmed measurements on one Blackhole chip (device 2 of a p300c board), from Tracy device-profiler runs with the measured window delimited by signposts. Device time is the sum of the 'Device Time' column of the tt-perf-report --csv output, in MICROSECONDS, divided by the replay count for decode. Prefill is batch 1; decode is measured at batch 1 and at the advertised max_batch of 32, which is a different graph rather than a wider tensor (see decode_batches). Decode is traced: capture once, then replay execute_trace 8x inside the window. 'functional' is tt/functional_decoder.py (the stage-1 baseline) and 'fused' is tt/fused_decoder.py, measured by the same script (probes/run_perf.sh) on the same machine against the same build, with --impl the only argument that differs; the .provenance file next to each ops CSV carries that run's timestamp, and the two halves are separate processes.",
  "prefill_tokens": 2048,
  "decode_position": 2048,
  "decode_batches": {
@@ -16,37 +16,37 @@
    "phase": "prefill",
    "ops_in_window": 801,
    "ops_per_pass": 801,
-   "device_kernel_time_ms": 150.799,
+   "device_kernel_time_ms": 151.173,
    "op_to_op_gap_ms": 8.12,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "batched_matmul": 79.017,
-    "layout": 33.314,
-    "elementwise": 23.408,
-    "matmul": 14.384,
-    "norm": 0.603,
+    "batched_matmul": 79.02,
+    "layout": 33.618,
+    "elementwise": 23.469,
+    "matmul": 14.39,
+    "norm": 0.604,
     "other": 0.073
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6380.2
+     "device_time_us": 6376.9
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6378.1
+     "device_time_us": 6376.5
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6376.0
+     "device_time_us": 6376.3
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6373.1
+     "device_time_us": 6375.7
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6372.1
+     "device_time_us": 6373.6
     }
    ],
    "artifacts": {
@@ -64,11 +64,11 @@
    "phase": "decode",
    "ops_in_window": 736,
    "ops_per_pass": 92,
-   "device_kernel_time_ms": 3.043,
+   "device_kernel_time_ms": 3.045,
    "op_to_op_gap_ms": 0.359,
    "periodicity_check": "736 ops over 8 replays = 92 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.993,
+    "matmul": 1.996,
     "elementwise": 0.29,
     "layout": 0.289,
     "batched_matmul": 0.259,
@@ -77,11 +77,15 @@
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 871.3
+     "device_time_us": 872.3
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.8
+     "device_time_us": 869.9
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 869.7
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
@@ -89,11 +93,7 @@
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 868.4
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.3
+     "device_time_us": 866.5
     }
    ],
    "artifacts": {
@@ -111,36 +111,36 @@
    "phase": "decode_batch32",
    "ops_in_window": 744,
    "ops_per_pass": 93,
-   "device_kernel_time_ms": 36.624,
+   "device_kernel_time_ms": 36.618,
    "op_to_op_gap_ms": 0.053,
    "periodicity_check": "744 ops over 8 replays = 93 ops per replay, exact",
    "breakdown_ms": {
     "batched_matmul": 24.872,
-    "elementwise": 6.051,
+    "elementwise": 6.05,
     "layout": 4.031,
-    "matmul": 1.455,
+    "matmul": 1.452,
     "norm": 0.214
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
-     "device_time_us": 8215.9
+     "device_time_us": 8207.7
     },
     {
      "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
-     "device_time_us": 8205.5
+     "device_time_us": 8207.5
     },
     {
      "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
-     "device_time_us": 8205.0
+     "device_time_us": 8207.0
     },
     {
      "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
-     "device_time_us": 8202.3
+     "device_time_us": 8206.6
     },
     {
      "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
-     "device_time_us": 8201.7
+     "device_time_us": 8205.7
     }
    ],
    "artifacts": {
@@ -158,37 +158,37 @@
    "phase": "prefill",
    "ops_in_window": 44,
    "ops_per_pass": 44,
-   "device_kernel_time_ms": 18.621,
+   "device_kernel_time_ms": 18.585,
    "op_to_op_gap_ms": 0.023,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "matmul": 13.474,
-    "elementwise": 1.847,
+    "matmul": 13.466,
+    "elementwise": 1.819,
     "sdpa": 1.278,
-    "layout": 1.168,
-    "norm": 0.541,
-    "heads_and_cache": 0.313
+    "layout": 1.167,
+    "norm": 0.54,
+    "heads_and_cache": 0.316
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-     "device_time_us": 6113.7
+     "device_time_us": 6105.9
     },
     {
      "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-     "device_time_us": 3305.0
+     "device_time_us": 3306.4
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
-     "device_time_us": 1598.0
+     "device_time_us": 1595.4
     },
     {
      "op": "SDPAOperation",
-     "device_time_us": 1278.3
+     "device_time_us": 1278.1
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
-     "device_time_us": 1238.2
+     "device_time_us": 1239.2
     }
    ],
    "artifacts": {
@@ -206,11 +206,11 @@
    "phase": "decode",
    "ops_in_window": 400,
    "ops_per_pass": 50,
-   "device_kernel_time_ms": 2.271,
+   "device_kernel_time_ms": 2.276,
    "op_to_op_gap_ms": 0.046,
    "periodicity_check": "400 ops over 8 replays = 50 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.812,
+    "matmul": 1.818,
     "norm": 0.219,
     "sdpa": 0.104,
     "elementwise": 0.053,
@@ -220,23 +220,23 @@
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.0
+     "device_time_us": 870.9
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 868.2
+     "device_time_us": 869.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.4
+     "device_time_us": 868.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.2
+     "device_time_us": 868.1
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 866.3
+     "device_time_us": 867.3
     }
    ],
    "artifacts": {
@@ -254,11 +254,11 @@
    "phase": "decode_batch32",
    "ops_in_window": 392,
    "ops_per_pass": 49,
-   "device_kernel_time_ms": 3.066,
-   "op_to_op_gap_ms": 0.061,
+   "device_kernel_time_ms": 3.068,
+   "op_to_op_gap_ms": 0.062,
    "periodicity_check": "392 ops over 8 replays = 49 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.81,
+    "matmul": 1.812,
     "sdpa": 0.864,
     "norm": 0.222,
     "heads_and_cache": 0.065,
@@ -268,23 +268,23 @@
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.4
+     "device_time_us": 869.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.0
+     "device_time_us": 868.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.9
+     "device_time_us": 868.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.2
+     "device_time_us": 867.7
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.3
+     "device_time_us": 867.6
     }
    ],
    "artifacts": {
@@ -302,32 +302,32 @@
    "phase": "prefill",
    "ops_in_window": 68,
    "ops_per_pass": 68,
-   "device_kernel_time_ms": 26.074,
-   "op_to_op_gap_ms": 0.234,
+   "device_kernel_time_ms": 26.031,
+   "op_to_op_gap_ms": 0.235,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "matmul": 14.466,
-    "layout": 4.79,
-    "elementwise": 3.669,
-    "gated_delta_rule": 2.773,
-    "norm": 0.376
+    "matmul": 14.478,
+    "layout": 4.786,
+    "elementwise": 3.672,
+    "gated_delta_rule": 2.722,
+    "norm": 0.373
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-     "device_time_us": 6102.7
+     "device_time_us": 6107.5
     },
     {
      "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-     "device_time_us": 3304.9
+     "device_time_us": 3305.1
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 10240",
-     "device_time_us": 2239.0
+     "device_time_us": 2238.6
     },
     {
      "op": "ChunkGdnPrepOperation",
-     "device_time_us": 1612.9
+     "device_time_us": 1562.5
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
@@ -347,38 +347,38 @@
    "impl": "fused",
    "layer_kind": "linear_attention",
    "phase": "decode",
-   "ops_in_window": 520,
-   "ops_per_pass": 65,
-   "device_kernel_time_ms": 2.344,
+   "ops_in_window": 528,
+   "ops_per_pass": 66,
+   "device_kernel_time_ms": 2.346,
    "op_to_op_gap_ms": 0.051,
-   "periodicity_check": "520 ops over 8 replays = 65 ops per replay, exact",
+   "periodicity_check": "528 ops over 8 replays = 66 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.883,
-    "elementwise": 0.197,
-    "layout": 0.18,
-    "batched_matmul": 0.057,
-    "norm": 0.027
+    "matmul": 1.877,
+    "elementwise": 0.204,
+    "layout": 0.179,
+    "batched_matmul": 0.059,
+    "norm": 0.028
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 871.3
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.7
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.7
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.3
+     "device_time_us": 869.8
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
      "device_time_us": 869.2
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 869.0
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.6
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.0
     }
    ],
    "artifacts": {
@@ -394,38 +394,38 @@
    "impl": "fused",
    "layer_kind": "linear_attention",
    "phase": "decode_batch32",
-   "ops_in_window": 544,
-   "ops_per_pass": 68,
-   "device_kernel_time_ms": 6.202,
+   "ops_in_window": 552,
+   "ops_per_pass": 69,
+   "device_kernel_time_ms": 6.163,
    "op_to_op_gap_ms": 0.05,
-   "periodicity_check": "544 ops over 8 replays = 68 ops per replay, exact",
+   "periodicity_check": "552 ops over 8 replays = 69 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.909,
-    "elementwise": 1.9,
-    "batched_matmul": 1.38,
+    "elementwise": 1.903,
+    "matmul": 1.901,
+    "batched_matmul": 1.344,
     "layout": 0.983,
     "norm": 0.031
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.1
+     "device_time_us": 870.8
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.7
+     "device_time_us": 869.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.5
+     "device_time_us": 867.1
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 866.6
+     "device_time_us": 866.7
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 866.2
+     "device_time_us": 866.4
     }
    ],
    "artifacts": {
@@ -443,37 +443,37 @@
    "phase": "prefill",
    "ops_in_window": 28,
    "ops_per_pass": 28,
-   "device_kernel_time_ms": 17.765,
+   "device_kernel_time_ms": 17.793,
    "op_to_op_gap_ms": 0.014,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "matmul": 13.469,
-    "sdpa": 1.277,
-    "layout": 1.057,
-    "elementwise": 1.013,
-    "norm": 0.535,
-    "heads_and_cache": 0.414
+    "matmul": 13.467,
+    "sdpa": 1.28,
+    "layout": 1.065,
+    "elementwise": 1.016,
+    "norm": 0.543,
+    "heads_and_cache": 0.422
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-     "device_time_us": 6108.1
+     "device_time_us": 6103.5
     },
     {
      "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-     "device_time_us": 3305.4
+     "device_time_us": 3305.6
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
-     "device_time_us": 1599.0
+     "device_time_us": 1599.4
     },
     {
      "op": "SDPAOperation",
-     "device_time_us": 1276.9
+     "device_time_us": 1280.2
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
-     "device_time_us": 1238.0
+     "device_time_us": 1238.9
     }
    ],
    "artifacts": {
@@ -491,11 +491,11 @@
    "phase": "decode",
    "ops_in_window": 352,
    "ops_per_pass": 44,
-   "device_kernel_time_ms": 2.064,
+   "device_kernel_time_ms": 2.062,
    "op_to_op_gap_ms": 0.046,
    "periodicity_check": "352 ops over 8 replays = 44 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.806,
+    "matmul": 1.804,
     "sdpa": 0.105,
     "heads_and_cache": 0.048,
     "elementwise": 0.042,
@@ -505,19 +505,19 @@
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.8
+     "device_time_us": 868.2
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.5
+     "device_time_us": 867.9
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 868.0
+     "device_time_us": 867.9
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.4
+     "device_time_us": 867.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
@@ -539,37 +539,37 @@
    "phase": "decode_batch32",
    "ops_in_window": 344,
    "ops_per_pass": 43,
-   "device_kernel_time_ms": 2.912,
+   "device_kernel_time_ms": 2.911,
    "op_to_op_gap_ms": 0.036,
    "periodicity_check": "344 ops over 8 replays = 43 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.81,
+    "matmul": 1.809,
     "sdpa": 0.863,
     "heads_and_cache": 0.119,
     "layout": 0.048,
-    "elementwise": 0.042,
+    "elementwise": 0.043,
     "norm": 0.029
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.5
+     "device_time_us": 869.7
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.0
+     "device_time_us": 867.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.5
+     "device_time_us": 865.9
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.0
+     "device_time_us": 865.8
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 866.8
+     "device_time_us": 865.6
     }
    ],
    "artifacts": {
@@ -584,50 +584,50 @@
  },
  "speedup": {
   "linear_attention/prefill": {
-   "device_ms_before": 150.799,
-   "device_ms_after": 26.074,
-   "speedup_x": 5.784,
-   "reduction_pct": 82.71,
+   "device_ms_before": 151.173,
+   "device_ms_after": 26.031,
+   "speedup_x": 5.807,
+   "reduction_pct": 82.78,
    "ops_before": 801,
    "ops_after": 68
   },
   "linear_attention/decode": {
-   "device_ms_before": 3.043,
-   "device_ms_after": 2.344,
+   "device_ms_before": 3.045,
+   "device_ms_after": 2.346,
    "speedup_x": 1.298,
-   "reduction_pct": 22.97,
+   "reduction_pct": 22.96,
    "ops_before": 92,
-   "ops_after": 65
+   "ops_after": 66
   },
   "linear_attention/decode_batch32": {
-   "device_ms_before": 36.624,
-   "device_ms_after": 6.202,
-   "speedup_x": 5.905,
-   "reduction_pct": 83.07,
+   "device_ms_before": 36.618,
+   "device_ms_after": 6.163,
+   "speedup_x": 5.942,
+   "reduction_pct": 83.17,
    "ops_before": 93,
-   "ops_after": 68
+   "ops_after": 69
   },
   "full_attention/prefill": {
-   "device_ms_before": 18.621,
-   "device_ms_after": 17.765,
-   "speedup_x": 1.048,
-   "reduction_pct": 4.6,
+   "device_ms_before": 18.585,
+   "device_ms_after": 17.793,
+   "speedup_x": 1.045,
+   "reduction_pct": 4.26,
    "ops_before": 44,
    "ops_after": 28
   },
   "full_attention/decode": {
-   "device_ms_before": 2.271,
-   "device_ms_after": 2.064,
-   "speedup_x": 1.1,
-   "reduction_pct": 9.11,
+   "device_ms_before": 2.276,
+   "device_ms_after": 2.062,
+   "speedup_x": 1.104,
+   "reduction_pct": 9.4,
    "ops_before": 50,
    "ops_after": 44
   },
   "full_attention/decode_batch32": {
-   "device_ms_before": 3.066,
-   "device_ms_after": 2.912,
-   "speedup_x": 1.053,
-   "reduction_pct": 5.02,
+   "device_ms_before": 3.068,
+   "device_ms_after": 2.911,
+   "speedup_x": 1.054,
+   "reduction_pct": 5.12,
    "ops_before": 49,
    "ops_after": 43
   }

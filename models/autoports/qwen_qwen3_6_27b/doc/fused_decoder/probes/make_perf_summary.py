@@ -83,10 +83,10 @@ def _period(codes: list[str], replays: int) -> str:
 def main() -> None:
     summary = {
         "note": (
-            "Warmed measurements on one Blackhole chip (device 2 of a p300c board), batch 1, from "
+            "Warmed measurements on one Blackhole chip (device 2 of a p300c board), from "
             "Tracy device-profiler runs with the measured window delimited by signposts. Device time is "
             "the sum of the 'Device Time' column of the tt-perf-report --csv output, in MICROSECONDS, "
-            "divided by the replay count for decode. Decode is traced: capture once, then replay "
+            "divided by the replay count for decode. Prefill is batch 1; decode is measured at batch 1 and at the advertised max_batch of 32, which is a different graph rather than a wider tensor (see decode_batches). Decode is traced: capture once, then replay "
             "execute_trace 8x inside the window. 'functional' is tt/functional_decoder.py (the stage-1 "
             "baseline) and 'fused' is tt/fused_decoder.py, measured by the same script "
             "(probes/run_perf.sh) on the same machine against the same build, with --impl the only "

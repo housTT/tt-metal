@@ -158,10 +158,14 @@ _AB_STRIDE = 64
 #: regimes - 48 head problems at batch 1 and 1536 at the advertised ``max_batch`` - by
 #: ``doc/fused_decoder/probes/probe_decode_recurrence.py``; the tables are ``work_log.md``
 #: section 3.6.  The state read's 6x4 is the fastest measured at both.  The outer product's grids
-#: are within a stdev of each other at batch 1, so it takes the one that wins at batch 32, where
-#: the same op costs ten times as much.
+#: sit inside one stdev of each other at batch 1, so it takes the one that wins at batch 32,
+#: where the same op costs ten times as much.
+#:
+#: ``tests/test_fused_decoder_docs.py::test_selected_grids_are_the_measured_best`` re-derives
+#: both of these from the probe log and fails if a shipped grid is not within a stdev of the
+#: fastest measured one, at every regime measured - the claim above used to be a sentence.
 _RECURRENCE_READ_GRID = (6, 4)
-_RECURRENCE_OUTER_GRID = (6, 11)
+_RECURRENCE_OUTER_GRID = (2, 11)
 
 #: ``core_grid`` for the three matmuls this stage created whose N is a handful of tiles: the
 #: packed ``a``/``b`` projection (N = 4 tiles) and the two gated-norm constant matmuls (N = 2 and
@@ -295,11 +299,15 @@ class FusedDecoder(FunctionalDecoder):
         # packed ``[1, batch, K, conv_dim]`` state.  A decode step therefore reads each buffer
         # whole and the shift is a copy chain, rather than a slice out of a tile-height axis.
         #
-        # The inherited packed ``conv_state`` is **not** read by the fused decode: it is kept
-        # because ``_reset_linear_state`` reads its dtype, and :meth:`prepare_decode_state` still
-        # refills it, so it holds the post-prefill state and goes stale after the first decode
-        # step.  The per-user ``user_conv_state`` list - what the tests and later stages read -
-        # stays authoritative.
+        # The inherited packed ``conv_state`` is **not** read by the fused decode, and a decode
+        # step does not write it either, so between steps it holds whatever the last
+        # :meth:`prepare_decode_state` or :meth:`current_conv_state` put there.  That is a real
+        # divergence from the functional layer, which rewrites the packed buffer every step, so
+        # the tap buffers are laid out to make it recoverable: there is one buffer per *packed
+        # row*, K of them rather than the K - 1 the FIR reads, and :meth:`current_conv_state`
+        # folds them back into the packed buffer for any caller that wants it (a serving stage
+        # reading state mid-generation, or the state test).  The extra row costs one copy per
+        # step and one buffer per layer, both measured in the stage documents.
         self.conv_state_split: list = []
         if s.layer_type == LINEAR_ATTENTION:
             self.conv_state_split = [
@@ -309,7 +317,7 @@ class FusedDecoder(FunctionalDecoder):
                     layout=ttnn.TILE_LAYOUT,
                     device=self.mesh_device,
                 )
-                for _ in range(s.conv_kernel_size - 1)
+                for _ in range(s.conv_kernel_size)
             ]
 
     # ------------------------------------------------------------------ setup
@@ -700,7 +708,7 @@ class FusedDecoder(FunctionalDecoder):
         # happen in ROW_MAJOR, so the block is untilized once and the K-row result tilized once.
         # Doing them on TILE tensors instead makes every one of them its own untilize/tilize
         # sandwich, and leaves a tilize immediately undone by the next op - which is what
-        # ``tests/test_fused_decoder_docs.py::test_no_layout_round_trip_in_the_measured_prefill``
+        # ``tests/test_fused_decoder_docs.py::test_no_layout_round_trip_in_the_measured_pass``
         # reads out of the committed report.
         tile = ttnn.TILE_SIZE
         block_start = max(0, ((logical - k) // tile) * tile)
@@ -908,15 +916,19 @@ class FusedDecoder(FunctionalDecoder):
         # newest tap reads this token, and the shift is an in-place copy chain.
         acc = ttnn.multiply(mixed_qkv, taps[k_size - 1])
         for j in range(k_size - 1):
-            term = ttnn.multiply(self.conv_state_split[j], taps[j])
+            # Buffer ``j`` is packed row ``j``; the FIR's tap ``j`` reads the *previous* tokens,
+            # which are rows 1..K-1.  Row 0 is the token that falls out of the window this step,
+            # and it is kept only so :meth:`current_conv_state` can rebuild the packed state the
+            # functional layer maintains - see that method.
+            term = ttnn.multiply(self.conv_state_split[j + 1], taps[j])
             # SiLU folded into the last tap's add, as in the prefill FIR.
             merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == k_size - 2 else [])
             ttnn.deallocate(term)
             ttnn.deallocate(acc)
             acc = merged
-        for j in range(k_size - 2):
+        for j in range(k_size - 1):
             ttnn.copy(self.conv_state_split[j + 1], self.conv_state_split[j])
-        ttnn.copy(mixed_qkv, self.conv_state_split[k_size - 2])
+        ttnn.copy(mixed_qkv, self.conv_state_split[k_size - 1])
         ttnn.deallocate(mixed_qkv)
         conv_out = acc
 
@@ -1066,11 +1078,12 @@ class FusedDecoder(FunctionalDecoder):
             return
         super().prepare_decode_state()
         s = self.shapes
-        # conv_state is [1, batch, K, conv_dim] holding tokens t-K .. t-1; tap buffer j is the
-        # whole batch's token t-(K-1)+j, i.e. conv_state row j + 1.
+        # conv_state is [1, batch, K, conv_dim]; tap buffer j is the whole batch's row j of it.
+        # There is one buffer per packed row, not one per FIR tap, so the packed state the
+        # functional layer maintains stays derivable after a decode step - :meth:`current_conv_state`.
         for j, buffer in enumerate(self.conv_state_split):
             rows = [
-                ttnn.slice(self.user_conv_state[user], [0, 0, j + 1, 0], [1, 1, j + 2, s.conv_dim])
+                ttnn.slice(self.user_conv_state[user], [0, 0, j, 0], [1, 1, j + 1, s.conv_dim])
                 for user in range(self.max_batch)
             ]
             if len(rows) > 1:
@@ -1083,6 +1096,30 @@ class FusedDecoder(FunctionalDecoder):
             ttnn.copy(reshaped, buffer)
             _free(reshaped, merged)
             ttnn.deallocate(merged)
+
+    def current_conv_state(self):
+        """Fold the decode tap buffers back into the packed ``conv_state`` and return it.
+
+        The functional layer rewrites ``conv_state`` on every decode step; the fused layer keeps
+        the same state as ``max_batch``-wide per-row buffers instead, because a decode step then
+        reads whole buffers rather than slicing a tile-height axis (§3.11).  Anything that wants
+        the packed view - a serving stage inspecting state mid-generation, or
+        ``test_conv_state_after_decode_matches_reference`` - calls this, which is exact: buffer
+        ``j`` *is* packed row ``j``.
+
+        Host-visible work, so not callable inside a captured trace; call it between steps.
+        """
+        if self.shapes.layer_type != LINEAR_ATTENTION:
+            return None
+        s = self.shapes
+        rows = [ttnn.reshape(buffer, (1, self.max_batch, 1, s.conv_dim)) for buffer in self.conv_state_split]
+        packed = ttnn.concat(rows, dim=2)
+        for row, buffer in zip(rows, self.conv_state_split):
+            if row.buffer_address() != buffer.buffer_address():
+                ttnn.deallocate(row)
+        ttnn.copy(packed, self.conv_state)
+        ttnn.deallocate(packed)
+        return self.conv_state
 
     def released_tensors(self) -> list:
         """Every device tensor this layer owns, for the test harness to free."""

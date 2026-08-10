@@ -21,13 +21,19 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
     -v -s
 ```
 
-Result: **11 passed, 68 deselected** in 64.09 s. Selected tests:
+Result: **17 passed, 64 deselected** in 408.27 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
   test_alternate_page_block_size[32]
+  test_batched_users[32-full_attention]
+  test_batched_users[32-linear_attention]
+  test_conv_state_after_decode_matches_reference[1]
+  test_conv_state_after_decode_matches_reference[5]
   test_decode_pcc[2049-full_attention]
   test_decode_pcc[2049-linear_attention]
+  test_merged_unaries_are_not_dispatched[32-full_attention]
+  test_merged_unaries_are_not_dispatched[32-linear_attention]
   test_repeated_runs_stable[full_attention]
   test_repeated_runs_stable[linear_attention]
   test_traced_decode_batched[full_attention]
@@ -41,7 +47,7 @@ That is both layer kinds through paged prefill at 2049, paged decode, trace capt
 at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, and the two
 alternate page block sizes through prefill *and* decode. Run log: `../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (1987 lines, 14 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (11650 lines, 82 `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
 repo's 500 KB per-file commit limit; `kernel_elf_paths.txt` is under it and is committed
 verbatim. The `generated/inspector/` tree the run also emits is not stage evidence and
@@ -59,12 +65,12 @@ Line categories present, all normal watcher bookkeeping:
 
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
-    924 Device
-    374 k_ids:
-    330 k_ids:215|214|216|216|216
-    110 k_ids:1048|1047|
-     58 k_ids:1466|1465|1468|1468|1468
-     52 k_ids:1466|1465|1467|1467|1467
+   5412 Device
+   1640 k_ids:
+    555 k_ids:215|214|216|216|216
+    285 k_id[
+    220 k_ids:277|276|278|278|278
+    110 k_ids:1565|1564|
 ```
 
 `Dump` lines delimit the periodic watcher dumps; `Device` / `k_id` / `k_ids` lines are the
