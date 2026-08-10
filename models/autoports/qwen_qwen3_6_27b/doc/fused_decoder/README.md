@@ -42,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.925 ms | **25.718 ms** | **5.87x** | 801 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.041 ms | **2.354 ms** | **1.29x** | 92 | 67 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.639 ms | **5.163 ms** | **7.10x** | 93 | 70 |
-| `full_attention` | prefill, 2048 tokens | 18.641 ms | **17.793 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.073 ms** | **1.10x** | 50 | 50 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.075 ms | **2.870 ms** | **1.07x** | 49 | 49 |
+| `linear_attention` | prefill, 2048 tokens | 150.873 ms | **25.751 ms** | **5.86x** | 801 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.043 ms | **2.356 ms** | **1.29x** | 92 | 67 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.626 ms | **5.163 ms** | **7.09x** | 93 | 70 |
+| `full_attention` | prefill, 2048 tokens | 18.627 ms | **17.805 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.274 ms | **2.068 ms** | **1.10x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.068 ms | **2.862 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster, and none is larger; the stage contract is the first of those, not the second.
@@ -69,11 +69,11 @@ the `Device Time` column of the committed `tt-perf-report` CSVs.
 <!-- GENERATED:batch32_shares -->
 | pass | bucket | batch 1 | batch 32 | growth |
 |---|---|---|---|---|
-| `linear_attention` | `batched_matmul` | 0.060 ms (2.5 %) | 1.253 ms (24.3 %) | 20.9x |
-| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.787 ms (15.2 %) | 14.6x |
-| `linear_attention` | `elementwise` | 0.123 ms (5.2 %) | 0.239 ms (4.6 %) | 1.9x |
-| `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.946 ms (18.3 %) | 4.6x |
-| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.1 %) | 8.3x |
+| `linear_attention` | `batched_matmul` | 0.060 ms (2.5 %) | 1.254 ms (24.3 %) | 20.9x |
+| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.786 ms (15.2 %) | 14.6x |
+| `linear_attention` | `elementwise` | 0.123 ms (5.2 %) | 0.238 ms (4.6 %) | 1.9x |
+| `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.947 ms (18.3 %) | 4.6x |
+| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.2 %) | 8.3x |
 <!-- END GENERATED:batch32_shares -->
 
 ### Where the time goes now
@@ -90,8 +90,8 @@ carries all six measured passes rather than the four the stage first measured. T
 the same bytes — one token or thirty-two, a decode step reads every weight once — so the
 `matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
 instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
-buckets grow by an order of magnitude — the growth table above carries each one at both batches,
-read from the summary. Two different costs sit in there. The `state_update` bucket is bandwidth
+recurrence buckets grow with the batch while the weight-bound ones do not — the growth table
+above carries each one at both batches, with its multiple and its share, read from the summary. Two different costs sit in there. The `state_update` bucket is bandwidth
 against the carried state, which is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a
 step decays it, reads it and writes it back in one pass (§3.21). The `elementwise` and `layout`
 buckets are the per-head transients, which §3.24 moved to a dense layout for exactly this reason.
@@ -117,16 +117,16 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.475 ms | 1.883 ms | 1.907 ms | 13.469 ms | 1.808 ms | 1.810 ms |
-| `gated_delta_rule` | 2.772 ms | — | — | — | — | — |
-| `state_update` (the fused recurrent-state update, §3.21) | 0.754 ms | 0.054 ms | 0.787 ms | — | — | — |
-| `sdpa` | — | — | — | 1.279 ms | 0.104 ms | 0.864 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.253 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.782 ms | 0.207 ms | 0.946 ms | 1.069 ms | 0.044 ms | 0.056 ms |
-| `elementwise` | 2.560 ms | 0.123 ms | 0.239 ms | 1.015 ms | 0.046 ms | 0.045 ms |
-| `norm` | 0.376 ms | 0.027 ms | 0.031 ms | 0.536 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.426 ms | 0.045 ms | 0.066 ms |
-| **total** | **25.718 ms** | **2.354 ms** | **5.163 ms** | **17.793 ms** | **2.073 ms** | **2.870 ms** |
+| `matmul` (projections, MLP, gated-norm constants) | 14.475 ms | 1.885 ms | 1.906 ms | 13.473 ms | 1.803 ms | 1.803 ms |
+| `gated_delta_rule` | 2.774 ms | — | — | — | — | — |
+| `state_update` (the fused recurrent-state update, §3.21) | 0.750 ms | 0.054 ms | 0.786 ms | — | — | — |
+| `sdpa` | — | — | — | 1.282 ms | 0.104 ms | 0.864 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.254 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.814 ms | 0.207 ms | 0.947 ms | 1.070 ms | 0.044 ms | 0.056 ms |
+| `elementwise` | 2.559 ms | 0.123 ms | 0.238 ms | 1.015 ms | 0.046 ms | 0.045 ms |
+| `norm` | 0.379 ms | 0.027 ms | 0.031 ms | 0.543 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.422 ms | 0.045 ms | 0.066 ms |
+| **total** | **25.751 ms** | **2.356 ms** | **5.163 ms** | **17.805 ms** | **2.068 ms** | **2.862 ms** |
 
 Every op is classified: the `other` bucket is empty in all 12 measured passes.
 <!-- END GENERATED:breakdown -->
@@ -137,7 +137,9 @@ which the probe measures in isolation (`logs/probe_causal_conv.log`) and which `
 measures the alternative at 2x the cost), the MLP's two slices (§3.8 measures the alternative
 as clearly slower), the three `_split_qkv` slices and the rank-3 conversion of `beta`/`g` (§3.19
 measures moving that rank change and finds a tie). The batch-32 decode's `layout` bucket is the
-per-head rank changes at the two matmul boundaries: a `[1, batch * 48, 1, 128]` TILE tensor
+per-head rank changes around the recurrence — the two matmul boundaries, plus the flat-to-dense
+changes §3.24 introduced to keep the arithmetic between them off the padded layout: a
+`[1, batch * 48, 1, 128]` TILE tensor
 carries 31 padding rows for every real one. §3.24 moved everything that does not have to live in
 that layout out of it; what is left is the state's own format, which §6 records as a hand-off with
 its reason.

@@ -21,7 +21,7 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
     -v -s
 ```
 
-Result: **23 passed, 66 deselected** in 410.21 s. Selected tests:
+Result: **23 passed, 66 deselected** in 409.98 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
@@ -56,7 +56,7 @@ alternate page block sizes through prefill *and* decode, and the advertised-`max
 The selected tests are listed below, read from the run log rather than described. Run log:
 `../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (11939 lines, 84 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (11941 lines, 84 `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
 repo's 500 KB per-file commit limit, and so is `kernel_elf_paths.txt`. The
 `generated/inspector/` tree the run also emits is not stage evidence and is not committed.
@@ -74,9 +74,9 @@ Line categories present, all normal watcher bookkeeping:
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
    5544 Device
-   1787 k_ids:
-    550 k_ids:294|293|295|295|295
-    307 k_id[
+   1677 k_ids:
+    703 k_ids:294|293|295|295|295
+    303 k_id[
     220 k_ids:2451|2450|
     168 k_ids:3516|3515|3517|3517|3517
 ```

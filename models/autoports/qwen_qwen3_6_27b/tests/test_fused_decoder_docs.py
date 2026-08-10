@@ -754,6 +754,48 @@ def test_selected_grids_are_the_measured_best():
     assert tolerance_note  # the comparison actually ran
 
 
+#: Comparative phrases that state a measured *ratio* in words.  Nineteen review rounds retired
+#: every stale figure shape the gates can bind; this is the one left, because a wrong word is
+#: invisible to a numeric check - and four of them were wrong at once by round 19 (a bucket that
+#: "grew by an order of magnitude" had grown by less than two, a lever that "buys a few percent"
+#: measured slower).  The documents say what the generated tables say, or point at them.
+_UNBOUND_COMPARATIVES = (
+    "a few percent",
+    "well over half",
+    "about a sixth",
+    "about a fifth",
+    "at half the cost",
+    "an order of magnitude",
+    "orders of magnitude",
+    "nominally the faster",
+    "twice as fast",
+    "half as fast",
+)
+
+
+def test_no_unbound_comparatives_in_the_documents():
+    """The documents state measured ratios as numbers from a table, not as words.
+
+    ``test_prose_perf_figures_match_the_summary`` binds every figure that carries a unit; a ratio
+    written in words carries none, so it is the one figure shape no gate could see - and it is
+    where the last rounds' stale claims all lived.  The rule is mechanical: a sentence that wants
+    to state a ratio takes it from a generated block or points at one.
+    """
+    offenders = []
+    for path, text in _documents().items():
+        stripped = re.sub(r"<!-- GENERATED:\w+ -->.*?<!-- END GENERATED:\w+ -->", "", text, flags=re.DOTALL)
+        # §8 is the review log: its rows quote the wrong claims they record fixing, so a phrase
+        # there is a citation rather than an assertion.
+        stripped = re.split(r"\n## 8\. ", stripped)[0]
+        for phrase in _UNBOUND_COMPARATIVES:
+            for match in re.finditer(re.escape(phrase), stripped):
+                offenders.append(f"{path.name}:{stripped[: match.start()].count(chr(10)) + 1}: {phrase!r}")
+    assert not offenders, (
+        "these documents state a measured ratio in words; quote the generated table's figure or "
+        f"point at the table instead: {offenders}"
+    )
+
+
 def test_quoted_blockers_appear_in_a_committed_log():
     """Every exact blocker the documents quote is a string some committed log actually contains.
 
@@ -913,6 +955,12 @@ def test_probe_readme_covers_every_probe():
     assert (
         words.get(len(probes), "?") in opening
     ), f"probes/README.md opens with {opening!r}, which does not state the {len(probes)} probes present"
+    # A tooling row may spell its arguments (``run_perf.sh <kind> <phase> <impl>``), so match the
+    # opening backtick and the name rather than the exact token.
+    listed_tools = [name for name in tooling if f"`{name}" in readme]
+    assert sorted(listed_tools) == sorted(
+        tooling
+    ), f"probes/README.md's tooling table is missing {sorted(set(tooling) - set(listed_tools))}"
     assert (
         words.get(len(tooling), "?") in opening
     ), f"probes/README.md opens with {opening!r}, which does not state the {len(tooling)} tooling files present"

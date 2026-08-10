@@ -131,9 +131,10 @@ FUSED_DELTA_CHUNK = 32
 #: drift.  Its shape: sharding is several times faster than the interleaved norm, flat between 16
 #: and 20 cores - they are inside each other's run-to-run spread, which the probe now reports as a
 #: stdev column rather than asserting - and it rises from 32 upwards as the shard/unshard overhead
-#: starts to dominate.  20 is used; 16 is nominally the faster of the two and
-#: ``test_selected_constants_are_the_measured_best`` holds this one to the same
-#: within-the-combined-spread rule as every other shipped constant.
+#: starts to dominate.  20 is used, and which of 16 and 20 the log calls faster has changed
+#: between runs, which is the point: ``test_selected_constants_are_the_measured_best`` holds this
+#: one to the same within-the-combined-spread rule as every other shipped constant, rather than to
+#: a claim about which is nominally ahead.
 NORM_SHARD_CORES = 20
 
 #: Column stride of the packed ``b``/``a`` gate projection.  ``in_proj_b`` and ``in_proj_a`` are

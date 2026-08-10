@@ -1151,6 +1151,41 @@ def group_attn_matmul() -> str:
     return "\n".join(rows)
 
 
+def rejected_bf16_fir() -> str:
+    """The bfloat16 decode FIR's *failure*, from its own committed run, and why it compounds."""
+    run = (DOC / "logs" / "rejected_bf16_decode_fir.log").read_text(errors="replace")
+    failures = re.findall(r"AssertionError: ([^\n]*PCC ([\d.]+)[^\n]*)", run)
+    summary = re.findall(r"=+ (\d+) failed, (\d+) passed[^=]*=+", run)
+    if not failures or not summary:
+        raise SystemExit("rejected_bf16_decode_fir.log records no failure")
+    rows = ["| what | value |", "|---|---|"]
+    rows.append(f"| run | **{summary[-1][0]} failed**, {summary[-1][1]} passed |")
+    worst = min(float(value) for _, value in failures)
+    rows.append(f"| lowest PCC against HF | **{worst:.6f}** against a bar of 0.995 |")
+    rows.append(f"| first failure | `{failures[0][0][:110]}` |")
+
+    compounding = _probe("probe_fir_dtype_compounding")
+    per_step = {}
+    for match in re.finditer(r"fir_compounding dtype=(\w+) steps=(\d+) (.*)", compounding):
+        values = [float(value) for value in re.findall(r"s\d+=([\d.]+)", match.group(3))]
+        per_step[match.group(1)] = values
+    if per_step:
+        for dtype, values in per_step.items():
+            rows.append(
+                f"| carried state PCC after 1 / {len(values)} steps, {dtype} FIR | "
+                f"{values[0]:.6f} / {values[-1]:.6f} |"
+            )
+    rows.append("")
+    rows.append(
+        "The per-step probe is the mechanism and the run is the verdict: one step of the bfloat16 "
+        "FIR is accurate to five or six decimals, and the state it feeds carries that error "
+        "forward, monotonically. The suite is what sees the end of that - a batched traced decode "
+        "well below the bar - which is why this rewrite is rejected on correctness rather than on "
+        "the per-step figure."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -1180,6 +1215,7 @@ BLOCKS = {
     "conv_tap_addcmul": conv_tap_addcmul,
     "dense_recurrence": dense_recurrence,
     "decode_conv_dtype": decode_conv_dtype,
+    "rejected_bf16_fir": rejected_bf16_fir,
     "rope_half": rope_half,
     "rope_half_traced": rope_half_traced,
     "slow_rows": slow_rows,
