@@ -84,8 +84,12 @@ python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder
 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py \
     -k test_full_advertised_context --long-context -v -s
 
-# check every number and path in the stage documents against the artifact it cites
-# (--self-test additionally proves the checks are not vacuous)
+# check the stage documents against the artifacts they cite: every link and stage-artifact
+# path resolves; the record counts, PCC minimum and scale range agree with pcc_evidence.json
+# and context_contract.json; every perf figure re-derives from the tt-perf-report CSVs with
+# provably whole replays; every test count comes from the log it is attributed to; and every
+# PCC/scale/alpha/ms number in the prose is a committed artifact's number, rounded.
+# --self-test proves the checks are not vacuous by mutating copies and requiring rejection.
 python -m models.autoports.qwen_qwen3_6_27b.scripts.check_docs
 
 # collect every recorded number into pcc_evidence.json

@@ -327,6 +327,10 @@ usable.
 `logs/long_context.log`, prompt 262143 and decode at
 position 262143 against the HF reference:
 
+The earlier pass's numbers are extracted from that branch's own committed `pcc_evidence.json`
+into [`earlier_pass_reference.json`](earlier_pass_reference.json), with the commit and the
+extraction command, so this comparison quotes an artifact rather than a memory.
+
 | | earlier pass | this pass |
 |---|---|---|
 | `full_attention` decode @ 262143 | 0.550293 | **0.999201** |
@@ -790,9 +794,9 @@ from the logs. It found two things, and the first is the important one.
 **`scripts/check_docs.py` did not implement the check it advertised.** Its docstring claimed "one
 value per figure … the same value in all of them"; the function that was supposed to do it built
 a dictionary of figures and never read it, and nothing compared a derived number against the
-*prose* in `README.md` or `work_log.md` — only against other JSON. The reviewer proved it: with
-the work log's perf row changed from 151.24 to 251.24 ms **and** the README's headline PCC
-minimum changed from 0.998031 to 0.9995, the checker still printed five `ok` lines and exited 0.
+*prose* in `README.md` or `work_log.md` — only against other JSON. The reviewer proved it: with the
+work log's perf row and the README's headline PCC minimum both edited to wrong values, the
+checker still printed five `ok` lines and exited 0.
 A stage-owned check that overstates its own guarantee is the same defect class as round 1's false
 blast-radius claim, and it would have misled every later stage inheriting this tree.
 
@@ -832,3 +836,51 @@ and the contract, not against the logs (the reviewer re-derived that hop by hand
 reproduces element-for-element, and `collect_evidence` regenerating identically is the standing
 check); and the op-suite blast-radius control was run on the fixed build only, which is the right
 control for "breaks no existing caller".
+
+## 15. Ninth stage review — the checker now gates the class, and proves it
+
+The ninth review again re-derived the entire chain clean — raw Tracy CSV through
+`tt-perf-report` to the README rows, and the logs through `collect_evidence` to every cell of
+the correctness table — and found no wrong number anywhere in the stage. Its two findings were
+both about the checker's honesty and reach, and one was measured rather than argued: the
+reviewer ran a battery of 19 realistic drift mutations drawn from what rounds 1-8 actually
+found, and **18 of them passed**. The checker gated only the handful of figures it enumerated,
+while `README.md` described it as checking "every number".
+
+That is fixed by making it check the class, not a list. The new `check_quoted_numbers` takes
+every committed artifact — all the run logs, `pcc_evidence.json`, `perf_summary.json`, the
+`tt-perf-report` CSVs, `context_contract.json` — as the corpus, and requires **every decimal
+with three or more fraction digits in the prose** to be some artifact number, *rounded*: a
+quoted `1.310` is accepted because `1.30960` rounds to it at three places, `0.998031` because
+`0.9980307630901388` does at six. Anything invented or edited fails. Two exemptions, both
+narrow and both documented in the function: a row tagged *(earlier pass)* in `probes/README.md`,
+which that file already declares unbacked, and the earlier pass's own full-context numbers,
+which now have a committed artifact of their own (see below). The scale range and the watcher
+line census are pinned to their artifacts as well, closing the reviewer's specific finding that
+the docstring listed the scale range among the checked figures while the code never compared it.
+
+`--self-test` grew from five mutations to ten, covering the classes the reviewer used: a wrong
+perf row, a wrong PCC minimum, a wrong record count, a wrong scale range at either end, an
+edited cell of the README correctness table, an edited probe alpha, a wrong watcher census, one
+run's pass count attributed to another, and a dead link. All ten are rejected.
+
+Building it found two more live items, neither of which any amount of re-reading had produced:
+
+* §3.5's before/after table quoted the earlier pass's `0.550293` and `0.998817` with no artifact
+  behind them at all. Rather than delete the comparison — it is the clearest statement of what
+  this stage changed — those numbers now come from
+  [`earlier_pass_reference.json`](earlier_pass_reference.json), extracted from that branch's own
+  committed `pcc_evidence.json` with the commit and the extraction command recorded.
+* The self-test itself found a hole in the first draft of the corpus check: it matched only
+  numbers starting `0.` or `1.`, so an edited two-digit alpha sailed through. Widened to any
+  decimal with three or more fraction digits.
+
+The review's second finding is fixed too: `SDPA_MAX_K_CHUNKS`'s docstring attributed its whole
+alpha table to `logs/sdpa_long_sweep_v2.log`, which holds only the 131072- and 262144-key rows;
+the three 8192-key rows are in `logs/sdpa_fit_sweep_v2.log`. Both logs are now named.
+
+What the checker still does **not** cover, stated plainly rather than implied away: it reads the
+five stage documents, so numbers in test sources, in `tt/functional_decoder.py` docstrings and
+in `probes/README.md`'s untagged rows are outside it; and it cannot catch a *swap* of two
+numbers that both exist somewhere in the artifacts. `README.md`'s description of the command and
+the module docstring both say exactly this now.

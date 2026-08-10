@@ -107,9 +107,10 @@ SDPA_CHUNK = 256
 #: scale survives ``o_proj`` and the residual and does wreck the layer output.
 #:
 #: Measured on this checkout with synthetic Q/K/V
-#: (``doc/functional_decoder/probes/probe_sdpa_synthetic.py``,
-#: ``doc/functional_decoder/logs/sdpa_long_sweep_v2.log``), as ``alpha``, the ratio between the
-#: device output and a float32 torch attention on bit-identical inputs:
+#: (``doc/functional_decoder/probes/probe_sdpa_synthetic.py``) as ``alpha``, the ratio between
+#: the device output and a float32 torch attention on bit-identical inputs.  The 8192-key rows
+#: are in ``doc/functional_decoder/logs/sdpa_fit_sweep_v2.log`` and the 131072/262144-key rows
+#: in ``doc/functional_decoder/logs/sdpa_long_sweep_v2.log``:
 #:
 #:     k chunks | 262144 keys | 131072 keys | 8192 keys
 #:     16       | -           | -           | 1.0009

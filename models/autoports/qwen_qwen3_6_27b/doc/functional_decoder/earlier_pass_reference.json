@@ -1,0 +1,36 @@
+{
+ "purpose": "The earlier pass's full-context numbers, extracted from that branch's own committed pcc_evidence.json so the before/after comparison in work_log.md section 3.5 quotes a committed artifact rather than a remembered figure.",
+ "source_branch": "agentic-research/hous/qwen3.6-27b",
+ "source_commit": "d107eb0f09c02d4f9704e1176141cb2887a89c7a",
+ "source_file": "models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/pcc_evidence.json",
+ "extracted_with": "git show <commit>:<source_file> | jq '.records[] | select(.metric==\"full_context_prefill_tail_pcc\" or .metric==\"full_context_decode_pcc\")'",
+ "note": "These are NOT this stage's measurements and are not collected into this stage's pcc_evidence.json. They exist only so the regression/improvement claims in section 3.5 are checkable.",
+ "records": [
+  {
+   "kind": "full_attention",
+   "metric": "full_context_decode_pcc",
+   "position": 262143,
+   "value": 0.5502930168039635
+  },
+  {
+   "kind": "full_attention",
+   "metric": "full_context_prefill_tail_pcc",
+   "seq_len": 262143,
+   "tail": 256,
+   "value": 0.9988174880483344
+  },
+  {
+   "kind": "linear_attention",
+   "metric": "full_context_decode_pcc",
+   "position": 262143,
+   "value": 0.9999457623199233
+  },
+  {
+   "kind": "linear_attention",
+   "metric": "full_context_prefill_tail_pcc",
+   "seq_len": 262143,
+   "tail": 8192,
+   "value": 0.9999415288601052
+  }
+ ]
+}

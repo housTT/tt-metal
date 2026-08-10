@@ -179,9 +179,72 @@ def derive_test_counts(root: Path) -> dict:
     return counts
 
 
+def artifact_corpus(root: Path) -> str:
+    """Every committed artifact, concatenated, as the ground truth for quoted numbers."""
+    doc = root / "doc" / "functional_decoder"
+    parts = []
+    for path in sorted((doc / "logs").rglob("*.log")):
+        parts.append(path.read_text(errors="replace"))
+    for path in sorted(doc.glob("*.json")):
+        # earlier_pass_reference.json is included deliberately: work_log.md section 3.5 compares
+        # against the earlier pass, and those numbers need a committed artifact like any other.
+        parts.append(path.read_text(errors="replace"))
+    parts.append((root / "doc" / "context_contract.json").read_text(errors="replace"))
+    for path in sorted(doc.rglob("*_perf_report.csv")):
+        parts.append(path.read_text(errors="replace"))
+    watcher = doc / "watcher" / "generated" / "watcher" / "watcher.log"
+    if watcher.exists():
+        parts.append(f"lines={sum(1 for _ in watcher.open(errors='replace'))}")
+    return "\n".join(parts)
+
+
+def check_quoted_numbers(root: Path, corpus: str) -> None:
+    """No PCC/alpha/scale/millisecond number in the prose is invented.
+
+    Every decimal with three or more fraction digits - the shape every PCC, scale ratio,
+    device/golden alpha and millisecond figure in this stage takes - must be *some committed
+    artifact's number, rounded*.  The rounding is done properly rather than by prefix matching:
+    a quoted ``1.310`` is accepted because the artifact's ``1.30960`` rounds to it at three
+    decimals, and a quoted ``0.998031`` because ``0.9980307630901388`` does at six.
+
+    Two documented exemptions, both narrow:
+
+    * a line tagged ``*(earlier pass)*`` - ``probes/README.md`` marks the diagnostics whose
+      figures were measured on the earlier branch and says so explicitly in its own provenance
+      section;
+    * ``earlier_pass_reference.json``, which is *in* the corpus precisely so the before/after
+      comparison in section 3.5 is backed.
+
+    This does not catch a *swap* of two numbers that both exist in the artifacts; it does catch
+    an invented or edited one, which is every drift instance this stage's reviews produced.
+    """
+    corpus_numbers = [float(n) for n in re.findall(r"(?<![\d.])\d+\.\d+", corpus)]
+    invented = []
+    for path in documents(root):
+        text = path.read_text()
+        for match in re.finditer(r"(?<![\d.])(\d+\.\d{3,})", text):
+            quoted = match.group(1)
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            line = text[line_start : text.find("\n", match.end())]
+            if "(earlier pass)" in line:
+                continue
+            places = len(quoted.split(".")[1])
+            target = float(quoted)
+            if any(round(number, places) == target for number in corpus_numbers):
+                continue
+            invented.append(f"{path.name}: {quoted} is no artifact number rounded | {line.strip()[:90]}")
+    if invented:
+        raise Failure(
+            "numbers quoted in the prose with no artifact behind them:\n  " + "\n  ".join(sorted(set(invented)))
+        )
+    print("ok   every PCC/scale/alpha/ms number in the prose is a committed artifact's number, rounded")
+
+
 def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
     """Every occurrence of a derived figure in the prose carries the derived value."""
     problems = []
+    watcher_log = root / "doc" / "functional_decoder" / "watcher" / "generated" / "watcher" / "watcher.log"
+    watcher_lines = sum(1 for _ in watcher_log.open(errors="replace"))
     for path in documents(root):
         text = path.read_text()
         name = path.name
@@ -200,6 +263,7 @@ def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
             (r"(\d+) records\s*[(:,]", "records"),
             (r"(\d+) PCC records?", "pcc_records"),
             (r"(\d+) scale records?", "scale_records"),
+            (r"(\d+) (?:full-context )?scale ratios", "scale_records"),
         ):
             for match in re.finditer(pattern, text):
                 if int(match.group(1)) != evidence[key]:
@@ -220,6 +284,21 @@ def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
                 problems.append(
                     f"{name}: {kind}/{phase} row says {milliseconds} ms, CSV says {want['device_kernel_time_ms']}"
                 )
+
+        # -- scale range, written "0.99493 to 0.99853" or "0.99493-0.99853". Only on lines that
+        #    are actually about the scale ratios, so a narrative "changed X to Y" is not a match.
+        low, high = evidence["scale_range"]
+        scale_lines = "\n".join(l for l in text.splitlines() if "scale" in l.lower())
+        for match in re.finditer(r"([01]\.\d{4,})\s*(?:to|-|–)\s*([01]\.\d{4,})", scale_lines):
+            quoted_low, quoted_high = float(match.group(1)), float(match.group(2))
+            if abs(quoted_low - low) > 5e-6 or abs(quoted_high - high) > 5e-6:
+                problems.append(f"{name}: quotes scale range {match.group(0)}, evidence says {low:.5f}-{high:.5f}")
+
+        # -- watcher line census, written "in 1712" or "(1712 lines"
+        for match in re.finditer(r"(?:in|\()\s*(\d{3,})\s*lines|lines in (\d{3,})", text):
+            quoted = int(next(g for g in match.groups() if g))
+            if quoted != watcher_lines:
+                problems.append(f"{name}: quotes {quoted} watcher lines, the log has {watcher_lines}")
 
         # -- "<n> passed" must be a count some run log produced, and the sentence carrying it
         #    must name the right run.
@@ -245,6 +324,7 @@ def run(root: Path) -> None:
     evidence = derive_evidence(root)
     perf = derive_perf(root)
     counts = derive_test_counts(root)
+    check_quoted_numbers(root, artifact_corpus(root))
     check_prose(root, evidence, perf, counts)
 
 
@@ -261,6 +341,23 @@ def self_test() -> int:
             "the suite's count attributed to watcher",
         ),
         ("README.md", lambda s: s.replace("](work_log.md)", "](work_log_missing.md)", 1), "a dead link"),
+        ("README.md", lambda s: s.replace("(0.99493\n", "(0.88888\n", 1), "a wrong scale-range low end"),
+        (
+            "work_log.md",
+            lambda s: s.replace("0.99493-0.99853", "0.88888-0.77777", 1),
+            "a wrong scale range in the work log",
+        ),
+        (
+            "README.md",
+            lambda s: s.replace("min 0.999913", "min 0.888888", 1),
+            "an edited cell of the README correctness table",
+        ),
+        (
+            "work_log.md",
+            lambda s: s.replace("12.659 | **37.659**", "12.659 | **99.999**", 1),
+            "an edited probe alpha in the work log",
+        ),
+        ("README.md", lambda s: s.replace("in 1712", "in 9999", 1), "a wrong watcher line census"),
     ]
     failures = []
     for filename, mutate, description in mutations:
