@@ -417,7 +417,8 @@ before and after does not reach the modified branch at this layer's shape.
 Fixed by making the promotion strictly opt-in — the caller must set
 `max_cores_per_head_batch == 1` by name — and by replacing the claim in `README.md`,
 `work_log.md` §3.3 and `doc/context_contract.json` with three measured checks (repo-wide grep,
-the unchanged 16-core row, and tt-metal's own `sdpa_decode` op suites at 21 passed / 1 skipped).
+the unchanged 16-core row, and the tt-metal op suites that reach the modified factory - widened
+in round 6 to four files, 30 passed / 1 skipped).
 See §3.3.
 
 ### 6.2 P2 — the C++ change's necessity was never measured at the shipped config
@@ -571,7 +572,7 @@ documentation accuracy in stage-owned files, and all fixed:
   spells the breakdown out (268 = 260 PCC + 4 scale + 4 booleans), with the scale range and
   tolerance alongside. The runner guardrail does not check these fields, so nothing but a reader
   would have caught it.
-* **`README.md` still cited `logs/long_context_stock_control.log`** after the round-2 fix moved
+* **`README.md` still cited `logs/controls/long_context_stock_control.log`** after the round-2 fix moved
   it to `logs/controls/`. That is the citation for the single most load-bearing claim in the
   stage — that the tt-metal change is necessary rather than precautionary — so a dead link there
   matters more than most. Fixed, and a path-resolution sweep over every link and backticked
@@ -667,7 +668,7 @@ grepped back out of the file before being written up:
   loop that checks the property that actually matters — that every commit in the range touches
   only this model directory plus the one `.cpp`.
 * **The op-suite blast-radius claim is scoped precisely**: the two non-nightly `sdpa_decode` op
-  files, 22 collected, 21 passed / 1 skipped, with a note that the larger nightly file was not
+  files only, with a note that the larger nightly file was not
   run and cannot reach the new branch (its cases omit `program_config`).
 * §5's two timings are now taken from the logs they cite (07:40 and 06:25).
 
@@ -682,9 +683,18 @@ returned three scope/attribution findings, all fixed:
   stock-kernel decode (0.9779 PCC but a 1.29x attention scale) at the op level" — pairing a
   layer-level PCC with an op-level alpha, and re-asserting the framing §11 had just corrected.
   §11 said each edit was "grepped back out of the file", and that is exactly the flaw: the check
-  was per-file. It is now repo-wide. `grep -rn '1\.29\|0\.9779\|0\.977'` over the model directory
-  and the `.cpp` returns 19 hits, every one of which is either the correction itself or a
-  properly attributed op-level/layer-level statement.
+  was per-file. It is now repo-wide. The exact check, and its result at the time of writing:
+
+  ```bash
+  grep -rn '1\.29\|0\.9779\|0\.977' models/autoports/qwen_qwen3_6_27b \
+       --include='*.py' --include='*.md' --include='*.json' \
+       ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_program_factory.cpp
+  ```
+
+  22 hits, each one either the correction itself or a correctly attributed op-level /
+  layer-level statement. The `--include` filters matter: without them the same pattern also
+  matches numeric coincidences in the Tracy CSVs (`21.29`, `1.292`) and a log timestamp, which
+  is what made an earlier revision of this paragraph quote a number nobody could reproduce.
 * **The blast-radius op-suite claim said "the two non-nightly `sdpa_decode` op files" as though
   that were the complete set.** It is not: `test_bounded_sliding_kv_cache.py` calls
   `paged_scaled_dot_product_attention_decode`, and `test_mla_decode.py` calls
@@ -711,3 +721,52 @@ The reviewer also noted that `pcc_evidence.json` was not re-emitted by the previ
 though the logs it derives from were re-run. That is because re-running the collector against
 the final logs produces a byte-identical file, which is the intended property; it has been
 re-run again here and is again identical.
+
+## 13. Seventh stage review — and closing the class instead of the instance
+
+The seventh review again re-derived every headline number clean and again found three
+single-place stragglers of multi-place corrections: `README.md`'s capability table still said
+"24 non-64-divisible batch-32 prompts" while its own sequence-length table two sections later
+said 31; `doc/context_contract.json`'s `blast_radius` still carried the round-5 op-suite scope
+("21 passed") that round 6 had superseded; and §12 quoted a grep count nobody could reproduce
+because the command it described had no `--include` filters.
+
+All three are fixed. But seven rounds have now produced findings in exactly this class, and the
+last three reviews each ended with the same Hard-Check Gap: *nothing mechanically ties a number
+in these documents back to the artifact it cites*. So this round adds the check rather than only
+the fix — `scripts/check_docs.py`:
+
+```bash
+python -m models.autoports.qwen_qwen3_6_27b.scripts.check_docs
+```
+
+```
+ok   every link and artifact path in 5 documents resolves
+ok   268 records (260 PCC, 4 scale), min PCC 0.998031, 0 below the bar; context_contract.json agrees
+ok   4 perf measurements re-derived from their tt-perf-report CSVs
+ok   test counts in the documents match their run logs: suite_main=57, long_context=2, watcher_run=9, ttnn_sdpa_decode_op_tests=30
+ok   every '<n> passed' figure in the documents is produced by a committed run log
+
+all document checks passed
+```
+
+It re-derives the record counts, the PCC minimum and the scale range from `pcc_evidence.json`
+and asserts `context_contract.json`'s acceptance block matches; re-derives every perf number by
+summing the `Device Time` column of the `tt-perf-report` CSVs and re-checks the replay
+periodicity; re-derives the test counts from the run logs; and asserts that every markdown link
+and backticked artifact path resolves.
+
+It earned its keep immediately: on its first run it found a **fourth** straggler this round had
+missed — §10 still citing `logs/long_context_stock_control.log` at its pre-move path — and then
+a fifth, the superseded "21 passed" surviving in §12's own narrative. Neither would have been
+caught by re-reading. Both are fixed, and the checker is green.
+
+Two smaller items from the same review: the gzip rationale claimed the raw Tracy ops CSVs are
+"0.9-3.2 MB" when one of the four is 0.18 MB and under the commit limit (it is gzipped only so
+all four artifacts have the same shape), and the "two `sdpa_decode`-named files" phrase now
+names them. One item is recorded rather than changed: the four Tracy runs and the watcher run
+predate the last revert/restore cycle by about an hour. The sources they exercised are identical
+— that cycle only reverted and restored the same `.cpp` — and §11's re-run claim was already
+scoped to the suite and the long-context pair, but the perf and watcher artifacts are from the
+earlier build of identical source, and that is worth saying plainly rather than leaving to
+timestamp archaeology.

@@ -176,9 +176,10 @@ decode (B x KV heads >= the core grid) — an earlier revision of this stage gat
 value and a stage review correctly rejected it. Blast radius is measured three ways: no caller
 outside this autoport passes `1` (repo-wide grep), the `max_cores_per_head_batch = 16` probe row
 is digit-for-digit identical before and after, and every non-nightly unit-test file under
-`tests/ttnn/unit_tests/operations/sdpa/` that reaches this program factory - the two
-`sdpa_decode`-named files plus `test_bounded_sliding_kv_cache.py` and `test_mla_decode.py`,
-31 collected - is **30 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`).
+`tests/ttnn/unit_tests/operations/sdpa/` that reaches this program factory -
+`test_sdpa_decode.py`, `test_paged_sdpa_decode_flexible_geometry.py`,
+`test_bounded_sliding_kv_cache.py` and `test_mla_decode.py`, 31 collected - is
+**30 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`).
 
 The fix is also load-bearing rather than precautionary, shown by a stock-main control: with the
 `.cpp` change reverted and everything else identical, `full_context_decode_pcc` at position
@@ -195,7 +196,7 @@ the change touches decode and only decode.
 | Advertised context 262144 supported, not reduced | `test_full_advertised_context` prefills 262143 and decodes at 262143 for both kinds, against a real HF reference; all four PCCs >= 0.998031 | The reference is built segmentally (`linear_attention`) or by projection-only cache fill validated `torch.equal` against a real short prefill (`full_attention`); a whole-prompt HF forward is impossible at this length. |
 | Paged KV cache correct under a non-trivial page table | Page tables are a shuffled permutation of all `batch * blocks_per_user` blocks; `test_linear_state_and_kv_cache_match_reference` un-pages the device cache and compares it against HF's own cache object (K 0.999989, V 0.999993) | Cache compare is at one length (2049) and batch 1; batched addressing covered indirectly by `test_batched_users[32]` and directly at full context. |
 | Page/block geometry is a parameter | `test_alternate_page_block_size` at 32 and 128 | Three block sizes tested. |
-| Non-aligned logical lengths work on the public API | 1, 17, 128, 2049, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 24 non-64-divisible batch-32 prompts | — |
+| Non-aligned logical lengths work on the public API | 1, 17, 128, 2049, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts (`64 + 97*u`, `gcd(97, 64) = 1`) | — |
 | Decode is traceable and correct from replay | `test_traced_decode_pcc` and `test_traced_decode_batched` compare **replay** output against HF (min 0.999434) | Trace captured at batch 1 and 4, not 32. |
 | Batch > 1 works | batch 4 and 32, unequal prompts, per-user page tables and current positions | Batch 32 tested at `max_seq_len` 8192, not 262144 — 32 x 1.07 GB of KV cache exceeds the 31 GiB measured. A batch x context product limit, not a context reduction. |
 | Real checkpoint weights load and pass | `test_real_weights`, prefill 0.999969 / 0.999964, decode 0.999990 / 0.999988 | One layer per kind, one length. |
@@ -302,9 +303,11 @@ referred to below, and it is why the column and the prose disagree.
 
 Artifacts, per layer kind, under [`tracy/`](tracy/):
 
-* `<phase>_ops.csv.gz` — the post-processed Tracy ops CSV, copied verbatim and gzipped
-  (the raw CSVs are 0.9–3.2 MB, over this repo's 500 KB commit limit; they are left
-  uncompressed next to it in a live run tree and are gitignored)
+* `<phase>_ops.csv.gz` — the post-processed Tracy ops CSV, copied verbatim and gzipped.
+  Three of the four raw CSVs (0.95, 3.03 and 3.28 MB) exceed this repo's 500 KB commit limit;
+  `full_attention/prefill_ops.csv` at 0.18 MB does not, and is gzipped only so all four
+  artifacts have the same shape. The uncompressed CSVs stay next to them in a live run tree and
+  are gitignored (`*.csv`), so a `run_perf.sh` re-run does not show up in `git status`
 * `<phase>_ops.csv.provenance` — source path and copy timestamp
 * `<phase>_perf_report.txt` — the human-readable `tt-perf-report` table
 * `<phase>_perf_report.csv` — the same data as CSV
