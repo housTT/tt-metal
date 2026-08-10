@@ -154,18 +154,29 @@ _AB_STRIDE = 64
 #: distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
 #: state read and rejected: its contract ties the batch dim to the number of users
 #: ("Num of users must match!"), which here is ``batch * num_v_heads``, not ``batch``.
-#: ``core_grid`` for the two recurrence matmuls.  Swept over thirteen grids at **both** decode
+#: ``core_grid`` for the two recurrence matmuls.  Swept over eighteen grids at **both** decode
 #: regimes - 48 head problems at batch 1 and 1536 at the advertised ``max_batch`` - by
 #: ``doc/fused_decoder/probes/probe_decode_recurrence.py``; the tables are ``work_log.md``
-#: section 3.6.  The state read's 6x4 is the fastest measured at both.  The outer product's grids
-#: sit inside one stdev of each other at batch 1, so it takes the one that wins at batch 32,
-#: where the same op costs ten times as much.
+#: section 3.6.  Both grids are the fastest measured at 1536 head problems and inside the
+#: run-to-run spread of the fastest at 48, which is the rule the whole stage uses when a lever
+#: is a tie in one regime and decisive in the other.  The sweep runs to the edge of this
+#: device's grid in both axes: a stage review pointed out that the previous tuple stopped at
+#: ``y = 6`` while the trend was still improving, and widening it moved the state read.
 #:
 #: ``tests/test_fused_decoder_docs.py::test_selected_grids_are_the_measured_best`` re-derives
 #: both of these from the probe log and fails if a shipped grid is not within a stdev of the
 #: fastest measured one, at every regime measured - the claim above used to be a sentence.
-_RECURRENCE_READ_GRID = (6, 4)
+#:
+#: The state read is the one lever where no single grid wins at both regimes once the sweep runs
+#: to the edge of the device grid: ``6x4`` is fastest at 48 head problems and ``10x4`` at 1536,
+#: each distinguishably faster than the other in its own regime.  So it is keyed by regime, the
+#: way the small-N matmul grids are keyed by phase, and :meth:`FusedDecoder.__init__` picks by
+#: this layer's own head-problem count.  The outer product has one grid that holds at both.
+_RECURRENCE_READ_GRID = {"small": (6, 4), "large": (10, 4)}
 _RECURRENCE_OUTER_GRID = (2, 11)
+#: Head problems (``max_batch * num_v_heads``) at and above which the *large* recurrence-read grid
+#: is used.  1536 is the count the probe's second regime measures, i.e. ``max_batch`` 32.
+_RECURRENCE_LARGE_HEADS = 1536
 
 #: ``core_grid`` for the three matmuls this stage created whose N is a handful of tiles: the
 #: packed ``a``/``b`` projection (N = 4 tiles) and the two gated-norm constant matmuls (N = 2 and
@@ -188,9 +199,13 @@ _GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
 #: reshape form's two tile relayouts grow with it.  Measured at the real decode shapes over five
 #: batch sizes by ``doc/fused_decoder/probes/probe_gated_norm_batch.py``; the table is
 #: ``work_log.md`` section 3.17, generated from that probe's log so the two cannot drift.  The
-#: two forms cross between 16 and 32, and their outputs agree to PCC 0.99999 or better at every
-#: batch measured.
-_GATED_NORM_GROUP_BATCH = 32
+#: two forms cross between **8 and 16** - at 16 the group form is already no slower than the
+#: reshape one, within the run-to-run spread, and from there it pulls away - so the threshold is
+#: 16 rather than the advertised batch.  A stage review pointed out that pinning it at 32 left
+#: every ``max_batch`` in 17..31 taking the form the probe's own trend says is slower.  Their
+#: outputs agree to PCC 0.99999 or better at every batch measured, and
+#: ``test_batched_users[16-linear_attention]`` covers the boundary.
+_GATED_NORM_GROUP_BATCH = 16
 
 #: Epsilon of the GatedDeltaNet Q/K L2 norm, matching HF's ``l2norm(x, dim=-1, eps=1e-6)`` and
 #: the functional layer's ``FunctionalDecoder._l2norm``.
@@ -276,10 +291,11 @@ class FusedDecoder(FunctionalDecoder):
             block_w=block_w,
             inplace=False,
         )
-        # Recurrence matmul grids, clamped to whatever grid this device actually has.
-        self.recurrence_read_grid = ttnn.CoreGrid(
-            y=min(_RECURRENCE_READ_GRID[0], grid.y), x=min(_RECURRENCE_READ_GRID[1], grid.x)
-        )
+        # Recurrence matmul grids, clamped to whatever grid this device actually has.  The read
+        # grid is chosen by this layer's head-problem count, which is the axis the sweep varies.
+        read_regime = "large" if self.max_batch * s.num_v_heads >= _RECURRENCE_LARGE_HEADS else "small"
+        read_spec = _RECURRENCE_READ_GRID[read_regime]
+        self.recurrence_read_grid = ttnn.CoreGrid(y=min(read_spec[0], grid.y), x=min(read_spec[1], grid.x))
         self.recurrence_outer_grid = ttnn.CoreGrid(
             y=min(_RECURRENCE_OUTER_GRID[0], grid.y), x=min(_RECURRENCE_OUTER_GRID[1], grid.x)
         )

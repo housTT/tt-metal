@@ -109,7 +109,7 @@ def test_decode_pcc(mesh_device, layer_idx, seq_len):
 
 @pytest.mark.timeout(0)
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-@pytest.mark.parametrize("batch", [4, 32])
+@pytest.mark.parametrize("batch", [4, 16, 32])
 def test_batched_users(mesh_device, layer_idx, batch):
     """Per-user page tables, cache slots and current positions with unequal prompt lengths."""
     seq_lens = [64 + 97 * u for u in range(batch)]

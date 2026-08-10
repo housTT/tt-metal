@@ -17,6 +17,8 @@ Variants compared (all produce the same FIR + SiLU, all checked against torch):
 ``rm_concat``   *also* concatenate in ROW_MAJOR, and fold the SiLU into the last tap's add - shipped
 ``rm_arith``    untilize once, keep the whole FIR in ROW_MAJOR, tilize once
 ``aligned_win`` one pre-padded window per tap so every tap slice starts on a tile boundary
+``scale_shift`` scale on the TILE tensor first, then untilize once per tap and shift-and-add in
+                ROW_MAJOR - the only ordering that moves the per-tap tilize off the critical path
 
 Each runs in float32 and in bfloat16; every result is checked against torch *and* against the
 first variant's, so "the formulations agree" is a measurement.  A final microbenchmark isolates
@@ -202,6 +204,41 @@ def main() -> None:
                 ttnn.deallocate(acc)
                 return out
 
+            def scale_then_shift_variant():
+                """Scale first on the TILE tensor, *then* untilize and shift-and-add in ROW_MAJOR.
+
+                Every other formulation shifts first and multiplies per tap, so each tap pays a
+                ``slice`` + ``tilize`` of a full-size window before its multiply - in the committed
+                prefill report those pairs are the largest ``layout`` group of the pass.  Scaling
+                first replaces them with ``K`` height-broadcast multiplies on the TILE tensor and
+                one untilize per tap, at the cost of ``K`` full-size scaled copies existing at once
+                and the accumulation happening in ROW_MAJOR.
+                """
+                windows = []
+                for tap in tt_taps:
+                    body = ttnn.multiply(tx, tap)
+                    prefix = ttnn.multiply(tp, tap)
+                    pieces = [ttnn.to_layout(t, ttnn.ROW_MAJOR_LAYOUT) for t in (prefix, body)]
+                    ttnn.deallocate(body)
+                    ttnn.deallocate(prefix)
+                    windows.append(ttnn.concat(pieces, dim=-2))
+                    for piece in pieces:
+                        ttnn.deallocate(piece)
+                acc = None
+                for j in range(K):
+                    term = ttnn.slice(windows[j], [0, 0, j, 0], [1, 1, j + SEQ, CONV_DIM])
+                    ttnn.deallocate(windows[j])
+                    if acc is None:
+                        acc = term
+                        continue
+                    merged = ttnn.add(acc, term)
+                    ttnn.deallocate(term)
+                    ttnn.deallocate(acc)
+                    acc = merged
+                out = ttnn.to_layout(ttnn.silu(acc), ttnn.TILE_LAYOUT)
+                ttnn.deallocate(acc)
+                return out
+
             first = None
             for name, fn in (
                 ("tile", tile_variant),
@@ -209,6 +246,7 @@ def main() -> None:
                 ("rm_concat", rm_concat_variant),
                 ("rm_arith", rm_arith_variant),
                 ("aligned_win", aligned_windows_variant),
+                ("scale_shift", scale_then_shift_variant),
             ):
                 (best, median, stdev), got = timed(fn, device)
                 if first is None:

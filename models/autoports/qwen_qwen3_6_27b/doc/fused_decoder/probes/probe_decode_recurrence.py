@@ -85,7 +85,7 @@ def _sweep(device, grid, cfg, HEADS: int) -> None:
             f"read heads={HEADS}  default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
             flush=True,
         )
-        for gy in (1, 2, 4, 6):
+        for gy in (1, 2, 4, 6, 8, 10):
             for gx in (4, 8, 11):
                 try:
                     (ms, sd), got = bench(
@@ -136,7 +136,7 @@ def _sweep(device, grid, cfg, HEADS: int) -> None:
             f"outer heads={HEADS} transpose_a default   median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
             flush=True,
         )
-        for gy in (1, 2, 4, 6):
+        for gy in (1, 2, 4, 6, 8, 10):
             for gx in (4, 8, 11):
                 try:
                     (ms, sd), got = bench(
@@ -167,7 +167,7 @@ def _sweep(device, grid, cfg, HEADS: int) -> None:
             f"outer heads={HEADS} default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
             flush=True,
         )
-        for gy in (1, 2, 4, 6):
+        for gy in (1, 2, 4, 6, 8, 10):
             for gx in (4, 8, 11):
                 try:
                     (ms, sd), got = bench(

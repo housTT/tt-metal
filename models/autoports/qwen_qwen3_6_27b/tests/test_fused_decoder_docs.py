@@ -542,11 +542,11 @@ def _shipped_grids() -> dict[str, tuple[int, int] | None]:
     """
     source = (ROOT / "tt" / "fused_decoder.py").read_text()
     grids: dict[str, tuple[int, int] | None] = {}
-    for name in ("_RECURRENCE_READ_GRID", "_RECURRENCE_OUTER_GRID"):
+    for name in ("_RECURRENCE_OUTER_GRID",):
         match = re.search(rf"^{name} = \((\d+), (\d+)\)$", source, re.MULTILINE)
         assert match, f"{name} is not a (y, x) literal in tt/fused_decoder.py"
         grids[name] = (int(match.group(1)), int(match.group(2)))
-    for name in ("_AB_MATMUL_GRID", "_GROUP_SUM_GRID", "_GROUP_EXPAND_GRID"):
+    for name in ("_AB_MATMUL_GRID", "_GROUP_SUM_GRID", "_GROUP_EXPAND_GRID", "_RECURRENCE_READ_GRID"):
         match = re.search(rf"^{name} = \{{(.+?)\}}$", source, re.MULTILINE)
         assert match, f"{name} is not a one-line dict literal in tt/fused_decoder.py"
         for phase, value in re.findall(r'"(\w+)": (\(\d+, \d+\)|None)', match.group(1)):
@@ -574,7 +574,7 @@ def test_selected_grids_are_the_measured_best():
         median, stdev = rows[grid]
         tolerance_note.append(f"{label}: shipped {grid} {median:.1f} us, best {best} {best_median:.1f} us")
         # Tolerance is the two spreads added: "the shipped grid is not distinguishably slower
-        # than the fastest one".  Tighter than that and a 40 us op's run-to-run noise fails the
+        # than the fastest one".  Tighter than that and a small op's run-to-run noise fails the
         # gate; looser and the 6.3 %, ~2.3-stdev miss a stage review found would pass it.
         assert median <= best_median + best_stdev + stdev, (
             f"{label}: the shipped grid {grid} measures {median:.1f} +- {stdev:.1f} us, and {best} "
@@ -582,8 +582,10 @@ def test_selected_grids_are_the_measured_best():
         )
 
     recurrence = (DOC / "logs" / "probe_decode_recurrence.log").read_text(errors="replace")
-    for heads in (48, 48 * 32):
-        for name, prefix in (("_RECURRENCE_READ_GRID", "read"), ("_RECURRENCE_OUTER_GRID", "outer")):
+    # The state-read grid is keyed by regime because no single grid wins at both; the outer
+    # product's one grid is checked at both.
+    for heads, regime in ((48, "small"), (48 * 32, "large")):
+        for name, prefix in ((f"_RECURRENCE_READ_GRID[{regime}]", "read"), ("_RECURRENCE_OUTER_GRID", "outer")):
             token = "transpose_a " if prefix == "outer" else ""
             rows = {}
             for grid_y, grid_x, median, stdev in re.findall(
@@ -593,6 +595,10 @@ def test_selected_grids_are_the_measured_best():
                 rows[(int(grid_y), int(grid_x))] = (float(median), float(stdev))
             assert rows, f"probe_decode_recurrence.log has no {prefix} sweep at {heads} heads"
             check(f"{name} at {heads} heads", shipped[name], rows)
+    # And the regime split itself is a claim about the code: the constant must be a two-entry dict.
+    assert {"_RECURRENCE_READ_GRID[small]", "_RECURRENCE_READ_GRID[large]"} <= set(
+        shipped
+    ), "the state-read grid is no longer keyed by regime; this test's regime mapping is stale"
 
     # The three small-N matmul grids, from probe_matmul_bound.log.  ``None`` means the default
     # program factory won, which the log records as its own row.
@@ -726,14 +732,23 @@ def test_watcher_audit_matches_its_artifacts():
 
 
 def test_readme_watcher_claims_match_the_audit():
-    """Any watcher count the README quotes is the generated audit's, not an earlier run's."""
+    """Any watcher count the README quotes is the generated audit's, not an earlier run's.
+
+    The three-or-more-digits floor this used to carry made a two-digit pass count unfailable, and
+    a stage review found the README still quoting the pre-round-8 count of 11 against a 21-test
+    run.  Every integer on a line that names the audit is checked now, and the counts themselves
+    are a generated block rather than prose.
+    """
     audit = (DOC / "watcher" / "WATCHER_AUDIT.md").read_text()
-    readme = (DOC / "README.md").read_text()
-    for line in readme.splitlines():
-        if "WATCHER_AUDIT" not in line:
-            continue
-        for number in re.findall(r"(?<![\w.])(\d{3,})(?![\w])", line):
-            assert number in audit, f"README quotes {number} next to the watcher audit; the audit does not"
+    documents = {"README.md": (DOC / "README.md").read_text(), "work_log.md": (DOC / "work_log.md").read_text()}
+    for name, text in documents.items():
+        for line in text.splitlines():
+            if "WATCHER_AUDIT" not in line and "watcher/WATCHER_AUDIT.md" not in line:
+                continue
+            for number in re.findall(r"(?<![\w.])(\d+)(?![\w])", line):
+                assert (
+                    number in audit
+                ), f"{name} quotes {number} on a line naming the watcher audit; the audit does not state it"
 
 
 def test_generated_blocks_are_current():

@@ -41,7 +41,7 @@ def _grep(name: str, pattern: str, group: int = 1) -> str:
     return match.group(group)
 
 
-def _shipped_grid(name: str) -> str:
+def _shipped_grid(name: str, key: str | None = None) -> str:
     """``(y, x)`` of a shipped ``core_grid`` constant, read out of ``tt/fused_decoder.py``.
 
     The "selected" cells of the grid tables used to be literals in this file, so a table inside a
@@ -49,9 +49,17 @@ def _shipped_grid(name: str) -> str:
     is what makes the cell a fact about the code.
     """
     source = (DOC.parents[1] / "tt" / "fused_decoder.py").read_text()
-    match = re.search(rf"^{name} = \((\d+), (\d+)\)$", source, re.MULTILINE)
+    if key is None:
+        match = re.search(rf"^{name} = \((\d+), (\d+)\)$", source, re.MULTILINE)
+        if not match:
+            raise SystemExit(f"tt/fused_decoder.py has no {name} = (y, x) literal")
+        return f"{match.group(1)}x{match.group(2)}"
+    line = re.search(rf"^{name} = \{{(.+?)\}}$", source, re.MULTILINE)
+    if not line:
+        raise SystemExit(f"tt/fused_decoder.py has no {name} = {{...}} literal")
+    match = re.search(rf'"{key}": \((\d+), (\d+)\)', line.group(1))
     if not match:
-        raise SystemExit(f"tt/fused_decoder.py has no {name} = (y, x) literal")
+        raise SystemExit(f"{name} has no {key!r} entry")
     return f"{match.group(1)}x{match.group(2)}"
 
 
@@ -122,13 +130,14 @@ def decode_matmul_share() -> str:
 
 
 def conv_table() -> str:
-    """The four FIR formulations, median and spread over 12 repeats; winner derived, not chosen."""
+    """The six FIR formulations, median and spread over 12 repeats; winner derived, not chosen."""
     names = {
         "tile": "all-TILE slices (what the functional layer does)",
         "rm_shift": "untilize once, ROW_MAJOR shift, tilize per tap (TILE concat)",
         "rm_concat": "ROW_MAJOR concat *and* shift, SiLU folded into the last add - **shipped**",
         "rm_arith": "untilize once, whole FIR in ROW_MAJOR, tilize once",
         "aligned_win": "one pre-padded window per tap so every slice is tile-aligned",
+        "scale_shift": "scale on the TILE tensor first, then untilize per tap and shift-and-add in ROW_MAJOR",
     }
     measured = {
         key: {
@@ -195,7 +204,7 @@ def recurrence_table() -> str:
     grids = ("default", "1x4", "1x8", "1x11", "2x4", "2x8", "2x11", "4x4", "4x8", "4x11", "6x4", "6x8", "6x11")
     log = _probe("probe_decode_recurrence")
     blocks = []
-    for heads, regime in ((48, "batch 1"), (48 * 32, "batch 32, the advertised `max_batch`")):
+    for heads, regime, key in ((48, "batch 1", "small"), (48 * 32, "batch 32, the advertised `max_batch`", "large")):
         rows = [
             f"**{heads} head problems** ({regime})",
             "",
@@ -203,7 +212,7 @@ def recurrence_table() -> str:
             "|---" * (len(grids) + 2) + "|",
         ]
         for kind, prefix, label, selected in (
-            ("read", "", "state read", _shipped_grid("_RECURRENCE_READ_GRID")),
+            ("read", "", "state read", _shipped_grid("_RECURRENCE_READ_GRID", key)),
             ("outer", "", "outer product (`transpose` + `matmul`)", "—"),
             (
                 "outer",
@@ -496,23 +505,30 @@ def before_breakdown() -> str:
 
 
 def qkv_gate_table() -> str:
-    """The last shared-LHS matmul pair: two matmuls, or one and two slices."""
-    rows = ["| rows | two matmuls (shipped) | one packed matmul + 2 slices |", "|---|---|---|"]
-    for rows_label, pattern in (("2048 (prefill)", "2048"), ("32 (decode)", "32")):
-        match = re.search(
-            rf"qkv_gate rows=\s*{pattern} split_us=\s*([\d.]+) \(\s*[\d.]+\) "
-            rf"packed_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_qkv=([\d.]+)",
-            _probe("probe_qkv_gate_pack"),
-        )
-        if not match:
-            raise SystemExit(f"probe_qkv_gate_pack.log has no row for {pattern}")
-        rows.append(f"| {rows_label} | **{match.group(1)} us** | {match.group(2)} us |")
+    """Both shared-LHS pairs: two matmuls, or one and two slices."""
+    pairs = {
+        "qkv_gate": "`full_attention` `wqkv` + `wgate`",
+        "qkv_z": "`linear_attention` `in_proj_qkv` + `in_proj_z`",
+    }
+    rows = ["| pair | rows | two matmuls (shipped) | one packed matmul + 2 slices |", "|---|---|---|---|"]
+    for key, label in pairs.items():
+        for rows_label, pattern in (("2048 (prefill)", "2048"), ("32 (decode)", "32")):
+            match = re.search(
+                rf"{key} rows=\s*{pattern} split_us=\s*([\d.]+) \(\s*[\d.]+\) "
+                rf"packed_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_first=([\d.]+)",
+                _probe("probe_qkv_gate_pack"),
+            )
+            if not match:
+                raise SystemExit(f"probe_qkv_gate_pack.log has no {key} row for {pattern}")
+            rows.append(f"| {label} | {rows_label} | **{match.group(1)} us** | {match.group(2)} us |")
     rows.append("")
     rows.append(
-        "Median over 25 repeats (9 at 2048 rows), outputs identical (PCC 1.000000). The packed "
-        "form loses at prefill by more than a third: the two slices of the merged output are "
-        "full copies of a 14336-wide TILE tensor, which costs more than the activation re-read "
-        "and the dispatch it saves. At decode the two are within a stdev of each other."
+        "Median over 25 repeats (9 at 2048 rows), outputs identical (PCC 1.000000). Both pairs "
+        "lose the merge at prefill by a third or more: the two slices of the merged output are "
+        "full copies of a wide TILE tensor, which costs more than the activation re-read and the "
+        "dispatch it saves. At decode both are within a stdev of each other. The "
+        "`linear_attention` pair is the one with no dtype objection - both weights are bfloat16 - "
+        "so the cut is the whole of the answer there."
     )
     return "\n".join(rows)
 
@@ -772,6 +788,61 @@ def rejected_shared_work() -> str:
     return "\n".join(rows)
 
 
+def _test_ids(log: str) -> list[str]:
+    """Every ``test_...[params]`` id a run log mentions, deduplicated and sorted."""
+    text = (DOC / "logs" / f"{log}.log").read_text(errors="replace")
+    return sorted({name for name in re.findall(r"test_fused_decoder\.py::(\w+(?:\[[^\]]*\])?)", text)})
+
+
+def coverage_claims() -> str:
+    """The coverage sentences the README's contract tables carry, derived from the run logs.
+
+    Three of them - the watcher's pass count, the batches trace capture runs at, and how many
+    parametrised cases are one-layer-kind-only - were hand-written, and all three went stale as
+    the two previous rounds added tests.  They are facts about the committed logs, so they are
+    read out of them.
+    """
+    watcher = (DOC / "logs" / "watcher_run.log").read_text(errors="replace")
+    passed = re.findall(r"=+ (\d+) passed[^=]*=+", watcher)
+    if not passed:
+        raise SystemExit("watcher_run.log has no pytest summary line")
+    watcher_ids = _test_ids("watcher_run")
+    functions = sorted({name.split("[")[0] for name in watcher_ids})
+
+    suite_ids = _test_ids("suite_main")
+    kinds = ("linear_attention", "full_attention")
+    suite_functions: dict[str, set[str]] = {}
+    for name in suite_ids:
+        suite_functions.setdefault(name.split("[")[0], set()).update(kind for kind in kinds if kind in name)
+    both = sorted(name for name, seen in suite_functions.items() if len(seen) == 2)
+    single = sorted(name for name, seen in suite_functions.items() if len(seen) == 1)
+    unparametrised = sorted(name for name, seen in suite_functions.items() if not seen)
+    traced = sorted(
+        {
+            int(match)
+            for name in suite_ids
+            if name.startswith("test_traced_decode_batched")
+            for match in re.findall(r"\[(\d+)-", name)
+        }
+    )
+    if any(name.startswith("test_traced_decode_pcc") for name in suite_ids):
+        traced = sorted(set(traced) | {1})
+
+    return (
+        f"* **Watcher run:** `{len(watcher_ids)}` selected cases across `{len(functions)}` test "
+        f"functions, **{passed[-1]} passed**, offender grep zero over the whole log "
+        f"(`watcher/WATCHER_AUDIT.md`).\n"
+        f"* **Trace capture and replay:** batches "
+        + ", ".join(f"`{value}`" for value in traced)
+        + f" (`test_traced_decode_pcc`, `test_traced_decode_batched`).\n"
+        f"* **Layer-kind coverage:** {len(suite_ids)} collected cases over "
+        f"{len(suite_functions)} test functions. {len(both) + len(single)} carry the layer kind in "
+        f"their id, and {len(both)} of those run for **both** kinds. The remaining "
+        f"{len(unparametrised)} are not parametrised by layer kind because they exercise one by "
+        f"construction: " + ", ".join(f"`{name}`" for name in unparametrised) + "."
+    )
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -794,6 +865,7 @@ BLOCKS = {
     "matmul_dtype_levers": dtype_lever_table,
     "input_folds": input_fold_table,
     "run_totals": run_totals,
+    "coverage_claims": coverage_claims,
     "slow_rows": slow_rows,
     "rejected_decode_variants": rejected_decode_variants,
     "rejected_shared_work": rejected_shared_work,
