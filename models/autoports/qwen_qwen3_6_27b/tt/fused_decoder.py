@@ -115,19 +115,18 @@ FUSED_DELTA_CHUNK = 32
 #: Cores the decode RMS norms are width-sharded over.
 #:
 #: The decode hidden state is ``[1, 1, batch, 5120]`` - a single tile row - so the interleaved
-#: ``ttnn.rms_norm`` parallelises over exactly one core and takes ~104 us of device time per
-#: norm, twice per decode step.  Width sharding needs a core count that divides
+#: ``ttnn.rms_norm`` parallelises over exactly one core, which in the stage-1 decode report is
+#: the third-largest op of the step, twice over.  Width sharding needs a core count that divides
 #: ``hidden_size / TILE_WIDTH`` (160 here); measured on this checkout
 #: (``doc/fused_decoder/probes/probe_small_ops.py``, log
 #: ``doc/fused_decoder/logs/probe_small_ops.log``), wall time for
 #: interleaved->shard->rms_norm->interleaved:
 #:
-#:     cores | 16     | 20     | 32     | 40     | 80
-#:     ms    | 0.037  | 0.039  | 0.043  | 0.049  | 0.069
-#:
-#: against 0.098 ms interleaved.  The curve is flat between 16 and 20 - the two swap places
-#: between runs, by about the run-to-run spread - and rises from 32 upwards as the shard/unshard
-#: overhead starts to dominate.  20 is used; 16 would do equally well.
+#: The measured curve is ``work_log.md`` section 3.3, generated from that log so the two cannot
+#: drift.  Its shape: sharding is roughly 2.5x the interleaved norm, the curve is flat between 16
+#: and 20 cores - the two swap places between runs, by about the run-to-run spread - and it rises
+#: from 32 upwards as the shard/unshard overhead starts to dominate.  20 is used; 16 would do
+#: equally well.
 NORM_SHARD_CORES = 20
 
 #: Column stride of the packed ``b``/``a`` gate projection.  ``in_proj_b`` and ``in_proj_a`` are
@@ -143,11 +142,13 @@ _AB_STRIDE = 64
 #: (``doc/fused_decoder/probes/probe_decode_recurrence.py``, log
 #: ``doc/fused_decoder/logs/probe_decode_recurrence.log``), best-of-20 wall time:
 #:
-#:     state read    | default 111.5 us | 1x8 53.4 | 2x8 44.4 | 4x4 39.8 | **6x4 37.7** | 6x11 42.7
-#:     outer product | default 105.1 us | 2x8 41.2 | 4x8 42.3 | **6x8 40.8** | 6x11 41.4
-#:
-#: Both are exact (PCC 1.000000 against torch) - the grid only changes how the independent
-#: per-head problems are distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
+#: The measured table lives in ``doc/fused_decoder/work_log.md`` section 3.6, generated from that
+#: log, and is not transcribed here so the two cannot drift.  Its shape: the default is roughly
+#: 3x slower than any explicit grid, and the explicit grids are within run-to-run spread of each
+#: other (stdev over 30 repeats is comparable to the gap between them), so these two are a
+#: representative pick from that flat region rather than a unique optimum.  Both are exact
+#: (PCC 1.000000 against torch) - the grid only changes how the independent per-head problems are
+#: distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
 #: state read and rejected: its contract ties the batch dim to the number of users
 #: ("Num of users must match!"), which here is ``batch * num_v_heads``, not ``batch``.
 _RECURRENCE_READ_GRID = (6, 4)
@@ -161,6 +162,16 @@ _L2NORM_EPS = 1e-6
 #: constant matrices are built at this width with explicit zero rows/columns rather than relying
 #: on tile padding, so the padded lanes provably contribute nothing.
 _GDN_GROUP_PAD = 64
+
+
+def _gdn_phased_disabled() -> bool:
+    """Whether ``QWEN_GDN_PHASED`` reads as "off" to ``chunk_gated_delta_rule``.
+
+    Matched to the op's own test (``chunk_gated_delta_rule.cpp``: ``e == nullptr || e[0] != '0'``),
+    so ``0``, ``00`` and ``0anything`` all count as disabled here exactly as they do there.
+    """
+    value = os.environ.get("QWEN_GDN_PHASED")
+    return value is not None and value.startswith("0")
 
 
 def _norm_shard_cores(hidden_size: int, grid) -> int:
@@ -198,11 +209,14 @@ class FusedDecoder(FunctionalDecoder):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         s = self.shapes
-        if s.layer_type == LINEAR_ATTENTION and os.environ.get("QWEN_GDN_PHASED") == "0":
+        if s.layer_type == LINEAR_ATTENTION and _gdn_phased_disabled():
             raise ValueError(
-                "QWEN_GDN_PHASED=0 disables the phased prep/scan implementation of "
-                "ttnn.transformer.chunk_gated_delta_rule, which is what the flat rank-3 input "
-                "path this layer uses requires; unset it or set it to 1"
+                "QWEN_GDN_PHASED is set to a value the op reads as 'off', which disables the "
+                "phased prep/scan implementation of ttnn.transformer.chunk_gated_delta_rule - "
+                "the one the flat rank-3 input path this layer uses requires. Unset it or set it "
+                "to 1. Note the op re-reads it per call, so a later stage that sets it after "
+                "construction still reaches the op's own TT_FATAL; this check only catches the "
+                "common case of it being set up front."
             )
         grid = self.mesh_device.compute_with_storage_grid_size()
         # Width-sharded decode norm: one tile row per 32 users, the full hidden width split
@@ -231,7 +245,12 @@ class FusedDecoder(FunctionalDecoder):
         self.recurrence_outer_grid = ttnn.CoreGrid(
             y=min(_RECURRENCE_OUTER_GRID[0], grid.y), x=min(_RECURRENCE_OUTER_GRID[1], grid.x)
         )
-        # Decode causal-conv state, one batch-major buffer per tap.  ``conv_state_split[j]`` holds
+        # Decode causal-conv state, one batch-major buffer per tap.  Note the inherited packed
+        # ``conv_state`` buffer is **not** used by the fused decode: it is kept only because
+        # ``_reset_linear_state`` reads its dtype, and :meth:`prepare_decode_state` still refills
+        # it, so it holds the post-prefill state and goes stale after the first decode step.  The
+        # per-user ``user_conv_state`` list, which is what the tests and later stages read, stays
+        # authoritative.  ``conv_state_split[j]`` holds
         # token ``t - (K - 1) + j`` for every user, so a decode step reads each buffer whole and
         # the shift is a copy chain rather than a slice out of a tile-height axis.
         self.conv_state_split: list = []
@@ -363,8 +382,9 @@ class FusedDecoder(FunctionalDecoder):
         The gate/up projection stays a single matmul: measured on this checkout
         (``doc/fused_decoder/probes/probe_mlp_variants.py``) splitting it into two
         ``[hidden, intermediate]`` matmuls so the SiLU could ride the gate matmul's ``activation=``
-        epilogue is **slower** for a 2048-token chunk (10.524 ms against 7.995 ms) - two narrower
-        matmuls lose more than the slices cost - and a wash at decode (0.923 against 0.937 ms).
+        epilogue is clearly **slower** for a 2048-token chunk - two narrower matmuls lose more than the
+        slices cost - and a wash at decode.  The measured table is ``work_log.md`` section 3.8,
+        generated from the probe log so the two cannot drift.
         """
         gate_up = ttnn.linear(x, self.w["mlp_gate_up"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg)
         inter = self.shapes.intermediate_size
@@ -437,9 +457,9 @@ class FusedDecoder(FunctionalDecoder):
         ``Qwen3_5Attention``'s gate is ``attn_out * sigmoid(gate)``.  The separate ``sigmoid``
         dispatch reads and writes the whole ``[1, 1, seq, heads*head_dim]`` tensor for nothing:
         it is an input activation of the multiply that follows.  Measured device time for one
-        2048-token prefill chunk, from the committed reports: 186.888 + 178.087 us as two ops
-        (``tracy/functional/full_attention/prefill_perf_report.csv``) against 203.577 us as one
-        (``tracy/fused/...``).
+        2048-token prefill chunk: the functional report's two ops
+        (``tracy/functional/full_attention/prefill_perf_report.csv``) become one in the fused
+        report, and the ``elementwise`` bucket of ``perf_summary.json`` carries the difference.
         """
         gated = ttnn.multiply(attn_out, gate, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
         ttnn.deallocate(attn_out)
@@ -461,8 +481,8 @@ class FusedDecoder(FunctionalDecoder):
 
         k_cache, v_cache = self.kv_cache
         # Only cast when the cache dtype really differs.  ``ttnn.typecast`` dispatches a full
-        # bfloat16 -> bfloat16 pass otherwise, which at the default cache dtype was 44.5 us of
-        # every prefill chunk for nothing; ``test_bfloat8_kv_cache`` covers the branch that casts.
+        # bfloat16 -> bfloat16 pass otherwise, which at the default cache dtype was two ops per
+        # prefill chunk for nothing; ``test_bfloat8_kv_cache`` covers the branch that casts.
         k_fill = ttnn.typecast(k, k_cache.dtype) if k.dtype != k_cache.dtype else k
         v_fill = ttnn.typecast(v, v_cache.dtype) if v.dtype != v_cache.dtype else v
         _free(k, k_fill)
@@ -572,9 +592,9 @@ class FusedDecoder(FunctionalDecoder):
         * The **arithmetic** runs in bfloat16.  Each tap is a *height-broadcast* binary op, and
           on this checkout a float32 height-broadcast multiply reaches only 77 GB/s against
           391 GB/s for a same-shape float32 multiply and 250 GB/s for the bfloat16 broadcast
-          (``doc/fused_decoder/probes/probe_causal_conv.py``); the whole FIR measures 16.96 ms
-          in float32 against 5.52 ms in bfloat16 at 2048 tokens, for a conv-output PCC of
-          0.999990.  Nothing downstream can use the extra precision either - the conv output
+          (``doc/fused_decoder/probes/probe_causal_conv.py``); the whole FIR is about 3x faster in
+          bfloat16 than in float32 at 2048 tokens, for a conv-output PCC of 0.999990, and
+          ``work_log.md`` section 3.7 carries the generated table.  Nothing downstream can use the extra precision either - the conv output
           feeds ``chunk_gated_delta_rule``, whose contract casts q/k/v to bfloat16 - and the
           checkpoint stores ``conv1d.weight`` in bfloat16 to begin with.
         * The carried conv **state** stays float32 and is taken from the float32 inputs, not
@@ -595,7 +615,8 @@ class FusedDecoder(FunctionalDecoder):
         # ``prefix ++ mixed_qkv[max(0, logical-K) : logical]``, for every logical >= 1.
         #
         # Cutting those K rows straight out of ``mixed_qkv`` costs an untilize of the *whole*
-        # tensor (measured 414 us at 2048 tokens) because neither end is on a tile boundary, so
+        # tensor - it showed up as a whole-tensor untilize in the profile - because neither end is on
+        # a tile boundary, so
         # take a tile-aligned two-tile block around them first - that slice is a plain tile copy -
         # and do the ragged cut inside the block.  ``length`` is the padded chunk length, always a
         # multiple of the tile height, so both block ends are tile-aligned.
@@ -619,24 +640,34 @@ class FusedDecoder(FunctionalDecoder):
 
         taps = self.w["conv_taps_bf16"]
         window = ttnn.concat([ttnn.typecast(prefix, ttnn.bfloat16), ttnn.typecast(mixed_qkv, ttnn.bfloat16)], dim=-2)
+        # Untilize the window once and take each tap's one-row-shifted view in ROW_MAJOR, where a
+        # row range is contiguous, instead of letting every TILE slice pay its own
+        # untilize+tilize pair.  Measured over 12 repeats at 2048 tokens
+        # (``doc/fused_decoder/logs/probe_causal_conv.log``, which reports median and stdev over 12
+        # repeats): faster than the all-TILE form by several times the run-to-run spread, so this
+        # is a real difference rather than noise.  ``work_log.md`` section 3.7 has the table.
+        rows = ttnn.to_layout(window, ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.deallocate(window)
         acc = None
         for j in range(k):
-            tap = ttnn.slice(window, [0, 0, j, 0], [1, 1, j + length, s.conv_dim])
+            piece = ttnn.slice(rows, [0, 0, j, 0], [1, 1, j + length, s.conv_dim])
+            tap = ttnn.to_layout(piece, ttnn.TILE_LAYOUT)
+            ttnn.deallocate(piece)
             term = ttnn.multiply(tap, taps[j])
             ttnn.deallocate(tap)
             if acc is None:
                 acc = term
                 continue
             # The FIR's trailing SiLU is an *output* activation of the last tap's add, not a
-            # separate pass over a ~42 MB tensor: folding it there removed a 322.4 us standalone
-            # ``UnaryDeviceOperation`` from the 2048-token prefill.  Same merge as the MLP's SiLU,
+            # separate pass over a ~42 MB tensor: folding it there removed a standalone
+            # ``UnaryDeviceOperation`` from the 2048-token prefill entirely.  Same merge as the MLP's SiLU,
             # the output gate's sigmoid and the z-gate's SiLU, and the same one the in-tree
             # reference makes (``ttnn_gated_deltanet.py``'s ``ttnn.add(out, bias, activations=...)``).
             merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == k - 1 else [])
             ttnn.deallocate(term)
             ttnn.deallocate(acc)
             acc = merged
-        ttnn.deallocate(window)
+        ttnn.deallocate(rows)
         return acc, new_state
 
     def _gated_norm_and_project(self, core, z, rows: int):
@@ -646,8 +677,8 @@ class FusedDecoder(FunctionalDecoder):
         last axis) and ``z`` is the same shape, which is what both the delta-rule output and the
         ``in_proj_z`` matmul naturally produce.  Doing the per-head norm with ``ttnn.rms_norm``
         would need the tensor reshaped to ``[1, rows, num_v_heads, head_v_dim]`` and back, and in
-        TILE layout each of those is a full relayout - measured 2.31 ms and 2.99 ms for one
-        2048-token chunk.  The identical arithmetic as a group reduction is two skinny matmuls
+        TILE layout each of those is a full relayout, and in the stage-1 profile they were the two most
+        expensive ops of the whole pass.  The identical arithmetic as a group reduction is two skinny matmuls
         against constant matrices (:data:`_GDN_GROUP_PAD`-wide), with the ``1/head_v_dim`` mean
         factor and the norm weight folded into them, and no relayout at all.
         """
@@ -733,25 +764,24 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(state)
 
         # ``core`` is token-major ROW_MAJOR [1, L, num_v_heads, head_v_dim].  Merging the trailing
-        # two axes is contiguous in ROW_MAJOR, so this reshape is a plain restride rather than a
-        # tile relayout (266.0 us in the committed prefill report, against the 2.31 ms the TILE
-        # [L, H*D] <-> [L, H, D] relayout it replaces used to cost), and the one tilize that
-        # follows lands on tile-aligned dims with no head-axis padding.
+        # two axes is contiguous in ROW_MAJOR, so this reshape is a plain restride rather than the
+        # TILE [L, H*D] <-> [L, H, D] relayout it replaces, and the tilize that follows lands on
+        # tile-aligned dims with no head-axis padding.  Both costs are rows of the committed
+        # prefill report; work_log.md section 3.4 has the comparison.
         #
         # ``output_head_major=True`` would skip the op's own untilize+permute epilogue, but the
         # consumer chain (per-head norm, z gate, out_proj) is token-major-flat, so it buys the
-        # epilogue back as relayouts of ``z`` and of the gated result: measured 10.86 ms against
-        # 5.45 ms for this path over one 2048-token chunk, PCC 0.999994 between the two
-        # (``doc/fused_decoder/probes/probe_output_paths.py``).
+        # epilogue back as relayouts of ``z`` and of the gated result - measured about 2x this
+        # path's cost at PCC 0.999994 between the two, in
+        # ``doc/fused_decoder/probes/probe_output_paths.py``; the numbers are work_log.md
+        # section 3.13, generated from that probe's log.
         flat = ttnn.reshape(core, (1, 1, padded, s.value_dim))
-        tiled = ttnn.to_layout(flat, ttnn.TILE_LAYOUT)
+        # ``ttnn.tilize`` takes the output dtype, so the tilize and the float32 -> bfloat16 cast
+        # the group-reduction norm wants are one op rather than two passes over the same tensor.
+        tiled = ttnn.tilize(flat, dtype=ttnn.bfloat16)
         _free(flat, tiled)
         _free(core, tiled)
         core = tiled
-        if core.dtype != ttnn.bfloat16:
-            cast = ttnn.typecast(core, ttnn.bfloat16)
-            _free(core, cast)
-            core = cast
         out = self._gated_norm_and_project(core, z, padded)
         ttnn.deallocate(core)
         ttnn.deallocate(z)

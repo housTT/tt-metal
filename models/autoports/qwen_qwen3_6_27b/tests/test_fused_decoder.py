@@ -315,10 +315,12 @@ def test_bfloat8_kv_cache(mesh_device):
 
 
 #: Lengths whose padded chunk exceeds the logical length by less than one tile - the ``ttnn.pad``
-#: aliasing regression range inherited from the functional stage.  The fused conv adds a second
-#: aliasing hazard on the same range: its state cut takes a tile-aligned block out of
-#: ``mixed_qkv`` first, and for a short chunk that block is a full-range slice, i.e. a *view* of
-#: ``mixed_qkv`` itself.
+#: aliasing regression range inherited from the functional stage.  The fused conv's own aliasing
+#: hazard - its state cut takes a tile-aligned block out of ``mixed_qkv`` first, and when the
+#: padded chunk is at most two tiles that block is a *full-range* slice, i.e. a view of
+#: ``mixed_qkv`` itself - is covered by the ``1`` and ``17`` cases of ``test_prefill_pcc``
+#: instead, because it only arises for ``seq_len <= 64``.  Both ranges matter; neither may be
+#: dropped.
 PAD_ALIAS_SEQ_LENS = [735, 736, 737, 743, 767, 768]
 
 
@@ -587,7 +589,7 @@ def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
     it should not have needed, and ``interleaved_to_sharded`` / ``sharded_to_interleaved`` /
     ``to_memory_config`` for a memory config it should not have needed.  This counts what the
     *layer itself* asks for; relayouts a dedicated op performs internally (``repeat_interleave``
-    still untilizes to expand the GQA head axis, 27.1 us of a 2.407 ms step) are visible in the
+    still untilizes to expand the GQA head axis) are visible in the
     ``tt-perf-report`` tables and are discussed in ``doc/fused_decoder/README.md``.
 
     The reshards that remain are each forced by a dedicated op's contract - the width-sharded RMS

@@ -41,6 +41,15 @@ from models.autoports.qwen_qwen3_6_27b.tests.harness import PCC_BAR
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "doc" / "fused_decoder"
 DOCUMENTS = (DOC / "README.md", DOC / "work_log.md", DOC / "probes" / "README.md")
+#: The implementation and its tests carry perf figures in comments and docstrings too, and a
+#: stage review found four of them unsupported by any artifact.  They are held to the same rule as
+#: the documents: a quoted figure must exist in a committed artifact.
+SOURCES = (
+    ROOT / "tt" / "fused_decoder.py",
+    ROOT / "tests" / "test_fused_decoder.py",
+    ROOT / "tests" / "test_fused_decoder_perf.py",
+    ROOT / "tests" / "test_fused_decoder_docs.py",
+)
 IMPLS = ("functional", "fused")
 KINDS = ("linear_attention", "full_attention")
 PHASES = {"prefill": 1, "decode": 8}
@@ -184,9 +193,15 @@ def test_prose_perf_figures_match_the_summary():
         allowed.add(f"{row['reduction_pct']:.1f}")
     corpus = _artifact_corpus()
 
+    scanned = dict(_documents())
+    scanned.update({path: path.read_text() for path in SOURCES})
     unexplained = []
-    for path, text in _documents().items():
-        for value, unit in re.findall(r"\*{0,2}(\d+\.\d+)\*{0,2}\s*(ms|x|%|GB/s)\b", text):
+    for path, text in scanned.items():
+        # ms / x / % / GB/s figures, and microsecond figures whether or not they have a decimal
+        # point: a stage review found the integer ones (an 8836-line watcher count, several `us`
+        # timings) escaping an earlier decimals-only rule.
+        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}\s*(ms|x|%|GB/s|us)\b", text)
+        for value, unit in quoted:
             if value in allowed or value in corpus:
                 continue
             unexplained.append(f"{path.name}: {value} {unit}")
@@ -203,6 +218,29 @@ def test_prose_op_counts_match_the_summary():
             quoted.add((int(before), int(after)))
     assert quoted, "no op-count pairs found in the documents - the table shape changed"
     assert quoted <= pairs, f"documents quote op-count pairs the summary does not have: {sorted(quoted - pairs)}"
+
+
+def test_prose_pcc_figures_come_from_an_artifact():
+    """Every 6-decimal correlation-shaped figure in the documents is some artifact's number.
+
+    The perf gate covers ms/us/x/%; this covers the other half of what these documents quote.
+    The corpus spans both stages' evidence, run logs and probe logs, because a fused-stage
+    document legitimately quotes the functional stage's figures in its delta table.
+    """
+    corpus = _artifact_corpus()
+    unexplained = []
+    for path, text in _documents().items():
+        for value in re.findall(r"(?<![\d.])([01]\.\d{6})(?![\d])", text):
+            if value in corpus:
+                continue
+            # Also accept a rounded artifact value, which is how a table quotes 6 places.
+            target = float(value)
+            if any(abs(target - float(m)) < 5e-7 for m in re.findall(r"(?<![\d.])([01]\.\d{6,})", corpus)):
+                continue
+            unexplained.append(f"{path.name}: {value}")
+    assert not unexplained, "documents quote PCC figures that are in no committed artifact:\n  " + "\n  ".join(
+        unexplained
+    )
 
 
 def test_pcc_evidence_is_self_consistent():
@@ -338,6 +376,17 @@ def test_watcher_audit_matches_its_artifacts():
         if marker not in other:
             continue
         assert audit_cmd in other, f"{name}'s watcher command differs from the audit's"
+
+
+def test_readme_watcher_claims_match_the_audit():
+    """Any watcher count the README quotes is the generated audit's, not an earlier run's."""
+    audit = (DOC / "watcher" / "WATCHER_AUDIT.md").read_text()
+    readme = (DOC / "README.md").read_text()
+    for line in readme.splitlines():
+        if "WATCHER_AUDIT" not in line:
+            continue
+        for number in re.findall(r"(?<![\w.])(\d{3,})(?![\w])", line):
+            assert number in audit, f"README quotes {number} next to the watcher audit; the audit does not"
 
 
 def test_watcher_log_is_clean():

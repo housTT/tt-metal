@@ -101,34 +101,52 @@ def decode_matmul_share() -> str:
 
 
 def conv_table() -> str:
-    rows = [
-        "| formulation | float32 | bfloat16 |",
-        "|---|---|---|",
-    ]
+    """The four FIR formulations, median and spread over 12 repeats; winner derived, not chosen."""
     names = {
-        "tile": "TILE slices (functional)",
-        "rm_shift": "untilize once, ROW_MAJOR shift, tilize per tap",
+        "tile": "all-TILE slices (what the functional layer does)",
+        "rm_shift": "untilize once, ROW_MAJOR shift, tilize per tap - **shipped**",
         "rm_arith": "untilize once, whole FIR in ROW_MAJOR, tilize once",
         "aligned_win": "one pre-padded window per tap so every slice is tile-aligned",
     }
+    measured = {
+        key: {
+            dtype: (
+                _grep("probe_causal_conv", rf"conv {key}\s+{dtype}.*?median_ms=\s*([\d.]+)"),
+                _grep("probe_causal_conv", rf"conv {key}\s+{dtype}.*?stdev_ms=\s*([\d.]+)"),
+            )
+            for dtype in ("fp32", "bf16")
+        }
+        for key in names
+    }
+    best = {dtype: min(names, key=lambda key: float(measured[key][dtype][0])) for dtype in ("fp32", "bf16")}
+    rows = ["| formulation | float32 median (stdev) ms | bfloat16 median (stdev) ms |", "|---|---|---|"]
     for key, label in names.items():
-        fp32 = _grep("probe_causal_conv", rf"conv {key}\s+fp32 best_ms=\s*([\d.]+)")
-        bf16 = _grep("probe_causal_conv", rf"conv {key}\s+bf16 best_ms=\s*([\d.]+)")
-        mark = "**" if key == "tile" else ""
-        rows.append(f"| {label} | {fp32} ms | {mark}{bf16} ms{mark} |")
+        cells = []
+        for dtype in ("fp32", "bf16"):
+            median, stdev = measured[key][dtype]
+            mark = "**" if best[dtype] == key else ""
+            cells.append(f"{mark}{median}{mark} ({stdev})")
+        rows.append(f"| {label} | " + " | ".join(cells) + " |")
     return "\n".join(rows)
 
 
 def broadcast_table() -> str:
+    """Bandwidth of the two binary-op shapes; the outlier is derived, not marked by hand."""
+    cells: dict[tuple[str, str], tuple[str, float]] = {}
+    for key in ("bcast", "same"):
+        for dtype in ("fp32", "bf16"):
+            ms = _grep("probe_causal_conv", rf"multiply {key}\s+{dtype}.*?median_ms=\s*([\d.]+)")
+            gbps = _grep("probe_causal_conv", rf"multiply {key}\s+{dtype}.*?eff_GBps=\s*([\d.]+)")
+            cells[(key, dtype)] = (ms, float(gbps))
+    worst = min(cells, key=lambda item: cells[item][1])
     rows = ["| multiply | float32 | bfloat16 |", "|---|---|---|"]
     for key, label in (("bcast", "height-broadcast"), ("same", "same-shape")):
-        cells = []
+        out = []
         for dtype in ("fp32", "bf16"):
-            ms = _grep("probe_causal_conv", rf"multiply {key}\s+{dtype} best_ms=\s*([\d.]+)")
-            gbps = _grep("probe_causal_conv", rf"multiply {key}\s+{dtype} best_ms=\s*[\d.]+ eff_GBps=\s*([\d.]+)")
-            emphasis = "**" if (key, dtype) == ("bcast", "fp32") else ""
-            cells.append(f"{ms} ms — {emphasis}{float(gbps):.0f} GB/s{emphasis}")
-        rows.append(f"| {label} | " + " | ".join(cells) + " |")
+            ms, gbps = cells[(key, dtype)]
+            mark = "**" if (key, dtype) == worst else ""
+            out.append(f"{ms} ms — {mark}{gbps:.0f} GB/s{mark}")
+        rows.append(f"| {label} | " + " | ".join(out) + " |")
     return "\n".join(rows)
 
 
@@ -146,35 +164,28 @@ def norm_table() -> str:
 
 
 def recurrence_table() -> str:
-    def read(kind: str, label: str) -> str:
-        return _grep("probe_decode_recurrence", rf"{kind}\s+{re.escape(label)}\s+us=\s*([\d.]+)")
-
-    read_row = [
-        read("read", "default"),
-        read("read", "core_grid 1x8"),
-        read("read", "core_grid 2x8"),
-        read("read", "core_grid 4x4"),
-        read("read", "core_grid 6x4"),
-        read("read", "core_grid 6x8"),
-        read("read", "core_grid 6x11"),
-    ]
-    outer_row = [
-        read("outer", "default"),
-        "—",
-        read("outer", "core_grid 2x8"),
-        "—",
-        "—",
-        read("outer", "core_grid 6x8"),
-        read("outer", "core_grid 6x11"),
-    ]
-    return (
-        "| shape | default | 1x8 | 2x8 | 4x4 | **6x4** | 6x8 | 6x11 |\n"
-        "|---|---|---|---|---|---|---|---|\n"
-        f"| state read | {read_row[0]} us | {read_row[1]} | {read_row[2]} | {read_row[3]} | "
-        f"**{read_row[4]}** | {read_row[5]} | {read_row[6]} |\n"
-        f"| outer product | {outer_row[0]} us | — | {outer_row[2]} | — | — | "
-        f"**{outer_row[5]}** | {outer_row[6]} |"
+    """Median and spread per grid; the selection is labelled, not disguised as the minimum."""
+    grids = ("default", "1x8", "2x8", "4x4", "6x4", "6x8", "6x11")
+    header = "| shape | " + " | ".join(grids) + " | selected |"
+    rows = [header, "|---" * (len(grids) + 2) + "|"]
+    for kind, label, selected in (("read", "state read", "6x4"), ("outer", "outer product", "6x8")):
+        cells = []
+        for grid in grids:
+            token = "default" if grid == "default" else f"core_grid {grid}"
+            match = re.search(
+                rf"{kind}\s+{re.escape(token)}\s+median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
+                _probe("probe_decode_recurrence"),
+            )
+            cells.append("—" if match is None else f"{match.group(1)} ({match.group(2)})")
+        rows.append(f"| {label} | " + " | ".join(cells) + f" | {selected} |")
+    rows.append("")
+    rows.append(
+        "Median and (stdev) in microseconds over 30 repeats. The default program factory is "
+        "several times slower than any explicit grid; the explicit grids sit within about a "
+        "stdev of each other, so the two selected are a representative pick from that flat "
+        "region rather than a unique optimum."
     )
+    return "\n".join(rows)
 
 
 def mlp_table() -> str:
@@ -246,7 +257,132 @@ def rope_table() -> str:
     return "\n".join(rows)
 
 
+def _evidence() -> dict:
+    return json.loads((DOC / "pcc_evidence.json").read_text())
+
+
+def _minima() -> dict:
+    """``{(metric, kind): min value}`` over the fused stage's own records."""
+    out: dict[tuple[str, str], float] = {}
+    for record in _evidence()["records"]:
+        value = record["value"]
+        if not isinstance(value, float):
+            continue
+        key = (record["metric"], record.get("kind"))
+        out[key] = min(out.get(key, value), value)
+    return out
+
+
+#: Rows of the README's correctness table: label, and the metric each column reads.
+CORRECTNESS_ROWS = (
+    ("prefill vs HF, seq 1 / 17 / 128 / 2048 / 2049 / 4096 / 5000", "fused_prefill_pcc", "min "),
+    ("prefill vs HF, longest single-shot reference length", "fused_long_prefill_pcc", ""),
+    ("decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000", "fused_decode_pcc", "min "),
+    ("batch 32 and 4, unequal prompts 64..3071, permuted page table - prefill", "fused_batched_prefill_pcc", "min "),
+    ("batch 32 and 4 - decode", "fused_batched_decode_pcc", "min "),
+    ("**real checkpoint weights** - prefill @ 2049", "fused_real_weight_prefill_pcc", ""),
+    ("**real checkpoint weights** - decode @ 2049", "fused_real_weight_decode_pcc", ""),
+    ("traced decode, replay output vs HF", "fused_traced_decode_replay_pcc", "min "),
+    ("traced decode at batch 4, per-user positions", "fused_batched_traced_decode_pcc", "min "),
+    ("paged K cache vs HF after prefill 2049", "fused_paged_k_cache_pcc", ""),
+    ("paged V cache vs HF after prefill 2049", "fused_paged_v_cache_pcc", ""),
+    ("conv state vs HF after prefill 2049", "fused_conv_state_pcc", ""),
+    ("recurrent state vs HF after prefill 2049", "fused_recurrent_state_pcc", ""),
+    ("page block size 32 and 128 instead of 64 - prefill", "fused_alt_block_size_prefill_pcc", "min "),
+    ("page block size 32 and 128 instead of 64 - decode", "fused_alt_block_size_decode_pcc", "min "),
+    ("BFP8 KV cache - prefill @ 2049", "fused_bfp8_cache_prefill_pcc", ""),
+    ("BFP8 KV cache - decode @ 2049", "fused_bfp8_cache_decode_pcc", ""),
+    ("pad-below-one-tile lengths 735..768 - prefill", "fused_pad_alias_prefill_pcc", "min "),
+    ("pad-below-one-tile lengths 735..768 - decode", "fused_pad_alias_decode_pcc", "min "),
+    ("**full context 262143** - prefill tail vs HF", "fused_full_context_prefill_tail_pcc", ""),
+    ("**full context 262143** - conv state vs HF", "fused_full_context_conv_state_pcc", ""),
+    ("**full context 262143** - recurrent state vs HF", "fused_full_context_recurrent_state_pcc", ""),
+    ("**full context 262143** - paged K cache vs HF", "fused_full_context_paged_k_cache_pcc", ""),
+    ("**full context 262143** - paged V cache vs HF", "fused_full_context_paged_v_cache_pcc", ""),
+    ("**full context 262143** - decode at position 262143", "fused_full_context_decode_pcc", ""),
+    ("**full context 262143** - best-fit *scale* vs HF, prefill tail", "fused_full_context_prefill_tail_scale", ""),
+    ("**full context 262143** - best-fit *scale* vs HF, decode", "fused_full_context_decode_scale", ""),
+    ("fused vs functional output, prefill and decode @ 2049", "fused_vs_functional_pcc", "min "),
+)
+
+#: Full-context figures whose functional-stage counterpart the delta table compares against.
+DELTA_ROWS = (
+    (
+        "`linear_attention` full-context prefill tail",
+        "fused_full_context_prefill_tail_pcc",
+        "full_context_prefill_tail_pcc",
+        "linear_attention",
+    ),
+    (
+        "`linear_attention` full-context recurrent state",
+        "fused_full_context_recurrent_state_pcc",
+        "full_context_recurrent_state_pcc",
+        "linear_attention",
+    ),
+    (
+        "`linear_attention` full-context decode @ 262143",
+        "fused_full_context_decode_pcc",
+        "full_context_decode_pcc",
+        "linear_attention",
+    ),
+    (
+        "`full_attention` full-context prefill tail",
+        "fused_full_context_prefill_tail_pcc",
+        "full_context_prefill_tail_pcc",
+        "full_attention",
+    ),
+    (
+        "`full_attention` full-context decode @ 262143",
+        "fused_full_context_decode_pcc",
+        "full_context_decode_pcc",
+        "full_attention",
+    ),
+)
+
+
+def correctness_table() -> str:
+    minima = _minima()
+    rows = ["| measurement | `linear_attention` | `full_attention` |", "|---|---|---|"]
+    for label, metric, prefix in CORRECTNESS_ROWS:
+        cells = []
+        for kind in KINDS:
+            value = minima.get((metric, kind))
+            cells.append("—" if value is None else f"{prefix}{value:.6f}")
+        if all(cell == "—" for cell in cells):
+            continue
+        rows.append(f"| {label} | " + " | ".join(cells) + " |")
+    pcc_min = _evidence()["min_pcc"]
+    rows.append("")
+    rows.append(
+        f"Minimum over all {_evidence()['num_pcc_records']} PCC records: **{pcc_min:.6f}**, "
+        f"against a bar of 0.995. No exception, no waiver, no open gap."
+    )
+    return "\n".join(rows)
+
+
+def delta_table() -> str:
+    """Fused against functional at the full context, both sides read from their own evidence."""
+    fused = _minima()
+    functional = {}
+    payload = json.loads((DOC.parent / "functional_decoder" / "pcc_evidence.json").read_text())
+    for record in payload["records"]:
+        if isinstance(record["value"], float):
+            key = (record["metric"], record.get("kind"))
+            functional[key] = min(functional.get(key, record["value"]), record["value"])
+    rows = ["| | functional | fused | delta |", "|---|---|---|---|"]
+    for label, fused_metric, functional_metric, kind in DELTA_ROWS:
+        before = functional.get((functional_metric, kind))
+        after = fused.get((fused_metric, kind))
+        if before is None or after is None:
+            continue
+        delta = after - before
+        rows.append(f"| {label} | {before:.6f} | {after:.6f} | {delta:+.1e} |")
+    return "\n".join(rows)
+
+
 BLOCKS = {
+    "correctness": correctness_table,
+    "delta": delta_table,
     "before_after": before_after_table,
     "breakdown": breakdown_table,
     "decode_matmul_share": decode_matmul_share,

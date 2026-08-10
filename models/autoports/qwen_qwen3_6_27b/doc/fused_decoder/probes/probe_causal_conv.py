@@ -22,6 +22,7 @@ Variants compared (all produce the same FIR + SiLU, all checked against torch):
 
 from __future__ import annotations
 
+import statistics
 import time
 
 import torch
@@ -40,19 +41,20 @@ def pcc(a, b):
     return float((a @ b) / (a.norm() * b.norm()))
 
 
-def timed(fn, device, iters=3):
+def timed(fn, device, iters=12):
+    """Best/median/stdev over ``iters`` repeats, so a small gap can be told from run-to-run spread."""
     out = fn()
     ttnn.deallocate(out)
-    best = None
+    samples = []
     for _ in range(iters):
         ttnn.synchronize_device(device)
         t0 = time.perf_counter()
         out = fn()
         ttnn.synchronize_device(device)
-        best = min(best or 1e9, (time.perf_counter() - t0) * 1e3)
+        samples.append((time.perf_counter() - t0) * 1e3)
         got = ttnn.to_torch(out).float()
         ttnn.deallocate(out)
-    return best, got
+    return (min(samples), statistics.median(samples), statistics.stdev(samples)), got
 
 
 def main() -> None:
@@ -173,8 +175,12 @@ def main() -> None:
                 ("rm_arith", rm_arith_variant),
                 ("aligned_win", aligned_windows_variant),
             ):
-                ms, got = timed(fn, device)
-                print(f"conv {name:9s} {tag} best_ms={ms:8.2f} pcc={pcc(ref, got):.6f}", flush=True)
+                (best, median, stdev), got = timed(fn, device)
+                print(
+                    f"conv {name:11s} {tag} best_ms={best:8.3f} median_ms={median:8.3f} "
+                    f"stdev_ms={stdev:6.3f} pcc={pcc(ref, got):.6f}",
+                    flush=True,
+                )
             for t in (tx, tp, *tt_taps):
                 ttnn.deallocate(t)
 
@@ -184,11 +190,12 @@ def main() -> None:
             small = dev(torch.randn(1, 1, 1, CONV_DIM), dtype)
             full = dev(torch.randn(1, 1, SEQ + K - 1, CONV_DIM), dtype)
             for name, other in (("bcast", small), ("same", full)):
-                ms, _ = timed(lambda: ttnn.multiply(a, other), device)
+                (best, median, stdev), _ = timed(lambda: ttnn.multiply(a, other), device)
                 nbytes = (SEQ + K - 1) * CONV_DIM * (4 if dtype == ttnn.float32 else 2)
                 moved = nbytes * (2 if name == "bcast" else 3)
                 print(
-                    f"multiply {name:5s} {tag} best_ms={ms:8.2f} eff_GBps={moved / (ms * 1e-3) / 1e9:7.1f}",
+                    f"multiply {name:5s} {tag} best_ms={best:8.3f} median_ms={median:8.3f} "
+                    f"stdev_ms={stdev:6.3f} eff_GBps={moved / (median * 1e-3) / 1e9:7.1f}",
                     flush=True,
                 )
             for t in (a, small, full):

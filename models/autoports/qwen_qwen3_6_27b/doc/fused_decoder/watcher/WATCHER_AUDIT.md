@@ -21,7 +21,7 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
     -v -s
 ```
 
-Result: **11 passed, 60 deselected** in 63.72 s. Selected tests:
+Result: **11 passed, 60 deselected** in 64.12 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
@@ -41,7 +41,7 @@ That is both layer kinds through paged prefill at 2049, paged decode, trace capt
 at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, and the two
 alternate page block sizes through prefill *and* decode. Run log: `../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (10823 lines, 76 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (1987 lines, 14 `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
 repo's 500 KB per-file commit limit; `kernel_elf_paths.txt` is under it and is committed
 verbatim. The `generated/inspector/` tree the run also emits is not stage evidence and
@@ -59,12 +59,12 @@ Line categories present, all normal watcher bookkeeping:
 
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
-   5016 Device
-   2182 k_ids:
-   1430 k_ids:241|240|242|242|242
-    259 k_id[
-    210 k_ids:482|481|483|483|483
-    110 k_ids:286|285|287|287|287
+    924 Device
+    374 k_ids:
+    330 k_ids:241|240|242|242|242
+    110 k_ids:1112|1111|
+     58 k_ids:1539|1538|1541|1541|1541
+     52 k_ids:1539|1538|1540|1540|1540
 ```
 
 `Dump` lines delimit the periodic watcher dumps; `Device` / `k_id` / `k_ids` lines are the

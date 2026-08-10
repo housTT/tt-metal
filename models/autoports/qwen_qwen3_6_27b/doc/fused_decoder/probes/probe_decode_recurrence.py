@@ -14,6 +14,7 @@ contract it can express.
 
 from __future__ import annotations
 
+import statistics
 import time
 
 import torch
@@ -31,19 +32,20 @@ def pcc(a, b):
     return float((a @ b) / (a.norm() * b.norm()))
 
 
-def bench(fn, device, iters=20):
+def bench(fn, device, iters=30):
+    """Median/stdev over ``iters`` repeats; these shapes are dispatch-bound and noisy."""
     out = fn()
     ttnn.deallocate(out)
-    best = None
+    samples = []
     for _ in range(iters):
         ttnn.synchronize_device(device)
         t0 = time.perf_counter()
         out = fn()
         ttnn.synchronize_device(device)
-        best = min(best or 1e9, (time.perf_counter() - t0) * 1e6)
+        samples.append((time.perf_counter() - t0) * 1e6)
         got = ttnn.to_torch(out).float()
         ttnn.deallocate(out)
-    return best, got
+    return (statistics.median(samples), statistics.stdev(samples)), got
 
 
 def main() -> None:
@@ -65,19 +67,23 @@ def main() -> None:
         ref_read = (k @ state).float()
         ref_outer = (k.transpose(-2, -1) @ delta).float()
 
-        ms, got = bench(lambda: ttnn.matmul(tk, ts, dtype=ttnn.float32, compute_kernel_config=cfg), device)
-        print(f"read  default              us={ms:8.1f} pcc={pcc(ref_read, got):.6f}", flush=True)
+        (ms, sd), got = bench(lambda: ttnn.matmul(tk, ts, dtype=ttnn.float32, compute_kernel_config=cfg), device)
+        print(
+            f"read  default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
+            flush=True,
+        )
         for gy in (1, 2, 4, 6):
             for gx in (4, 8, 11):
                 try:
-                    ms, got = bench(
+                    (ms, sd), got = bench(
                         lambda: ttnn.matmul(
                             tk, ts, dtype=ttnn.float32, compute_kernel_config=cfg, core_grid=ttnn.CoreGrid(y=gy, x=gx)
                         ),
                         device,
                     )
                     print(
-                        f"read  core_grid {gy}x{gx:<2d}         us={ms:8.1f} pcc={pcc(ref_read, got):.6f}", flush=True
+                        f"read  core_grid {gy}x{gx:<2d}         median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
+                        flush=True,
                     )
                 except Exception as exc:  # noqa: BLE001
                     print(f"read  core_grid {gy}x{gx:<2d}         FAILED {str(exc).splitlines()[0][:90]}", flush=True)
@@ -90,33 +96,37 @@ def main() -> None:
             ga_b = ttnn.from_torch(
                 state.reshape(HEADS, 1, DK, DV), dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
             )
-            ms, got = bench(
+            (ms, sd), got = bench(
                 lambda: ttnn.experimental.group_attn_matmul(
                     ga_a, ga_b, compute_with_storage_grid_size=grid, compute_kernel_config=cfg
                 ),
                 device,
             )
             print(
-                f"read  group_attn_matmul    us={ms:8.1f} pcc={pcc(ref_read.reshape(1, 1, HEADS, DV), got):.6f}",
+                f"read  group_attn_matmul    median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read.reshape(1, 1, HEADS, DV), got):.6f}",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001
             print(f"read  group_attn_matmul    FAILED {str(exc).splitlines()[0][:110]}", flush=True)
 
         tk_t = ttnn.transpose(tk, -2, -1)
-        ms, got = bench(lambda: ttnn.matmul(tk_t, td, dtype=ttnn.float32, compute_kernel_config=cfg), device)
-        print(f"outer default              us={ms:8.1f} pcc={pcc(ref_outer, got):.6f}", flush=True)
+        (ms, sd), got = bench(lambda: ttnn.matmul(tk_t, td, dtype=ttnn.float32, compute_kernel_config=cfg), device)
+        print(
+            f"outer default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+            flush=True,
+        )
         for gy in (2, 4, 6):
             for gx in (8, 11):
                 try:
-                    ms, got = bench(
+                    (ms, sd), got = bench(
                         lambda: ttnn.matmul(
                             tk_t, td, dtype=ttnn.float32, compute_kernel_config=cfg, core_grid=ttnn.CoreGrid(y=gy, x=gx)
                         ),
                         device,
                     )
                     print(
-                        f"outer core_grid {gy}x{gx:<2d}         us={ms:8.1f} pcc={pcc(ref_outer, got):.6f}", flush=True
+                        f"outer core_grid {gy}x{gx:<2d}         median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+                        flush=True,
                     )
                 except Exception as exc:  # noqa: BLE001
                     print(f"outer core_grid {gy}x{gx:<2d}         FAILED {str(exc).splitlines()[0][:90]}", flush=True)
