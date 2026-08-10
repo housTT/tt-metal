@@ -42,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 151.012 ms | **26.076 ms** | **5.79x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.037 ms | **2.345 ms** | **1.29x** | 92 | 67 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.620 ms | **5.754 ms** | **6.36x** | 93 | 70 |
-| `full_attention` | prefill, 2048 tokens | 18.601 ms | **17.824 ms** | **1.04x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.072 ms** | **1.10x** | 50 | 50 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.865 ms** | **1.07x** | 49 | 49 |
+| `linear_attention` | prefill, 2048 tokens | 151.120 ms | **25.773 ms** | **5.86x** | 801 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.034 ms | **2.354 ms** | **1.29x** | 92 | 67 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.611 ms | **5.162 ms** | **7.09x** | 93 | 70 |
+| `full_attention` | prefill, 2048 tokens | 18.507 ms | **17.783 ms** | **1.04x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.076 ms** | **1.09x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.867 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -69,11 +69,11 @@ the `Device Time` column of the committed `tt-perf-report` CSVs.
 <!-- GENERATED:batch32_shares -->
 | pass | bucket | batch 1 | batch 32 | growth |
 |---|---|---|---|---|
-| `linear_attention` | `batched_matmul` | 0.060 ms (2.6 %) | 1.252 ms (21.8 %) | 20.9x |
-| `linear_attention` | `state_update` | 0.027 ms (1.2 %) | 0.705 ms (12.3 %) | 26.1x |
-| `linear_attention` | `elementwise` | 0.173 ms (7.4 %) | 0.877 ms (15.2 %) | 5.1x |
-| `linear_attention` | `layout` | 0.179 ms (7.6 %) | 0.982 ms (17.1 %) | 5.5x |
-| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.2 %) | 8.3x |
+| `linear_attention` | `batched_matmul` | 0.060 ms (2.5 %) | 1.253 ms (24.3 %) | 20.9x |
+| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.788 ms (15.3 %) | 14.6x |
+| `linear_attention` | `elementwise` | 0.123 ms (5.2 %) | 0.239 ms (4.6 %) | 1.9x |
+| `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.946 ms (18.3 %) | 4.6x |
+| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.1 %) | 8.3x |
 <!-- END GENERATED:batch32_shares -->
 
 ### Where the time goes now
@@ -90,10 +90,12 @@ carries all six measured passes rather than the four the stage first measured. T
 the same bytes — one token or thirty-two, a decode step reads every weight once — so the
 `matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
 instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
-recurrence's own buckets grow by an order of magnitude — the table below carries each one at both
-batches, read from the summary — because the
-carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
-reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
+buckets grow by an order of magnitude — the growth table above carries each one at both batches,
+read from the summary. Two different costs sit in there. The `state_update` bucket is bandwidth
+against the carried state, which is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a
+step decays it, reads it and writes it back in one pass (§3.21). The `elementwise` and `layout`
+buckets are the per-head transients, which §3.24 moved to a dense layout for exactly this reason.
+Neither is dispatch overhead, and
 `work_log.md` §3.6 and §6.1 record what was measured against it: eighteen core grids at both regimes
 (the state read is keyed by regime and is the fastest measured in each; the outer product's one
 grid is the fastest measured at 1536 head problems and inside the run-to-run spread of the fastest
@@ -104,8 +106,8 @@ trade the state's shape for its tile padding is **not** measured: it changes wha
 that owns the decode state, with that reason. The `full_attention`
 decode's batch-32 cost is dominated instead by SDPA, whose growth is the last row of that same
 table — the one-core-per-head
-workaround stage 1 pinned and handed to the optimization stage — the `sdpa` row of the growth table above at batch 32
-against 5.1 % at batch 1.
+workaround stage 1 pinned and handed to the optimization stage — the `sdpa` row of the growth
+table above carries its share at both batches.
 
 What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 [`perf_summary.json`](perf_summary.json), bucketed from the report's own op codes by
@@ -115,16 +117,16 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.473 ms | 1.879 ms | 1.907 ms | 13.473 ms | 1.806 ms | 1.806 ms |
-| `gated_delta_rule` | 2.767 ms | — | — | — | — | — |
-| `state_update` (the fused recurrent-state update, §3.21) | — | 0.027 ms | 0.705 ms | — | — | — |
-| `sdpa` | — | — | — | 1.282 ms | 0.104 ms | 0.864 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.252 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.774 ms | 0.179 ms | 0.982 ms | 1.087 ms | 0.044 ms | 0.056 ms |
-| `elementwise` | 3.686 ms | 0.173 ms | 0.877 ms | 1.015 ms | 0.046 ms | 0.045 ms |
-| `norm` | 0.376 ms | 0.028 ms | 0.031 ms | 0.540 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.427 ms | 0.045 ms | 0.066 ms |
-| **total** | **26.076 ms** | **2.345 ms** | **5.754 ms** | **17.824 ms** | **2.072 ms** | **2.865 ms** |
+| `matmul` (projections, MLP, gated-norm constants) | 14.471 ms | 1.883 ms | 1.906 ms | 13.467 ms | 1.811 ms | 1.809 ms |
+| `gated_delta_rule` | 2.816 ms | — | — | — | — | — |
+| `state_update` (the fused recurrent-state update, §3.21) | 0.751 ms | 0.054 ms | 0.788 ms | — | — | — |
+| `sdpa` | — | — | — | 1.280 ms | 0.104 ms | 0.864 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.253 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.780 ms | 0.207 ms | 0.946 ms | 1.056 ms | 0.044 ms | 0.056 ms |
+| `elementwise` | 2.579 ms | 0.123 ms | 0.239 ms | 1.016 ms | 0.046 ms | 0.045 ms |
+| `norm` | 0.375 ms | 0.027 ms | 0.031 ms | 0.539 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.423 ms | 0.045 ms | 0.065 ms |
+| **total** | **25.773 ms** | **2.354 ms** | **5.162 ms** | **17.783 ms** | **2.076 ms** | **2.867 ms** |
 
 Every op is classified: the `other` bucket is empty in all 12 measured passes.
 <!-- END GENERATED:breakdown -->
@@ -135,9 +137,10 @@ which the probe measures in isolation (`logs/probe_causal_conv.log`) and which `
 measures the alternative at 2x the cost), the MLP's two slices (§3.8 measures the alternative
 as clearly slower), the three `_split_qkv` slices and the rank-3 conversion of `beta`/`g` (§3.19
 measures moving that rank change and finds a tie). The batch-32 decode's `layout` bucket is the
-same per-head rank changes as batch 1, 32 times as wide: a `[1, batch * 48, 1, 128]` TILE tensor
-carries 32 padded rows for every real one, which is a property of the recurrent state's layout
-rather than of the graph over it, and §6 records it as such.
+per-head rank changes at the two matmul boundaries: a `[1, batch * 48, 1, 128]` TILE tensor
+carries 31 padding rows for every real one. §3.24 moved everything that does not have to live in
+that layout out of it; what is left is the state's own format, which §6 records as a hand-off with
+its reason.
 The `full_attention` prefill moves least of the four because it was **already** a fused graph in
 stage 1 — `nlp_create_qkv_heads`, `chunked_scaled_dot_product_attention`, `paged_fill_cache` and
 `nlp_concat_heads` were all in place — so what remained to fuse there was the partial RoPE, the
@@ -166,33 +169,33 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | measurement | `linear_attention` | `full_attention` |
 |---|---|---|
 | prefill vs HF, seq 1 / 17 / 128 / 2048 / 2049 / 4096 / 5000 | min 0.999828 | min 0.999388 |
-| prefill vs HF, longest single-shot reference length | 0.999882 | 0.999415 |
-| decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000 | min 0.999869 | min 0.999178 |
-| batch 4 and 16 and 32, unequal prompts 64..3071, permuted page table - prefill | min 0.999889 | min 0.999383 |
+| prefill vs HF, longest single-shot reference length | 0.999884 | 0.999415 |
+| decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000 | min 0.999872 | min 0.999178 |
+| batch 4 and 16 and 32, unequal prompts 64..3071, permuted page table - prefill | min 0.999892 | min 0.999383 |
 | batch 4 and 16 and 32 - decode | min 0.999864 | min 0.999268 |
-| **real checkpoint weights** - prefill @ 2049 | 0.999937 | 0.999964 |
-| **real checkpoint weights** - decode @ 2049 | 0.999974 | 0.999988 |
-| traced decode, replay output vs HF | min 0.999883 | min 0.999436 |
-| traced decode at batch 4 and 32, per-user positions | min 0.999858 | min 0.999278 |
+| **real checkpoint weights** - prefill @ 2049 | 0.999935 | 0.999964 |
+| **real checkpoint weights** - decode @ 2049 | 0.999981 | 0.999988 |
+| traced decode, replay output vs HF | min 0.999891 | min 0.999436 |
+| traced decode at batch 4 and 32, per-user positions | min 0.999859 | min 0.999278 |
 | paged K cache vs HF after prefill 2049 | — | 0.999989 |
 | paged V cache vs HF after prefill 2049 | — | 0.999993 |
 | conv state vs HF after prefill 2049 | 0.999995 | — |
-| recurrent state vs HF after prefill 2049 | 0.999938 | — |
+| recurrent state vs HF after prefill 2049 | 0.999940 | — |
 | page block size 32 and 128 instead of 64 - prefill | — | min 0.999391 |
 | page block size 32 and 128 instead of 64 - decode | — | min 0.999479 |
 | BFP8 KV cache - prefill @ 2049 | — | 0.999347 |
 | BFP8 KV cache - decode @ 2049 | — | 0.999440 |
-| pad-below-one-tile lengths 735..768 - prefill | min 0.999900 | min 0.999447 |
-| pad-below-one-tile lengths 735..768 - decode | min 0.999882 | min 0.999328 |
-| **full context 262143** - prefill tail vs HF | 0.999879 | 0.998030 |
+| pad-below-one-tile lengths 735..768 - prefill | min 0.999903 | min 0.999447 |
+| pad-below-one-tile lengths 735..768 - decode | min 0.999894 | min 0.999328 |
+| **full context 262143** - prefill tail vs HF | 0.999882 | 0.998030 |
 | **full context 262143** - conv state vs HF | 0.999995 | — |
-| **full context 262143** - recurrent state vs HF | 0.999934 | — |
+| **full context 262143** - recurrent state vs HF | 0.999935 | — |
 | **full context 262143** - paged K cache vs HF | — | 0.999989 |
 | **full context 262143** - paged V cache vs HF | — | 0.999993 |
-| **full context 262143** - decode at position 262143 | 0.999916 | 0.999266 |
-| **full context 262143** - best-fit *scale* vs HF, prefill tail | 0.997682 | 0.997495 |
-| **full context 262143** - best-fit *scale* vs HF, decode | 0.996399 | 0.995766 |
-| fused vs functional output, prefill and decode @ 2049 | min 0.999921 | min 0.999859 |
+| **full context 262143** - decode at position 262143 | 0.999912 | 0.999266 |
+| **full context 262143** - best-fit *scale* vs HF, prefill tail | 0.997465 | 0.997495 |
+| **full context 262143** - best-fit *scale* vs HF, decode | 0.996155 | 0.995766 |
+| fused vs functional output, prefill and decode @ 2049 | min 0.999923 | min 0.999859 |
 
 Minimum over all 460 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
 <!-- END GENERATED:correctness -->
@@ -204,9 +207,9 @@ Every fused figure sits within a few times 1e-4 of the functional one, in both d
 <!-- GENERATED:delta -->
 | | functional | fused | delta |
 |---|---|---|---|
-| `linear_attention` full-context prefill tail | 0.999947 | 0.999879 | -6.8e-05 |
-| `linear_attention` full-context recurrent state | 0.999984 | 0.999934 | -5.0e-05 |
-| `linear_attention` full-context decode @ 262143 | 0.999955 | 0.999916 | -4.0e-05 |
+| `linear_attention` full-context prefill tail | 0.999947 | 0.999882 | -6.5e-05 |
+| `linear_attention` full-context recurrent state | 0.999984 | 0.999935 | -4.9e-05 |
+| `linear_attention` full-context decode @ 262143 | 0.999955 | 0.999912 | -4.3e-05 |
 | `full_attention` full-context prefill tail | 0.998031 | 0.998030 | -4.4e-07 |
 | `full_attention` full-context decode @ 262143 | 0.999201 | 0.999266 | +6.5e-05 |
 <!-- END GENERATED:delta -->
@@ -240,7 +243,7 @@ The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out o
 [`pcc_evidence.json`](pcc_evidence.json):
 
 <!-- GENERATED:python_op_counts -->
-`full_attention` 53 -> 37 prefill, 55 -> 55 decode; `linear_attention` 780 -> 69 prefill, 78 -> 65 decode
+`full_attention` 53 -> 37 prefill, 55 -> 55 decode; `linear_attention` 780 -> 67 prefill, 78 -> 65 decode
 <!-- END GENERATED:python_op_counts -->
 
 ### Capability-contract evidence
@@ -340,7 +343,7 @@ GQA head expansion. See [`work_log.md`](work_log.md) §5.
   state mid-generation must call the accessor.
 
 * **The decode SDPA still runs on one core per head** (the `sdpa` row of the breakdown table
-  above, and the `sdpa` row of the growth table, which carries its share at both batches — the
+  above, and the `sdpa` row of the growth table, which carries its share at both batches; the
   advertised-`max_batch` one is what the optimization stage should plan against). That is not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to
   work around an upstream cross-core tree-reduction defect in `sdpa_decode`, documented there
   with a model-free reproducer and handed to the optimization stage. This stage does not touch

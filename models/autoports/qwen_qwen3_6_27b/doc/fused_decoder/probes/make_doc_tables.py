@@ -788,9 +788,15 @@ def rejected_decode_variants() -> str:
         )
         if not match:
             raise SystemExit(f"probe_decode_conv_dtype.log has no batch {batch} row")
+        # Which cell is bolded is derived: a stage review found this table bolding a "winner"
+        # its own log contradicted at one of the two batches.
+        shipped_us, alternative_us = float(match.group(1)), float(match.group(2))
+        faster = "**" if shipped_us <= alternative_us else ""
+        other = "**" if alternative_us < shipped_us else ""
         rows.append(
             f"| decode causal-conv FIR in bfloat16 instead of float32 | {batch} | "
-            f"**{match.group(1)} us** (float32) | {match.group(2)} us (bfloat16) | "
+            f"{faster}{match.group(1)} us{faster} (float32) | "
+            f"{other}{match.group(2)} us{other} (bfloat16) | "
             f"PCC {match.group(5)} between them, {match.group(4)} against torch |"
         )
     for batch in ("1", "32"):
@@ -809,7 +815,9 @@ def rejected_decode_variants() -> str:
     rows.append("")
     rows.append(
         "Median microseconds over 25 repeats. Both alternatives are the same arithmetic as what "
-        "ships and both measure slower, at both decode batches."
+        "ships. The bolded cell in each row is the faster of the pair as measured; where the two "
+        "are within a stdev of each other the difference is not meaningful, which is the case for "
+        "the bfloat16 FIR at the advertised batch."
     )
     return "\n".join(rows)
 
@@ -1012,6 +1020,56 @@ def rope_half_traced() -> str:
     return "\n".join(rows)
 
 
+def conv_tap_addcmul() -> str:
+    """The FIR's non-final taps as two ops or one, at both widths."""
+    rows = ["| pass | rows | `multiply` + `add` | `addcmul` | agreement |", "|---|---|---|---|---|"]
+    for label in ("prefill", "decode"):
+        match = re.search(
+            rf"conv_tap {label}\s+rows=\s*(\d+) two_ops_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"addcmul_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+) max_abs_diff=(\S+)",
+            _probe("probe_addcmul_state"),
+        )
+        if not match:
+            raise SystemExit(f"probe_addcmul_state.log has no conv_tap {label} row")
+        rows.append(
+            f"| {label} | {match.group(1)} | {match.group(2)} us | **{match.group(3)} us** | "
+            f"PCC {match.group(4)}, max abs diff {match.group(5)} |"
+        )
+    rows.append("")
+    rows.append(
+        "Median over 15 repeats, per tap. The difference in the last column is bfloat16 rounding "
+        "of the *intermediate*: the two-op form rounds `state * w` to bfloat16 before the add and "
+        "the fused one keeps it in the accumulator, so the fused result is the closer of the two "
+        "to float32 arithmetic, not the further."
+    )
+    return "\n".join(rows)
+
+
+def dense_recurrence() -> str:
+    """The recurrence's transient chain in per-head rows or dense, at both regimes."""
+    rows = ["| batch | one padded row per head | dense `[1, batch, heads, dim]` | agreement |", "|---|---|---|---|"]
+    for batch in ("1", "32"):
+        match = re.search(
+            rf"dense_recurrence batch=\s*{batch} rows_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"dense_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+) max_abs_diff=(\S+)",
+            _probe("probe_dense_recurrence"),
+        )
+        if not match:
+            raise SystemExit(f"probe_dense_recurrence.log has no batch {batch} row")
+        rows.append(
+            f"| {batch} | {match.group(1)} us | **{match.group(2)} us** | "
+            f"PCC {match.group(3)}, max abs diff {match.group(4)} |"
+        )
+    rows.append("")
+    rows.append(
+        "Median over 25 repeats over the `subtract` / `sigmoid`-multiply chain and the rank changes "
+        "each form needs. Bit-identical. At batch 1 the two are inside each other's spread; at the "
+        "advertised batch the dense form is far ahead, because a one-row-per-head TILE tensor "
+        "carries 31 padding rows for every real one."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -1037,6 +1095,8 @@ BLOCKS = {
     "coverage_claims": coverage_claims,
     "batch32_shares": batch32_shares,
     "addcmul_state": addcmul_state,
+    "conv_tap_addcmul": conv_tap_addcmul,
+    "dense_recurrence": dense_recurrence,
     "rope_half": rope_half,
     "rope_half_traced": rope_half_traced,
     "slow_rows": slow_rows,

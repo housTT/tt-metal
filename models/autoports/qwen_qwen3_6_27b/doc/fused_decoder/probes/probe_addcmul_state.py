@@ -20,6 +20,10 @@ applies here.  So this probe measures three things at both decode regimes:
 The reorder is legal because ``g`` is one scalar per head, so ``k @ (state * g) == (k @ state) * g``
 and the state read can consume the *undecayed* state.
 
+It also measures the *conv tap* case §3.14 rejected: the FIR's non-final taps are a plain
+``multiply`` + plain ``add`` with no activation riding on them, so the "it would lose the SiLU"
+blocker applies only to the last tap.
+
     python .../probes/probe_addcmul_state.py
 """
 
@@ -136,6 +140,54 @@ def main() -> None:
                 if tensor.is_allocated():
                     ttnn.deallocate(tensor)
             for tensor in (g, update):
+                ttnn.deallocate(tensor)
+        # ------------------------------------------------------------------ the conv-tap case
+        # One non-final FIR tap at the prefill and decode widths: ``acc + state * w`` as two ops
+        # or one.  These carry no activation, so §3.14's blocker does not apply to them.
+        conv_dim = 10240
+        for rows, label in ((2048, "prefill"), (32, "decode")):
+            acc_host = torch.randn(1, 1, rows, conv_dim) * 0.3
+            state_host = torch.randn(1, 1, rows, conv_dim) * 0.3
+            tap_host = torch.randn(1, 1, 1, conv_dim) * 0.3
+
+            def dev16(tensor):
+                return ttnn.from_torch(tensor, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+
+            acc = dev16(acc_host)
+            state16 = dev16(state_host)
+            tap = dev16(tap_host)
+
+            def two_ops():
+                term = ttnn.multiply(state16, tap)
+                out = ttnn.add(acc, term)
+                ttnn.deallocate(term)
+                return out
+
+            def one_op():
+                return ttnn.addcmul(acc, state16, tap)
+
+            try:
+                got_two = ttnn.to_torch(two_ops()).float()
+                got_one = ttnn.to_torch(one_op()).float()
+            except Exception as error:  # noqa: BLE001 - the blocker text is the result
+                print(
+                    f"conv_tap {label:8s} rows={rows:5d} rejected: {type(error).__name__}: "
+                    f"{str(error).splitlines()[0][:140]}",
+                    flush=True,
+                )
+                for tensor in (acc, state16, tap):
+                    ttnn.deallocate(tensor)
+                continue
+            two_median, two_stdev = median_us(two_ops, device)
+            one_median, one_stdev = median_us(one_op, device)
+            print(
+                f"conv_tap {label:8s} rows={rows:5d} two_ops_us={two_median:9.1f} ({two_stdev:6.1f}) "
+                f"addcmul_us={one_median:9.1f} ({one_stdev:6.1f}) "
+                f"pcc_between={pcc(got_two, got_one):.6f} "
+                f"max_abs_diff={float((got_two - got_one).abs().max()):.3e}",
+                flush=True,
+            )
+            for tensor in (acc, state16, tap):
                 ttnn.deallocate(tensor)
     finally:
         ttnn.close_mesh_device(device)

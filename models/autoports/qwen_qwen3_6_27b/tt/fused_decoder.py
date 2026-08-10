@@ -791,11 +791,20 @@ class FusedDecoder(FunctionalDecoder):
             piece = ttnn.slice(rows, [0, 0, j, 0], [1, 1, j + length, s.conv_dim])
             tap = ttnn.to_layout(piece, ttnn.TILE_LAYOUT)
             ttnn.deallocate(piece)
+            if acc is None:
+                acc = ttnn.multiply(tap, taps[j])
+                ttnn.deallocate(tap)
+                continue
+            if j != k - 1:
+                # ``acc + window_j * w_j`` in one op.  Only the *last* tap's add carries the SiLU,
+                # so only it needs to stay a separate multiply and add - §3.23.
+                merged = ttnn.addcmul(acc, tap, taps[j])
+                ttnn.deallocate(tap)
+                ttnn.deallocate(acc)
+                acc = merged
+                continue
             term = ttnn.multiply(tap, taps[j])
             ttnn.deallocate(tap)
-            if acc is None:
-                acc = term
-                continue
             # The FIR's trailing SiLU is an *output* activation of the last tap's add, not a
             # separate pass over a ~42 MB tensor: folding it there removed a standalone
             # ``UnaryDeviceOperation`` from the 2048-token prefill entirely.  Same merge as the MLP's SiLU,
@@ -953,10 +962,16 @@ class FusedDecoder(FunctionalDecoder):
             # which are rows 1..K-1.  Row 0 is the token that falls out of the window this step,
             # and it is kept only so :meth:`current_conv_state` can rebuild the packed state the
             # functional layer maintains - see that method.
-            term = ttnn.multiply(self.conv_state_split[j + 1], taps[j])
-            # SiLU folded into the last tap's add, as in the prefill FIR.
-            merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == k_size - 2 else [])
-            ttnn.deallocate(term)
+            if j == k_size - 2:
+                # The last tap keeps its own multiply, because the SiLU rides on this add and
+                # ``addcmul`` has no activation slot (§3.14).
+                term = ttnn.multiply(self.conv_state_split[j + 1], taps[j])
+                merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU])
+                ttnn.deallocate(term)
+            else:
+                # ``acc + state * tap`` in one op.  Nothing rides on these adds, so §3.14's
+                # blocker does not apply to them - §3.23.
+                merged = ttnn.addcmul(acc, self.conv_state_split[j + 1], taps[j])
             ttnn.deallocate(acc)
             acc = merged
         for j in range(k_size - 1):
@@ -968,7 +983,14 @@ class FusedDecoder(FunctionalDecoder):
         q_flat, k_flat, v_flat = self._split_qkv(conv_out)
         ttnn.deallocate(conv_out)
 
-        def to_heads(flat, num_heads, head_dim, repeat: int, scale=None):
+        def to_heads(flat, num_heads, head_dim, repeat: int, scale=None, dense: bool = False):
+            """``dense`` keeps ``[1, batch, heads, dim]`` instead of one padded row per head.
+
+            The three matmuls need the per-head-row layout - a per-head batch dimension is what
+            makes them batched - but the *transients* around them do not, and in that layout a
+            logical height of 1 is padded to a 32-row tile, so 31 of every 32 bytes moved are
+            padding (§3.24).
+            """
             t = ttnn.reshape(flat, (1, batch, num_heads, head_dim))
             if repeat > 1:
                 rep = ttnn.repeat_interleave(t, repeat, dim=2)
@@ -986,18 +1008,23 @@ class FusedDecoder(FunctionalDecoder):
                 _free(t, flat, normed)
                 t = ttnn.multiply(normed, scale)
                 ttnn.deallocate(normed)
+            if dense:
+                return t
             return ttnn.reshape(t, (1, batch * nv, 1, head_dim))
 
         root_dk = math.sqrt(s.head_k_dim)
         q = to_heads(q_flat, s.num_k_heads, s.head_k_dim, s.v_per_k, scale=1.0 / (root_dk * root_dk))
         k = to_heads(k_flat, s.num_k_heads, s.head_k_dim, s.v_per_k, scale=1.0 / root_dk)
-        v = to_heads(v_flat, nv, s.head_v_dim, 1)
+        v = to_heads(v_flat, nv, s.head_v_dim, 1, dense=True)
         _free(q_flat, q)
         _free(k_flat, k)
         _free(v_flat, v)
 
-        b_h = ttnn.reshape(b_raw, (1, batch * nv, 1, 1))
-        g_h = ttnn.reshape(g, (1, batch * nv, 1, 1))
+        # ``b`` and ``g`` stay dense - ``[1, batch, num_v_heads, 1]`` - because the ops that read
+        # them are the dense transient chain below; only the decay the ``addcmul`` needs is turned
+        # into per-head rows, and that is a ``[1, BH, 1, 1]`` tensor either way (§3.24).
+        b_h = ttnn.reshape(b_raw, (1, batch, nv, 1))
+        g_h = ttnn.reshape(g, (1, batch, nv, 1))
         _free(b_raw, b_h)
         _free(g, g_h)
 
@@ -1016,6 +1043,7 @@ class FusedDecoder(FunctionalDecoder):
         # is four orders of magnitude smaller than the one it came from.
         decay = ttnn.exp(g_h)
         ttnn.deallocate(g_h)
+        decay_rows = ttnn.reshape(decay, (1, batch * nv, 1, 1))
         kv_raw = ttnn.matmul(
             k,
             self.recurrent_state,
@@ -1023,14 +1051,21 @@ class FusedDecoder(FunctionalDecoder):
             compute_kernel_config=self.compute_cfg,
             core_grid=self.recurrence_read_grid,
         )
-        kv_mem = ttnn.multiply(kv_raw, decay)
-        ttnn.deallocate(kv_raw)
+        # §3.24: the matmul hands back one padded row per head; the arithmetic that follows runs
+        # dense, on a twenty-fourth of the bytes at the advertised batch, and only ``delta`` is
+        # turned back into rows for the outer product.
+        kv_dense = ttnn.reshape(kv_raw, (1, batch, nv, s.head_v_dim))
+        _free(kv_raw, kv_dense)
+        kv_mem = ttnn.multiply(kv_dense, decay)
+        ttnn.deallocate(kv_dense)
         residual = ttnn.subtract(v, kv_mem)
-        delta = ttnn.multiply(residual, b_h, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
+        gated = ttnn.multiply(residual, b_h, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
         ttnn.deallocate(residual)
         ttnn.deallocate(kv_mem)
         ttnn.deallocate(v)
         ttnn.deallocate(b_h)
+        delta = ttnn.reshape(gated, (1, batch * nv, 1, s.head_v_dim))
+        _free(gated, delta)
         # The outer product's transpose is an argument of the matmul, not an op before it - the
         # skill's "permute/transpose + matmul" merge.  Exact (PCC 1.000000 against torch) and one
         # dispatch fewer; measured in ``doc/fused_decoder/logs/probe_decode_recurrence.log``.
@@ -1048,8 +1083,10 @@ class FusedDecoder(FunctionalDecoder):
         # persistent buffer.  ``output_tensor`` aliasing an input is what the traced decode needs
         # (the state must land at the persistent address) and is bit-exact here - the probe checks
         # the in-place form against torch as well as against the two-op form.
-        ttnn.addcmul(update, self.recurrent_state, decay, output_tensor=self.recurrent_state)
+        ttnn.addcmul(update, self.recurrent_state, decay_rows, output_tensor=self.recurrent_state)
         ttnn.deallocate(decay)
+        if decay_rows.is_allocated():
+            ttnn.deallocate(decay_rows)
         ttnn.deallocate(update)
         out = ttnn.matmul(
             q,

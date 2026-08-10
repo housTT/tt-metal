@@ -907,12 +907,21 @@ def test_generated_blocks_are_current():
             [sys.executable, str(mirror / "probes" / "make_doc_tables.py")], capture_output=True, text=True
         )
         assert result.returncode == 0, f"{generator.name} failed: {result.stderr[-2000:]}"
+        # The watcher audit is generated too, and it counts things - a stage review found it a
+        # round stale because nothing re-ran its generator.
+        audit = subprocess.run(
+            [sys.executable, str(mirror / "probes" / "make_watcher_audit.py")], capture_output=True, text=True
+        )
+        assert audit.returncode == 0, f"make_watcher_audit.py failed: {audit.stderr[-2000:]}"
         stale = []
         for path, text in before.items():
             regenerated = (mirror / path.relative_to(DOC)).read_text()
             if regenerated != text:
                 stale.append(path.name)
             assert _UNFILLED not in text, f"{path.name} has a generated block the generator never filled"
+        audit_path = DOC / "watcher" / "WATCHER_AUDIT.md"
+        if (mirror / audit_path.relative_to(DOC)).read_text() != audit_path.read_text():
+            stale.append(audit_path.name)
     assert not stale, (
         "these documents' generated blocks are out of date with the artifacts; " f"re-run {generator.name}: {stale}"
     )

@@ -243,12 +243,12 @@
    "evidence_method": "identical to the functional stage's: a segmented HF reference for linear_attention, and for full_attention a K/V cache built from k_proj/v_proj + k_norm + RoPE, validated torch.equal against a genuine short reference prefill, with the real HF layer run over the last 256 queries.",
    "results": {
     "linear_attention": {
-     "prefill_tail_8192_pcc": 0.999879,
+     "prefill_tail_8192_pcc": 0.999882,
      "conv_state_pcc": 0.999995,
-     "recurrent_state_pcc": 0.999934,
-     "decode_at_262143_pcc": 0.999916,
-     "prefill_tail_scale": 0.997682,
-     "decode_scale": 0.996399,
+     "recurrent_state_pcc": 0.999935,
+     "decode_at_262143_pcc": 0.999912,
+     "prefill_tail_scale": 0.997465,
+     "decode_scale": 0.996155,
      "verdict": "passes the 0.995 bar"
     },
     "full_attention": {
@@ -261,7 +261,7 @@
      "verdict": "passes the 0.995 bar"
     }
    },
-   "delta_against_functional": "linear_attention moves by at most 6.8e-5 (prefill tail 0.999947 -> 0.999879, recurrent state 0.999984 -> 0.999934, decode 0.999955 -> 0.999915), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
+   "delta_against_functional": "linear_attention moves by a few times 1e-5 (prefill tail 0.999882, recurrent state 0.999935, decode 0.999912, against the functional stage's 0.999947 / 0.999984 / 0.999955), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
   },
   "non_aligned_length_coverage": "unchanged and re-run against the fused graph: 1, 17, 128, 2048, 2049, 4096, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts. The fused prefill's internal chunking is a multiple of 32 (chunk_gated_delta_rule's flat path needs T % 32 == 0) but that is padding the layer owns; no divisibility requirement reaches the public API.",
   "acceptance": {
@@ -273,7 +273,7 @@
    "pcc_records_below_bar": 0,
    "scale_range": [
     0.995766,
-    0.997682
+    0.997495
    ],
    "scale_tolerance": [
     0.98,
