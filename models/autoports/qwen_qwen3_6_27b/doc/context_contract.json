@@ -201,6 +201,87 @@
   "note": "Scale ratios are a separate, two-sided quantity from PCC and are not folded into the PCC minimum; they exist because both SDPA defects this layer works around are pure scale errors that PCC cannot see. These fields are derived from doc/functional_decoder/pcc_evidence.json and must be regenerated with it.",
   "evidence": "doc/functional_decoder/pcc_evidence.json"
  },
+ "fused_decoder": {
+  "stage": "fused_decoder",
+  "implementation": "models/autoports/qwen_qwen3_6_27b/tt/fused_decoder.py",
+  "supported_context": 262144,
+  "reduced_from_advertised": false,
+  "reduction_reason": null,
+  "note": "Stage 2 fuses the op graph at a fixed capability contract. FusedDecoder inherits FunctionalDecoder's constructor, max_seq_len default, paged-KV geometry and per-user linear-attention state, so nothing that sizes the context changed: same cache_dtype (bfloat16 default, bfloat8_b tested), same block_size parameter (32/64/128 tested), same max_num_blocks derivation from the padded context, same float32 conv/recurrent state, and the same 'any 1 <= seq_len <= max_seq_len, no divisibility requirement' public prefill API.",
+  "layout_and_sharding_changes_reviewed_for_capacity": {
+   "decode_rms_norm": "width-sharded into L1 for the duration of one op, then back to DRAM interleaved; no persistent allocation, and L1 use is 32 rows x 256 channels x 2 B = 16 KB per core on 20 cores",
+   "decode_attention_heads": "K/V now stay in the memory config nlp_create_qkv_heads_decode already produced instead of a sharded->interleaved->sharded round trip; strictly fewer live buffers than the functional path",
+   "kv_cache": "unchanged - same shape, same dtype, same paged block layout, same paged_fill_cache / paged_update_cache contract",
+   "prefill_causal_conv": "the FIR runs in bfloat16, which *halves* its peak activation footprint; the carried conv state stays float32 and is cut from the float32 inputs",
+   "gated_norm": "the [L, H*D] <-> [L, H, D] relayouts are gone, which removes a full-size temporary from the prefill peak"
+  },
+  "extra_persistent_device_bytes_per_layer": {
+   "method": "measured, not asserted: total DRAM bytes allocated across banks around a real from_state_dict at max_batch 32, for each implementation in turn, after a warm-up build/release of both so one-time first-use allocations land on neither.",
+   "test": "models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_persistent_state_delta",
+   "linear_attention": {
+    "functional": 1060618240,
+    "fused": 1068875776,
+    "delta": 8257536,
+    "what_is_added": "(conv_kernel_size - 1) batch-major conv tap buffers, bfloat16 conv taps, the packed in_proj_ab weight, the two gated-norm constant matrices and the chunk_gated_delta_rule constant tiles, minus the freed in_proj_a and in_proj_b"
+   },
+   "full_attention": {
+    "functional": 1818935296,
+    "fused": 1818935296,
+    "delta": 0,
+    "what_is_added": "nothing: the fused full_attention rewrites are op substitutions and memory-config choices, with no new persistent tensor"
+   }
+  },
+  "capacity_conclusion": "Measured +8257536 bytes on a linear_attention layer and exactly 0 on a full_attention layer, against the 31 GiB of allocatable DRAM measured in device_capacity above and the 1818230784-byte worst-case single layer at batch 1 and full context. That is under half a percent of the smaller layer and 0.03 % of measured DRAM, so no capability reduction was made or needed.",
+  "largest_context_tested": {
+   "prefill": 262143,
+   "decode_position": 262143,
+   "test": "models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_full_advertised_context",
+   "command": "cd /home/ttuser/dev/qwen/tt-metal && source models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh && python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py -k test_full_advertised_context --long-context -v -s",
+   "logs": [
+    "doc/fused_decoder/logs/long_context.log"
+   ],
+   "evidence_method": "identical to the functional stage's: a segmented HF reference for linear_attention, and for full_attention a K/V cache built from k_proj/v_proj + k_norm + RoPE, validated torch.equal against a genuine short reference prefill, with the real HF layer run over the last 256 queries.",
+   "results": {
+    "linear_attention": {
+     "prefill_tail_8192_pcc": 0.9998786874245192,
+     "conv_state_pcc": 0.9999946280463557,
+     "recurrent_state_pcc": 0.9999334047369414,
+     "decode_at_262143_pcc": 0.9999178071296412,
+     "prefill_tail_scale": 0.9975866484074942,
+     "decode_scale": 0.9963186424009748,
+     "verdict": "passes the 0.995 bar"
+    },
+    "full_attention": {
+     "paged_k_cache_pcc": 0.999988725692351,
+     "paged_v_cache_pcc": 0.9999926599608485,
+     "prefill_tail_256_pcc": 0.9980303234801929,
+     "decode_at_262143_pcc": 0.9992660896964991,
+     "prefill_tail_scale": 0.9974952435099962,
+     "decode_scale": 0.9957661979426642,
+     "verdict": "passes the 0.995 bar"
+    }
+   },
+   "delta_against_functional": "linear_attention moves by at most 6.8e-5 (prefill tail 0.999947 -> 0.999879, recurrent state 0.999984 -> 0.999933, decode 0.999955 -> 0.999918), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
+  },
+  "non_aligned_length_coverage": "unchanged and re-run against the fused graph: 1, 17, 128, 2048, 2049, 4096, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts. The fused prefill's internal chunking is a multiple of 32 (chunk_gated_delta_rule's flat path needs T % 32 == 0) but that is padding the layer owns; no divisibility requirement reaches the public API.",
+  "acceptance": {
+   "pcc_bar": 0.995,
+   "records": 283,
+   "pcc_records": 264,
+   "scale_records": 4,
+   "min_pcc": 0.9980303234801929,
+   "pcc_records_below_bar": 0,
+   "scale_range": [
+    0.9957661979426642,
+    0.9975866484074942
+   ],
+   "scale_tolerance": [
+    0.98,
+    1.02
+   ],
+   "evidence": "doc/fused_decoder/pcc_evidence.json"
+  }
+ },
  "hardware": {
   "note": "two p300c boards of two Blackhole chips each",
   "boards": {

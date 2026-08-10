@@ -124,11 +124,31 @@ def documents(root: Path) -> list[Path]:
     ]
 
 
+#: Top-level ``context_contract.json`` keys owned by a *later* stage.  ``context_contract.json``
+#: is a shared document: each stage records its own capability findings in it, backed by its own
+#: artifacts and gated by its own checker (the fused stage's is
+#: ``tests/test_fused_decoder_docs.py``).  This checker's corpus is the functional stage's
+#: artifacts, so a later stage's block would be "invented numbers" here for no reason - and
+#: widening the corpus to every stage would weaken this gate for the documents it *does* own.
+#: Strip those blocks from this document's text instead.
+LATER_STAGE_CONTRACT_KEYS = ("fused_decoder",)
+
+
+def document_text(path: Path) -> str:
+    """A document's text as this checker should read it."""
+    if path.name != "context_contract.json":
+        return path.read_text()
+    payload = json.loads(path.read_text())
+    for key in LATER_STAGE_CONTRACT_KEYS:
+        payload.pop(key, None)
+    return json.dumps(payload, indent=1)
+
+
 def check_paths(root: Path) -> None:
     doc = root / "doc" / "functional_decoder"
     missing = []
     for path in documents(root):
-        text = path.read_text()
+        text = document_text(path)
         for match in re.finditer(r"\]\(([^)#][^)]*)\)", text):
             target = match.group(1).split("#")[0]
             if target.startswith("http"):
@@ -313,7 +333,7 @@ def check_quoted_numbers(root: Path, corpus: str) -> None:
     corpus_integers = {m.group(1) for m in re.finditer(r"(?<![\w.])(\d{3,})(?![\w])", corpus)}
     invented = []
     for path in documents(root):
-        text = path.read_text()
+        text = document_text(path)
         for match in re.finditer(r"(?<![\d.])(\d+\.\d+)", text):
             quoted = match.group(1)
             line_start = text.rfind("\n", 0, match.start()) + 1
@@ -359,7 +379,7 @@ def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
     batch_size = 32
     batch_non_divisible = sum(1 for u in range(batch_size) if (base + step * u) % 64)
     for path in documents(root):
-        text = path.read_text()
+        text = document_text(path)
         name = path.name
 
         # -- headline PCC minimum: "Minimum over ... : 0.998031" / "minimum PCC 0.998031"

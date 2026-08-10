@@ -124,17 +124,22 @@ def release_layers() -> None:
     while _CREATED:
         lut = _CREATED.pop()
         layer = lut.tt_layer
-        tensors = []
-        for value in layer.w.values():
-            tensors.extend(value if isinstance(value, list) else [value])
-        tensors.extend(layer.const.values())
-        tensors.extend(layer.kv_cache or ())
-        for value in (layer.conv_state, layer.recurrent_state):
-            if value is None:
-                continue
-            tensors.extend(value if isinstance(value, list) else [value])
-        tensors.extend(t for t in layer.user_conv_state if t is not None)
-        tensors.extend(t for t in layer.user_recurrent_state if t is not None)
+        if hasattr(layer, "released_tensors"):
+            # ``FusedDecoder`` owns buffers the functional layer does not (the batch-major conv
+            # tap buffers), so it reports its own list rather than having it re-derived here.
+            tensors = list(layer.released_tensors())
+        else:
+            tensors = []
+            for value in layer.w.values():
+                tensors.extend(value if isinstance(value, list) else [value])
+            tensors.extend(layer.const.values())
+            tensors.extend(layer.kv_cache or ())
+            for value in (layer.conv_state, layer.recurrent_state):
+                if value is None:
+                    continue
+                tensors.extend(value if isinstance(value, list) else [value])
+            tensors.extend(t for t in layer.user_conv_state if t is not None)
+            tensors.extend(t for t in layer.user_recurrent_state if t is not None)
         if lut.page_table_tt is not None:
             tensors.append(lut.page_table_tt)
         for tensor in tensors:
@@ -155,11 +160,14 @@ def build_layer(
     real_weights: bool = False,
     seed: int = 0,
     cache_dtype=None,
+    decoder_cls=FunctionalDecoder,
 ) -> LayerUnderTest:
     """Build one decoder layer under test.
 
-    ``cache_dtype=None`` leaves ``FunctionalDecoder``'s own default (bfloat16); passing a dtype
-    pins it, which is what ``test_bfloat8_kv_cache`` does.
+    ``cache_dtype=None`` leaves the decoder's own default (bfloat16); passing a dtype pins it,
+    which is what ``test_bfloat8_kv_cache`` does.  ``decoder_cls`` selects the implementation:
+    :class:`FunctionalDecoder` or :class:`FusedDecoder`, which share a constructor and a
+    forward contract, so every test in this suite runs against either.
     """
     config = ref.load_text_config()
     if real_weights:
@@ -168,7 +176,7 @@ def build_layer(
         state_dict = ref.synthetic_state_dict_from_stats(ref.load_weight_stats(), layer_idx, config, seed=seed)
     ref_layer = ref.build_reference_layer(layer_idx, state_dict={k: v.clone() for k, v in state_dict.items()})
 
-    tt_layer = FunctionalDecoder.from_state_dict(
+    tt_layer = decoder_cls.from_state_dict(
         state_dict,
         hf_config=config,
         layer_idx=layer_idx,

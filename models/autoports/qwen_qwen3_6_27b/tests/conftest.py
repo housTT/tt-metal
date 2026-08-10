@@ -23,6 +23,13 @@ def pytest_configure(config):
 
 def pytest_addoption(parser):
     parser.addoption("--long-context", action="store_true", default=False, help="run full-context tests")
+    parser.addoption(
+        "--impl",
+        action="store",
+        default="fused",
+        choices=("fused", "functional"),
+        help="decoder implementation the fused-stage perf runs measure (before/after pair)",
+    )
 
 
 @pytest.fixture(autouse=True)
