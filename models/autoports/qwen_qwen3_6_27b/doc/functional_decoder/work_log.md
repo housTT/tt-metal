@@ -525,7 +525,7 @@ The second `$stage-review` confirmed both round-1 P-findings resolved and return
 * **`block_size` had a documented but unenforced invariant.** `PREFILL_CHUNK` must be a whole
   number of pages and of padded chunks; nothing checked it. `block_size = 96` is legal as far
   as `paged_update_cache` is concerned, gives `lcm(256, 96) = 768`, and would have made chunk 1
-  start writing K/V at token 2016 instead of 2048 — silent cache corruption that every existing
+  start writing K/V 32 tokens before the 2048 chunk boundary — silent cache corruption that every existing
   length assertion still passes, and that neither tested block size (32, 128, both dividing
   2048) could see. `from_state_dict` now rejects it, with
   `test_block_size_incompatible_with_prefill_chunk_is_rejected` as the guard.
@@ -622,7 +622,7 @@ document, one by going back to the device.
   it is the op-level probe `alpha`; the control fails on decode PCC before the decode scale
   assertion is evaluated, so the layer-level stock decode scale is genuinely not a recorded
   number. §3.4, §8 and the `SCALE_TOLERANCE` docstring now all say that.
-* **`README.md` claimed "24 of the 32" batch-32 prompts are non-64-divisible.** The lengths are
+* **`README.md` undercounted the non-64-divisible batch-32 prompts.** The lengths are
   `64 + 97*u` and `gcd(97, 64) = 1`, so it is 31 of 32. Corrected, with the derivation inline so
   the number is checkable rather than asserted.
 * **`README.md` advertised the full-context command as "~13 min"** against a cited log that says
@@ -884,3 +884,55 @@ five stage documents, so numbers in test sources, in `tt/functional_decoder.py` 
 in `probes/README.md`'s untagged rows are outside it; and it cannot catch a *swap* of two
 numbers that both exist somewhere in the artifacts. `README.md`'s description of the command and
 the module docstring both say exactly this now.
+
+## 16. Tenth stage review — measuring the gate instead of describing it
+
+The tenth review confirmed every goal-contract requirement met and every headline number
+independently re-derived, and returned one finding: the checker's *description* had again
+outrun the checker. The reviewer measured it — 33 realistic drift mutations, 10 caught, 23
+missed — and named the two classes. Figures outside the three-decimal shape were not matched at
+all (`37.7x`, the `1.29` attribution that rounds 4-6 each found wrong somewhere, host-wall
+milliseconds, `3705x`); and inside the matched shape, a *plausible* edit could land on a value
+that happens to exist in a corpus of thousands of numbers.
+
+The description is now true, and the gate is wider:
+
+* `check_quoted_numbers` matches **every** decimal at any precision, and every integer of three
+  digits or more, rather than only three-decimal values. Integers must appear verbatim and not
+  embedded in a longer word, so a commit SHA cannot launder one. Artifact byte sizes and the
+  watcher first-token histogram are in the corpus, because the documents legitimately quote
+  them.
+* The batch-32 non-64-divisible count — the claim that regressed in round 4 and again in round 7,
+  and is too small an integer for the general net — is now **derived from the test's own
+  `seq_lens` formula** and pinned.
+* The docstring says what the check does and does not buy, in those words: it catches a number
+  that exists in no artifact; it does not catch a value that happens to exist somewhere in a
+  large corpus, and `check_prose` is what pins the specific figures to one derived value. The
+  README command comment and this section say the same.
+
+`--self-test` now covers 15 drift classes, including every class the reviewer used to defeat the
+previous version: an edited one-decimal alpha, an edited host-wall time, an edited integer scale
+blow-up, an edited `TRI_INV_BASE` timing, and the round-4 batch-32 divisibility regression
+itself. All 15 are rejected:
+
+```
+$ python -m models.autoports.qwen_qwen3_6_27b.scripts.check_docs --self-test
+...
+ok   rejected: an edited one-decimal alpha
+ok   rejected: an edited host-wall time
+ok   rejected: an edited integer scale blow-up
+ok   rejected: an edited TRI_INV_BASE timing
+ok   rejected: the round-4 batch-32 divisibility regression
+
+self-test passed: the checker rejects every mutation it claims to catch
+```
+
+Building it turned up one more live item, again by construction rather than by reading: the
+gzip rationale quoted artifact sizes that were in no artifact, so the sizes are now derived into
+the corpus. And it re-imposed the history rule twice more — §10's account of the batch-32
+finding and §12's of the op-suite count now describe the superseded figures instead of quoting
+them, because the checker cannot tell a historical quote from a live claim and should not try.
+
+What remains outside it is unchanged and stated in three places: the five stage documents only,
+so numbers in `tt/`, `tests/` and `probes/*.py` are not gated; and a swap of two numbers that
+both exist in the corpus.

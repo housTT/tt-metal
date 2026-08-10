@@ -22,9 +22,17 @@ Every figure it checks is **re-derived from a committed artifact** and then comp
    were captured whole" true.
 4. *Test counts come from the run logs*, and each count is bound to the log that produced it by
    requiring the sentence carrying it to name the right thing.
-5. *One value per figure.*  For every figure derived above, every occurrence of that figure in
-   the prose carries the derived value.  This is the check that closes the drift class: an
-   edited headline PCC or a stale perf row fails here.
+5. *No invented numbers.*  Every decimal and every integer of three digits or more in the prose
+   is some committed artifact's number.  This is broad but not exact: a value that exists
+   somewhere in the corpus passes even if it is quoted in the wrong place.
+6. *One value per figure.*  For the figures derived above - record counts, PCC minimum, scale
+   range, per-phase ops and device time, watcher line census, per-run pass counts - every
+   occurrence in the prose carries the derived value.  This is exact, and it is what closes the
+   drift class for those figures.
+
+Outside its reach, by design and stated so nobody mistakes it for a full gate: the five stage
+documents only, so numbers in ``tt/``, ``tests/`` and ``probes/*.py`` are not checked; and a
+swap of two numbers that both exist in the corpus.
 
 An earlier revision of this file advertised check 5 and did not implement it; a stage review
 demonstrated it passed with a deliberately corrupted README.  The regression test for that is
@@ -194,18 +202,29 @@ def artifact_corpus(root: Path) -> str:
         parts.append(path.read_text(errors="replace"))
     watcher = doc / "watcher" / "generated" / "watcher" / "watcher.log"
     if watcher.exists():
-        parts.append(f"lines={sum(1 for _ in watcher.open(errors='replace'))}")
+        lines = watcher.read_text(errors="replace").splitlines()
+        parts.append(f"lines={len(lines)}")
+        # WATCHER_AUDIT.md quotes the first-token histogram; derive it so those counts are backed.
+        histogram: dict[str, int] = {}
+        for line in lines:
+            token = line.split(" ")[0] if line else ""
+            histogram[token] = histogram.get(token, 0) + 1
+        parts.extend(f"{count} {token}" for token, count in histogram.items())
+    # Artifact sizes are facts about the tree, and the documents quote them (the gzip rationale).
+    for path in sorted(doc.rglob("*_ops.csv")) + sorted(doc.rglob("*_ops.csv.gz")):
+        size = path.stat().st_size
+        parts.append(f"{path.name} {size} {size / 1e6:.2f} MB {size / 1024:.0f} KB")
     return "\n".join(parts)
 
 
 def check_quoted_numbers(root: Path, corpus: str) -> None:
     """No PCC/alpha/scale/millisecond number in the prose is invented.
 
-    Every decimal with three or more fraction digits - the shape every PCC, scale ratio,
-    device/golden alpha and millisecond figure in this stage takes - must be *some committed
-    artifact's number, rounded*.  The rounding is done properly rather than by prefix matching:
+    **Every** decimal, at any precision, and every integer of three digits or more, must be
+    *some committed artifact's number*.  Decimals are matched by rounding rather than by prefix:
     a quoted ``1.310`` is accepted because the artifact's ``1.30960`` rounds to it at three
-    decimals, and a quoted ``0.998031`` because ``0.9980307630901388`` does at six.
+    decimals, and ``0.998031`` because ``0.9980307630901388`` does at six.  Integers must appear
+    verbatim, not embedded in a longer word, so a commit SHA does not launder one.
 
     Two documented exemptions, both narrow:
 
@@ -215,14 +234,22 @@ def check_quoted_numbers(root: Path, corpus: str) -> None:
     * ``earlier_pass_reference.json``, which is *in* the corpus precisely so the before/after
       comparison in section 3.5 is backed.
 
-    This does not catch a *swap* of two numbers that both exist in the artifacts; it does catch
-    an invented or edited one, which is every drift instance this stage's reviews produced.
+    What this does and does not buy, stated precisely because an earlier revision of this file
+    overstated it and a stage review measured the gap:
+
+    * it catches a number that exists in **no** artifact - an invented figure, a typo, a digit
+      dropped or added, a stale value from a superseded run;
+    * it does **not** catch a value that happens to exist somewhere in the corpus.  The corpus is
+      large (thousands of numbers from the run logs), so a *plausible* edit inside a dense range -
+      a PCC of 0.9992 changed to 0.9993, an alpha of 1.006 changed to 0.993 - can survive.
+      :func:`check_prose` is what pins the specific figures that must equal one derived value;
+      everything else rests on this weaker but much broader net.
     """
     corpus_numbers = [float(n) for n in re.findall(r"(?<![\d.])\d+\.\d+", corpus)]
     invented = []
     for path in documents(root):
         text = path.read_text()
-        for match in re.finditer(r"(?<![\d.])(\d+\.\d{3,})", text):
+        for match in re.finditer(r"(?<![\d.])(\d+\.\d+)", text):
             quoted = match.group(1)
             line_start = text.rfind("\n", 0, match.start()) + 1
             line = text[line_start : text.find("\n", match.end())]
@@ -233,11 +260,22 @@ def check_quoted_numbers(root: Path, corpus: str) -> None:
             if any(round(number, places) == target for number in corpus_numbers):
                 continue
             invented.append(f"{path.name}: {quoted} is no artifact number rounded | {line.strip()[:90]}")
+        # Integers of three digits or more: sequence lengths, positions, op counts, line
+        # censuses, scale blow-ups. Two-digit and smaller integers are ordinary prose.
+        for match in re.finditer(r"(?<![\w.])(\d{3,})x?(?![\w.])", text):
+            quoted = match.group(1)
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            line = text[line_start : text.find("\n", match.end())]
+            if "(earlier pass)" in line:
+                continue
+            if re.search(r"(?<![\d.])" + quoted + r"(?![\d])", corpus):
+                continue
+            invented.append(f"{path.name}: integer {quoted} appears in no artifact | {line.strip()[:90]}")
     if invented:
         raise Failure(
             "numbers quoted in the prose with no artifact behind them:\n  " + "\n  ".join(sorted(set(invented)))
         )
-    print("ok   every PCC/scale/alpha/ms number in the prose is a committed artifact's number, rounded")
+    print("ok   every decimal, and every integer of 3+ digits, in the prose comes from a committed artifact")
 
 
 def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
@@ -245,6 +283,14 @@ def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
     problems = []
     watcher_log = root / "doc" / "functional_decoder" / "watcher" / "generated" / "watcher" / "watcher.log"
     watcher_lines = sum(1 for _ in watcher_log.open(errors="replace"))
+    # Re-derive the batch-32 prompt lengths from the test source rather than trusting the prose.
+    test_source = (root / "tests" / "test_functional_decoder.py").read_text()
+    formula = re.search(r"seq_lens = \[(\d+) \+ (\d+) \* u for u in range\(batch\)\]", test_source)
+    if not formula:
+        raise Failure("could not find the batch-32 seq_lens formula in tests/test_functional_decoder.py")
+    base, step = int(formula.group(1)), int(formula.group(2))
+    batch_size = 32
+    batch_non_divisible = sum(1 for u in range(batch_size) if (base + step * u) % 64)
     for path in documents(root):
         text = path.read_text()
         name = path.name
@@ -299,6 +345,17 @@ def check_prose(root: Path, evidence: dict, perf: dict, counts: dict) -> None:
             quoted = int(next(g for g in match.groups() if g))
             if quoted != watcher_lines:
                 problems.append(f"{name}: quotes {quoted} watcher lines, the log has {watcher_lines}")
+
+        # -- the batch-32 non-divisible-prompt count, derived from the test's own formula. This
+        #    exact claim regressed twice (rounds 4 and 7) and is too small to be caught by the
+        #    3-digit integer net.
+        for match in re.finditer(r"(\d+) of the (32)\b", text):
+            quoted, total = match.group(1), match.group(2)
+            if (int(quoted), int(total)) != (batch_non_divisible, batch_size):
+                problems.append(
+                    f"{name}: says {quoted} of {total} batch prompts are non-64-divisible; the test's "
+                    f"lengths give {batch_non_divisible} of {batch_size}"
+                )
 
         # -- "<n> passed" must be a count some run log produced, and the sentence carrying it
         #    must name the right run.
@@ -358,6 +415,15 @@ def self_test() -> int:
             "an edited probe alpha in the work log",
         ),
         ("README.md", lambda s: s.replace("in 1712", "in 9999", 1), "a wrong watcher line census"),
+        ("README.md", lambda s: s.replace("37.7x", "77.7x", 1), "an edited one-decimal alpha"),
+        ("README.md", lambda s: s.replace("| 162.26 ms |", "| 992.26 ms |", 1), "an edited host-wall time"),
+        ("work_log.md", lambda s: s.replace("3705x", "9705x", 1), "an edited integer scale blow-up"),
+        ("work_log.md", lambda s: s.replace("136.4 ms", "236.4 ms", 1), "an edited TRI_INV_BASE timing"),
+        (
+            "README.md",
+            lambda s: s.replace("31 of the 32", "24 of the 32", 1),
+            "the round-4 batch-32 divisibility regression",
+        ),
     ]
     failures = []
     for filename, mutate, description in mutations:
