@@ -253,13 +253,19 @@ Three things are deliberately *not* promoted:
 * Anything at all unless the caller explicitly asked for one core per head with
   `fp32_dest_acc_en` set.
 
+One consequence to carry forward: for a caller that *does* opt in, the promotion roughly doubles
+the L1 footprint of `c_21`-`c_23` and `c_25`-`c_31`. At this layer's shape that is ~70 KB and it
+fits with room; a future opt-in caller with a larger `head_dim` or `vDHt` could hit an L1
+overflow it would not have hit before, and would see it as a build-time `TT_THROW` rather than
+as a wrong answer.
+
 Blast radius, measured rather than asserted:
 
 | check | result |
 |---|---|
 | repo-wide `grep -rn max_cores_per_head_batch models/ tests/ ttnn/` | no source literal `1` outside this autoport; the values in the repo are the struct default `16`, plus explicit `16` (`models/demos/gemma4`) and `4` (`tests/.../test_mla_decode.py`, `test_sdpa_decode_cache.py`, `test_mla_decode_stress.py`). Four sweep-framework loaders parse the value out of a config *string*, so a data-driven sweep config could in principle select 1; that is an explicit opt-in by the same definition, and the promotion only raises precision. |
 | `k_chunk = 128, max_cores_per_head_batch = 16` probe row, before vs after | digit-for-digit identical (0.99671, 0.99893, 0.99975, 1.00195, 1.00178, 1.00613, and the same NaN at 261887) |
-| `tests/ttnn/unit_tests/operations/sdpa/test_sdpa_decode.py` + `test_paged_sdpa_decode_flexible_geometry.py` | **21 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`) |
+| `tests/ttnn/unit_tests/operations/sdpa/test_sdpa_decode.py` + `test_paged_sdpa_decode_flexible_geometry.py` (22 collected, the two non-nightly `sdpa_decode` op files) | **21 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`); the skip needs a (10,11) grid. The larger `tests/ttnn/nightly/.../test_sdpa_decode.py` was *not* run; it cannot reach the new branch either, because its cases omit `program_config`, so `program_config.has_value()` is false. |
 
 The first row is what makes the gate safe: a caller has to opt in by name, and nothing in the
 repo does.
@@ -361,8 +367,8 @@ needed.
 
 | gate | result | artifact |
 |---|---|---|
-| functional suite | **57 passed, 2 skipped** in 7:37 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
-| full advertised context, both layer kinds | **2 passed** in 6:23 | `logs/long_context.log` |
+| functional suite | **57 passed, 2 skipped** in 07:40 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
+| full advertised context, both layer kinds | **2 passed** in 06:25 | `logs/long_context.log` |
 | watcher (`TT_METAL_WATCHER=10`) | **9 passed**, log clean, 0 fatal/assert/sanitize lines in 1712 | `logs/watcher_run.log`, `watcher/WATCHER_AUDIT.md` |
 | tt-metal `sdpa_decode` op suites (blast-radius control for the `.cpp` change) | **21 passed, 1 skipped** | `logs/ttnn_sdpa_decode_op_tests.log` |
 | profiling | 4 Tracy runs, marker-drop-free windows (exact op-count periodicity) | `perf_summary.json`, `tracy/*/*_perf_report.txt` |
@@ -467,16 +473,21 @@ max_cores_per_head_batch = 16`) are all recorded here and in `doc/context_contra
 repo   /home/ttuser/dev/qwen/tt-metal
 branch agentic-research/hous/qwen3.6-27b-v2
 base   837e8da3e9b
-commit 9d18c856aaa9b203804d6e5dd5e726fcec65b772   the stage (92 files)
-commit ce6565b0d7c76b09b3bb4b29450437e642b85406   the second-review fixes (section 8)
-commit a9e1fb195ef                                 this SHA record
-commit ffa9619f69d                                 the third-review fixes (section 9)
+first  9d18c856aaa9b203804d6e5dd5e726fcec65b772   the stage itself (92 files)
 ```
 
-The list necessarily lags by one: the commit that records it cannot contain its own SHA, and the
-same is true of any later documentation-only commit. `git rev-list 837e8da3e9b..HEAD` is the
-authoritative list, and every commit in it touches only `models/autoports/qwen_qwen3_6_27b/**`
-plus the one `sdpa_decode_program_factory.cpp`.
+The authoritative list is `git rev-list 837e8da3e9b..HEAD`; enumerating it here cannot work,
+because the commit that records a SHA never contains its own, and every later
+documentation-only commit reopens the same gap. Two earlier revisions of this block tried and
+lagged by one and then by two. What is checkable, and is what matters, is that **every** commit
+in that range touches only `models/autoports/qwen_qwen3_6_27b/**` plus the one
+`ttnn/.../sdpa_decode_program_factory.cpp`:
+
+```bash
+for c in $(git rev-list 837e8da3e9b..HEAD); do
+  git show --name-only --format= "$c" | grep -v '^models/autoports/qwen_qwen3_6_27b\|sdpa_decode_program_factory'
+done   # prints nothing
+```
 
 Committed with an explicit pathspec so the pre-existing dirty `.agents/` and `scripts/` files —
 which this stage did not touch and which the runner staged before it started — stayed out of the
@@ -533,10 +544,17 @@ decode's host-side update dropping the mesh mapper that its allocation used.
 
 **The reviewer's "no magnitude assertion anywhere" concern is now closed rather than noted.**
 `H.scale_ratio` was added and `test_full_advertised_context` asserts it inside
-`SCALE_TOLERANCE = (0.98, 1.02)` for both prefill tail and decode, on both layer kinds. That is
-the check that fails on the stock decode kernel (scale 1.29) while PCC alone still reads 0.978,
-so the stage's own headline defect class is now gated, not just narrated. Measured:
+`SCALE_TOLERANCE = (0.98, 1.02)` for both prefill tail and decode, on both layer kinds, so the
+stage's own headline defect class is gated rather than only narrated. Measured:
 0.99853 / 0.99836 (`linear_attention`) and 0.99744 / 0.99493 (`full_attention`).
+
+An earlier revision of this paragraph said this was "the check that fails on the stock decode
+kernel (scale 1.29) while PCC alone still reads 0.978". Both halves were wrong and §10 records
+the correction: 1.29 is the **op-level** probe `alpha`, and the reverted-build control fails on
+decode **PCC** (0.977888, already below the 0.995 bar) before the decode scale assertion is
+evaluated, so the layer-level stock decode scale is not a recorded number. PCC does catch the
+stock kernel at the layer level; the scale gate is a second, independent check of a quantity PCC
+cannot see, not a rescue of one PCC would miss.
 
 Everything in §5 was re-run after these changes.
 
@@ -616,3 +634,38 @@ rather than a wrong answer.
 `logs/long_context.log` and `logs/controls/long_context_stock_control.log` in §5 are from this
 round's re-runs; every other run in §5 is unchanged, because nothing outside these documents and
 one comment changed.
+
+## 11. Fifth stage review — findings and what changed
+
+The fifth `$stage-review` found that §10's own write-up over-claimed: it said the "1.29 is the
+op-level probe, not the layer-level gate" correction had been applied in three places when it
+had reached two, and it recorded a §3.3 edit about the promotion's L1 cost that had never been
+written. Both are exactly the failure mode four consecutive rounds have been catching, now
+committed by the section that was supposed to be closing it. Fixed, and this time each edit was
+grepped back out of the file before being written up:
+
+* **`README.md` and §8 still attributed 1.29 to the layer-level scale gate.** Both now say it is
+  the op-level probe `alpha` from `logs/controls/sdpa_decode_stock_baseline.log`, and that the
+  layer-level stock decode scale is not a recorded number because the control fails the decode
+  **PCC** assertion first. §8's second error is corrected too: PCC alone *does* catch the stock
+  kernel at the layer level (0.977888 is already below the bar) — the scale gate is an
+  independent check of a quantity PCC cannot see, not a rescue of one PCC would miss.
+* **The §3.3 L1-cost note now exists**, in §3.3 *and* next to `fp32_local_accumulators` in
+  `sdpa_decode_program_factory.cpp`: the promotion roughly doubles `c_21`-`c_23` and
+  `c_25`-`c_31` (~70 KB at this shape), and a future opt-in caller with a larger `head_dim` or
+  `vDHt` would see a build-time `TT_THROW` from the CB allocator rather than a wrong answer.
+* **Both control artifacts were regenerated with provenance headers** — command, ISO date and
+  the base SHA of the reverted file — in one revert/rebuild cycle, so neither depends on prose
+  or file mtime any more. Both reproduce their previous numbers exactly (op-level alpha 1.30960
+  / 1.28984 at 261887 / 262143; layer-level prefill tail PCC and scale bit-identical to the
+  shipped run, decode PCC 0.977888). The fix was then restored, rebuilt, and the suite and
+  long-context pair re-run on the final binary.
+* **§7's checkpoint block no longer enumerates SHAs.** Two revisions of it lagged by one and
+  then by two, because the commit recording a SHA cannot contain its own. It now names the first
+  commit, points at `git rev-list 837e8da3e9b..HEAD` as authoritative, and gives the one-line
+  loop that checks the property that actually matters — that every commit in the range touches
+  only this model directory plus the one `.cpp`.
+* **The op-suite blast-radius claim is scoped precisely**: the two non-nightly `sdpa_decode` op
+  files, 22 collected, 21 passed / 1 skipped, with a note that the larger nightly file was not
+  run and cannot reach the new branch (its cases omit `program_config`).
+* §5's two timings are now taken from the logs they cite (07:40 and 06:25).

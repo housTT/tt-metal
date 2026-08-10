@@ -461,6 +461,12 @@ ProgramDescriptor SdpaDecodeDeviceOperation::create_descriptor(
     //    B=32 with 4 KV heads on a 64-core grid - so keying only off the derived value would
     //    silently change the CB footprint and the numerics of callers that never asked for it.
     //    Requiring max_cores_per_head_batch == 1 makes this strictly opt-in.
+    //
+    // Cost to an opt-in caller: this roughly doubles the L1 footprint of c_21..c_23 and
+    // c_25..c_31 (Float16_b -> Float32).  At 24 q / 4 kv heads and head_dim 256 that is ~70 KB
+    // and it fits with room to spare, but a caller with a larger head_dim or vDHt could newly
+    // exceed L1.  That surfaces as a build-time TT_THROW from the circular-buffer allocator,
+    // not as a wrong answer.
     const bool fp32_local_accumulators = fp32_dest_acc_en && num_cores_per_head == 1 && program_config.has_value() &&
                                          program_config->max_cores_per_head_batch == 1;
     const tt::DataFormat acc_df = fp32_local_accumulators ? tt::DataFormat::Float32 : im_df;

@@ -138,8 +138,11 @@ to fail into the stage's evidence.
 The scale row exists because PCC is scale-invariant and both SDPA defects this stage works
 around are *pure scale errors*. `test_full_advertised_context` asserts `H.scale_ratio` inside
 `SCALE_TOLERANCE = (0.98, 1.02)` alongside PCC, so the exact failure mode the implementation is
-built to avoid is now a gate rather than a narrative — the stock decode kernel sits at 1.29
-there.
+built to avoid is now a gate rather than a narrative. The 1.29 figure quoted for the stock
+decode kernel elsewhere in this document is the **op-level** probe `alpha`
+(`logs/controls/sdpa_decode_stock_baseline.log`); the stock kernel's *layer-level* scale is not
+a recorded number, because the reverted-build control fails the decode **PCC** assertion
+(0.977888, already below the bar) before the scale assertion is reached.
 
 `full_attention` sits systematically ~5e-4 below `linear_attention`; that is ordinary bfloat16
 attention accumulation, and it drifts slowly with context (0.99997 at seq 1 → 0.998031 at
@@ -172,9 +175,9 @@ alone is not enough to trigger it, because that value also collapses to 1 for or
 decode (B x KV heads >= the core grid) — an earlier revision of this stage gated on the derived
 value and a stage review correctly rejected it. Blast radius is measured three ways: no caller
 outside this autoport passes `1` (repo-wide grep), the `max_cores_per_head_batch = 16` probe row
-is digit-for-digit identical before and after, and tt-metal's own `test_sdpa_decode.py` +
-`test_paged_sdpa_decode_flexible_geometry.py` are **21 passed, 1 skipped**
-(`logs/ttnn_sdpa_decode_op_tests.log`).
+is digit-for-digit identical before and after, and tt-metal's own two non-nightly `sdpa_decode` op files
+(`test_sdpa_decode.py`, `test_paged_sdpa_decode_flexible_geometry.py`, 22 collected) are
+**21 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`).
 
 The fix is also load-bearing rather than precautionary, shown by a stock-main control: with the
 `.cpp` change reverted and everything else identical, `full_context_decode_pcc` at position

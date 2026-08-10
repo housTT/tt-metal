@@ -1,11 +1,11 @@
-# CONTROL: sdpa_decode_program_factory.cpp reverted to stock main (837e8da3e9b), everything
-# else identical to the shipped stage. Test revision is the SHIPPED one, including the
-# scale_ratio / SCALE_TOLERANCE assertion. This run is EXPECTED TO FAIL.
+# CONTROL: sdpa_decode_program_factory.cpp reverted to stock main; everything else identical
+# to the shipped stage.  base SHA of the reverted file: 837e8da3e9b1eef725b9de328622dd96abf078a0
+# date: 2026-08-09T20:06:36-04:00
 # command: python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py \
 #            -k 'test_full_advertised_context and full_attention' --long-context -v -s
-# date: 2026-08-09T19:40:10-04:00
-# git describe of the reverted file: 837e8da3e9b1eef725b9de328622dd96abf078a0
-2026-08-09 19:40:12.434 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+# Test revision is the SHIPPED one, including the scale_ratio / SCALE_TOLERANCE assertion.
+# This run is EXPECTED TO FAIL, at the decode PCC assertion.
+2026-08-09 20:06:55.089 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
 ============================= test session starts ==============================
 platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen/tt-metal/python_env/bin/python
@@ -130,7 +130,7 @@ E       AssertionError: decode at position 262143: PCC 0.9778876147135307
 E       assert 0.9778876147135307 >= 0.995
 E        +  where 0.995 = H.PCC_BAR
 
-models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:548: AssertionError
+models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:552: AssertionError
 =============================== warnings summary ===============================
 <frozen importlib._bootstrap>:488
   <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
@@ -141,18 +141,18 @@ models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:548: Assertio
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 - generated xml file: /home/ttuser/dev/qwen/tt-metal/generated/test_reports/most_recent_tests.xml -
 ============================= slowest 25 durations =============================
-66.06s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
-0.95s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+66.32s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
+1.02s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
 0.11s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention]
 =========================== short test summary info ============================
 FAILED models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_advertised_context[full_attention] - AssertionError: decode at position 262143: PCC 0.9778876147135307
 assert 0.9778876147135307 >= 0.995
  +  where 0.995 = H.PCC_BAR
-=========== 1 failed, 58 deselected, 2 warnings in 67.78s (0:01:07) ============
+=========== 1 failed, 58 deselected, 2 warnings in 68.36s (0:01:08) ============
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 nanobind: leaked 2 instances!
- - leaked instance 0x72a43d941388 of type "ttnn._ttnn.tensor.MemoryConfig"
- - leaked instance 0x72a43dd7d788 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7fad73851758 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7fad733fd388 of type "ttnn._ttnn.tensor.MemoryConfig"
 nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
@@ -167,15 +167,15 @@ nanobind: leaked 20 types!
  - ... skipped remainder
 nanobind: leaked 250 functions!
  - leaked function ""
- - leaked function "__init__"
  - leaked function ""
- - leaked function "unpad"
- - leaked function "create_matmul_attributes"
- - leaked function "to_json"
+ - leaked function "get_device_ids"
+ - leaked function "create_submeshes"
+ - leaked function "sfpu_inf"
  - leaked function ""
- - leaked function "default_core_range"
  - leaked function ""
- - leaked function "unpad_from_tile"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
 See https://nanobind.readthedocs.io/en/latest/refleaks.html
