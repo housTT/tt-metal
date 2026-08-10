@@ -21,7 +21,10 @@ import torch
 
 import ttnn
 
-HEADS = 48
+#: ``batch * num_v_heads`` - the number of independent head problems in one decode step.  Both
+#: the batch-1 and the advertised-``max_batch`` regimes are swept, because the winning grid is a
+#: function of the problem count and the shipped grids were once chosen at batch 1 only.
+HEAD_COUNTS = (48, 48 * 32)
 DK = DV = 128
 
 
@@ -56,6 +59,16 @@ def main() -> None:
     try:
         grid = device.compute_with_storage_grid_size()
         torch.manual_seed(0)
+        for heads in HEAD_COUNTS:
+            _sweep(device, grid, cfg, heads)
+    finally:
+        ttnn.close_mesh_device(device)
+
+
+def _sweep(device, grid, cfg, HEADS: int) -> None:
+    """One full grid sweep at ``HEADS`` independent head problems."""
+    if True:
+        torch.manual_seed(0)
         k = torch.randn(1, HEADS, 1, DK)
         state = torch.randn(1, HEADS, DK, DV) * 0.1
         delta = torch.randn(1, HEADS, 1, DV)
@@ -69,7 +82,7 @@ def main() -> None:
 
         (ms, sd), got = bench(lambda: ttnn.matmul(tk, ts, dtype=ttnn.float32, compute_kernel_config=cfg), device)
         print(
-            f"read  default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
+            f"read heads={HEADS}  default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
             flush=True,
         )
         for gy in (1, 2, 4, 6):
@@ -82,11 +95,14 @@ def main() -> None:
                         device,
                     )
                     print(
-                        f"read  core_grid {gy}x{gx:<2d}         median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
+                        f"read heads={HEADS}  core_grid {gy}x{gx:<2d}         median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read, got):.6f}",
                         flush=True,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    print(f"read  core_grid {gy}x{gx:<2d}         FAILED {str(exc).splitlines()[0][:90]}", flush=True)
+                    print(
+                        f"read heads={HEADS}  core_grid {gy}x{gx:<2d}         FAILED {str(exc).splitlines()[0][:90]}",
+                        flush=True,
+                    )
 
         # group_attn_matmul: [q_len=1, q_heads=1, batch=HEADS, DK] x [batch=HEADS, kv_heads=1, DK, DV]
         try:
@@ -103,11 +119,11 @@ def main() -> None:
                 device,
             )
             print(
-                f"read  group_attn_matmul    median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read.reshape(1, 1, HEADS, DV), got):.6f}",
+                f"read heads={HEADS}  group_attn_matmul    median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_read.reshape(1, 1, HEADS, DV), got):.6f}",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001
-            print(f"read  group_attn_matmul    FAILED {str(exc).splitlines()[0][:110]}", flush=True)
+            print(f"read heads={HEADS}  group_attn_matmul    FAILED {str(exc).splitlines()[0][:110]}", flush=True)
 
         # The transpose can be an argument of the matmul instead of an op before it.  Swept over
         # the same grids as the spelled-out form, so the shipped variant is a row of the table
@@ -117,7 +133,7 @@ def main() -> None:
             device,
         )
         print(
-            f"outer transpose_a default   median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+            f"outer heads={HEADS} transpose_a default   median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
             flush=True,
         )
         for gy in (1, 2, 4, 6):
@@ -135,20 +151,20 @@ def main() -> None:
                         device,
                     )
                     print(
-                        f"outer transpose_a core_grid {gy}x{gx:<2d} median_us={ms:8.1f} "
+                        f"outer heads={HEADS} transpose_a core_grid {gy}x{gx:<2d} median_us={ms:8.1f} "
                         f"stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
                         flush=True,
                     )
                 except Exception as exc:  # noqa: BLE001
                     print(
-                        f"outer transpose_a core_grid {gy}x{gx:<2d} FAILED {str(exc).splitlines()[0][:90]}",
+                        f"outer heads={HEADS} transpose_a core_grid {gy}x{gx:<2d} FAILED {str(exc).splitlines()[0][:90]}",
                         flush=True,
                     )
 
         tk_t = ttnn.transpose(tk, -2, -1)
         (ms, sd), got = bench(lambda: ttnn.matmul(tk_t, td, dtype=ttnn.float32, compute_kernel_config=cfg), device)
         print(
-            f"outer default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+            f"outer heads={HEADS} default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
             flush=True,
         )
         for gy in (1, 2, 4, 6):
@@ -161,13 +177,14 @@ def main() -> None:
                         device,
                     )
                     print(
-                        f"outer core_grid {gy}x{gx:<2d}         median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+                        f"outer heads={HEADS} core_grid {gy}x{gx:<2d}         median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
                         flush=True,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    print(f"outer core_grid {gy}x{gx:<2d}         FAILED {str(exc).splitlines()[0][:90]}", flush=True)
-    finally:
-        ttnn.close_mesh_device(device)
+                    print(
+                        f"outer heads={HEADS} core_grid {gy}x{gx:<2d}         FAILED {str(exc).splitlines()[0][:90]}",
+                        flush=True,
+                    )
 
 
 if __name__ == "__main__":

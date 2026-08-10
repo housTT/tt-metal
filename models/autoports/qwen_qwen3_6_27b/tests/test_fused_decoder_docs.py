@@ -445,6 +445,49 @@ def _walk_strings(prefix, value):
             yield from _walk_strings(f"{prefix}[{index}]", item)
 
 
+def test_probe_readme_covers_every_probe():
+    """``probes/README.md`` has a row for every probe, a log for every row, and states its own counts.
+
+    Three review rounds in a row added probes and left this document describing the previous set;
+    its opening sentence said "eight" when there were eleven.  The set of probes is a directory
+    listing, so it is checkable.
+    """
+    readme = (DOC / "probes" / "README.md").read_text()
+    probes = sorted(path.name for path in (DOC / "probes").glob("probe_*.py"))
+    tooling = sorted(
+        path.name
+        for path in (DOC / "probes").iterdir()
+        if path.is_file() and not path.name.startswith(("probe_", "README"))
+    )
+    missing = [name for name in probes if f"`{name}`" not in readme]
+    assert not missing, f"probes/README.md has no row for {missing}"
+    logs = [name for name in probes if not (DOC / "logs" / f"{name[:-3]}.log").is_file()]
+    assert not logs, f"these probes have no committed log: {logs}"
+
+    words = {
+        8: "Eight",
+        9: "Nine",
+        10: "Ten",
+        11: "Eleven",
+        12: "Twelve",
+        13: "Thirteen",
+        14: "Fourteen",
+        15: "Fifteen",
+        3: "three",
+        4: "four",
+        5: "five",
+        6: "six",
+        7: "seven",
+    }
+    opening = readme.splitlines()[2]
+    assert (
+        words.get(len(probes), "?") in opening
+    ), f"probes/README.md opens with {opening!r}, which does not state the {len(probes)} probes present"
+    assert (
+        words.get(len(tooling), "?") in opening
+    ), f"probes/README.md opens with {opening!r}, which does not state the {len(tooling)} tooling files present"
+
+
 def test_watcher_audit_matches_its_artifacts():
     """Every quantity ``WATCHER_AUDIT.md`` states re-derives from the committed watcher artifacts.
 
@@ -463,10 +506,17 @@ def test_watcher_audit_matches_its_artifacts():
     for line in lines:
         token = line.split(" ")[0] if line else ""
         histogram[token] = histogram.get(token, 0) + 1
-    for token, count in sorted(histogram.items(), key=lambda item: -item[1])[:6]:
-        if f"{count} {token}" not in audit:
-            continue  # the audit quotes the top of the histogram, not all of it
-        assert f"{count} {token}" in audit
+    # The generator writes the six most common first tokens, ``f"{count:7d} {token}"``.  This
+    # used to ``continue`` when a line was missing, which made the assertion below unreachable
+    # and the whole histogram claim unbound - a stage review caught it.  Six is the generator's
+    # own number (``make_watcher_audit.top``); if that changes, this must too.
+    top = sorted(histogram.items(), key=lambda item: -item[1])[:6]
+    missing = [
+        f"{count} {token}"
+        for token, count in top
+        if not re.search(rf"(?<!\d){count}\s+{re.escape(token)}(?=\s|$)", audit, re.MULTILINE)
+    ]
+    assert not missing, f"the audit does not state these histogram lines of the committed log: {missing}"
 
     run = (DOC / "logs" / "watcher_run.log").read_text(errors="replace")
     summary = re.findall(r"(\d+) passed, (\d+) deselected, \d+ warnings in ([\d.]+)s", run)
@@ -544,15 +594,16 @@ def test_generated_blocks_are_current():
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_no_layout_round_trip_in_the_measured_prefill(kind):
-    """No profiled prefill op converts a layout that the very next op converts back.
+@pytest.mark.parametrize("phase", sorted(PHASES))
+def test_no_layout_round_trip_in_the_measured_pass(kind, phase):
+    """No profiled op converts a layout that the very next op converts back.
 
     The device report is the ground truth here, not the python call trace: ``ttnn.concat``,
     ``ttnn.slice`` and friends relayout *inside* themselves, so a python-level trap cannot see
     them - which is exactly how a ``tilize`` immediately followed by an ``untilize`` of the same
     tensor survived three review rounds in the ``linear_attention`` prefill.
     """
-    report = DOC / "tracy" / "fused" / kind / "prefill_perf_report.csv"
+    report = DOC / "tracy" / "fused" / kind / f"{phase}_perf_report.csv"
     with report.open() as handle:
         codes = [row["OP Code"] for row in csv.DictReader(handle)]
     to_tile = ("Tilize",)
@@ -573,7 +624,7 @@ def test_no_layout_round_trip_in_the_measured_prefill(kind):
         for index, (first, second) in enumerate(zip(codes, codes[1:]))
         if kindof(first) == "tilize" and kindof(second) == "untilize"
     ]
-    assert not offenders, f"the profiled {kind} prefill undoes a layout conversion it just made: {offenders}"
+    assert not offenders, f"the profiled {kind} {phase} undoes a layout conversion it just made: {offenders}"
 
 
 def test_watcher_log_is_clean():

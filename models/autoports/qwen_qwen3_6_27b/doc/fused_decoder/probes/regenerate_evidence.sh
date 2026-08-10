@@ -34,9 +34,8 @@ grep -E "^=+.*(passed|failed)" $ART/logs/long_context.log
 )
 grep -E "^=+.*(passed|failed)" $ART/logs/watcher_run.log
 
-for p in probe_chunk_gdr probe_small_ops probe_causal_conv probe_decode_heads probe_decode_recurrence \
-         probe_mlp_variants probe_output_paths probe_gated_norm_batch probe_qkv_gate_pack \
-         probe_matmul_bound probe_gdn_input_folds; do
+for p in $ART/probes/probe_*.py; do
+  p=$(basename "$p" .py)
   timeout 2400 python $ART/probes/$p.py > $ART/logs/$p.log 2>&1 || echo "PROBE FAILED $p"
 done
 

@@ -1,6 +1,6 @@
 # Fused-decoder probes
 
-Eight model-free probes and four pieces of tooling. Every probe is self-checking: it computes the
+Thirteen model-free probes and five pieces of tooling. Every probe is self-checking: it computes the
 same quantity two ways (device against torch, or fused against unfused) and prints the PCC next
 to the timing, so a number in this stage's documents can be reproduced without the model, the
 checkpoint or the test harness.
@@ -25,6 +25,8 @@ python models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/probes/<probe>.py
 | `probe_qkv_gate_pack.py` | should `full_attention`'s `wqkv` and `wgate` be one matmul, as HF ships them? | no: the merged output has to be cut back apart, and those two slices cost more at prefill than the activation re-read they save; a wash at decode (work_log.md §6.2) | `../logs/probe_qkv_gate_pack.log` |
 | `probe_matmul_bound.py` | why does the report call some matmul rows `SLOW`, and does any graph lever move them? | the rows whose N is 2 or 4 tiles are 2-3x faster on a small explicit `core_grid`, which is now shipped per phase; the dtype and DEST levers are worth a few percent and are precision policy; `in_proj_qkv` is unmoved by any of them (work_log.md §3.18, §6.1) | `../logs/probe_matmul_bound.log` |
 | `probe_gdn_input_folds.py` | can `exp(g)` and `sigmoid(b)` ride on the multiplies that consume them, and should the rank-3 change move ahead of the `a`/`b` slices? | both folds are bit-exact and cheaper, and both are shipped; the rank-3 reorder is a tie and was not taken (work_log.md §3.19) | `../logs/probe_gdn_input_folds.log` |
+| `probe_decode_conv_dtype.py` | should the *decode* causal-conv FIR run in bfloat16, as the prefill one does? | no: its taps read the carried float32 state, so it pays `K - 1` typecasts per step that prefill does not, and they cancel the bandwidth won (work_log.md §6) | `../logs/probe_decode_conv_dtype.log` |
+| `probe_gdn_decode_heads.py` | should the decode Q/K L2 norm run before the GQA expansion instead of after? | no: normalising 16 heads instead of 48 is real work saved, but expanding on the flattened head axis costs more than it saves, at both batch sizes (work_log.md §6) | `../logs/probe_gdn_decode_heads.log` |
 | `probe_mlp_variants.py` | fused gate/up matmul or split, and where should the SiLU live? | the fused gate/up matmul with the SiLU folded into the multiply is the fastest of the three at prefill; splitting the matmul is a wash at decode (work_log.md §3.8) | `../logs/probe_mlp_variants.log` |
 
 Tooling:

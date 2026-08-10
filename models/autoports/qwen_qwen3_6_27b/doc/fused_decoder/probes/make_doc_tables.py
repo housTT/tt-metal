@@ -17,6 +17,7 @@ Reads only committed artifacts; opens no device.
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 from pathlib import Path
@@ -64,7 +65,7 @@ def before_after_table() -> str:
 
 def breakdown_table() -> str:
     summary = _summary()
-    columns = [f"fused/{kind}/{phase}" for kind in KINDS for phase in ("prefill", "decode")]
+    columns = [f"fused/{kind}/{phase}" for kind in KINDS for phase in ("prefill", "decode", "decode_batch32")]
     labels = {
         "matmul": "`matmul` (projections, MLP, gated-norm constants)",
         "gated_delta_rule": "`gated_delta_rule`",
@@ -76,10 +77,12 @@ def breakdown_table() -> str:
         "heads_and_cache": "`heads_and_cache`",
         "other": "`other`",
     }
+    heads = {"prefill": "prefill", "decode": "decode b1", "decode_batch32": "decode b32"}
     rows = [
-        "| bucket | `linear_attention` prefill | `linear_attention` decode "
-        "| `full_attention` prefill | `full_attention` decode |",
-        "|---|---|---|---|---|",
+        "| bucket | "
+        + " | ".join(f"`{column.split('/')[1]}` {heads[column.split('/')[2]]}" for column in columns)
+        + " |",
+        "|---" * (len(columns) + 1) + "|",
     ]
     for bucket, label in labels.items():
         cells = []
@@ -169,34 +172,46 @@ def norm_table() -> str:
 
 
 def recurrence_table() -> str:
-    """Median and spread per grid; the selection is labelled, not disguised as the minimum."""
+    """Median and spread per grid, at both decode regimes; the selection is labelled, not hidden.
+
+    One table per head count: the shipped grids were once chosen at 48 head problems (batch 1)
+    and shipped unchanged at 1536 (the advertised ``max_batch``), which a stage review called out
+    as the least defensible place to leave a row-count-independent constant.
+    """
     grids = ("default", "1x4", "1x8", "1x11", "2x4", "2x8", "2x11", "4x4", "4x8", "4x11", "6x4", "6x8", "6x11")
-    header = "| shape | " + " | ".join(grids) + " | selected |"
-    rows = [header, "|---" * (len(grids) + 2) + "|"]
-    for kind, prefix, label, selected in (
-        ("read", "", "state read", "6x4"),
-        ("outer", "", "outer product (`transpose` + `matmul`)", "6x8"),
-        ("outer", "transpose_a ", "outer product (`transpose_a=True`, shipped)", "6x8"),
-    ):
-        cells = []
-        for grid in grids:
-            token = "default" if grid == "default" else f"core_grid {grid}"
-            match = re.search(
-                rf"{kind}\s+{re.escape(prefix + token)}\s*median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
-                _probe("probe_decode_recurrence"),
-            )
-            cells.append("—" if match is None else f"{match.group(1)} ({match.group(2)})")
-        rows.append(f"| {label} | " + " | ".join(cells) + f" | {selected} |")
-    rows.append("")
-    rows.append(
-        "Median and (stdev) in microseconds over 30 repeats. The default program factory is "
-        "several times slower than any explicit grid; the explicit grids sit within about a "
-        "stdev of each other, so the two selected are a representative pick from that flat "
-        "region rather than a unique optimum. The shipped outer product folds its transpose "
-        "into the matmul, which is one dispatch fewer and bit-exact; its own row is here so "
-        "that choice is visible as a measurement rather than only as an argument."
+    log = _probe("probe_decode_recurrence")
+    blocks = []
+    for heads, regime in ((48, "batch 1"), (48 * 32, "batch 32, the advertised `max_batch`")):
+        rows = [
+            f"**{heads} head problems** ({regime})",
+            "",
+            "| shape | " + " | ".join(grids) + " | selected |",
+            "|---" * (len(grids) + 2) + "|",
+        ]
+        for kind, prefix, label, selected in (
+            ("read", "", "state read", "6x4"),
+            ("outer", "", "outer product (`transpose` + `matmul`)", "—"),
+            ("outer", "transpose_a ", "outer product (`transpose_a=True`, shipped)", "6x11"),
+        ):
+            cells = []
+            for grid in grids:
+                token = "default" if grid == "default" else f"core_grid {grid}"
+                match = re.search(
+                    rf"{kind}\s+heads={heads}\s+{re.escape(prefix + token)}\s*median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
+                    log,
+                )
+                cells.append("—" if match is None else f"{match.group(1)} ({match.group(2)})")
+            rows.append(f"| {label} | " + " | ".join(cells) + f" | {selected} |")
+        blocks.append("\n".join(rows))
+    return (
+        "\n\n".join(blocks)
+        + "\n\nMedian and (stdev) in microseconds over 30 repeats, at both decode regimes. The default "
+        "program factory is several times slower than any explicit grid. The state read's 6x4 is the "
+        "fastest measured at both head counts. The outer product's explicit grids sit within about a "
+        "stdev of each other at batch 1 but not at batch 32, so it takes the grid that wins there; the "
+        "shipped form folds its transpose into the matmul, which is one dispatch fewer and bit-exact, "
+        "and has its own row so that choice is a measurement rather than an argument."
     )
-    return "\n".join(rows)
 
 
 def mlp_table() -> str:
@@ -609,6 +624,98 @@ def run_totals() -> str:
     return "\n".join(lines)
 
 
+def slow_rows() -> str:
+    """Every ``Bound=SLOW`` row in every committed *fused* report, grouped by op code.
+
+    Written from the reports rather than by hand: §6.1 was enumerated once from four of the six
+    reports and was wrong the day the other two were added.  Rows of the same op code inside one
+    pass are one entry, because they are one decision.
+    """
+    summary = _summary()
+    rows = [
+        "| pass | op | ops per pass | device time per pass | share | cores | DRAM % |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    groups = 0
+    for kind in KINDS:
+        for phase in ("prefill", "decode", "decode_batch32"):
+            report = DOC / "tracy" / "fused" / kind / f"{phase}_perf_report.csv"
+            with report.open() as handle:
+                table = list(csv.DictReader(handle))
+            replays = 1 if phase == "prefill" else 8
+            pass_us = summary["measurements"][f"fused/{kind}/{phase}"]["device_kernel_time_ms"] * 1000.0
+            grouped: dict[str, list[tuple[float, str, str]]] = {}
+            for row in table:
+                if (row.get("Bound") or "").strip() != "SLOW":
+                    continue
+                grouped.setdefault(row["OP Code"], []).append(
+                    (
+                        float(row["Device Time"] or 0),
+                        (row.get("Cores") or "").strip(),
+                        (row.get("DRAM %") or "").strip(),
+                    )
+                )
+            for code, values in sorted(grouped.items(), key=lambda item: -sum(v[0] for v in item[1])):
+                groups += 1
+                microseconds = sum(value for value, _, _ in values) / replays
+                cores = sorted({v[1] for v in values if v[1]}, key=lambda value: float(value))
+                drams = sorted(float(v[2]) for v in values if v[2])
+                core_cell = "—" if not cores else "/".join(f"{float(value):.0f}" for value in cores)
+                low, high = (f"{drams[0]:.0f}", f"{drams[-1]:.0f}") if drams else ("", "")
+                dram_cell = "—" if not drams else (f"{low} %" if low == high else f"{low}-{high} %")
+                per_pass = len(values) / replays
+                count_cell = f"{per_pass:.0f}" if abs(per_pass - round(per_pass)) < 1e-9 else f"{per_pass:.2f}"
+                rows.append(
+                    f"| `{kind}` {phase} | `{code}` | {count_cell} | {microseconds:.1f} us | "
+                    f"{100.0 * microseconds / pass_us:.1f} % | {core_cell} | {dram_cell} |"
+                )
+    rows.append("")
+    rows.append(
+        f"{groups} `Bound=SLOW` op groups across the six committed fused reports, every one of them a "
+        "`linear_attention` row. Device time and share are per pass — per trace replay for the two "
+        "decode windows — and `cores` is what the profiler reports each instance ran on."
+    )
+    return "\n".join(rows)
+
+
+def rejected_decode_variants() -> str:
+    """The two decode variants round 7 asked for, measured at both batches."""
+    rows = ["| variant | batch | shipped | alternative | agreement |", "|---|---|---|---|---|"]
+    for batch in ("1", "32"):
+        match = re.search(
+            rf"decode_conv batch=\s*{batch} float32_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"bfloat16_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_float32_vs_torch=([\d.]+) "
+            rf"pcc_bfloat16_vs_torch=([\d.]+) pcc_between=([\d.]+)",
+            _probe("probe_decode_conv_dtype"),
+        )
+        if not match:
+            raise SystemExit(f"probe_decode_conv_dtype.log has no batch {batch} row")
+        rows.append(
+            f"| decode causal-conv FIR in bfloat16 instead of float32 | {batch} | "
+            f"**{match.group(1)} us** (float32) | {match.group(2)} us (bfloat16) | "
+            f"PCC {match.group(5)} between them, {match.group(4)} against torch |"
+        )
+    for batch in ("1", "32"):
+        match = re.search(
+            rf"decode_heads batch=\s*{batch} expand_then_norm_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"norm_then_expand_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+)",
+            _probe("probe_gdn_decode_heads"),
+        )
+        if not match:
+            raise SystemExit(f"probe_gdn_decode_heads.log has no batch {batch} row")
+        rows.append(
+            f"| Q/K L2 norm before the GQA expansion instead of after | {batch} | "
+            f"**{match.group(1)} us** (expand, then norm) | {match.group(2)} us (norm, then expand) | "
+            f"PCC {match.group(3)} between them |"
+        )
+    rows.append("")
+    rows.append(
+        "Median microseconds over 25 repeats. Both alternatives are the same arithmetic as what "
+        "ships and both measure slower, at both decode batches."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -631,6 +738,8 @@ BLOCKS = {
     "matmul_dtype_levers": dtype_lever_table,
     "input_folds": input_fold_table,
     "run_totals": run_totals,
+    "slow_rows": slow_rows,
+    "rejected_decode_variants": rejected_decode_variants,
 }
 
 

@@ -41,12 +41,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 151.080 ms | **26.057 ms** | **5.80x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.036 ms | **2.344 ms** | **1.29x** | 92 | 65 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.625 ms | **6.222 ms** | **5.89x** | 93 | 68 |
-| `full_attention` | prefill, 2048 tokens | 18.638 ms | **17.792 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.066 ms** | **1.10x** | 50 | 44 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.064 ms | **2.906 ms** | **1.05x** | 49 | 43 |
+| `linear_attention` | prefill, 2048 tokens | 150.799 ms | **26.074 ms** | **5.78x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.043 ms | **2.344 ms** | **1.30x** | 92 | 65 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.624 ms | **6.202 ms** | **5.91x** | 93 | 68 |
+| `full_attention` | prefill, 2048 tokens | 18.621 ms | **17.765 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.064 ms** | **1.10x** | 50 | 44 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.066 ms | **2.912 ms** | **1.05x** | 49 | 43 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -59,11 +59,28 @@ the `Device Time` column of the committed `tt-perf-report` CSVs.
 
 ### Where the time goes now
 
-The two decode paths are **DRAM-bandwidth bound on bfloat16 weights**, and that is the ceiling
-this stage runs into. The MLP's two matmuls alone are the largest entry of the `full_attention`
-decode step: the `32 x 5120 x 34816` gate/up projection moves 356 MB of weights and the
-`32 x 17408 x 5120` down projection 178 MB, both at the DRAM roofline the profiler's own `DRAM` column reports for them. No graph rewrite moves those bytes; a weight-dtype change would, and that is the
-datatype-sweep stage's contract, not this one's.
+At batch 1 both decode paths are **DRAM-bandwidth bound on bfloat16 weights**, and that is the
+ceiling this stage runs into there. The MLP's two matmuls alone are the largest entry of the
+`full_attention` decode step: the `32 x 5120 x 34816` gate/up projection moves 356 MB of weights
+and the `32 x 17408 x 5120` down projection 178 MB, both at the DRAM roofline the profiler's own
+`DRAM` column reports for them. No graph rewrite moves those bytes; a weight-dtype change would,
+and that is the datatype-sweep stage's contract, not this one's.
+
+At the advertised `max_batch` of 32 that is only half the story, which is why the table below
+carries all six measured passes rather than the four the stage first measured. The weights are
+the same 534 MB — one token or thirty-two, a decode step reads every weight once — so the
+`matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
+instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
+`batched_matmul` and `elementwise` buckets grow by more than an order of magnitude — the two
+`decode b32` columns of the table below against their `decode b1` neighbours — because the
+carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
+reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
+`work_log.md` §6.1 records what was measured against it: thirteen core grids at both regimes
+(the shipped ones win at both), the `exp`/`sigmoid` folds (taken), and a per-head layout change
+that would trade the state's shape for its padding (measured slower, §6). The `full_attention`
+decode's batch-32 cost is dominated instead by SDPA, 0.105 → 0.864 ms, which is the one-core-per-head
+workaround stage 1 pinned and handed to the optimization stage — 29.7 % of that step at batch 32
+against 5.1 % at batch 1.
 
 What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 [`perf_summary.json`](perf_summary.json), bucketed from the report's own op codes by
@@ -71,24 +88,28 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 `other` bucket that stays empty only because every op is classified.
 
 <!-- GENERATED:breakdown -->
-| bucket | `linear_attention` prefill | `linear_attention` decode | `full_attention` prefill | `full_attention` decode |
-|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.482 ms | 1.883 ms | 13.470 ms | 1.808 ms |
-| `gated_delta_rule` | 2.781 ms | — | — | — |
-| `sdpa` | — | — | 1.281 ms | 0.105 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.058 ms | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.748 ms | 0.179 ms | 1.069 ms | 0.037 ms |
-| `elementwise` | 3.671 ms | 0.197 ms | 1.015 ms | 0.042 ms |
-| `norm` | 0.375 ms | 0.028 ms | 0.540 ms | 0.026 ms |
-| `heads_and_cache` | — | — | 0.417 ms | 0.048 ms |
-| **total** | **26.057 ms** | **2.344 ms** | **17.792 ms** | **2.066 ms** |
+| bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
+|---|---|---|---|---|---|---|
+| `matmul` (projections, MLP, gated-norm constants) | 14.466 ms | 1.883 ms | 1.909 ms | 13.469 ms | 1.806 ms | 1.810 ms |
+| `gated_delta_rule` | 2.773 ms | — | — | — | — | — |
+| `sdpa` | — | — | — | 1.277 ms | 0.105 ms | 0.863 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.057 ms | 1.380 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.790 ms | 0.180 ms | 0.983 ms | 1.057 ms | 0.037 ms | 0.048 ms |
+| `elementwise` | 3.669 ms | 0.197 ms | 1.900 ms | 1.013 ms | 0.042 ms | 0.042 ms |
+| `norm` | 0.376 ms | 0.027 ms | 0.031 ms | 0.535 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.414 ms | 0.048 ms | 0.119 ms |
+| **total** | **26.074 ms** | **2.344 ms** | **6.202 ms** | **17.765 ms** | **2.064 ms** | **2.912 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
 which the probe measures in isolation (`logs/probe_causal_conv.log`) and which `work_log.md`
-§3.7 records four whole formulations for; the rest is the delta-rule output relayout (§3.13
-measures the alternative at 2x the cost) and the MLP's two slices (§3.8 measures the alternative
-as clearly slower).
+§3.7 records five whole formulations for; the rest is the delta-rule output relayout (§3.13
+measures the alternative at 2x the cost), the MLP's two slices (§3.8 measures the alternative
+as clearly slower), the three `_split_qkv` slices and the rank-3 conversion of `beta`/`g` (§3.19
+measures moving that rank change and finds a tie). The batch-32 decode's `layout` bucket is the
+same per-head rank changes as batch 1, 32 times as wide: a `[1, batch * 48, 1, 128]` TILE tensor
+carries 32 padded rows for every real one, which is a property of the recurrent state's layout
+rather than of the graph over it, and §6 records it as such.
 The `full_attention` prefill moves least of the four because it was **already** a fused graph in
 stage 1 — `nlp_create_qkv_heads`, `chunked_scaled_dot_product_attention`, `paged_fill_cache` and
 `nlp_concat_heads` were all in place — so what remained to fuse there was the partial RoPE, the
@@ -259,19 +280,20 @@ for two `bfloat16 -> bfloat16` no-ops.
 a head-channel permutation that would make RoPE a single op, `paged_fused_update_cache`,
 `group_attn_matmul`, `hc_sum_reduce` / `repeat_and_interleave_eltwise_mul`, `ttnn.conv1d`,
 `output_head_major` on the delta-rule op, `ttnn.addcmul` for the conv taps,
-three alternative causal-conv formulations, split gate/up MLP matmuls, packing
+four alternative causal-conv formulations, split gate/up MLP matmuls, packing
 `in_proj_qkv`/`in_proj_z` into the a/b matmul, and removing `repeat_interleave` from the decode
 GQA head expansion. See [`work_log.md`](work_log.md) §5.
 
 ## Known limitations
 
 * **The decode SDPA still runs on one core per head** (the `sdpa` row of the breakdown table
-  above, about 5 % of the `full_attention` decode step). That is not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to
+  above — 5.1 % of the `full_attention` decode step at batch 1 and **29.7 %** at the advertised
+  `max_batch` of 32, which is the number the optimization stage should plan against). That is not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to
   work around an upstream cross-core tree-reduction defect in `sdpa_decode`, documented there
   with a model-free reproducer and handed to the optimization stage. This stage does not touch
   it.
 * **Both decodes are DRAM-bound on bfloat16 weights.** Four fifths of the `linear_attention`
-  decode step and seven eighths of the `full_attention` one is the `matmul` bucket of the table
+  decode step and seven eighths of the `full_attention` one — at batch 1 — is the `matmul` bucket of the table
   above, at the DRAM roofline. Fusing cannot move those bytes; a weight-dtype change can, and belongs to
   the datatype-sweep stage.
 * **`repeat_interleave` still relayouts** inside the decode GQA head expansion - two

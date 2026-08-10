@@ -61,6 +61,8 @@ def main() -> None:
     selected += sorted(set(re.findall(r"::(test_bfloat8_kv_cache)\b", run_text)))
 
     histogram_block = "\n".join(f"{count:7d} {token}" for token, count in top)
+    # Counted, not stated: this sentence used to say "eight" and the stage now has twelve.
+    tracy_runs = len(list((DOC / "tracy").glob("*/*/*_perf_report.csv")))
     selected_block = "\n".join(f"  {name}" for name in selected)
 
     WATCHER.mkdir(parents=True, exist_ok=True)
@@ -130,7 +132,7 @@ line count, the dump count, the histogram and the pass/deselect counts above, so
 cannot silently describe a different run than the one committed next to it.
 
 Watcher and the device profiler were kept in separate runs, as `$tt-device-usage` requires: the
-eight Tracy runs under `../tracy/` were launched separately with no `TT_METAL_WATCHER` set.
+{tracy_runs} Tracy runs under `../tracy/` were launched separately with no `TT_METAL_WATCHER` set.
 """
     )
     print(f"wrote {WATCHER / 'WATCHER_AUDIT.md'}: {len(lines)} lines, {dumps} dumps, {passed} passed")

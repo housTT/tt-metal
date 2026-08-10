@@ -154,8 +154,14 @@ _AB_STRIDE = 64
 #: distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
 #: state read and rejected: its contract ties the batch dim to the number of users
 #: ("Num of users must match!"), which here is ``batch * num_v_heads``, not ``batch``.
+#: ``core_grid`` for the two recurrence matmuls.  Swept over thirteen grids at **both** decode
+#: regimes - 48 head problems at batch 1 and 1536 at the advertised ``max_batch`` - by
+#: ``doc/fused_decoder/probes/probe_decode_recurrence.py``; the tables are ``work_log.md``
+#: section 3.6.  The state read's 6x4 is the fastest measured at both.  The outer product's grids
+#: are within a stdev of each other at batch 1, so it takes the one that wins at batch 32, where
+#: the same op costs ten times as much.
 _RECURRENCE_READ_GRID = (6, 4)
-_RECURRENCE_OUTER_GRID = (6, 8)
+_RECURRENCE_OUTER_GRID = (6, 11)
 
 #: ``core_grid`` for the three matmuls this stage created whose N is a handful of tiles: the
 #: packed ``a``/``b`` projection (N = 4 tiles) and the two gated-norm constant matmuls (N = 2 and

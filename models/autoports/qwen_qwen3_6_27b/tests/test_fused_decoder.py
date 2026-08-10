@@ -392,7 +392,8 @@ def test_fused_ops_are_dispatched(mesh_device, layer_idx):
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx):
+@pytest.mark.parametrize("max_batch", [1, 32])
+def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx, max_batch):
     """The unaries this stage merged into their consumers are gone from the measured passes.
 
     ``test_fused_ops_are_dispatched`` pins the dedicated ops the graph *gains*; this pins the
@@ -409,7 +410,7 @@ def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx):
 
     A regression here is silent: the PCC is identical either way, and only the op count moves.
     """
-    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
+    lut = _build(mesh_device, layer_idx, max_batch=max_batch, max_seq_len=8192)
     merged = ("ttnn.rsqrt", "ttnn.sigmoid", "ttnn.exp", "ttnn.silu")
     kind = _kind(lut)
 
@@ -420,12 +421,12 @@ def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx):
     H.prepare_decode(lut)
 
     decode_calls = _count_ops(merged)
-    token = ref.synthetic_hidden_states(lut.config, 1, 1, _stats(), seed=31)
+    token = ref.synthetic_hidden_states(lut.config, max_batch, 1, _stats(), seed=31)
     with decode_calls:
-        H.run_tt_decode(lut, token, torch.tensor([2049]))
+        H.run_tt_decode(lut, token, torch.full((max_batch,), 2049))
 
     decode_left = {name: count for name, count in decode_calls.counts.items() if count}
-    H.record("fused_merged_unary_calls", {"decode": len(decode_left)}, kind=kind)
+    H.record("fused_merged_unary_calls", {"dispatched": len(decode_left)}, kind=kind, phase="decode", batch=max_batch)
     assert not decode_left, (
         f"a unary this stage merged into its consumer is dispatched on its own in a {kind} " f"decode: {decode_left}"
     )
@@ -436,7 +437,7 @@ def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx):
     prefill_left = {name: count for name, count in prefill_calls.counts.items() if count}
     chunks = -(-2049 // PREFILL_CHUNK)
     allowed = {"ttnn.sigmoid": chunks} if kind == "linear_attention" else {}
-    H.record("fused_merged_unary_calls", {"prefill": len(prefill_left)}, kind=kind)
+    H.record("fused_merged_unary_calls", {"dispatched": len(prefill_left)}, kind=kind, phase="prefill", batch=max_batch)
     assert prefill_left == allowed, f"{kind} prefill dispatches merged unaries {prefill_left}, expected {allowed}"
 
 
@@ -631,7 +632,8 @@ def test_no_runtime_host_fallback(mesh_device, layer_idx):
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
+@pytest.mark.parametrize("max_batch", [1, 32])
+def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx, max_batch):
     """The measured decode path asks for no layout conversion, and only contract-forced reshards.
 
     ``ttnn.tilize*`` / ``ttnn.untilize*`` / ``ttnn.to_layout`` are how a graph pays for a layout
@@ -646,7 +648,7 @@ def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
     height-sharded heads - and this test pins that set so a new unnecessary one cannot appear
     unnoticed.
     """
-    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
+    lut = _build(mesh_device, layer_idx, max_batch=max_batch, max_seq_len=8192)
     hidden = ref.synthetic_hidden_states(lut.config, 1, 2048, _stats())
     H.run_tt_prefill(lut, hidden)
     H.prepare_decode(lut)
@@ -654,9 +656,9 @@ def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
     watched = ("tilize", "tilize_with_val_padding", "untilize", "untilize_with_unpadding", "to_layout")
     resharding = ("interleaved_to_sharded", "sharded_to_interleaved", "to_memory_config")
     counter = _count_ops(tuple(f"ttnn.{name}" for name in watched + resharding))
-    token = ref.synthetic_hidden_states(lut.config, 1, 1, _stats(), seed=61)
+    token = ref.synthetic_hidden_states(lut.config, max_batch, 1, _stats(), seed=61)
     with counter:
-        H.run_tt_decode(lut, token, torch.tensor([2048]))
+        H.run_tt_decode(lut, token, torch.full((max_batch,), 2048))
 
     layout_calls = {k: v for k, v in counter.counts.items() if k.rsplit(".", 1)[1] in watched and v}
     assert not layout_calls, f"measured decode does a layout conversion: {layout_calls}"
@@ -673,7 +675,7 @@ def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
     reshards = sum(v for k, v in counter.counts.items() if k.rsplit(".", 1)[1] in resharding)
     expected = 4 if not lut.is_full_attention else 9
     # A dict, not a bare int, for the same reason as ``fused_op_calls`` above.
-    H.record("fused_decode_reshard_ops", {"reshards": reshards, "expected": expected}, kind=_kind(lut))
+    H.record("fused_decode_reshard_ops", {"reshards": reshards, "expected": expected}, kind=_kind(lut), batch=max_batch)
     assert reshards == expected, (
         f"measured decode reshards {reshards} times, expected exactly {expected}; "
         f"if this is deliberate, account for the new one in the comment above: {counter.counts}"
