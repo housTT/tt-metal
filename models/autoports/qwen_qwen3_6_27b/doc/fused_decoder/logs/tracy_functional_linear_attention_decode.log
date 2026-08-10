@@ -1,9 +1,11 @@
-2026-08-10 10:52:38.338 | INFO     | __main__:main:412 - Using port 8086
-2026-08-10 10:52:38.338 | INFO     | tracy:run_report_setup:91 - Verifying tracy profiling tools
-2026-08-10 10:52:38.397 | INFO     | tracy:run_report_setup:112 - Capture command: ('/home/ttuser/dev/qwen/tt-metal/build/tools/profiler/bin/tracy-capture -o /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy -f -p 8086',)
-Connecting to 127.0.0.1:8086...2026-08-10 10:52:38.403 | INFO     | __main__:main:430 - Test process started
-2026-08-10 10:52:39.323 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+2026-08-10 11:54:12.250 | INFO     | __main__:main:412 - Using port 8086
+2026-08-10 11:54:12.250 | INFO     | tracy:run_report_setup:91 - Verifying tracy profiling tools
+2026-08-10 11:54:12.306 | INFO     | tracy:run_report_setup:112 - Capture command: ('/home/ttuser/dev/qwen/tt-metal/build/tools/profiler/bin/tracy-capture -o /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy -f -p 8086',)
+Connecting to 127.0.0.1:8086...2026-08-10 11:54:12.312 | INFO     | __main__:main:430 - Test process started
+2026-08-10 11:54:13.239 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+
+FUSED_BUILD tt/fused_decoder.py sha256=259b56afcf539e421de3cbcdb23c017730b198510a8d9e005ebf63974e587ef9
 ============================= test session starts ==============================
 platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen/tt-metal/python_env/bin/python
 cachedir: .pytest_cache
@@ -16,87 +18,87 @@ timeout method: signal
 timeout func_only: False
 collecting ... collected 1 item
 
-models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention] 2026-08-10 10:52:41.432 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
-2026-08-10 10:52:41.432 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
-2026-08-10 10:52:41.432 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
-2026-08-10 10:52:41.432 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
-2026-08-10 10:52:41.436 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
-2026-08-10 10:52:41.436 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
-2026-08-10 10:52:41.436 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
-2026-08-10 10:52:41.455 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:173)
-2026-08-10 10:52:41.455 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
-2026-08-10 10:52:41.455 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
-2026-08-10 10:52:41.455 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
-2026-08-10 10:52:41.455 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
-2026-08-10 10:52:41.456 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
-2026-08-10 10:52:41.490 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
-2026-08-10 10:52:41.547 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:433)
-2026-08-10 10:52:41.547 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
-2026-08-10 10:52:41.547 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
-2026-08-10 10:52:41.548 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1176)
-2026-08-10 10:52:41.548 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1422)
-2026-08-10 10:52:41.548 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2410)
-2026-08-10 10:52:41.548 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2418)
-2026-08-10 10:52:41.573 | info     |           Metal | Profiler started on device 0 (profiler_initializer.cpp:49)
+models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention] 2026-08-10 11:54:15.367 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-10 11:54:15.367 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-10 11:54:15.367 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-10 11:54:15.367 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-10 11:54:15.370 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-10 11:54:15.370 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-10 11:54:15.370 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-10 11:54:15.390 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:173)
+2026-08-10 11:54:15.390 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-10 11:54:15.390 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
+2026-08-10 11:54:15.390 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-10 11:54:15.390 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-10 11:54:15.391 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
+2026-08-10 11:54:15.446 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
+2026-08-10 11:54:15.503 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:433)
+2026-08-10 11:54:15.503 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-10 11:54:15.504 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-10 11:54:15.504 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1176)
+2026-08-10 11:54:15.504 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1422)
+2026-08-10 11:54:15.504 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2410)
+2026-08-10 11:54:15.504 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2418)
+2026-08-10 11:54:15.529 | info     |           Metal | Profiler started on device 0 (profiler_initializer.cpp:49)
 [transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
-2026-08-10 10:52:44.793 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:44.793 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:44.793 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.191 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.191 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.191 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.406 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.406 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.406 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.518 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.518 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.518 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.591 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.591 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.591 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.661 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.661 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.661 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.667 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.667 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.667 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.822 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.822 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:45.822 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.223 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 160, dfb size: 48, return value: 208 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.223 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.223 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.226 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 16, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.226 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.226 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.230 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 48, return value: 176 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.230 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.230 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.231 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 16, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.231 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.231 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.642 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.642 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:46.642 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:47.188 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:47.188 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:47.188 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
-2026-08-10 10:52:47.276 | INFO     | tracy:signpost:49 - PERF_DECODE
-2026-08-10 10:52:47.304 | INFO     | tracy:signpost:49 - PERF_DECODE_END
+2026-08-10 11:54:18.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:18.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:18.756 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.157 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.157 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.157 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.374 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.374 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.374 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.490 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.490 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.490 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.565 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.565 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.565 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.636 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.636 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.636 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.642 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.642 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.642 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.775 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.775 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:19.775 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.176 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 160, dfb size: 48, return value: 208 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.176 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.176 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.179 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 16, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.179 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.179 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.183 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 48, return value: 176 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.183 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.183 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.185 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 96, dfb size: 16, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.185 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.185 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.594 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.594 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:20.594 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:21.138 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:21.138 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:21.138 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-10 11:54:21.226 | INFO     | tracy:signpost:49 - PERF_DECODE
+2026-08-10 11:54:21.254 | INFO     | tracy:signpost:49 - PERF_DECODE_END
 
-PERF decode impl=FunctionalDecoder layer_idx=0 kind=linear_attention batch=1 iters=8 wall_total_ms=27.293 wall_per_iter_ms=3.412
-PASSED2026-08-10 10:52:48.284 | info     |           Metal | Device kernel duration perf summary (device=0): count=1757, min=958ns, avg=110916.9ns, max=6378485ns (profiler_analysis.cpp:726)
-2026-08-10 10:52:48.284 | info     |           Metal | Device kernel duration perf histogram (device=0): (buckets=10, bucket_size=637800ns, range=[0..6378000), underflow(<0ns)=0, overflow(>=6378000ns)=1) (profiler_analysis.cpp:769)
-2026-08-10 10:52:48.284 | info     |           Metal |   [           0 ..       637800) |########################################|     1709 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [      637800 ..      1275600) |                                        |       19 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     1275600 ..      1913400) |                                        |        6 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     1913400 ..      2551200) |                                        |        7 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     2551200 ..      3189000) |                                        |        3 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     3189000 ..      3826800) |                                        |        4 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     3826800 ..      4464600) |                                        |        1 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     4464600 ..      5102400) |                                        |        1 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     5102400 ..      5740200) |                                        |        0 (profiler_analysis.cpp:774)
-2026-08-10 10:52:48.284 | info     |           Metal |   [     5740200 ..      6378000) |                                        |        6 (profiler_analysis.cpp:774)
+PERF decode impl=FunctionalDecoder layer_idx=0 kind=linear_attention batch=1 iters=8 wall_total_ms=27.324 wall_per_iter_ms=3.415
+PASSED2026-08-10 11:54:22.198 | info     |           Metal | Device kernel duration perf summary (device=0): count=1757, min=959ns, avg=111023.4ns, max=6382630ns (profiler_analysis.cpp:726)
+2026-08-10 11:54:22.198 | info     |           Metal | Device kernel duration perf histogram (device=0): (buckets=10, bucket_size=638200ns, range=[0..6382000), underflow(<0ns)=0, overflow(>=6382000ns)=1) (profiler_analysis.cpp:769)
+2026-08-10 11:54:22.198 | info     |           Metal |   [           0 ..       638200) |########################################|     1709 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [      638200 ..      1276400) |                                        |       19 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     1276400 ..      1914600) |                                        |        6 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     1914600 ..      2552800) |                                        |        7 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     2552800 ..      3191000) |                                        |        3 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     3191000 ..      3829200) |                                        |        4 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     3829200 ..      4467400) |                                        |        1 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     4467400 ..      5105600) |                                        |        1 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     5105600 ..      5743800) |                                        |        0 (profiler_analysis.cpp:774)
+2026-08-10 11:54:22.198 | info     |           Metal |   [     5743800 ..      6382000) |                                        |        6 (profiler_analysis.cpp:774)
 
 
 =============================== warnings summary ===============================
@@ -110,16 +112,16 @@ PASSED2026-08-10 10:52:48.284 | info     |           Metal | Device kernel durat
 ==================================== PASSES ====================================
 - generated xml file: /home/ttuser/dev/qwen/tt-metal/generated/test_reports/most_recent_tests.xml -
 ============================= slowest 25 durations =============================
-4.89s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
-2.85s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
-0.98s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
+4.88s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
+2.67s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
+1.01s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
 =========================== short test summary info ============================
 PASSED models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_perf.py::test_perf_decode_traced[linear_attention]
-======================== 1 passed, 2 warnings in 9.66s =========================
+======================== 1 passed, 2 warnings in 9.51s =========================
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 nanobind: leaked 2 instances!
- - leaked instance 0x7d745f0a3908 of type "ttnn._ttnn.tensor.MemoryConfig"
- - leaked instance 0x7d746c2e9788 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x70bdca74f428 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x70bdd83497b8 of type "ttnn._ttnn.tensor.CoreRangeSet"
 nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
@@ -134,47 +136,47 @@ nanobind: leaked 20 types!
  - ... skipped remainder
 nanobind: leaked 250 functions!
  - leaked function ""
- - leaked function ""
- - leaked function "__repr__"
- - leaked function ""
- - leaked function "get_view"
+ - leaked function "num_cores"
  - leaked function ""
  - leaked function ""
+ - leaked function "buffer_aligned_page_size"
  - leaked function ""
+ - leaked function "reshape"
+ - leaked function "from_json"
  - leaked function ""
- - leaked function ""
+ - leaked function "unpad_from_tile"
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
-See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-10 10:52:51.839 | info     |    BuildKernels | JIT cache stats: 564/564 hits (100.0%) [564 cached, 395 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
-2026-08-10 10:52:51.839 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
-2026-08-10 10:52:51.848 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
-2026-08-10 10:52:51.848 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
-2026-08-10 10:52:51.970 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
-2026-08-10 10:52:51.970 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
-2026-08-10 10:52:51.970 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-10 11:54:25.587 | info     |    BuildKernels | JIT cache stats: 564/564 hits (100.0%) [564 cached, 395 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-10 11:54:25.587 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-10 11:54:25.596 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-10 11:54:25.596 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
+2026-08-10 11:54:25.725 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
+2026-08-10 11:54:25.726 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
+2026-08-10 11:54:25.726 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
 
 Timer resolution: 0 ns
 
 Frames: 2
-Time span: 12.87 s
+Time span: 12.7 s
 Zones: 2,291,164
-Elapsed time: 12.71 s
+Elapsed time: 12.51 s
 Saving trace... done!
-Trace size 20.49 MB (18.38% ratio)
-2026-08-10 10:52:52.289 | INFO     | __main__:main:469 - Copying /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy to /home/ttuser/dev/qwen/tt-metal/build/profiler/build_wasm/traces/1_2026_08_10_10_52_52.tracy
-2026-08-10 10:52:52.293 | INFO     | __main__:main:472 - Copied /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy to /home/ttuser/dev/qwen/tt-metal/build/profiler/build_wasm/traces/1_2026_08_10_10_52_52.tracy
-2026-08-10 10:52:52.293 | INFO     | __main__:main:481 - embed.tracy -> traces/1_2026_08_10_10_52_52.tracy
-2026-08-10 10:52:52.293 | INFO     | tracy.serve_wasm:launch_server_subprocess:284 - Launching tracy web app GUI server subprocess...
-2026-08-10 10:52:52.293 | INFO     | tracy.serve_wasm:launch_server_subprocess:287 - Tracy WASM web UI (open in browser): http://localhost:8080/ (WebSocket for live reload: ws://localhost:8081/)
-2026-08-10 10:52:52.293 | INFO     | tracy.serve_wasm:launch_server_subprocess:294 - Tracy WASM server already serving port 8080; reusing it (live-reload refreshes the browser).
-2026-08-10 10:52:53.066 | INFO     | tracy:generate_report:162 - Host side ops time report generated at /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_ops_times.csv
-2026-08-10 10:52:53.099 | INFO     | tracy:generate_report:173 - Host side ops data report generated at /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_ops_data.csv
-2026-08-10 10:52:53.099 | INFO     | tracy.process_ops_logs:import_tracy_op_logs:422 - Importing ops logs
+Trace size 20.44 MB (18.33% ratio)
+2026-08-10 11:54:25.998 | INFO     | __main__:main:469 - Copying /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy to /home/ttuser/dev/qwen/tt-metal/build/profiler/build_wasm/traces/1_2026_08_10_11_54_25.tracy
+2026-08-10 11:54:26.001 | INFO     | __main__:main:472 - Copied /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy to /home/ttuser/dev/qwen/tt-metal/build/profiler/build_wasm/traces/1_2026_08_10_11_54_25.tracy
+2026-08-10 11:54:26.002 | INFO     | __main__:main:481 - embed.tracy -> traces/1_2026_08_10_11_54_25.tracy
+2026-08-10 11:54:26.002 | INFO     | tracy.serve_wasm:launch_server_subprocess:284 - Launching tracy web app GUI server subprocess...
+2026-08-10 11:54:26.002 | INFO     | tracy.serve_wasm:launch_server_subprocess:287 - Tracy WASM web UI (open in browser): http://localhost:8080/ (WebSocket for live reload: ws://localhost:8081/)
+2026-08-10 11:54:26.002 | INFO     | tracy.serve_wasm:launch_server_subprocess:294 - Tracy WASM server already serving port 8080; reusing it (live-reload refreshes the browser).
+2026-08-10 11:54:26.770 | INFO     | tracy:generate_report:162 - Host side ops time report generated at /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_ops_times.csv
+2026-08-10 11:54:26.806 | INFO     | tracy:generate_report:173 - Host side ops data report generated at /home/ttuser/dev/qwen/tt-metal/generated/profiler/.logs/tracy_ops_data.csv
+2026-08-10 11:54:26.806 | INFO     | tracy.process_ops_logs:import_tracy_op_logs:422 - Importing ops logs
 /home/ttuser/dev/qwen/tt-metal/tools/tracy/process_ops_logs.py:527: DtypeWarning: Columns (3,4,8) have mixed types. Specify dtype option on import or set low_memory=False.
   df = pd.read_csv(tracyOpTimesLog)
-2026-08-10 10:52:55.414 | INFO     | tracy.perf_counter_analysis:get_device_op_data:2140 - Getting device ops
-2026-08-10 10:52:55.415 | INFO     | tracy.process_ops_logs:append_device_data:1086 - Appending device data
-2026-08-10 10:52:57.894 | INFO     | tracy.process_ops_logs:generate_reports:1419 - OPs' perf analysis is finished! Generating reports ...
-2026-08-10 10:52:57.894 | INFO     | tracy.process_ops_logs:generate_reports:1439 - Copying runtime artifacts
-2026-08-10 10:52:57.946 | INFO     | tracy.process_ops_logs:generate_reports:1448 - Generating OPs CSV
-2026-08-10 10:52:58.424 | INFO     | tracy.process_ops_logs:generate_reports:1904 - OPs csv generated at: /home/ttuser/dev/qwen/tt-metal/generated/profiler/reports/2026_08_10_10_52_57/ops_perf_results_2026_08_10_10_52_57.csv
+2026-08-10 11:54:29.119 | INFO     | tracy.perf_counter_analysis:get_device_op_data:2140 - Getting device ops
+2026-08-10 11:54:29.119 | INFO     | tracy.process_ops_logs:append_device_data:1086 - Appending device data
+2026-08-10 11:54:31.589 | INFO     | tracy.process_ops_logs:generate_reports:1419 - OPs' perf analysis is finished! Generating reports ...
+2026-08-10 11:54:31.590 | INFO     | tracy.process_ops_logs:generate_reports:1439 - Copying runtime artifacts
+2026-08-10 11:54:31.648 | INFO     | tracy.process_ops_logs:generate_reports:1448 - Generating OPs CSV
+2026-08-10 11:54:32.128 | INFO     | tracy.process_ops_logs:generate_reports:1904 - OPs csv generated at: /home/ttuser/dev/qwen/tt-metal/generated/profiler/reports/2026_08_10_11_54_31/ops_perf_results_2026_08_10_11_54_31.csv

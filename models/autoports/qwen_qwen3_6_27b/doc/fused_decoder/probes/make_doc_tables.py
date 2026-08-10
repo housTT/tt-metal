@@ -195,50 +195,84 @@ def norm_table() -> str:
 
 
 def recurrence_table() -> str:
-    """Median and spread per grid, at both decode regimes; the selection is labelled, not hidden.
+    """Median and spread per grid, at both decode regimes, with the shipped grid labelled.
 
-    One table per head count: the shipped grids were once chosen at 48 head problems (batch 1)
-    and shipped unchanged at 1536 (the advertised ``max_batch``), which a stage review called out
-    as the least defensible place to leave a row-count-independent constant.
+    Everything here is read from the log and from the shipped constants: the column set is the
+    grids the log actually contains (a stage review found a 13-grid literal after the sweep grew
+    to 18, so the table's own "selected" cell named a column the table did not have), and the
+    closing sentence names the measured minimum per regime rather than asserting one.
     """
-    grids = ("default", "1x4", "1x8", "1x11", "2x4", "2x8", "2x11", "4x4", "4x8", "4x11", "6x4", "6x8", "6x11")
     log = _probe("probe_decode_recurrence")
-    blocks = []
-    for heads, regime, key in ((48, "batch 1", "small"), (48 * 32, "batch 32, the advertised `max_batch`", "large")):
-        rows = [
+    rows_by_key: dict[tuple[str, str, int], dict[str, tuple[float, float]]] = {}
+    for kind, heads, prefix, grid, median, stdev in re.findall(
+        r"(read|outer)\s+heads=(\d+)\s+(transpose_a )?(default|core_grid \d+x\d+)\s*median_us=\s*"
+        r"([\d.]+) stdev_us=\s*([\d.]+)",
+        log,
+    ):
+        label = grid.replace("core_grid ", "")
+        rows_by_key.setdefault((kind, prefix.strip(), int(heads)), {})[label] = (float(median), float(stdev))
+    if not rows_by_key:
+        raise SystemExit("probe_decode_recurrence.log has no grid sweep")
+
+    def order(label: str) -> tuple[int, int, int]:
+        if label == "default":
+            return (0, 0, 0)
+        y, x = (int(value) for value in label.split("x"))
+        return (1, y, x)
+
+    grids = sorted({label for measured in rows_by_key.values() for label in measured}, key=order)
+    families = (
+        ("read", "", "state read", "_RECURRENCE_READ_GRID"),
+        ("outer", "", "outer product (`transpose` + `matmul`)", None),
+        ("outer", "transpose_a", "outer product (`transpose_a=True`, shipped)", "_RECURRENCE_OUTER_GRID"),
+    )
+    blocks, notes = [], []
+    for heads, regime, key in (
+        (48, "batch 1", "small"),
+        (48 * 32, "batch 32, the advertised `max_batch`", "large"),
+    ):
+        table = [
             f"**{heads} head problems** ({regime})",
             "",
             "| shape | " + " | ".join(grids) + " | selected |",
             "|---" * (len(grids) + 2) + "|",
         ]
-        for kind, prefix, label, selected in (
-            ("read", "", "state read", _shipped_grid("_RECURRENCE_READ_GRID", key)),
-            ("outer", "", "outer product (`transpose` + `matmul`)", "—"),
-            (
-                "outer",
-                "transpose_a ",
-                "outer product (`transpose_a=True`, shipped)",
-                _shipped_grid("_RECURRENCE_OUTER_GRID"),
-            ),
-        ):
-            cells = []
-            for grid in grids:
-                token = "default" if grid == "default" else f"core_grid {grid}"
-                match = re.search(
-                    rf"{kind}\s+heads={heads}\s+{re.escape(prefix + token)}\s*median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
-                    log,
+        for kind, prefix, label, constant in families:
+            measured = rows_by_key.get((kind, prefix, heads), {})
+            cells = [f"{measured[grid][0]} ({measured[grid][1]})" if grid in measured else "—" for grid in grids]
+            if constant is None:
+                selected = "—"
+            elif constant == "_RECURRENCE_READ_GRID":
+                selected = _shipped_grid(constant, key)
+            else:
+                selected = _shipped_grid(constant)
+            table.append(f"| {label} | " + " | ".join(cells) + f" | {selected} |")
+            if constant is None or not measured:
+                continue
+            best = min((grid for grid in measured if grid != "default"), key=lambda grid: measured[grid][0])
+            shipped_median, shipped_stdev = measured[selected]
+            best_median, best_stdev = measured[best]
+            verdict = (
+                "the fastest measured"
+                if selected == best
+                else (
+                    f"inside the combined spread of the fastest, {best} at {best_median} us"
+                    if shipped_median <= best_median + best_stdev + shipped_stdev
+                    else f"SLOWER than {best} at {best_median} us"
                 )
-                cells.append("—" if match is None else f"{match.group(1)} ({match.group(2)})")
-            rows.append(f"| {label} | " + " | ".join(cells) + f" | {selected} |")
-        blocks.append("\n".join(rows))
+            )
+            notes.append(f"at {heads} head problems the {label.split(' (')[0]}'s {selected} is {verdict}")
+        blocks.append("\n".join(table))
+
     return (
         "\n\n".join(blocks)
-        + "\n\nMedian and (stdev) in microseconds over 30 repeats, at both decode regimes. The default "
-        "program factory is several times slower than any explicit grid. The state read's 6x4 is the "
-        "fastest measured at both head counts. The outer product's explicit grids sit within about a "
-        "stdev of each other at batch 1 but not at batch 32, so it takes the grid that wins there; the "
-        "shipped form folds its transpose into the matmul, which is one dispatch fewer and bit-exact, "
-        "and has its own row so that choice is a measurement rather than an argument."
+        + "\n\nMedian and (stdev) in microseconds over 30 repeats, at both decode regimes, over "
+        + f"{len(grids) - 1} explicit grids plus the program factory's own choice. The default is "
+        "several times slower than any explicit grid. Read from the log: "
+        + "; ".join(notes)
+        + ". The shipped form of the outer product folds its transpose into the matmul, which is one "
+        "dispatch fewer and bit-exact, and has its own row so that choice is a measurement rather "
+        "than an argument."
     )
 
 

@@ -65,17 +65,17 @@ From `doc/functional_decoder/tracy/*/{prefill,decode}_perf_report.csv`, warmed, 
 <!-- GENERATED:before_breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode | `full_attention` prefill | `full_attention` decode |
 |---|---|---|---|---|
-| `matmul` | 14.386 ms | 1.989 ms | 13.474 ms | 1.817 ms |
-| `batched_matmul` (the spelled-out delta rule / recurrence) | 79.022 ms | 0.259 ms | — | — |
-| `sdpa` | — | — | 1.278 ms | 0.104 ms |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 33.229 ms | 0.289 ms | 1.142 ms | 0.038 ms |
-| `elementwise` | 23.430 ms | 0.290 ms | 1.852 ms | 0.053 ms |
-| `norm` | 0.598 ms | 0.213 ms | 0.538 ms | 0.219 ms |
-| `heads_and_cache` | — | — | 0.318 ms | 0.045 ms |
+| `matmul` | 14.391 ms | 1.991 ms | 13.477 ms | 1.814 ms |
+| `batched_matmul` (the spelled-out delta rule / recurrence) | 79.030 ms | 0.259 ms | — | — |
+| `sdpa` | — | — | 1.281 ms | 0.104 ms |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 33.549 ms | 0.289 ms | 1.178 ms | 0.038 ms |
+| `elementwise` | 23.433 ms | 0.289 ms | 1.853 ms | 0.053 ms |
+| `norm` | 0.602 ms | 0.213 ms | 0.536 ms | 0.219 ms |
+| `heads_and_cache` | — | — | 0.313 ms | 0.045 ms |
 | `other` | 0.074 ms | — | — | — |
-| **total** | **150.741 ms** | **3.039 ms** | **18.602 ms** | **2.276 ms** |
+| **total** | **151.078 ms** | **3.041 ms** | **18.639 ms** | **2.273 ms** |
 | ops in one pass | 801 | 92 | 44 | 50 |
-| op-to-op gap | 8.120 ms | 0.359 ms | 0.023 ms | 0.046 ms |
+| op-to-op gap | 8.121 ms | 0.359 ms | 0.023 ms | 0.046 ms |
 <!-- END GENERATED:before_breakdown -->
 
 Reading of the table: the `linear_attention` prefill is entirely op-count bound - 801 ops, and
@@ -107,10 +107,10 @@ compares against HF's `torch_chunk_gated_delta_rule` in float32
 <!-- GENERATED:gdr_call_shapes -->
 | call shape | chunk | seq | output PCC | final-state PCC | best wall |
 |---|---|---|---|---|---|
-| flat rank-3 `[1, T, H*D]` | 32 | 64 | 0.999994 | 0.999995 | 0.38 ms |
+| flat rank-3 `[1, T, H*D]` | 32 | 64 | 0.999994 | 0.999995 | 0.42 ms |
 | flat rank-3 `[1, T, H*D]` | 32 | 2048 | **0.999994** | 0.999994 | **3.82 ms** |
-| split rank-4 `[1, T, H, D]` | 64 | 64 | 0.999992 | 0.999992 | 0.54 ms |
-| split rank-4 `[1, T, H, D]` | 64 | 2048 | **0.903635** | 0.996086 | **6.97 ms** |
+| split rank-4 `[1, T, H, D]` | 64 | 64 | 0.999992 | 0.999992 | 0.55 ms |
+| split rank-4 `[1, T, H, D]` | 64 | 2048 | **0.903635** | 0.996086 | **6.96 ms** |
 <!-- END GENERATED:gdr_call_shapes -->
 
 The rank-4/chunk-64 row is the documented failure mode: at chunk 64 each per-chunk WY matrix is
@@ -160,10 +160,10 @@ Measured at the real prefill shapes (`probes/probe_output_paths.py`, `logs/probe
 <!-- GENERATED:rope_width -->
 | tensor | slice + 64-wide RoPE + slice + concat | permuted, one 256-wide RoPE |
 |---|---|---|
-| q, 24 heads | 0.449 ms | **0.364 ms** |
-| k, 4 heads | 0.120 ms | **0.114 ms** |
+| q, 24 heads | 0.434 ms | **0.366 ms** |
+| k, 4 heads | 0.128 ms | **0.115 ms** |
 
-so the whole permutation is worth **91 us of a 17.781 ms prefill, 0.5 %**.
+so the whole permutation is worth **81 us of a 17.809 ms prefill, 0.5 %**.
 <!-- END GENERATED:rope_width -->
  — and it costs three
 things: the public `rot_mats` contract widens from `[…, rotary_dim]` to `[…, head_dim]` (4x the
@@ -187,7 +187,7 @@ interleaved→shard→`rms_norm`→interleaved:
 <!-- GENERATED:norm_cores -->
 | cores | 16 | 20 | 32 | 40 | 80 | interleaved |
 |---|---|---|---|---|---|---|
-| ms | **0.038** | 0.046 | 0.045 | 0.050 | 0.076 | 0.098 |
+| ms | **0.037** | 0.039 | 0.047 | 0.058 | 0.075 | 0.099 |
 <!-- END GENERATED:norm_cores -->
 
 16 and 20 swap places between runs by about the run-to-run spread; from 32 upwards the
@@ -259,21 +259,21 @@ puts them on 4 and 16 cores. `probes/probe_decode_recurrence.py`
 <!-- GENERATED:recurrence_grid -->
 **48 head problems** (batch 1)
 
-| shape | default | 1x4 | 1x8 | 1x11 | 2x4 | 2x8 | 2x11 | 4x4 | 4x8 | 4x11 | 6x4 | 6x8 | 6x11 | selected |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| state read | 113.6 (12.3) | 72.2 (6.7) | 56.3 (7.3) | 57.1 (3.4) | 50.6 (5.7) | 45.9 (6.9) | 48.6 (4.9) | 41.5 (4.8) | 44.4 (2.5) | 48.7 (4.0) | 39.2 (2.4) | 43.5 (2.8) | 43.1 (3.2) | 6x4 |
-| outer product (`transpose` + `matmul`) | 108.9 (8.8) | 89.1 (11.1) | 58.5 (13.9) | 56.0 (9.8) | 58.0 (8.6) | 45.1 (8.1) | 47.3 (9.3) | 44.9 (6.0) | 46.5 (9.1) | 45.2 (5.2) | 46.9 (5.2) | 44.6 (6.1) | 44.2 (5.0) | — |
-| outer product (`transpose_a=True`, shipped) | 108.5 (8.2) | 88.5 (10.4) | 58.2 (6.7) | 57.0 (7.4) | 59.3 (5.0) | 45.2 (7.1) | 48.1 (8.3) | 46.7 (5.9) | 44.9 (11.5) | 45.5 (11.8) | 45.7 (6.0) | 44.7 (5.0) | 44.6 (5.2) | 2x11 |
+| shape | default | 1x4 | 1x8 | 1x11 | 2x4 | 2x8 | 2x11 | 4x4 | 4x8 | 4x11 | 6x4 | 6x8 | 6x11 | 8x4 | 8x8 | 8x11 | 10x4 | 10x8 | 10x11 | selected |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| state read | 114.1 (13.6) | 72.4 (4.9) | 56.6 (5.0) | 58.1 (4.5) | 52.3 (3.8) | 47.1 (4.5) | 49.4 (3.2) | 43.1 (7.8) | 45.4 (3.6) | 47.1 (3.3) | 39.2 (3.3) | 42.8 (3.1) | 44.3 (3.9) | 43.2 (2.9) | 44.0 (2.4) | 44.3 (2.3) | 45.1 (3.3) | 44.8 (2.7) | 45.5 (3.5) | 6x4 |
+| outer product (`transpose` + `matmul`) | 109.2 (11.1) | 87.2 (7.2) | 58.0 (11.3) | 55.0 (8.3) | 58.9 (9.6) | 44.6 (8.1) | 46.9 (12.0) | 44.2 (5.2) | 45.8 (8.9) | 44.7 (9.5) | 44.2 (5.5) | 43.8 (5.8) | 42.7 (8.0) | 48.5 (7.5) | 44.8 (6.0) | 44.6 (6.1) | 50.7 (6.1) | 46.4 (6.4) | 47.2 (6.0) | — |
+| outer product (`transpose_a=True`, shipped) | 107.9 (3.6) | 88.0 (9.6) | 59.0 (6.3) | 55.7 (7.9) | 58.5 (6.9) | 45.5 (9.6) | 47.6 (8.5) | 44.1 (8.3) | 46.4 (8.8) | 46.1 (5.4) | 46.5 (5.7) | 44.4 (6.1) | 44.8 (6.2) | 48.9 (5.9) | 45.9 (6.3) | 44.5 (15.0) | 51.7 (6.4) | 47.5 (6.4) | 47.1 (6.0) | 2x11 |
 
 **1536 head problems** (batch 32, the advertised `max_batch`)
 
-| shape | default | 1x4 | 1x8 | 1x11 | 2x4 | 2x8 | 2x11 | 4x4 | 4x8 | 4x11 | 6x4 | 6x8 | 6x11 | selected |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| state read | 2961.1 (15.4) | 1703.7 (13.9) | 1173.4 (10.6) | 1081.3 (9.8) | 980.8 (15.3) | 818.8 (11.9) | 833.9 (12.8) | 653.7 (16.7) | 665.6 (18.9) | 672.0 (8.2) | 590.7 (13.5) | 597.9 (11.3) | 608.3 (9.5) | 10x4 |
-| outer product (`transpose` + `matmul`) | 2623.3 (13.2) | 2113.8 (10.8) | 1132.0 (13.1) | 867.6 (27.9) | 1138.9 (13.3) | 658.1 (13.4) | 527.3 (9.7) | 653.1 (13.9) | 570.3 (11.3) | 557.2 (10.0) | 667.8 (13.1) | 576.6 (11.1) | 563.5 (12.5) | — |
-| outer product (`transpose_a=True`, shipped) | 2615.9 (18.8) | 2114.8 (10.2) | 1128.3 (11.4) | 868.4 (12.5) | 1129.7 (10.5) | 653.1 (13.7) | 523.4 (12.5) | 650.6 (14.0) | 570.5 (12.9) | 557.2 (12.6) | 670.5 (12.3) | 576.2 (12.7) | 555.9 (10.6) | 2x11 |
+| shape | default | 1x4 | 1x8 | 1x11 | 2x4 | 2x8 | 2x11 | 4x4 | 4x8 | 4x11 | 6x4 | 6x8 | 6x11 | 8x4 | 8x8 | 8x11 | 10x4 | 10x8 | 10x11 | selected |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| state read | 2957.2 (7.7) | 1706.6 (16.7) | 1169.4 (12.6) | 1085.4 (12.2) | 972.3 (13.8) | 812.4 (9.9) | 819.7 (10.7) | 651.3 (12.0) | 662.3 (9.8) | 664.3 (10.8) | 586.7 (7.4) | 600.3 (10.6) | 601.0 (14.3) | 588.3 (16.0) | 598.2 (10.8) | 608.0 (11.6) | 549.8 (8.2) | 560.3 (10.1) | 558.2 (8.4) | 10x4 |
+| outer product (`transpose` + `matmul`) | 2620.6 (13.3) | 2118.5 (12.7) | 1141.5 (9.9) | 865.1 (12.3) | 1137.6 (15.7) | 651.2 (16.2) | 527.0 (13.3) | 651.6 (13.9) | 570.7 (11.2) | 562.8 (12.6) | 671.0 (17.8) | 579.1 (16.0) | 563.1 (12.8) | 653.6 (13.6) | 570.5 (13.9) | 553.6 (9.8) | 650.1 (11.6) | 560.0 (11.4) | 558.2 (11.3) | — |
+| outer product (`transpose_a=True`, shipped) | 2610.3 (20.8) | 2119.1 (13.5) | 1128.0 (12.7) | 864.5 (10.4) | 1128.7 (12.4) | 649.0 (12.8) | 520.4 (10.9) | 652.5 (12.0) | 569.2 (13.5) | 555.5 (13.8) | 665.5 (15.1) | 576.0 (11.5) | 563.7 (12.9) | 645.8 (16.6) | 563.0 (12.7) | 551.9 (11.5) | 641.6 (7.7) | 561.0 (9.1) | 562.1 (24.5) | 2x11 |
 
-Median and (stdev) in microseconds over 30 repeats, at both decode regimes. The default program factory is several times slower than any explicit grid. The state read's 6x4 is the fastest measured at both head counts. The outer product's explicit grids sit within about a stdev of each other at batch 1 but not at batch 32, so it takes the grid that wins there; the shipped form folds its transpose into the matmul, which is one dispatch fewer and bit-exact, and has its own row so that choice is a measurement rather than an argument.
+Median and (stdev) in microseconds over 30 repeats, at both decode regimes, over 18 explicit grids plus the program factory's own choice. The default is several times slower than any explicit grid. Read from the log: at 48 head problems the state read's 6x4 is the fastest measured; at 48 head problems the outer product's 2x11 is inside the combined spread of the fastest, 4x4 at 44.1 us; at 1536 head problems the state read's 10x4 is the fastest measured; at 1536 head problems the outer product's 2x11 is the fastest measured. The shipped form of the outer product folds its transpose into the matmul, which is one dispatch fewer and bit-exact, and has its own row so that choice is a measurement rather than an argument.
 <!-- END GENERATED:recurrence_grid -->
 
 All exact (PCC 1.000000 against torch); the grid only changes how independent per-head problems
@@ -301,8 +301,8 @@ Microbenchmark in `probes/probe_causal_conv.py` (`logs/probe_causal_conv.log`), 
 <!-- GENERATED:broadcast_bandwidth -->
 | multiply | float32 | bfloat16 |
 |---|---|---|
-| height-broadcast | 2.280 ms — **74 GB/s** | 0.450 ms — 187 GB/s |
-| same-shape | 0.716 ms — 352 GB/s | 0.432 ms — 292 GB/s |
+| height-broadcast | 2.280 ms — **74 GB/s** | 0.448 ms — 187 GB/s |
+| same-shape | 0.723 ms — 349 GB/s | 0.434 ms — 290 GB/s |
 <!-- END GENERATED:broadcast_bandwidth -->
 
 The float32 height-broadcast multiply is the outlier: 5x below what the same op reaches on
@@ -312,12 +312,12 @@ same-shape float32 operands. Five whole formulations of the FIR were measured ag
 <!-- GENERATED:conv_formulations -->
 | formulation | float32 median (stdev) ms | bfloat16 median (stdev) ms |
 |---|---|---|
-| all-TILE slices (what the functional layer does) | 17.058 (0.135) | 5.623 (0.035) |
-| untilize once, ROW_MAJOR shift, tilize per tap (TILE concat) | 16.815 (0.084) | 5.493 (0.039) |
-| ROW_MAJOR concat *and* shift, SiLU folded into the last add - **shipped** | 15.327 (0.064) | **4.724** (0.027) |
-| untilize once, whole FIR in ROW_MAJOR, tilize once | **14.266** (0.061) | 7.420 (0.030) |
-| one pre-padded window per tap so every slice is tile-aligned | 19.131 (0.032) | 6.832 (0.096) |
-| scale on the TILE tensor first, then untilize per tap and shift-and-add in ROW_MAJOR | 17.392 (0.048) | 5.680 (0.027) |
+| all-TILE slices (what the functional layer does) | 17.050 (0.134) | 5.625 (0.032) |
+| untilize once, ROW_MAJOR shift, tilize per tap (TILE concat) | 16.807 (0.060) | 5.497 (0.032) |
+| ROW_MAJOR concat *and* shift, SiLU folded into the last add - **shipped** | 15.309 (0.043) | **4.716** (0.028) |
+| untilize once, whole FIR in ROW_MAJOR, tilize once | **14.294** (0.058) | 7.418 (0.032) |
+| one pre-padded window per tap so every slice is tile-aligned | 19.141 (0.034) | 6.833 (0.044) |
+| scale on the TILE tensor first, then untilize per tap and shift-and-add in ROW_MAJOR | 17.382 (0.045) | 5.694 (0.036) |
 <!-- END GENERATED:conv_formulations -->
 
 So the win is the dtype first - every bfloat16 row is about 3x its float32 twin - and the
@@ -347,9 +347,9 @@ separate `silu` dispatch. Measured at the real shape (`probes/probe_mlp_variants
 <!-- GENERATED:mlp_variants -->
 | variant | prefill 2048 | decode 32 |
 |---|---|---|
-| fused gate/up matmul + 2 slices + `silu` + `multiply` (functional) | 8.446 ms | 0.950 ms |
-| fused gate/up matmul + 2 slices + `multiply(act=SILU)` | **7.981 ms** | 0.934 ms |
-| split gate/up matmuls, `silu` on the gate matmul's `activation=` epilogue, `multiply` | 10.466 ms | **0.925 ms** |
+| fused gate/up matmul + 2 slices + `silu` + `multiply` (functional) | 8.423 ms | 0.948 ms |
+| fused gate/up matmul + 2 slices + `multiply(act=SILU)` | **7.984 ms** | 0.933 ms |
+| split gate/up matmuls, `silu` on the gate matmul's `activation=` epilogue, `multiply` | 10.524 ms | **0.924 ms** |
 <!-- END GENERATED:mlp_variants -->
 
 The split variant is the textbook "matmul + activation" merge and it removes both slices, but at
@@ -454,8 +454,8 @@ Both whole paths were built and timed from the op call to the flat `[1, 1, T, va
 <!-- GENERATED:gdn_epilogue -->
 | path | 2048-token chunk |
 |---|---|
-| token-major output + group-reduction norm (§3.4) — **shipped** | **5.40 ms** |
-| `output_head_major=True` + per-head `ttnn.rms_norm` + z/result relayouts | 10.87 ms |
+| token-major output + group-reduction norm (§3.4) — **shipped** | **5.44 ms** |
+| `output_head_major=True` + per-head `ttnn.rms_norm` + z/result relayouts | 10.68 ms |
 
 PCC between the two outputs: 0.999994.
 <!-- END GENERATED:gdn_epilogue -->
@@ -496,8 +496,12 @@ no-ops dispatched on 110 cores on every prefill chunk. Now guarded on
 about a sixth of the whole step - so the sweep was re-run at both counts rather than assumed to
 transfer. The state read's `6x4` is the fastest measured at *both*. The outer product's grids sit
 inside a stdev of each other at batch 1 but not at batch 32, so it now takes the grid that wins
-where the op is ten times as expensive - the minimum of the thirteen at 1536 head problems, and
-inside a stdev of the best at 48. Both tables are in §3.6, generated from the same log.
+where the op is ten times as expensive - the minimum at 1536 head problems and inside the
+combined spread of the best at 48. The state read is the one lever where no single grid wins at
+both: once the sweep ran to the edge of the device grid, `6x4` was fastest at 48 head problems and
+`10x4` at 1536, each distinguishably faster than the other in its own regime, so it is **keyed by
+regime** and the layer picks by its own head-problem count. Every figure and every "selected" cell
+in §3.6's tables is read from the log and from the shipped constants. Both tables are in §3.6, generated from the same log.
 
 ### 3.17 decode z-gated norm: two forms, picked by batch
 
@@ -511,14 +515,16 @@ review correctly refused. Measured at the real decode shapes, median over 25 rep
 <!-- GENERATED:gated_norm_batches -->
 | batch | 1 | 4 | 8 | 16 | 32 |
 |---|---|---|---|---|---|
-| reshape + `ttnn.rms_norm` (us) | 73.2 | 81.3 | 96.3 | 151.2 | 238.3 |
-| group reduction (us) | 149.0 | 148.4 | 149.3 | 150.5 | 154.3 |
+| reshape + `ttnn.rms_norm` (us) | 72.8 | 80.6 | 92.1 | 150.0 | 238.4 |
+| group reduction (us) | 147.7 | 148.7 | 150.9 | 153.0 | 151.1 |
 
 Median over 25 repeats. Lowest PCC between the two forms' outputs, over all batches measured: 0.999993.
 <!-- END GENERATED:gated_norm_batches -->
 
 The group form is two skinny constant matmuls and barely moves with the row count; the reshape
-form's two tile relayouts grow with it. They cross between 16 and 32, so the layer picks by
+form's two tile relayouts grow with it. The table above puts the crossing between **8 and 16** -
+at 16 the group form is already no slower, within the spread - so the threshold is 16, and the
+layer picks by
 `max_batch` (`_GATED_NORM_GROUP_BATCH`) rather than committing to one, and
 `test_batched_users[32-linear_attention]` covers the branch the batch-1 perf runs do not take.
 Probe: `probes/probe_gated_norm_batch.py`, log `logs/probe_gated_norm_batch.log`.
@@ -541,13 +547,13 @@ device down to `1x2` was measured at both row counts:
 <!-- GENERATED:matmul_grids -->
 | row | shape | default | 10x11 | 8x8 | 4x8 | 2x8 | 2x4 | 1x4 | 1x2 |
 |---|---|---|---|---|---|---|---|---|---|
-| `in_proj_qkv` prefill | 2048x5120x10240 | 2568.4 | 2645.1 | 3722.2 | 5958.9 | 11014.9 | 21866.0 | 43630.5 | 87211.9 |
-| `gated_norm_sum` prefill | 2048x6144x64 | 178.4 | 176.3 | 143.7 | 174.9 | 205.4 | 227.7 | 373.3 | 850.8 |
-| `in_proj_ab` prefill | 2048x5120x128 | 168.3 | 168.5 | 160.6 | 154.0 | 184.6 | 310.7 | 586.8 | 1427.1 |
-| `gated_norm_exp` prefill | 2048x64x6144 | 139.7 | 131.2 | 136.8 | 182.1 | 222.0 | 336.6 | 631.7 | 1217.5 |
-| `in_proj_ab` decode | 32x5120x128 | 82.7 | 77.8 | 78.1 | 47.2 | 37.0 | 32.7 | 31.2 | 41.2 |
-| `gated_norm_sum` decode | 32x6144x64 | 91.7 | 92.6 | 72.6 | 51.4 | 41.9 | 37.7 | 36.4 | 37.3 |
-| `gated_norm_exp` decode | 32x64x6144 | 33.5 | 31.4 | 27.1 | 28.7 | 25.4 | 26.6 | 33.6 | 45.7 |
+| `in_proj_qkv` prefill | 2048x5120x10240 | 2558.6 | 2617.2 | 3727.9 | 5962.9 | 11018.0 | 21865.8 | 43628.1 | 87204.9 |
+| `gated_norm_sum` prefill | 2048x6144x64 | 178.3 | 180.1 | 147.9 | 173.1 | 205.3 | 229.5 | 373.7 | 853.3 |
+| `in_proj_ab` prefill | 2048x5120x128 | 173.2 | 171.7 | 164.8 | 158.1 | 188.5 | 312.6 | 586.6 | 1428.5 |
+| `gated_norm_exp` prefill | 2048x64x6144 | 137.2 | 131.2 | 137.8 | 184.0 | 222.2 | 337.1 | 632.4 | 1214.3 |
+| `in_proj_ab` decode | 32x5120x128 | 78.9 | 78.0 | 78.4 | 47.1 | 37.1 | 33.0 | 31.4 | 40.7 |
+| `gated_norm_sum` decode | 32x6144x64 | 92.2 | 89.7 | 69.7 | 48.6 | 39.0 | 34.8 | 33.4 | 34.4 |
+| `gated_norm_exp` decode | 32x64x6144 | 33.5 | 31.7 | 27.4 | 25.4 | 25.3 | 26.7 | 30.4 | 42.2 |
 
 Median microseconds over 25 repeats; `default` is the program factory's own choice at the shipped output dtype. The rows whose N is 2 or 4 tiles are 2-3x faster on a small explicit grid, because the default spreads output columns over the whole device and then broadcasts the activation to cores that have nothing to do.
 <!-- END GENERATED:matmul_grids -->
@@ -565,13 +571,13 @@ shape:
 <!-- GENERATED:matmul_dtype_levers -->
 | row | shape | shipped | output dtype swapped | `fp32_dest_acc_en=False` |
 |---|---|---|---|---|
-| `in_proj_qkv` prefill | 2048x5120x10240 | 2568.4 us (fp32) | 2622.6 us (bf16) | 2691.7 us |
-| `gated_norm_sum` prefill | 2048x6144x64 | 178.4 us (fp32) | 176.7 us (bf16) | 177.1 us |
-| `in_proj_ab` prefill | 2048x5120x128 | 168.3 us (fp32) | 165.0 us (bf16) | 166.8 us |
-| `gated_norm_exp` prefill | 2048x64x6144 | 139.7 us (bf16) | 239.8 us (fp32) | 141.6 us |
-| `in_proj_ab` decode | 32x5120x128 | 82.7 us (fp32) | 81.5 us (bf16) | 81.7 us |
-| `gated_norm_sum` decode | 32x6144x64 | 91.7 us (fp32) | 90.0 us (bf16) | 90.2 us |
-| `gated_norm_exp` decode | 32x64x6144 | 33.5 us (bf16) | 32.4 us (fp32) | 30.0 us |
+| `in_proj_qkv` prefill | 2048x5120x10240 | 2558.6 us (fp32) | 2609.7 us (bf16) | 2650.3 us |
+| `gated_norm_sum` prefill | 2048x6144x64 | 178.3 us (fp32) | 179.3 us (bf16) | 180.4 us |
+| `in_proj_ab` prefill | 2048x5120x128 | 173.2 us (fp32) | 168.2 us (bf16) | 168.4 us |
+| `gated_norm_exp` prefill | 2048x64x6144 | 137.2 us (bf16) | 237.5 us (fp32) | 139.6 us |
+| `in_proj_ab` decode | 32x5120x128 | 78.9 us (fp32) | 77.9 us (bf16) | 79.0 us |
+| `gated_norm_sum` decode | 32x6144x64 | 92.2 us (fp32) | 90.3 us (bf16) | 90.3 us |
+| `gated_norm_exp` decode | 32x64x6144 | 33.5 us (bf16) | 32.4 us (fp32) | 30.1 us |
 
 Median microseconds over 25 repeats. Neither lever is worth taking here, and both are precision policy rather than graph shape: the output dtype of these rows is what the next op consumes, and `fp32_dest_acc_en` is the stage-1 compute-kernel policy.
 <!-- END GENERATED:matmul_dtype_levers -->
@@ -596,11 +602,11 @@ then multiplied the delta residual by it. Both unaries ride on their consumer's
 <!-- GENERATED:input_folds -->
 | fold | batch | separate unary | folded into the binary | agreement |
 |---|---|---|---|---|
-| `exp(g)` into the recurrent-state multiply | 1 | 69.1 us | **57.6 us** | PCC 1.000000, max abs diff 0.000e+00 |
-| `exp(g)` into the recurrent-state multiply | 32 | 596.0 us | **577.1 us** | PCC 1.000000, max abs diff 0.000e+00 |
-| `sigmoid(b)` into the `delta` multiply | 1 | 83.2 us | **70.2 us** | PCC 1.000000, max abs diff 0.000e+00 |
-| `sigmoid(b)` into the `delta` multiply | 32 | 428.7 us | **420.9 us** | PCC 1.000000, max abs diff 0.000e+00 |
-| rank-3 before the slices instead of after (not taken) | 2048 rows | 261.2 us (shipped) | 262.4 us | PCC 1.000000, max abs diff 0.000e+00 |
+| `exp(g)` into the recurrent-state multiply | 1 | 69.1 us | **57.9 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| `exp(g)` into the recurrent-state multiply | 32 | 597.5 us | **576.1 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| `sigmoid(b)` into the `delta` multiply | 1 | 81.0 us | **70.4 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| `sigmoid(b)` into the `delta` multiply | 32 | 430.3 us | **420.4 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| rank-3 before the slices instead of after (not taken) | 2048 rows | 260.7 us (shipped) | 258.7 us | PCC 1.000000, max abs diff 0.000e+00 |
 
 Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact and both were taken. Moving the rank change ahead of the slices removes two float32 reshapes and adds one, and measures as a tie, so the shipped order stands.
 <!-- END GENERATED:input_folds -->
@@ -625,7 +631,7 @@ decodes are four fifths and seven eighths matmul time **at batch 1**, at the roo
 profiler's own `DRAM` column reports — the device's DRAM roofline for bfloat16 weights, and the
 point at which graph fusing stops being the lever and weight dtype starts.
 
-At the advertised `max_batch` of 32 the weights are the same 534 MB but the state is not: the
+At the advertised `max_batch` of 32 the weights are the same bytes but the state is not: the
 `linear_attention` step's `batched_matmul` and `elementwise` buckets grow by more than
 twenty-fold and nearly ten-fold - the generated breakdown in [`README.md`](README.md) carries
 both columns - to half the pass between them, because the carried recurrent state is 100 MB at
@@ -710,12 +716,12 @@ Device time is the sum of the `Device Time` column of the `tt-perf-report --csv`
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.741 ms | **26.140 ms** | **5.77x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.039 ms | **2.353 ms** | **1.29x** | 92 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.622 ms | **6.087 ms** | **6.02x** | 93 | 69 |
-| `full_attention` | prefill, 2048 tokens | 18.602 ms | **17.781 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.276 ms | **2.061 ms** | **1.10x** | 50 | 44 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.067 ms | **2.909 ms** | **1.05x** | 49 | 43 |
+| `linear_attention` | prefill, 2048 tokens | 151.078 ms | **26.113 ms** | **5.79x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.041 ms | **2.347 ms** | **1.30x** | 92 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.621 ms | **6.079 ms** | **6.02x** | 93 | 69 |
+| `full_attention` | prefill, 2048 tokens | 18.639 ms | **17.809 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.071 ms** | **1.10x** | 50 | 44 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.072 ms | **2.906 ms** | **1.06x** | 49 | 43 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster *and* smaller. The stage contract is the first of those — "fewer ops or
@@ -752,7 +758,7 @@ Recorded here so "no remaining fusing" is a claim with evidence behind it, not a
 |---|---|
 | `gated_delta_attn_seq` instead of `chunk_gated_delta_rule` | strictly more ops for the same result; the fused op is its successor |
 | `chunk_gated_delta_rule` on the **decode** path as well as prefill | an exact op-contract blocker at the advertised batch: the phased program factory asserts `TT_FATAL(BH <= ncores, ...)` (`chunk_gdn_phased_program_factory.cpp:137`) with `BH = batch * num_v_heads`. At `max_batch` 32 that is 1536 against this device's 110 compute cores, so it fits only up to batch 2. It is also the wrong shape for decode: the op's flat path needs `T % 32 == 0` and decode's `T` is 1, so it would have to be called at chunk 32 with 31 masked positions per step |
-| the decode group-reduction gated norm **at small batch** | measured at 1/4/8/16/32 (§3.17). The two forms cross between 16 and 32, so the layer picks by `max_batch`: the reshape form below 32, the group reduction at and above it. Both were measured, neither is estimated |
+| the decode group-reduction gated norm **at small batch** | measured at 1/4/8/16/32 (§3.17). The crossing is between 8 and 16, so the layer picks by `max_batch`: the reshape form below 16, the group reduction at and above it, and `test_batched_users[16-linear_attention]` covers the boundary. Both were measured, neither is estimated |
 | `ttnn.conv1d` on 2048-channel groups of the causal conv | tried, exact blocker: `TT_FATAL @ ttnn/cpp/ttnn/operations/sliding_window/op_slicing/op_slicing.cpp:266: found_valid_config` - the sliding-window op finds no valid slicing for a 2051x1 depthwise conv over 2048 channels, which is why the in-tree reference falls back to an FIR past 2048 channels rather than grouping |
 | width-sharding the `full_attention` decode Q/K head norms | tried at 4 and 8 cores, exact blocker: `TT_FATAL @ tt_metal/impl/tensor/spec/tensor_spec.cpp:161: !shard_grid_fit_error` - a `[1, batch, heads, 256]` tensor's shard grid does not fit. It is two small ops of a ~2 ms step in any case |
 | `use_qk_l2norm=True` on the fused op | `TT_FATAL: use_qk_l2norm not yet supported`; the flat rank-3 path gives the in-kernel norm anyway |
@@ -769,8 +775,8 @@ Recorded here so "no remaining fusing" is a claim with evidence behind it, not a
 | the pre-aligned-window, all-ROW_MAJOR-arithmetic, untilize-once-and-shift, and all-TILE causal-conv formulations | all four measured slower than the shipped ROW_MAJOR-concat-and-shift form; the generated table in §3.7 is the whole comparison, five formulations against torch and against each other |
 | the **decode** causal-conv FIR in bfloat16, as §3.7 made the prefill one | **measured and rejected**: the decode FIR's taps read the carried float32 state buffers, so a bfloat16 FIR pays `K - 1` typecasts per step that the prefill path does not, and those cancel the bandwidth it wins: slower at *both* batches, in the table below. The prefill FIR is 2048 rows wide and pays the cast once; the decode one is one row wide and pays it every step |
 | normalising the decode Q/K **before** the GQA expansion instead of after | **measured and rejected**: it is a third of the norm work, but `repeat_interleave` on the flattened head axis of a one-row-per-head tensor costs more than the norm saves - decisively at batch 32, and at batch 1 the two are inside the merged form's own spread, i.e. a tie rather than a win either way. Outputs identical. The table is below |
-| a batch-dependent core grid for the two decode recurrence matmuls | **measured, and the single constants stand**: thirteen grids swept at 48 *and* 1536 head problems (§3.6). The state read's 6x4 is fastest at both; the outer product's grids are within a stdev at batch 1, so it takes the grid that wins at batch 32, where the op costs ten times as much. Both are re-derived from the log by `::test_selected_grids_are_the_measured_best`, and the tables' "selected" cells are read out of the shipped constants rather than typed |
-| a recurrent-state layout with more than one row per head | the decode recurrence carries `[1, batch * num_v_heads, 1, head_dim]` tensors, and TILE layout pads that 1 to 32, so at batch 32 the `layout` bucket moves 32 padded rows per real one. Packing several heads into a tile row would fix that - and would change the shape of the carried state, which `prepare_decode_state` writes, `test_traced_decode_*` reads and the HF cache comparison validates. That is a state-format change, not a graph rewrite, and it belongs to the stage that owns the decode state |
+| a batch-dependent core grid for the two decode recurrence matmuls | **taken for the state read, not needed for the outer product**: eighteen grids swept at 48 *and* 1536 head problems (§3.6). No single grid wins the state read at both regimes, so it is keyed by regime (`6x4` small, `10x4` large); the outer product's `2x11` is the fastest measured at 1536 and inside the combined spread of the fastest at 48, so one constant holds. Both are re-derived from the log by `::test_selected_grids_are_the_measured_best`, and the tables' "selected" cells are read out of the shipped constants rather than typed |
+| a recurrent-state layout with more than one row per head | the decode recurrence carries `[1, batch * num_v_heads, 1, head_dim]` tensors, and TILE layout pads that 1 to 32, so at batch 32 the `layout` bucket moves 32 padded rows per real one. Packing several heads into one tile row would need a block-diagonal state - the heads share no columns, so a shared tile row multiplies the state's bytes rather than saving them - and it would change the shape of the carried state, which `prepare_decode_state` writes, `test_traced_decode_*` reads and the HF cache comparison validates. That is a state-format change, not a graph rewrite, and it belongs to the stage that owns the decode state |
 | `transpose_a=True` on the decode outer product | **taken**, not rejected: exact (PCC 1.000000) and one dispatch fewer (§3.6) |
 | packing `wqkv` and `wgate` into one matmul | **measured and rejected**, not assumed: it is the largest shared-LHS pair left and HF itself ships the two as one weight, but the merged output has to be cut back apart, and at 2048 rows those two slices of a 14336-wide TILE tensor cost more than the activation re-read and the dispatch they save. At decode the two forms are within a stdev. The table is §6's `qkv_gate_pack` block below (§3.9) |
 | moving the rank change ahead of the `a`/`b` slices | **measured and rejected**: it removes two float32 rank-changing reshapes and adds one, and measures as a tie at 2048 rows (§3.19) |
@@ -788,9 +794,9 @@ Recorded here so "no remaining fusing" is a claim with evidence behind it, not a
 <!-- GENERATED:rejected_shared_work -->
 | candidate | shape | shipped | merged | agreement |
 |---|---|---|---|---|
-| decode Q and K through one norm/scale/rank-change chain | batch 1 | **198.5 us** (separate) | 219.6 us (merged) | PCC 1.000000 / 1.000000 |
-| decode Q and K through one norm/scale/rank-change chain | batch 32 | **505.9 us** (separate) | 523.1 us (merged) | PCC 1.000000 / 1.000000 |
-| prefill `in_proj_qkv` as three projections and three FIRs instead of one and three slices | 2048 tokens | **6.936 ms** (packed) | 7.241 ms (split) | PCC 1.000000 |
+| decode Q and K through one norm/scale/rank-change chain | batch 1 | **197.3 us** (separate) | 208.3 us (merged) | PCC 1.000000 / 1.000000 |
+| decode Q and K through one norm/scale/rank-change chain | batch 32 | **502.4 us** (separate) | 522.4 us (merged) | PCC 1.000000 / 1.000000 |
+| prefill `in_proj_qkv` as three projections and three FIRs instead of one and three slices | 2048 tokens | **6.939 ms** (packed) | 7.248 ms (split) | PCC 1.000000 |
 
 Median over 25 repeats (9 for the prefill row). Both merges are the same arithmetic as what ships and both measure slower: cutting a wide TILE tensor apart, or concatenating one, costs more than the shared work it enables - the same result §6.2 found for `wqkv`/`wgate`.
 <!-- END GENERATED:rejected_shared_work -->
@@ -798,10 +804,10 @@ Median over 25 repeats (9 for the prefill row). Both merges are the same arithme
 <!-- GENERATED:rejected_decode_variants -->
 | variant | batch | shipped | alternative | agreement |
 |---|---|---|---|---|
-| decode causal-conv FIR in bfloat16 instead of float32 | 1 | **196.3 us** (float32) | 222.6 us (bfloat16) | PCC 0.999989 between them, 0.999989 against torch |
-| decode causal-conv FIR in bfloat16 instead of float32 | 32 | **223.3 us** (float32) | 221.8 us (bfloat16) | PCC 0.999988 between them, 0.999988 against torch |
-| Q/K L2 norm before the GQA expansion instead of after | 1 | **111.3 us** (expand, then norm) | 133.4 us (norm, then expand) | PCC 1.000000 between them |
-| Q/K L2 norm before the GQA expansion instead of after | 32 | **295.9 us** (expand, then norm) | 346.4 us (norm, then expand) | PCC 1.000000 between them |
+| decode causal-conv FIR in bfloat16 instead of float32 | 1 | **196.3 us** (float32) | 223.7 us (bfloat16) | PCC 0.999989 between them, 0.999989 against torch |
+| decode causal-conv FIR in bfloat16 instead of float32 | 32 | **224.3 us** (float32) | 224.3 us (bfloat16) | PCC 0.999988 between them, 0.999988 against torch |
+| Q/K L2 norm before the GQA expansion instead of after | 1 | **110.0 us** (expand, then norm) | 133.7 us (norm, then expand) | PCC 1.000000 between them |
+| Q/K L2 norm before the GQA expansion instead of after | 32 | **279.7 us** (expand, then norm) | 334.1 us (norm, then expand) | PCC 1.000000 between them |
 
 Median microseconds over 25 repeats. Both alternatives are the same arithmetic as what ships and both measure slower, at both decode batches.
 <!-- END GENERATED:rejected_decode_variants -->
@@ -820,14 +826,14 @@ four of them and went stale the same day:
 <!-- GENERATED:slow_rows -->
 | pass | op | ops per pass | device time per pass | share | cores | DRAM % |
 |---|---|---|---|---|---|---|
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 10240` | 1 | 2241.4 us | 8.6 % | 110 | 18 % |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 128` | 1 | 135.3 us | 0.5 % | 32 | 36 % |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 64` | 1 | 120.7 us | 0.5 % | 64 | 43 % |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 64 x 6144` | 1 | 109.4 us | 0.4 % | 110 | 47 % |
-| `linear_attention` decode | `MatmulDeviceOperation b={48} x 32 x 128 x 128` | 3 | 59.6 us | 2.5 % | 22/24 | 42-49 % |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 10240` | 1 | 2241.0 us | 8.6 % | 110 | 18 % |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 128` | 1 | 134.0 us | 0.5 % | 32 | 36 % |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 64` | 1 | 121.6 us | 0.5 % | 64 | 43 % |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 64 x 6144` | 1 | 108.9 us | 0.4 % | 110 | 47 % |
+| `linear_attention` decode | `MatmulDeviceOperation b={48} x 32 x 128 x 128` | 3 | 59.5 us | 2.5 % | 22/24 | 42-50 % |
 | `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.0 us | 0.6 % | 4 | 38-39 % |
 | `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 64` | 1 | 16.4 us | 0.3 % | 2 | 14 % |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.1 us | 0.2 % | 4 | 38-39 % |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.1 us | 0.2 % | 4 | 38 % |
 | `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 64 x 6144` | 1 | 7.2 us | 0.1 % | 16 | 32-33 % |
 
 9 `Bound=SLOW` op groups across the six committed fused reports, every one of them a `linear_attention` row. Device time and share are per pass — per trace replay for the two decode windows — and `cores` is what the profiler reports each instance ran on.
@@ -839,7 +845,7 @@ four of them and went stale the same day:
 | `in_proj_ab` `2048 x 5120 x 128` and `32 x 5120 x 128` | both `linear_attention` phases | created by this stage (§3.9). The grid sweep **took** 4x8 at prefill and 1x4 at decode; the decode row is 2-3x faster than the default. It stays `SLOW` because 4 output tiles cannot saturate the device however they are placed |
 | `gated_norm_sum` `2048 x 6144 x 64` | `linear_attention` prefill | created by this stage (§3.4). Grid 8x8 **taken**; N is 2 tiles, so the same ceiling applies |
 | `gated_norm_expand` `2048 x 64 x 6144` | `linear_attention` prefill | created by this stage (§3.4). K is 2 tiles, which is what makes it `SLOW`; no grid or dtype lever moves it, and it is the cheapest of the three constant-matmul rows |
-| the batched `b={48}` / `b={1536}` recurrence matmuls | `linear_attention` decode, both batches | §3.6 swept thirteen grids for exactly these, at **both** 48 and 1536 head problems. The state read's 6x4 is the fastest measured at both; the outer product's grids are within a stdev at batch 1, so it now takes the one that wins at batch 32. They stay `SLOW` because one token against a `[128, 128]` state is a single tile of work per head — the shape's own floor, not a placement mistake |
+| the batched `b={48}` recurrence matmuls | `linear_attention` decode at batch 1 only — the generated table above carries no `b={1536}` row, because at the advertised batch the profiler classifies those instances `Bound=DRAM` at two thirds of the roofline and up | §3.6 swept eighteen grids for exactly these at both head counts, and the shipped grids are the measured best in their regime. The batch-1 instances stay `SLOW` because one token against a `[128, 128]` state is a single tile of work per head — the shape's own floor, not a placement mistake |
 | `gated_norm_sum` / `gated_norm_expand` at `32 x ...` | `linear_attention` decode at `max_batch` 32 | created by this stage (§3.4); the grid sweep took 1x4 and 2x8 for them (§3.18). Together they are well under a percent of that step |
 
 None of these is a fusing opportunity that was left: each is either taken, or a program-config
@@ -858,10 +864,10 @@ measured rather than argued about:
 <!-- GENERATED:qkv_gate_pack -->
 | pair | rows | two matmuls (shipped) | one packed matmul + 2 slices |
 |---|---|---|---|
-| `full_attention` `wqkv` + `wgate` | 2048 (prefill) | **3194.2 us** | 4777.1 us |
-| `full_attention` `wqkv` + `wgate` | 32 (decode) | **422.6 us** | 421.1 us |
-| `linear_attention` `in_proj_qkv` + `in_proj_z` | 2048 (prefill) | **3730.1 us** | 5489.8 us |
-| `linear_attention` `in_proj_qkv` + `in_proj_z` | 32 (decode) | **495.3 us** | 482.7 us |
+| `full_attention` `wqkv` + `wgate` | 2048 (prefill) | **3197.6 us** | 4798.2 us |
+| `full_attention` `wqkv` + `wgate` | 32 (decode) | **425.8 us** | 425.1 us |
+| `linear_attention` `in_proj_qkv` + `in_proj_z` | 2048 (prefill) | **3735.5 us** | 5465.6 us |
+| `linear_attention` `in_proj_qkv` + `in_proj_z` | 32 (decode) | **496.7 us** | 482.1 us |
 
 Median over 25 repeats (9 at 2048 rows), outputs identical (PCC 1.000000). Both pairs lose the merge at prefill by a third or more: the two slices of the merged output are full copies of a wide TILE tensor, which costs more than the activation re-read and the dispatch it saves. At decode both are within a stdev of each other. The `linear_attention` pair is the one with no dtype objection - both weights are bfloat16 - so the cut is the whole of the answer there.
 <!-- END GENERATED:qkv_gate_pack -->
@@ -1114,6 +1120,22 @@ Its concerns were taken as work rather than noted:
   `conv_state` divergence is described as being about the packed buffer only, which is the only
   buffer the functional layer writes during decode.
 
+Round 11 returned **more-work-needed** with two P1s and two P2s, and the first P1 is the most
+useful finding of the eleven rounds:
+
+| finding | what was done |
+|---|---|
+| the committed correctness, long-context and watcher runs had been produced *before* round 10's shipped decode-configuration change: the four decode perf windows were re-profiled after it and the correctness runs were not, so the watcher-clean claim was about a build that no longer existed. No gate could see it, because every gate reads artifacts and none tied an artifact to the source | every pytest run in this stage now prints a SHA-256 of `tt/fused_decoder.py` at session start (`tests/conftest.py`), `probes/run_perf.sh` appends the same hash to each profiler provenance file, and `::test_every_run_was_made_against_the_shipped_build` asserts every run log and every provenance names the **current** hash. Then the whole evidence set was regenerated against the shipped build, so every committed record is of the code that ships |
+| §3.6's generated table still listed thirteen grid columns after the sweep grew to eighteen, so its "selected" cell named a column the table did not contain, and the caption inside the block asserted "the state read's 6x4 is the fastest measured at both" - which its own log contradicts | the column set is read from the log now, and the caption is *derived*: for each family and regime it names the measured minimum and says whether the shipped grid is it, is inside the combined spread, or is slower. Four prose passages and one docstring line that named a grid or a count are corrected, and §6's row no longer records the batch-dependent grid as rejected - it is shipped for the state read |
+| §3.17 and §6 still described a gated-norm threshold of 32 after round 10 moved it to 16 | restated from the shipped constant and the probe table, and the cited test id is the one that covers the boundary |
+| §6.1's row said the batched recurrence matmuls "stay `SLOW`" at both batches; at the advertised batch the profiler classifies them `Bound=DRAM` | restated from the generated table, which carries no `b={1536}` row for exactly that reason |
+
+Its concerns were taken too: the implementation comment that still described `K - 1` conv state
+buffers says `K`; the README no longer credits §6.1 with §3.19's folds, no longer claims a
+measurement for the state-layout hand-off, and no longer reads the MLP pair's 534 MB as the whole
+step's weight traffic; and the state-layout rejection gives the real reason (a shared tile row
+needs a block-diagonal state, which multiplies the state's bytes) rather than only the scope one.
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1127,6 +1149,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `ead8e05310b` | Qwen3.6-27B fused decoder: seventh-review fixes |
 | `bbaf92d8e37` | Qwen3.6-27B fused decoder: eighth-review fixes |
 | `2241c099254` | Qwen3.6-27B fused decoder: ninth-review fixes |
+| `8f412308861` | Qwen3.6-27B fused decoder: tenth-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -

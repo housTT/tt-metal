@@ -42,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.741 ms | **26.140 ms** | **5.77x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.039 ms | **2.353 ms** | **1.29x** | 92 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.622 ms | **6.087 ms** | **6.02x** | 93 | 69 |
-| `full_attention` | prefill, 2048 tokens | 18.602 ms | **17.781 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.276 ms | **2.061 ms** | **1.10x** | 50 | 44 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.067 ms | **2.909 ms** | **1.05x** | 49 | 43 |
+| `linear_attention` | prefill, 2048 tokens | 151.078 ms | **26.113 ms** | **5.79x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.041 ms | **2.347 ms** | **1.30x** | 92 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.621 ms | **6.079 ms** | **6.02x** | 93 | 69 |
+| `full_attention` | prefill, 2048 tokens | 18.639 ms | **17.809 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.071 ms** | **1.10x** | 50 | 44 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.072 ms | **2.906 ms** | **1.06x** | 49 | 43 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -75,16 +75,20 @@ and that is the datatype-sweep stage's contract, not this one's.
 
 At the advertised `max_batch` of 32 that is only half the story, which is why the table below
 carries all six measured passes rather than the four the stage first measured. The weights are
-the same 534 MB — one token or thirty-two, a decode step reads every weight once — so the
+the same bytes — one token or thirty-two, a decode step reads every weight once — so the
 `matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
 instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
 `batched_matmul` and `elementwise` buckets grow by more than twenty-fold and nearly ten-fold — the two
 `decode b32` columns of the table below against their `decode b1` neighbours — because the
 carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
 reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
-`work_log.md` §6.1 records what was measured against it: thirteen core grids at both regimes
-(the shipped ones win at both), the `exp`/`sigmoid` folds (taken), and a per-head layout change
-that would trade the state's shape for its padding (measured slower, §6). The `full_attention`
+`work_log.md` §3.6 and §6.1 record what was measured against it: eighteen core grids at both regimes
+(each shipped grid is the measured best in its regime, and the state read is keyed by regime
+because no one grid wins both), the `exp`/`sigmoid` folds (§3.19, taken), the Q/K-pair merge and
+the norm-before-expand order (§6, both measured and slower). A per-head layout change that would
+trade the state's shape for its tile padding is **not** measured: it changes what
+`prepare_decode_state` writes and what the HF cache comparison reads, so §6 hands it to the stage
+that owns the decode state, with that reason. The `full_attention`
 decode's batch-32 cost is dominated instead by SDPA — its `sdpa` bucket is eight times the
 batch-1 one, the two `sdpa` cells of the table below — which is the one-core-per-head
 workaround stage 1 pinned and handed to the optimization stage — 29.7 % of that step at batch 32
@@ -98,15 +102,15 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.476 ms | 1.882 ms | 1.916 ms | 13.473 ms | 1.802 ms | 1.807 ms |
-| `gated_delta_rule` | 2.812 ms | — | — | — | — | — |
-| `sdpa` | — | — | — | 1.279 ms | 0.105 ms | 0.864 ms |
+| `matmul` (projections, MLP, gated-norm constants) | 14.481 ms | 1.876 ms | 1.907 ms | 13.470 ms | 1.812 ms | 1.804 ms |
+| `gated_delta_rule` | 2.794 ms | — | — | — | — | — |
+| `sdpa` | — | — | — | 1.280 ms | 0.105 ms | 0.863 ms |
 | `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.252 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.775 ms | 0.179 ms | 0.983 ms | 1.056 ms | 0.037 ms | 0.048 ms |
-| `elementwise` | 3.702 ms | 0.204 ms | 1.906 ms | 1.015 ms | 0.042 ms | 0.043 ms |
-| `norm` | 0.376 ms | 0.028 ms | 0.031 ms | 0.539 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.420 ms | 0.048 ms | 0.119 ms |
-| **total** | **26.140 ms** | **2.353 ms** | **6.087 ms** | **17.781 ms** | **2.061 ms** | **2.909 ms** |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.785 ms | 0.179 ms | 0.984 ms | 1.073 ms | 0.037 ms | 0.048 ms |
+| `elementwise` | 3.678 ms | 0.204 ms | 1.905 ms | 1.017 ms | 0.042 ms | 0.043 ms |
+| `norm` | 0.376 ms | 0.028 ms | 0.031 ms | 0.544 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.425 ms | 0.048 ms | 0.119 ms |
+| **total** | **26.113 ms** | **2.347 ms** | **6.079 ms** | **17.809 ms** | **2.071 ms** | **2.906 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,

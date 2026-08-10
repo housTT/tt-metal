@@ -47,6 +47,10 @@ echo "newest ops csv: $CSV"
 cp "$CSV" "$OUT/${PHASE}_ops.csv"
 echo "$CSV" > "$OUT/${PHASE}_ops.csv.provenance"
 date -Is >> "$OUT/${PHASE}_ops.csv.provenance"
+# Which build this window is of.  test_every_run_was_made_against_the_shipped_build asserts every
+# provenance file and every run log carries the *current* fused_decoder.py hash.
+echo "FUSED_BUILD tt/fused_decoder.py sha256=$(sha256sum "$REPO/models/autoports/qwen_qwen3_6_27b/tt/fused_decoder.py" | cut -d" " -f1)" \
+  >> "$OUT/${PHASE}_ops.csv.provenance"
 gzip -9 -c "$OUT/${PHASE}_ops.csv" > "$OUT/${PHASE}_ops.csv.gz"
 
 tt-perf-report "$OUT/${PHASE}_ops.csv" \

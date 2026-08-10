@@ -12,13 +12,31 @@ from, and the root ``pytest.ini`` is where the 300 s per-test timeout comes from
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 import ttnn
 
+#: Printed once per run, into every log this stage commits.  A stage review found the committed
+#: correctness, long-context and watcher runs had been produced by a build of
+#: ``tt/fused_decoder.py`` that predated a shipped decode-configuration change, and no gate could
+#: see it because every gate reads artifacts and none tied an artifact to the source.
+#: ``test_fused_decoder_docs.py::test_every_run_was_made_against_the_shipped_build`` is that tie.
+BUILD_STAMP = "FUSED_BUILD"
+
+
+def fused_build_fingerprint() -> str:
+    """SHA-256 of the fused decoder's source, which is what the stage's evidence is *of*."""
+    import hashlib
+
+    source = pathlib.Path(__file__).resolve().parents[1] / "tt" / "fused_decoder.py"
+    return hashlib.sha256(source.read_bytes()).hexdigest()
+
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "long_context: full advertised-context capability run")
+    print(f"\n{BUILD_STAMP} tt/fused_decoder.py sha256={fused_build_fingerprint()}")
 
 
 def pytest_addoption(parser):

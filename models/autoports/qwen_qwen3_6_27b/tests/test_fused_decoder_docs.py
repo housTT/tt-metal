@@ -485,6 +485,43 @@ def test_every_cited_test_name_exists():
     assert not unknown, f"these cited test names are not defined in tests/: {unknown}"
 
 
+def test_every_run_was_made_against_the_shipped_build():
+    """Every committed run log and profiler provenance names the *current* fused decoder source.
+
+    A stage review found the committed suite, long-context and watcher runs had been produced
+    before a shipped decode-configuration change: the perf windows were re-profiled afterwards and
+    the correctness runs were not, so the watcher-clean claim was about a build that no longer
+    existed.  Every gate reads artifacts, and none tied an artifact to the source - this is that
+    tie.  ``tests/conftest.py`` prints the hash at session start and ``probes/run_perf.sh`` appends
+    it to each provenance file, so a stale artifact fails here rather than in a review.
+    """
+    import hashlib
+
+    fingerprint = hashlib.sha256((ROOT / "tt" / "fused_decoder.py").read_bytes()).hexdigest()
+    stale = []
+    for name in ("suite_main", "long_context", "watcher_run"):
+        text = (DOC / "logs" / f"{name}.log").read_text(errors="replace")
+        stamps = re.findall(r"FUSED_BUILD tt/fused_decoder\.py sha256=([0-9a-f]{64})", text)
+        if not stamps:
+            stale.append(f"logs/{name}.log carries no FUSED_BUILD stamp")
+        elif any(stamp != fingerprint for stamp in set(stamps)):
+            stale.append(f"logs/{name}.log was run against {sorted(set(stamps))}, not {fingerprint[:12]}")
+    for impl in IMPLS:
+        for kind in KINDS:
+            for phase in PHASES:
+                path = DOC / "tracy" / impl / kind / f"{phase}_ops.csv.provenance"
+                text = path.read_text(errors="replace")
+                stamps = re.findall(r"FUSED_BUILD tt/fused_decoder\.py sha256=([0-9a-f]{64})", text)
+                if not stamps:
+                    stale.append(f"{path.relative_to(DOC)} carries no FUSED_BUILD stamp")
+                elif any(stamp != fingerprint for stamp in set(stamps)):
+                    stale.append(f"{path.relative_to(DOC)} is of {sorted(set(stamps))[0][:12]}")
+    assert not stale, (
+        "these committed artifacts were not produced by the shipped tt/fused_decoder.py "
+        f"({fingerprint[:12]}): {stale}"
+    )
+
+
 def test_every_artifact_the_gate_reads_is_tracked_by_git():
     """Every artifact this stage's documents and tests read is committed, not just on disk.
 

@@ -51,7 +51,7 @@ primitive sequence):
   below bandwidth, and nothing downstream can use more than bfloat16.
 * The decode recurrence matmuls get an explicit core grid; the default batched program factory
   puts 48 independent per-head problems on 4 and 16 cores.
-* The decode causal conv keeps its ``K-1`` state rows as ``K-1`` separate batch-major buffers
+* The decode causal conv keeps its ``K`` packed state rows as ``K`` separate batch-major buffers
   instead of one ``[1, B, K, conv_dim]`` tensor.  Slicing a row out of the packed tensor puts
   the shift on the *tile-height* axis, which costs an ``untilize_with_unpadding`` +
   ``tilize_with_val_padding`` pair per tap; batch-major buffers make every tap a plain
@@ -157,7 +157,7 @@ _AB_STRIDE = 64
 #: ``core_grid`` for the two recurrence matmuls.  Swept over eighteen grids at **both** decode
 #: regimes - 48 head problems at batch 1 and 1536 at the advertised ``max_batch`` - by
 #: ``doc/fused_decoder/probes/probe_decode_recurrence.py``; the tables are ``work_log.md``
-#: section 3.6.  Both grids are the fastest measured at 1536 head problems and inside the
+#: section 3.6.  The outer product's grid is the fastest measured at 1536 head problems and inside the
 #: run-to-run spread of the fastest at 48, which is the rule the whole stage uses when a lever
 #: is a tie in one regime and decisive in the other.  The sweep runs to the edge of this
 #: device's grid in both axes: a stage review pointed out that the previous tuple stopped at
