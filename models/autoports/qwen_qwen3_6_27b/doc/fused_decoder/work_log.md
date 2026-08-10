@@ -188,7 +188,7 @@ interleaved→shard→`rms_norm`→interleaved:
 <!-- GENERATED:norm_cores -->
 | cores | 16 | 20 | 32 | 40 | 80 | interleaved |
 |---|---|---|---|---|---|---|
-| ms | **0.037** | 0.039 | 0.044 | 0.049 | 0.074 | 0.098 |
+| ms | **0.038** | 0.042 | 0.044 | 0.050 | 0.069 | 0.100 |
 <!-- END GENERATED:norm_cores -->
 
 16 and 20 swap places between runs by about the run-to-run spread; from 32 upwards the
@@ -538,8 +538,8 @@ review correctly refused. Measured at the real decode shapes, median over 25 rep
 <!-- GENERATED:gated_norm_batches -->
 | batch | 1 | 4 | 8 | 16 | 32 |
 |---|---|---|---|---|---|
-| reshape + `ttnn.rms_norm` (us) | 73.7 (17.9) | 89.0 (4.5) | 100.8 (4.2) | 150.8 (1.9) | 240.9 (1.2) |
-| group reduction (us) | 149.4 (3.7) | 165.7 (4.8) | 169.1 (38.7) | 150.2 (5.0) | 151.8 (5.5) |
+| reshape + `ttnn.rms_norm` (us) | 72.4 (7.3) | 80.0 (2.7) | 91.2 (2.8) | 152.0 (1.5) | 240.8 (8.5) |
+| group reduction (us) | 145.6 (4.4) | 150.1 (31.2) | 147.0 (2.6) | 180.5 (3.7) | 151.9 (24.5) |
 
 Median and (stdev) in microseconds over 25 repeats. Lowest PCC between the two forms' outputs, over all batches measured: 0.999993. The group form first becomes distinguishably faster at batch 32, which is where the shipped threshold sits.
 <!-- END GENERATED:gated_norm_batches -->
@@ -970,7 +970,7 @@ Recorded here so "no remaining fusing" is a claim with evidence behind it, not a
 | split gate/up MLP matmuls with `activation="silu"` | slowest of the three MLP forms at prefill (§3.8) |
 | packing `in_proj_qkv`/`in_proj_z` into the `a`/`b` matmul | DRAM-bound already; would force a weight-dtype change (§3.9) |
 | packing `in_proj_qkv` and `in_proj_z` into one matmul (the pair on its own, no dtype objection - both are bfloat16) | **measured and rejected**: it is the largest shared-LHS pair in the `linear_attention` graph, and the merged output has to be cut apart again. At 2048 rows the packed form is about 44 % slower; at decode the two are inside a stdev. Same table as §6.2 (`probes/probe_qkv_gate_pack.py`) |
-| removing `repeat_interleave` from the decode GQA head expansion | it is a relayout **inside** a dedicated op — 2 `untilize_with_unpadding` + 2 `tilize_with_val_padding` in the committed decode report, a little over 1 % of the step at batch 1 and under 1 % at batch 32. The two alternatives are a `[key_dim, value_dim]` 0/1-matrix matmul, whose weight alone is 25 MB against a percent of the step in headroom, or a recurrent-state layout in which v-head `h` maps to k-head `h % num_k_heads` instead of `h // v_per_k`, which would break the direct comparison of the on-device state against HF's cache object |
+| removing `repeat_interleave` from the decode GQA head expansion | it is a relayout **inside** a dedicated op — 2 `untilize_with_unpadding` + 2 `tilize_with_val_padding` in the committed decode report, a little over 1 % of the step at batch 1 and under 1 % at batch 32. The two alternatives are a `[key_dim, value_dim]` 0/1-matrix matmul, whose weight alone is 25 MB against a percent of the step in headroom, or a recurrent-state layout in which v-head `h` maps to k-head `h % num_k_heads` instead of `h // v_per_k`, which would break the direct comparison of the on-device state against HF's cache object. A third variant a stage review raised - concatenating the `v_per_k` value-heads of one k-head along the value axis, `[batch * num_k_heads, head_k_dim, v_per_k * head_v_dim]`, which needs no reordering because HF's mapping is already `h // v_per_k` - is the same *state-format* change as the padding one two rows above: it changes what `prepare_decode_state` writes and what the cache comparison reads, so it belongs to the same owner |
 | widening the decode SDPA beyond one core per head | not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to work around an upstream cross-core tree-reduction defect in `sdpa_decode`, documented with a model-free reproducer, and hands the kernel fix to the optimization stage. It is the whole `sdpa` bucket of the fused decode breakdown, and the README's growth table carries its share at both batches; this stage does not touch it |
 | bfloat8/bfloat4 weights, lower math fidelity | precision policy, owned by the datatype-sweep stage; this stage changes the graph at a fixed precision policy, with the one exception in §3.7 where the arithmetic dtype *is* the graph property being measured |
 | merging the decode Q and K head chains into one norm, scale and rank change | **measured and rejected**: they are the same shape and take the same path, so one `rms_norm` over `2 * num_k_heads` heads with a per-head scale column replaces two - but concatenating them and cutting the result apart costs more than the shared norm saves, at both batches and with identical outputs (`probes/probe_decode_qk_pair.py`). §3.24 reaches the rest of what a graph rewrite can: the transients around the recurrence are dense now, and what stays padded is the state itself and the two matmul boundaries |
@@ -1397,6 +1397,20 @@ Its concerns were taken too: `gated_delta_attn_seq`'s rejection carries its exac
 model); and the unfreed typecast on the small-batch decode branch is routed through `_free` like
 every other intermediate.
 
+Round 17 returned **more-work-needed** with one P1 and two P2s, all of one shape: a probe that
+measures something the layer does not run.
+
+| finding | what was done |
+|---|---|
+| `probe_gated_norm_batch.py` measured the group form with the **default** program factory on both constant matmuls, while the layer ships explicit decode grids for them (§3.18) - so the threshold the log chooses, and the gate round 16 added to bind it, were both certified against a configuration that is not the shipped one | the probe passes the shipped `core_grid` for both matmuls now and was re-run. The crossing is unchanged - the reshape form still wins at 16 by many times the spread and the group form wins at 32 - so `_GATED_NORM_GROUP_BATCH = 32` stands, but it now stands on a measurement of the code that ships |
+| `NORM_SHARD_CORES = 20` is not the measured minimum (16 is), and its "the two swap places between runs" defence rested on a best-of probe with no spread at all | `probe_small_ops.py` reports median and stdev like every other probe now. With spreads the two are inside each other's, which is what the docstring said and could not show; and `::test_selected_constants_are_the_measured_best` covers this constant too, under the same within-the-combined-spread rule as the core grids |
+| three hand-written sentences described the batch-16 comparison in terms the then-committed log did not support | restated, and they now match the re-measured log |
+
+Its concerns were taken too: the README's two `§5` citations for the rejected-options table point
+at §6; and §6's `repeat_interleave` row records the third variant a review raised - concatenating
+one k-head's value-heads along the value axis - as the state-format change it is, with the same
+owner as the padding row above it.
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1416,6 +1430,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `1f665ee911a` | Qwen3.6-27B fused decoder: thirteenth-review fixes |
 | `cd76dcbde6d` | Qwen3.6-27B fused decoder: fourteenth-review fixes |
 | `9abd74847de` | Qwen3.6-27B fused decoder: fifteenth-review fixes |
+| `7e934a81872` | Qwen3.6-27B fused decoder: sixteenth-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -

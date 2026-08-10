@@ -14,6 +14,7 @@ Each block is a self-contained unfused-vs-fused comparison on the real Qwen3.6-2
 
 from __future__ import annotations
 
+import statistics
 import time
 
 import torch
@@ -36,18 +37,23 @@ def pcc(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a @ b) / (a.norm() * b.norm()))
 
 
-def timed(fn, iters=10):
+def timed(fn, iters=25):
+    """Median, spread and the last output.
+
+    Best-of was enough while this probe only answered yes/no questions, but two of the constants
+    it chooses are separated by a few percent, and a stage review pointed out that a best-of with
+    no spread cannot support the "they swap places between runs" claim those choices rest on.
+    """
     fn()
-    ttnn.synchronize_device(fn.__self__ if hasattr(fn, "__self__") else DEV)
-    best = None
+    ttnn.synchronize_device(DEV)
+    samples = []
     for _ in range(iters):
         ttnn.synchronize_device(DEV)
         t0 = time.perf_counter()
         out = fn()
         ttnn.synchronize_device(DEV)
-        dt = (time.perf_counter() - t0) * 1e3
-        best = dt if best is None else min(best, dt)
-    return best, out
+        samples.append((time.perf_counter() - t0) * 1e3)
+    return (statistics.median(samples), statistics.stdev(samples)), out
 
 
 DEV = None
@@ -97,8 +103,12 @@ def main() -> None:
         w = torch.randn(1, 1, 1, HIDDEN) * 0.02 + 1.0
         ref = (x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-6)) * w
         tx, tw = dev(x), dev(w)
-        base_ms, base_out = timed(lambda: ttnn.rms_norm(tx, epsilon=1e-6, weight=tw))
-        print(f"rms_norm interleaved  ms={base_ms:.3f} pcc={pcc(ref, ttnn.to_torch(base_out).float()):.6f}", flush=True)
+        (base_ms, base_spread), base_out = timed(lambda: ttnn.rms_norm(tx, epsilon=1e-6, weight=tw))
+        print(
+            f"rms_norm interleaved  ms={base_ms:.3f} stdev_ms={base_spread:.3f} "
+            f"pcc={pcc(ref, ttnn.to_torch(base_out).float()):.6f}",
+            flush=True,
+        )
         for cores in (16, 20, 32, 40, 64, 80):
             if HIDDEN // 32 % cores:
                 continue
@@ -127,9 +137,10 @@ def main() -> None:
                 ttnn.deallocate(out)
                 return res
 
-            ms, out = timed(run)
+            (ms, spread), out = timed(run)
             print(
-                f"rms_norm sharded {cores:3d}c ms={ms:.3f} pcc={pcc(ref, ttnn.to_torch(out).float()):.6f} "
+                f"rms_norm sharded {cores:3d}c ms={ms:.3f} stdev_ms={spread:.3f} "
+                f"pcc={pcc(ref, ttnn.to_torch(out).float()):.6f} "
                 f"block_w={block_w} subblock_w={subblock_w}",
                 flush=True,
             )
@@ -140,11 +151,14 @@ def main() -> None:
         u = torch.randn(1, 1, 2048, INTER)
         ref = torch.nn.functional.silu(g) * u
         tg, tu = dev(g), dev(u)
-        ms_a, out_a = timed(lambda: ttnn.multiply(ttnn.silu(tg), tu), iters=5)
-        ms_b, out_b = timed(lambda: ttnn.multiply(tg, tu, input_tensor_a_activations=[ttnn.UnaryOpType.SILU]), iters=5)
+        (ms_a, spread_a), out_a = timed(lambda: ttnn.multiply(ttnn.silu(tg), tu), iters=9)
+        (ms_b, spread_b), out_b = timed(
+            lambda: ttnn.multiply(tg, tu, input_tensor_a_activations=[ttnn.UnaryOpType.SILU]), iters=9
+        )
         print(
-            f"silu+mul  ms={ms_a:.3f} pcc={pcc(ref, ttnn.to_torch(out_a).float()):.6f} | "
-            f"mul(act=SILU) ms={ms_b:.3f} pcc={pcc(ref, ttnn.to_torch(out_b).float()):.6f}",
+            f"silu+mul  ms={ms_a:.3f} stdev_ms={spread_a:.3f} pcc={pcc(ref, ttnn.to_torch(out_a).float()):.6f} | "
+            f"mul(act=SILU) ms={ms_b:.3f} stdev_ms={spread_b:.3f} "
+            f"pcc={pcc(ref, ttnn.to_torch(out_b).float()):.6f}",
             flush=True,
         )
     finally:

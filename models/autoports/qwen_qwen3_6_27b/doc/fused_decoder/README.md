@@ -326,7 +326,7 @@ a head-channel permutation that would make RoPE a single op, `paged_fused_update
 `output_head_major` on the delta-rule op, `ttnn.addcmul` for the conv taps,
 every other causal-conv formulation, split gate/up MLP matmuls, packing
 `in_proj_qkv`/`in_proj_z` into the a/b matmul, and removing `repeat_interleave` from the decode
-GQA head expansion. See [`work_log.md`](work_log.md) §5.
+GQA head expansion. See [`work_log.md`](work_log.md) §6, which is the table of everything assessed and not taken.
 
 ## Known limitations
 
@@ -356,7 +356,7 @@ GQA head expansion. See [`work_log.md`](work_log.md) §5.
   `untilize_with_unpadding` + two `tilize_with_val_padding` in the committed decode report, about
   1 % of the step. It is a relayout internal to a dedicated op; removing it needs a recurrent-state
   head ordering that would break the direct comparison of the on-device state against HF's cache
-  object (`work_log.md` §5).
+  object (`work_log.md` §6).
 * Everything stage 1 listed as a limitation still holds: `prepare_decode_state()` rewrites every
   batch slot, prefill is single-user per call, batch 32 is tested at `max_seq_len` 8192, and
   trace capture itself is exercised at every batch the generated coverage block lists, including

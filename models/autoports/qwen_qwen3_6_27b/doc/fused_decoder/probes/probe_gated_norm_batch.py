@@ -30,6 +30,10 @@ NUM_V_HEADS, HEAD_V_DIM = 48, 128
 VALUE_DIM = NUM_V_HEADS * HEAD_V_DIM
 GROUP_PAD = 64
 BATCHES = (1, 4, 8, 16, 32)
+#: Filled in ``main`` from the device's grid; the shipped values are ``_GROUP_SUM_GRID["decode"]``
+#: and ``_GROUP_EXPAND_GRID["decode"]``.
+SUM_GRID = None
+EXPAND_GRID = None
 
 
 def pcc(a, b):
@@ -55,6 +59,13 @@ def median_us(fn, device, iters=25):
 
 def main() -> None:
     device = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)
+    # The shipped decode grids for the two constant matmuls (§3.18).  A stage review found this
+    # probe measuring the *default* program factory for both, which charges the group form about
+    # 65 us it does not pay - and the threshold this log chooses was being chosen against that.
+    global SUM_GRID, EXPAND_GRID
+    grid = device.compute_with_storage_grid_size()
+    SUM_GRID = ttnn.CoreGrid(y=min(1, grid.y), x=min(4, grid.x))
+    EXPAND_GRID = ttnn.CoreGrid(y=min(2, grid.y), x=min(8, grid.x))
     cfg = ttnn.WormholeComputeKernelConfig(
         math_fidelity=ttnn.MathFidelity.HiFi4, math_approx_mode=False, fp32_dest_acc_en=True, packer_l1_acc=True
     )
@@ -91,13 +102,21 @@ def main() -> None:
 
             def group_form():
                 squares = ttnn.multiply(core, core)
-                mean_square = ttnn.matmul(squares, t_group, dtype=ttnn.float32, compute_kernel_config=cfg)
+                mean_square = ttnn.matmul(
+                    squares,
+                    t_group,
+                    dtype=ttnn.float32,
+                    compute_kernel_config=cfg,
+                    core_grid=SUM_GRID,
+                )
                 ttnn.deallocate(squares)
                 inv = ttnn.add(mean_square, 1e-6, activations=[ttnn.UnaryOpType.RSQRT])
                 ttnn.deallocate(mean_square)
                 inv16 = ttnn.typecast(inv, ttnn.bfloat16)
                 ttnn.deallocate(inv)
-                scale = ttnn.matmul(inv16, t_scale, dtype=ttnn.bfloat16, compute_kernel_config=cfg)
+                scale = ttnn.matmul(
+                    inv16, t_scale, dtype=ttnn.bfloat16, compute_kernel_config=cfg, core_grid=EXPAND_GRID
+                )
                 ttnn.deallocate(inv16)
                 normed = ttnn.multiply(core, scale)
                 ttnn.deallocate(scale)

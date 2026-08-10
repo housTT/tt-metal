@@ -790,7 +790,24 @@ def test_selected_constants_are_the_measured_best():
         f"crossing at {crossing}"
     )
 
-    # 2. the decode FIR dtype: ``None`` means float32 always, and §3.25 says why the faster
+    # 2. the decode RMS-norm shard width: within the combined spread of the fastest measured.
+    norms = re.findall(
+        r"rms_norm sharded\s+(\d+)c ms=([\d.]+) stdev_ms=([\d.]+)",
+        (DOC / "logs" / "probe_small_ops.log").read_text(errors="replace"),
+    )
+    assert norms, "probe_small_ops.log has no sharded rms_norm sweep"
+    measured = {int(cores): (float(ms), float(spread)) for cores, ms, spread in norms}
+    shipped_cores = constant("NORM_SHARD_CORES")
+    assert shipped_cores in measured, f"NORM_SHARD_CORES {shipped_cores} is not in the sweep"
+    best = min(measured, key=lambda cores: measured[cores][0])
+    shipped_ms, shipped_spread = measured[shipped_cores]
+    best_ms, best_spread = measured[best]
+    assert shipped_ms <= best_ms + best_spread + shipped_spread, (
+        f"NORM_SHARD_CORES {shipped_cores} measures {shipped_ms:.3f} +- {shipped_spread:.3f} ms and "
+        f"{best} measures {best_ms:.3f} +- {best_spread:.3f} ms - distinguishably faster"
+    )
+
+    # 3. the decode FIR dtype: ``None`` means float32 always, and §3.25 says why the faster
     #    bfloat16 form is not shipped, so the constant must *not* be a batch.
     assert constant("_DECODE_CONV_BF16_BATCH") is None, (
         "the bfloat16 decode FIR was measured faster and reverted for PCC (§3.25); shipping it "
