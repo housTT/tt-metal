@@ -84,6 +84,10 @@ python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder
 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py \
     -k test_full_advertised_context --long-context -v -s
 
+# check every number and path in the stage documents against the artifact it cites
+# (--self-test additionally proves the checks are not vacuous)
+python -m models.autoports.qwen_qwen3_6_27b.scripts.check_docs
+
 # collect every recorded number into pcc_evidence.json
 python -m models.autoports.qwen_qwen3_6_27b.scripts.collect_evidence \
     models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/logs/*.log

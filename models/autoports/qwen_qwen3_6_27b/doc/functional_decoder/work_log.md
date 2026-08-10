@@ -501,9 +501,11 @@ Two artifact-shape notes for anyone reading the tree:
   clang-format). The reformat is cosmetic — line reflow and import order — but `ttnn` was
   rebuilt afterwards and **every** run in §5 was repeated against the reformatted sources and
   the rebuilt binary, so no recorded number predates the formatting;
-* the raw Tracy ops CSVs are 0.9–3.2 MB, over the repo's 500 KB commit limit, so `tracy/*/`
-  carries `<phase>_ops.csv.gz` plus the uncompressed `<phase>_perf_report.csv`. The
-  `.provenance` files still record the original absolute path and copy timestamp.
+* three of the four raw Tracy ops CSVs (0.95, 3.03 and 3.28 MB) exceed the repo's 500 KB
+  commit limit, so `tracy/*/` carries `<phase>_ops.csv.gz` plus the uncompressed
+  `<phase>_perf_report.csv`. `full_attention/prefill_ops.csv` at 0.18 MB is under the limit and
+  is gzipped only so all four artifacts have the same shape. The `.provenance` files still
+  record the original absolute path and copy timestamp.
 
 ## 8. Second stage review — findings and what changed
 
@@ -514,7 +516,7 @@ The second `$stage-review` confirmed both round-1 P-findings resolved and return
   direction, and the old guard returned `1.0` whenever the denominator vanished — so an
   all-zero output, a saturated gate or a trace replay that never ran would have passed every
   assertion in the suite with a perfect record. Latent (nothing produces a constant today) but
-  it undermined the metric behind all 260 records. `pcc()` now returns `1.0` only when *both*
+  it undermined the metric behind every PCC record in the stage. `pcc()` now returns `1.0` only when *both*
   sides are constant and `0.0` when one is.
 * **`block_size` had a documented but unenforced invariant.** `PREFILL_CHUNK` must be a whole
   number of pages and of padded chunks; nothing checked it. `block_size = 96` is legal as far
@@ -566,9 +568,9 @@ The third `$stage-review` verified all four round-2 findings resolved and re-der
 headline claim from the raw artifacts independently. It raised three new P2s, all of them
 documentation accuracy in stage-owned files, and all fixed:
 
-* **`doc/context_contract.json`'s acceptance counts were stale.** They still said 264 records /
-  260 numeric from before the four scale ratios were added, while `pcc_evidence.json`,
-  `README.md` and this log said 268. The block is now derived from `pcc_evidence.json` and
+* **`doc/context_contract.json`'s acceptance counts were stale.** They still carried the totals
+  from before the four scale ratios were added, while `pcc_evidence.json`, `README.md` and this
+  log carried the current ones. The block is now derived from `pcc_evidence.json` and
   spells the breakdown out (268 = 260 PCC + 4 scale + 4 booleans), with the scale range and
   tolerance alongside. The runner guardrail does not check these fields, so nothing but a reader
   would have caught it.
@@ -777,3 +779,56 @@ predate the last revert/restore cycle by about an hour. The sources they exercis
 scoped to the suite and the long-context pair, but the perf and watcher artifacts are from the
 earlier build of identical source, and that is worth saying plainly rather than leaving to
 timestamp archaeology.
+
+## 14. Eighth stage review — the checker was checking less than it claimed
+
+The eighth review confirmed again that no numeric, correctness or performance claim in the stage
+is wrong — it re-derived the whole chain, raw Tracy CSV through `tt-perf-report` through
+`perf_summary.json` to the README table, and reproduced `pcc_evidence.json` element-for-element
+from the logs. It found two things, and the first is the important one.
+
+**`scripts/check_docs.py` did not implement the check it advertised.** Its docstring claimed "one
+value per figure … the same value in all of them"; the function that was supposed to do it built
+a dictionary of figures and never read it, and nothing compared a derived number against the
+*prose* in `README.md` or `work_log.md` — only against other JSON. The reviewer proved it: with
+the work log's perf row changed from 151.24 to 251.24 ms **and** the README's headline PCC
+minimum changed from 0.998031 to 0.9995, the checker still printed five `ok` lines and exited 0.
+A stage-owned check that overstates its own guarantee is the same defect class as round 1's false
+blast-radius claim, and it would have misled every later stage inheriting this tree.
+
+The checker now actually does it. For each figure it derives — the record counts, the PCC
+minimum, the scale range, each phase's `ops_per_pass` and `device_kernel_time_ms`, and each run
+log's pass count — it finds every occurrence in the prose and asserts the derived value, and it
+binds each `<n> passed` to the log that produced it by requiring the sentence to name that run.
+Two further claims are now true rather than aspirational: the perf check verifies **real op-code
+periodicity** (op *i* equals op *i mod period* across all 8 replays) rather than only that the
+op count divides by 8, and the docstring no longer claims to cover every backticked path — it
+covers paths under the stage artifact directories, which is what the code matches.
+
+And it now proves it is not vacuous. `--self-test` copies the tree to a temporary directory,
+applies five mutations — a wrong perf row, a wrong PCC minimum, a wrong record count, one run's
+pass count attributed to another run, a dead link — and asserts the checker rejects each:
+
+```
+$ python -m models.autoports.qwen_qwen3_6_27b.scripts.check_docs --self-test
+ok   rejected: a wrong perf row in the work log
+ok   rejected: a wrong PCC minimum in the README
+ok   rejected: a wrong record count
+ok   rejected: the suite's count attributed to watcher
+ok   rejected: a dead link
+
+self-test passed: the checker rejects every mutation it claims to catch
+```
+
+The rewritten checker immediately earned it, failing on four live stragglers in the committed
+tree that seven rounds of reading had not caught, including the review's second finding: §7 still
+carried the superseded "0.9-3.2 MB" Tracy-CSV range that round 7 corrected in `README.md` only —
+a range wrong at both ends, whose "over the 500 KB limit" rationale is false for the 0.18 MB
+file. Fixed here, and it is now a checked statement rather than a remembered one.
+
+Three smaller review points are recorded rather than changed: `check_paths` no longer claims
+coverage it does not have; `check_evidence` validates `pcc_evidence.json` against its own summary
+and the contract, not against the logs (the reviewer re-derived that hop by hand and it
+reproduces element-for-element, and `collect_evidence` regenerating identically is the standing
+check); and the op-suite blast-radius control was run on the fixed build only, which is the right
+control for "breaks no existing caller".
