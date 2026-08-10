@@ -113,6 +113,34 @@ def main() -> None:
                 ttnn.deallocate(acc)
                 return out
 
+            def rm_concat_variant():
+                """What ships: build the window in ROW_MAJOR too, and fold the SiLU into the last add.
+
+                ``ttnn.concat`` on TILE operands untilizes them, concatenates and re-tilizes, and
+                the ROW_MAJOR tap loop throws that tilize away again - so concatenating in
+                ROW_MAJOR removes a tilize/untilize round trip over the whole window.
+                """
+                pieces = [ttnn.to_layout(t, ttnn.ROW_MAJOR_LAYOUT) for t in (tp, tx)]
+                rm = ttnn.concat(pieces, dim=-2)
+                for piece in pieces:
+                    ttnn.deallocate(piece)
+                acc = None
+                for j in range(K):
+                    piece = ttnn.slice(rm, [0, 0, j, 0], [1, 1, j + SEQ, CONV_DIM])
+                    tap = ttnn.to_layout(piece, ttnn.TILE_LAYOUT)
+                    ttnn.deallocate(piece)
+                    term = ttnn.multiply(tap, tt_taps[j])
+                    ttnn.deallocate(tap)
+                    if acc is None:
+                        acc = term
+                        continue
+                    merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == K - 1 else [])
+                    ttnn.deallocate(term)
+                    ttnn.deallocate(acc)
+                    acc = merged
+                ttnn.deallocate(rm)
+                return acc
+
             def rm_arith_variant():
                 """Untilize once, keep the whole FIR in ROW_MAJOR, tilize once at the end."""
                 window = ttnn.concat([tp, tx], dim=-2)
@@ -172,6 +200,7 @@ def main() -> None:
             for name, fn in (
                 ("tile", tile_variant),
                 ("rm_shift", rm_shift_variant),
+                ("rm_concat", rm_concat_variant),
                 ("rm_arith", rm_arith_variant),
                 ("aligned_win", aligned_windows_variant),
             ):

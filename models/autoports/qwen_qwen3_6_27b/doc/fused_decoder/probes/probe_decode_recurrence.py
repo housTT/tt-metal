@@ -109,6 +109,23 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"read  group_attn_matmul    FAILED {str(exc).splitlines()[0][:110]}", flush=True)
 
+        # The transpose can be an argument of the matmul instead of an op before it.
+        (ms, sd), got = bench(
+            lambda: ttnn.matmul(
+                tk,
+                td,
+                dtype=ttnn.float32,
+                compute_kernel_config=cfg,
+                core_grid=ttnn.CoreGrid(y=6, x=8),
+                transpose_a=True,
+            ),
+            device,
+        )
+        print(
+            f"outer transpose_a 6x8       median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+            flush=True,
+        )
+
         tk_t = ttnn.transpose(tk, -2, -1)
         (ms, sd), got = bench(lambda: ttnn.matmul(tk_t, td, dtype=ttnn.float32, compute_kernel_config=cfg), device)
         print(

@@ -104,7 +104,8 @@ def conv_table() -> str:
     """The four FIR formulations, median and spread over 12 repeats; winner derived, not chosen."""
     names = {
         "tile": "all-TILE slices (what the functional layer does)",
-        "rm_shift": "untilize once, ROW_MAJOR shift, tilize per tap - **shipped**",
+        "rm_shift": "untilize once, ROW_MAJOR shift, tilize per tap (TILE concat)",
+        "rm_concat": "ROW_MAJOR concat *and* shift, SiLU folded into the last add - **shipped**",
         "rm_arith": "untilize once, whole FIR in ROW_MAJOR, tilize once",
         "aligned_win": "one pre-padded window per tap so every slice is tile-aligned",
     }
@@ -165,7 +166,7 @@ def norm_table() -> str:
 
 def recurrence_table() -> str:
     """Median and spread per grid; the selection is labelled, not disguised as the minimum."""
-    grids = ("default", "1x8", "2x8", "4x4", "6x4", "6x8", "6x11")
+    grids = ("default", "1x4", "1x8", "1x11", "2x4", "2x8", "2x11", "4x4", "4x8", "4x11", "6x4", "6x8", "6x11")
     header = "| shape | " + " | ".join(grids) + " | selected |"
     rows = [header, "|---" * (len(grids) + 2) + "|"]
     for kind, label, selected in (("read", "state read", "6x4"), ("outer", "outer product", "6x8")):
@@ -380,8 +381,23 @@ def delta_table() -> str:
     return "\n".join(rows)
 
 
+def python_op_counts() -> str:
+    """The ``ttnn``-boundary op counts ``test_fused_graph_is_smaller`` recorded, read from evidence."""
+    counts = {
+        record.get("kind"): record["value"]
+        for record in _evidence()["records"]
+        if record["metric"] == "fused_op_counts"
+    }
+    parts = []
+    for kind, value in counts.items():
+        before, after = value["functional"], value["fused"]
+        parts.append(f"`{kind}` {before[0]} -> {after[0]} prefill, {before[1]} -> {after[1]} decode")
+    return "; ".join(parts)
+
+
 BLOCKS = {
     "correctness": correctness_table,
+    "python_op_counts": python_op_counts,
     "delta": delta_table,
     "before_after": before_after_table,
     "breakdown": breakdown_table,

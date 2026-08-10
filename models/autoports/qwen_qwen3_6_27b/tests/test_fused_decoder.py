@@ -623,6 +623,35 @@ def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
     assert reshards <= budget, f"measured decode reshards {reshards} times (budget {budget}): {counter.counts}"
 
 
+@pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+def test_no_redundant_relayout_in_measured_prefill(mesh_device, layer_idx):
+    """The measured prefill never tilizes a tensor it is about to untilize, or vice versa.
+
+    The decode path has had a reshard/layout budget since this suite was written; prefill had
+    none, and a stage review found a full ``tilize`` immediately followed by an
+    ``untilize`` of the same tensor sitting in the ``linear_attention`` prefill for three rounds -
+    ``ttnn.concat`` on TILE operands re-tilizes its result, and the ROW_MAJOR tap loop threw that
+    away again.  This pins the *sequence*: no layout-changing call may be immediately undone by
+    the next one.
+    """
+    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
+    hidden = ref.synthetic_hidden_states(lut.config, 1, 2048, _stats())
+    tt_in = H.tt_hidden_prefill(hidden, mesh_device)
+    rot = H.prefill_rot_mats(lut, 2048, mesh_device) if lut.is_full_attention else None
+    full_pt, per_chunk = H.chunk_page_tables(lut, 2048, 0, mesh_device)
+
+    trace = _trace_layout_calls()
+    with trace:
+        out = lut.tt_layer.prefill_forward(
+            tt_in, user_id=0, page_table=full_pt, page_tables_per_chunk=per_chunk, rot_mats=rot
+        )
+    ttnn.deallocate(out)
+
+    undone = trace.round_trips
+    H.record("fused_prefill_layout_round_trips", {"round_trips": len(undone)}, kind=_kind(lut))
+    assert not undone, f"measured prefill undoes a layout conversion it just made: {undone}"
+
+
 # ------------------------------------------------------------------ full advertised context
 
 LONG_TAIL = {"linear_attention": 8192, "full_attention": 256}
@@ -803,6 +832,77 @@ class _AllOpCounter:
         for owner, attr, original in self._saved:
             setattr(owner, attr, original)
         return False
+
+
+class _LayoutCallTrace:
+    """Records every layout-changing ttnn call as ``(direction, input address, output address)``.
+
+    Comparing *input* address against the previous call's *output* address is what makes a round
+    trip detectable: a freed buffer's address is reused almost immediately, so matching on output
+    addresses alone reports false positives.
+    """
+
+    _NAMES = ("tilize", "tilize_with_val_padding", "untilize", "untilize_with_unpadding", "to_layout")
+
+    def __init__(self):
+        #: ``{id(result tensor): (direction, buffer address)}`` for every conversion made, and the
+        #: list of round trips found.  Keying on the *object* as well as the address is what makes
+        #: this precise: a freed buffer's address is reused within a few ops, so an address match
+        #: alone reports conversions of unrelated tensors as round trips.
+        self.produced: dict[int, tuple[str, int]] = {}
+        self.round_trips: list[str] = []
+        self._saved = []
+
+    def __enter__(self):
+        for name in self._NAMES:
+            original = getattr(ttnn, name, None)
+            if original is None:
+                continue
+            self._saved.append((name, original))
+
+            def make(func):
+                def wrapper(*args, **kwargs):
+                    source = args[0] if args else None
+                    before = _address(source)
+                    result = func(*args, **kwargs)
+                    after = _address(result)
+                    if before is None or after is None or _layout_of(source) == _layout_of(result):
+                        return result
+                    direction = _direction(result)
+                    made = self.produced.get(id(source))
+                    if made is not None and made[1] == before and made[0] != direction:
+                        self.round_trips.append(f"{made[0]} -> {direction}")
+                    self.produced[id(result)] = (direction, after)
+                    return result
+
+                return wrapper
+
+            setattr(ttnn, name, make(original))
+        return self
+
+    def __exit__(self, *exc):
+        for name, original in self._saved:
+            setattr(ttnn, name, original)
+        return False
+
+
+def _address(tensor):
+    try:
+        return tensor.buffer_address()
+    except Exception:  # noqa: BLE001 - not a device tensor
+        return None
+
+
+def _layout_of(tensor):
+    return getattr(tensor, "layout", None)
+
+
+def _direction(tensor) -> str:
+    return "tilize" if tensor.layout == ttnn.TILE_LAYOUT else "untilize"
+
+
+def _trace_layout_calls():
+    return _LayoutCallTrace()
 
 
 def _count_ops(names):

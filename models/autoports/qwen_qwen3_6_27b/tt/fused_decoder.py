@@ -66,6 +66,7 @@ primitive sequence):
 **Op merging** (fold a neighbour into an op that was already running):
 
 * The MLP's ``silu`` folds into the gate*up multiply as an input activation.
+* The decode recurrence's outer-product transpose folds into its matmul as ``transpose_a=True``.
 * The attention output gate's ``sigmoid`` folds into the gate multiply the same way.
 * The gated delta net's ``silu(z)`` folds into the z-gate multiply the same way.
 * The causal conv's trailing ``silu`` folds into the last tap's ``add`` as an *output*
@@ -296,6 +297,11 @@ class FusedDecoder(FunctionalDecoder):
             # Shared-LHS merge: in_proj_b and in_proj_a both read the normed hidden state and are
             # both float32-weighted, so pack them into one [hidden, 2 * _AB_STRIDE] weight with the
             # second block starting on a tile boundary.
+            if s.num_v_heads > _AB_STRIDE:
+                raise ValueError(
+                    f"num_v_heads {s.num_v_heads} exceeds the packed a/b column stride {_AB_STRIDE}; "
+                    "raise _AB_STRIDE to the next tile multiple"
+                )
             b_w = state_dict["linear_attn.in_proj_b.weight"].to(torch.float32)  # [nv, hidden]
             a_w = state_dict["linear_attn.in_proj_a.weight"].to(torch.float32)
             packed = torch.zeros(s.hidden_size, 2 * _AB_STRIDE, dtype=torch.float32)
@@ -590,9 +596,10 @@ class FusedDecoder(FunctionalDecoder):
         Same FIR as the functional layer, with two changes:
 
         * The **arithmetic** runs in bfloat16.  Each tap is a *height-broadcast* binary op, and
-          on this checkout a float32 height-broadcast multiply reaches only 77 GB/s against
-          391 GB/s for a same-shape float32 multiply and 250 GB/s for the bfloat16 broadcast
-          (``doc/fused_decoder/probes/probe_causal_conv.py``); the whole FIR is about 3x faster in
+          on this checkout a float32 height-broadcast multiply reaches a small fraction of the
+          bandwidth the same op gets on same-shape float32 operands, while the bfloat16 broadcast
+          does not - the measured table is ``work_log.md`` section 3.7, generated from
+          ``doc/fused_decoder/probes/probe_causal_conv.py``'s log; the whole FIR is about 3x faster in
           bfloat16 than in float32 at 2048 tokens, for a conv-output PCC of 0.999990, and
           ``work_log.md`` section 3.7 carries the generated table.  Nothing downstream can use the extra precision either - the conv output
           feeds ``chunk_gated_delta_rule``, whose contract casts q/k/v to bfloat16 - and the
@@ -639,15 +646,20 @@ class FusedDecoder(FunctionalDecoder):
         _free(merged, new_state)
 
         taps = self.w["conv_taps_bf16"]
-        window = ttnn.concat([ttnn.typecast(prefix, ttnn.bfloat16), ttnn.typecast(mixed_qkv, ttnn.bfloat16)], dim=-2)
-        # Untilize the window once and take each tap's one-row-shifted view in ROW_MAJOR, where a
-        # row range is contiguous, instead of letting every TILE slice pay its own
-        # untilize+tilize pair.  Measured over 12 repeats at 2048 tokens
-        # (``doc/fused_decoder/logs/probe_causal_conv.log``, which reports median and stdev over 12
-        # repeats): faster than the all-TILE form by several times the run-to-run spread, so this
-        # is a real difference rather than noise.  ``work_log.md`` section 3.7 has the table.
-        rows = ttnn.to_layout(window, ttnn.ROW_MAJOR_LAYOUT)
-        ttnn.deallocate(window)
+        # Build the window in ROW_MAJOR and take each tap's one-row-shifted view there, where a row
+        # range is contiguous, instead of letting every TILE slice pay its own untilize+tilize
+        # pair.  Concatenating in ROW_MAJOR matters as much as slicing there: ``ttnn.concat`` on
+        # TILE operands untilizes them, concatenates, and re-tilizes - and the tap loop would throw
+        # that tilize straight away again, so the TILE concat was a tilize/untilize round trip over
+        # the whole ~42 MB window.  Measured over 12 repeats at 2048 tokens
+        # (``doc/fused_decoder/logs/probe_causal_conv.log``, which reports median and stdev):
+        # faster than either all-TILE form by several times the run-to-run spread, and
+        # bit-identical to them.  ``work_log.md`` section 3.7 has the table.
+        prefix_rows = ttnn.to_layout(ttnn.typecast(prefix, ttnn.bfloat16), ttnn.ROW_MAJOR_LAYOUT)
+        input_rows = ttnn.to_layout(ttnn.typecast(mixed_qkv, ttnn.bfloat16), ttnn.ROW_MAJOR_LAYOUT)
+        rows = ttnn.concat([prefix_rows, input_rows], dim=-2)
+        ttnn.deallocate(prefix_rows)
+        ttnn.deallocate(input_rows)
         acc = None
         for j in range(k):
             piece = ttnn.slice(rows, [0, 0, j, 0], [1, 1, j + length, s.conv_dim])
@@ -860,15 +872,17 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(kv_mem)
         ttnn.deallocate(v)
         ttnn.deallocate(beta_h)
-        k_t = ttnn.transpose(k, -2, -1)
+        # The outer product's transpose is an argument of the matmul, not an op before it - the
+        # skill's "permute/transpose + matmul" merge.  Exact (PCC 1.000000 against torch) and one
+        # dispatch fewer; measured in ``doc/fused_decoder/logs/probe_decode_recurrence.log``.
         update = ttnn.matmul(
-            k_t,
+            k,
             delta,
             dtype=ttnn.float32,
             compute_kernel_config=self.compute_cfg,
             core_grid=self.recurrence_outer_grid,
+            transpose_a=True,
         )
-        ttnn.deallocate(k_t)
         ttnn.deallocate(delta)
         ttnn.deallocate(k)
         # Fold the state write-back into the add that produces it: the traced decode needs the

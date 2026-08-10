@@ -89,7 +89,9 @@ def main() -> None:
             "divided by the replay count for decode. Decode is traced: capture once, then replay "
             "execute_trace 8x inside the window. 'functional' is tt/functional_decoder.py (the stage-1 "
             "baseline) and 'fused' is tt/fused_decoder.py, measured by the same script "
-            "(probes/run_perf.sh) on the same machine in the same session."
+            "(probes/run_perf.sh) on the same machine against the same build, with --impl the only "
+            "argument that differs; the .provenance file next to each ops CSV carries that run's "
+            "timestamp, and the two halves are separate processes."
         ),
         "prefill_tokens": 2048,
         "decode_position": 2048,
