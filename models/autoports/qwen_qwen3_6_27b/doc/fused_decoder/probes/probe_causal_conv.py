@@ -12,10 +12,15 @@ the largest remaining ``linear_attention`` prefill cost.  Its two structural pro
 
 Variants compared (all produce the same FIR + SiLU, all checked against torch):
 
-``tile_fp32``      what the functional layer does: TILE slices, float32 throughout
-``tile_bf16``      same graph with the window cast to bfloat16 once
-``rm_shift_bf16``  untilize once, shift in ROW_MAJOR, tilize each tap, bfloat16
-``bcast_micro``    isolated broadcast-vs-same-shape multiply bandwidth, both dtypes
+``tile``        what the functional layer does: TILE slices throughout
+``rm_shift``    untilize once, shift in ROW_MAJOR, tilize each tap (TILE concat)
+``rm_concat``   *also* concatenate in ROW_MAJOR, and fold the SiLU into the last tap's add - shipped
+``rm_arith``    untilize once, keep the whole FIR in ROW_MAJOR, tilize once
+``aligned_win`` one pre-padded window per tap so every tap slice starts on a tile boundary
+
+Each runs in float32 and in bfloat16; every result is checked against torch *and* against the
+first variant's, so "the formulations agree" is a measurement.  A final microbenchmark isolates
+broadcast-vs-same-shape multiply bandwidth.
 
     python .../probes/probe_causal_conv.py
 """

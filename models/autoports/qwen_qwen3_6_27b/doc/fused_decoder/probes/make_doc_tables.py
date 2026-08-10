@@ -395,8 +395,66 @@ def python_op_counts() -> str:
     return "; ".join(parts)
 
 
+def gated_norm_batches() -> str:
+    """The decode z-gated norm's two forms across batch sizes, read from the probe log."""
+    log = _probe("probe_gated_norm_batch")
+    rows = re.findall(
+        r"gated_norm batch=\s*(\d+) reshape_us=\s*([\d.]+) \(\s*[\d.]+\) group_us=\s*([\d.]+) "
+        r"\(\s*[\d.]+\) pcc_between=([\d.]+)",
+        log,
+    )
+    if not rows:
+        raise SystemExit("probe_gated_norm_batch.log has no measurements")
+    batches = [row[0] for row in rows]
+    header = "| batch | " + " | ".join(batches) + " |"
+    reshape = "| reshape + `ttnn.rms_norm` (us) | " + " | ".join(row[1] for row in rows) + " |"
+    group = "| group reduction (us) | " + " | ".join(row[2] for row in rows) + " |"
+    worst = min(float(row[3]) for row in rows)
+    return (
+        header + "\n" + "|---" * (len(batches) + 1) + "|\n" + reshape + "\n" + group + "\n\n"
+        f"Median over 25 repeats. Lowest PCC between the two forms' outputs, over all batches "
+        f"measured: {worst:.6f}."
+    )
+
+
+def before_breakdown() -> str:
+    """The stage-1 baseline's bucket breakdown, from the committed functional reports."""
+    summary = _summary()
+    columns = [f"functional/{kind}/{phase}" for kind in KINDS for phase in ("prefill", "decode")]
+    labels = {
+        "matmul": "`matmul`",
+        "batched_matmul": "`batched_matmul` (the spelled-out delta rule / recurrence)",
+        "sdpa": "`sdpa`",
+        "layout": "`layout` (tilize/untilize/reshape/permute/concat/slice/shard)",
+        "elementwise": "`elementwise`",
+        "norm": "`norm`",
+        "heads_and_cache": "`heads_and_cache`",
+        "other": "`other`",
+    }
+    rows = [
+        "| bucket | `linear_attention` prefill | `linear_attention` decode "
+        "| `full_attention` prefill | `full_attention` decode |",
+        "|---|---|---|---|---|",
+    ]
+    for bucket, label in labels.items():
+        cells = []
+        for column in columns:
+            value = summary["measurements"][column]["breakdown_ms"].get(bucket)
+            cells.append("—" if value is None else f"{value:.3f} ms")
+        if all(cell == "—" for cell in cells):
+            continue
+        rows.append(f"| {label} | " + " | ".join(cells) + " |")
+    totals = [summary["measurements"][column] for column in columns]
+    rows.append("| **total** | " + " | ".join(f"**{row['device_kernel_time_ms']:.3f} ms**" for row in totals) + " |")
+    rows.append("| ops in one pass | " + " | ".join(str(row["ops_per_pass"]) for row in totals) + " |")
+    rows.append("| op-to-op gap | " + " | ".join(f"{row['op_to_op_gap_ms']:.3f} ms" for row in totals) + " |")
+    return "\n".join(rows)
+
+
 BLOCKS = {
+    "before_breakdown": before_breakdown,
     "correctness": correctness_table,
+    "gated_norm_batches": gated_norm_batches,
     "python_op_counts": python_op_counts,
     "delta": delta_table,
     "before_after": before_after_table,

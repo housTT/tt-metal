@@ -175,40 +175,70 @@ def _artifact_corpus() -> str:
     return "\n".join(parts)
 
 
-def test_prose_perf_figures_match_the_summary():
-    """Every ms / speed-up / percentage figure in the prose is some committed artifact's number.
+def _allowed_figures() -> set[str]:
+    """Every latency/bandwidth figure a document may legitimately quote.
 
-    Catches the drift class directly: a figure updated in ``perf_summary.json`` or re-measured in
-    a probe log, and not updated in the document that quotes it.  The check is broad rather than
-    positional - a value that exists somewhere in the corpus passes even if it is quoted in the
-    wrong place - which is exactly what caught the stale probe figures this file was written for.
+    Deliberately *derived*, not a substring corpus: four review rounds found stale figures
+    surviving a membership test over both stages' logs and CSVs, because any 3-4 digit string
+    occurs somewhere in a multi-megabyte artifact set.  A figure has to be a value this stage's
+    perf summary holds, a value a probe actually printed, or the stage-1 summary's own.
     """
-    summary = _perf_summary()
-    allowed = set()
-    for row in summary["measurements"].values():
-        allowed.add(f"{row['device_kernel_time_ms']:.3f}")
-        allowed.add(f"{row['device_kernel_time_ms']:.2f}")
-        for value in row["breakdown_ms"].values():
-            allowed.add(f"{value:.3f}")
-            allowed.add(f"{value:.2f}")
-    for row in summary["speedup"].values():
-        allowed.add(f"{row['speedup_x']:.2f}")
-        allowed.add(f"{row['reduction_pct']:.1f}")
-    corpus = _artifact_corpus()
+    allowed: set[str] = set()
 
-    scanned = dict(_documents())
+    def add(value: float) -> None:
+        for places in (0, 1, 2, 3):
+            allowed.add(f"{value:.{places}f}")
+
+    summary = _perf_summary()
+    for row in summary["measurements"].values():
+        add(row["device_kernel_time_ms"])
+        add(row["op_to_op_gap_ms"])
+        for value in row["breakdown_ms"].values():
+            add(value)
+        for op in row["top_ops_by_device_time"]:
+            add(op["device_time_us"])
+    for row in summary["speedup"].values():
+        add(row["speedup_x"])
+        add(row["reduction_pct"])
+    functional = ROOT / "doc" / "functional_decoder" / "perf_summary.json"
+    if functional.is_file():
+        for row in json.loads(functional.read_text())["measurements"].values():
+            add(row["device_kernel_time_ms"])
+    # Whatever the probes printed, exactly as they printed it - and rounded, since a table may
+    # quote fewer places than the log.
+    for log in sorted((DOC / "logs").glob("probe_*.log")):
+        for value in re.findall(r"(?<![\w.])(\d+\.\d+)(?![\w.])", log.read_text(errors="replace")):
+            allowed.add(value)
+            add(float(value))
+    return allowed
+
+
+def test_prose_perf_figures_match_the_summary():
+    """Every ms / us / speed-up / percentage / bandwidth figure in the prose is a derived value.
+
+    Scans the documents *and* the implementation and test files, because a stage review found
+    four stale figures living in ``tt/fused_decoder.py``'s docstrings.
+    """
+    allowed = _allowed_figures()
+    # Generated blocks are exempt: they are written from the artifacts by construction, and
+    # ``test_generated_blocks_are_current`` is what keeps them honest.  This check is for the
+    # hand-written prose around them, which is where every stale figure four review rounds found
+    # actually lived.
+    strip = re.compile(r"<!-- GENERATED:\w+ -->.*?<!-- END GENERATED:\w+ -->", re.DOTALL)
+    scanned = {path: strip.sub("", text) for path, text in _documents().items()}
     scanned.update({path: path.read_text() for path in SOURCES})
     unexplained = []
     for path, text in scanned.items():
-        # ms / x / % / GB/s figures, and microsecond figures whether or not they have a decimal
-        # point: a stage review found the integer ones (an 8836-line watcher count, several `us`
-        # timings) escaping an earlier decimals-only rule.
-        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}\s*(ms|x|%|GB/s|us)\b", text)
-        for value, unit in quoted:
-            if value in allowed or value in corpus:
+        # ``x`` counts only when attached *and* carrying a decimal point (a speedup): ``8x8`` is a
+        # core grid.  Microsecond figures count with or without a decimal point.
+        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}(?:\s*(ms|%|GB/s|us)|(x))\b", text)
+        for value, unit, attached in quoted:
+            if not unit and "." not in value:
                 continue
-            unexplained.append(f"{path.name}: {value} {unit}")
-    assert not unexplained, "prose quotes figures that are in no committed artifact:\n  " + "\n  ".join(unexplained)
+            if value in allowed:
+                continue
+            unexplained.append(f"{path.name}: {value} {unit or attached}")
+    assert not unexplained, "documents or sources quote figures no artifact derives:\n  " + "\n  ".join(unexplained)
 
 
 def test_prose_op_counts_match_the_summary():
@@ -407,20 +437,31 @@ def test_generated_blocks_are_current():
     placeholder text, because its markers were inline and the generator's regex needs them on
     their own lines), or one filled from an older artifact, fails here rather than in a review.
     """
+    import shutil
     import subprocess
     import sys
+    import tempfile
 
     generator = DOC / "probes" / "make_doc_tables.py"
     before = {path: path.read_text() for path in DOCUMENTS}
-    result = subprocess.run([sys.executable, str(generator)], capture_output=True, text=True)
-    assert result.returncode == 0, f"{generator.name} failed: {result.stderr[-2000:]}"
-    stale = []
-    for path, text in before.items():
-        after = path.read_text()
-        if after != text:
-            path.write_text(text)  # leave the tree as we found it; the diff is the finding
-            stale.append(path.name)
-        assert _UNFILLED not in after, f"{path.name} has a generated block the generator never filled"
+    # Run the generator against a *copy* of the stage tree: rewriting the real documents and
+    # restoring them leaves them regenerated if this test is interrupted.
+    with tempfile.TemporaryDirectory() as scratch:
+        # Mirror the whole ``doc/`` tree: the generator reads the *functional* stage's evidence
+        # too, for the delta table.
+        mirror_doc = Path(scratch) / "doc"
+        shutil.copytree(DOC.parent, mirror_doc, symlinks=True)
+        mirror = mirror_doc / "fused_decoder"
+        result = subprocess.run(
+            [sys.executable, str(mirror / "probes" / "make_doc_tables.py")], capture_output=True, text=True
+        )
+        assert result.returncode == 0, f"{generator.name} failed: {result.stderr[-2000:]}"
+        stale = []
+        for path, text in before.items():
+            regenerated = (mirror / path.relative_to(DOC)).read_text()
+            if regenerated != text:
+                stale.append(path.name)
+            assert _UNFILLED not in text, f"{path.name} has a generated block the generator never filled"
     assert not stale, (
         "these documents' generated blocks are out of date with the artifacts; " f"re-run {generator.name}: {stale}"
     )

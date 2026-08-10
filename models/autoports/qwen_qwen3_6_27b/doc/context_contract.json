@@ -220,8 +220,8 @@
    "test": "models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_persistent_state_delta",
    "linear_attention": {
     "functional": 1060618240,
-    "fused": 1068875776,
-    "delta": 8257536,
+    "fused": 1068908544,
+    "delta": 8290304,
     "what_is_added": "(conv_kernel_size - 1) batch-major conv tap buffers, bfloat16 conv taps, the packed in_proj_ab weight, the two gated-norm constant matrices and the chunk_gated_delta_rule constant tiles, minus the freed in_proj_a and in_proj_b"
    },
    "full_attention": {
@@ -243,12 +243,12 @@
    "evidence_method": "identical to the functional stage's: a segmented HF reference for linear_attention, and for full_attention a K/V cache built from k_proj/v_proj + k_norm + RoPE, validated torch.equal against a genuine short reference prefill, with the real HF layer run over the last 256 queries.",
    "results": {
     "linear_attention": {
-     "prefill_tail_8192_pcc": 0.9998788364319989,
+     "prefill_tail_8192_pcc": 0.9998790209845737,
      "conv_state_pcc": 0.9999946280463557,
-     "recurrent_state_pcc": 0.9999334047369414,
-     "decode_at_262143_pcc": 0.9999178071296412,
-     "prefill_tail_scale": 0.9976733821197127,
-     "decode_scale": 0.9963186424009748,
+     "recurrent_state_pcc": 0.9999336743901379,
+     "decode_at_262143_pcc": 0.9999176727080874,
+     "prefill_tail_scale": 0.9976808928566281,
+     "decode_scale": 0.9960964340414425,
      "verdict": "passes the 0.995 bar"
     },
     "full_attention": {
@@ -261,7 +261,7 @@
      "verdict": "passes the 0.995 bar"
     }
    },
-   "delta_against_functional": "linear_attention moves by at most 6.8e-5 (prefill tail 0.999947 -> 0.999879, recurrent state 0.999984 -> 0.999933, decode 0.999955 -> 0.999918), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
+   "delta_against_functional": "linear_attention moves by at most 6.8e-5 (prefill tail 0.999947 -> 0.999879, recurrent state 0.999984 -> 0.999934, decode 0.999955 -> 0.999918), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
   },
   "non_aligned_length_coverage": "unchanged and re-run against the fused graph: 1, 17, 128, 2048, 2049, 4096, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts. The fused prefill's internal chunking is a multiple of 32 (chunk_gated_delta_rule's flat path needs T % 32 == 0) but that is padding the layer owns; no divisibility requirement reaches the public API.",
   "acceptance": {
@@ -273,7 +273,7 @@
    "pcc_records_below_bar": 0,
    "scale_range": [
     0.9957661979426642,
-    0.9976733821197127
+    0.9976808928566281
    ],
    "scale_tolerance": [
     0.98,

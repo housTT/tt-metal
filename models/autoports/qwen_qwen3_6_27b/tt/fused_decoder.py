@@ -67,6 +67,8 @@ primitive sequence):
 
 * The MLP's ``silu`` folds into the gate*up multiply as an input activation.
 * The decode recurrence's outer-product transpose folds into its matmul as ``transpose_a=True``.
+* The gated delta net's ``dt_bias`` folds into the packed ``a``/``b`` matmul as its bias row.
+* The gated norm's ``rsqrt`` folds into the epsilon add as an output activation.
 * The attention output gate's ``sigmoid`` folds into the gate multiply the same way.
 * The gated delta net's ``silu(z)`` folds into the z-gate multiply the same way.
 * The causal conv's trailing ``silu`` folds into the last tap's ``add`` as an *output*
@@ -124,7 +126,7 @@ FUSED_DELTA_CHUNK = 32
 #: interleaved->shard->rms_norm->interleaved:
 #:
 #: The measured curve is ``work_log.md`` section 3.3, generated from that log so the two cannot
-#: drift.  Its shape: sharding is roughly 2.5x the interleaved norm, the curve is flat between 16
+#: drift.  Its shape: sharding is several times faster than the interleaved norm, flat between 16
 #: and 20 cores - the two swap places between runs, by about the run-to-run spread - and it rises
 #: from 32 upwards as the shard/unshard overhead starts to dominate.  20 is used; 16 would do
 #: equally well.
@@ -157,16 +159,13 @@ _RECURRENCE_OUTER_GRID = (6, 8)
 
 #: ``max_batch`` at and above which the decode z-gated norm uses the same group reduction as
 #: prefill (:meth:`FusedDecoder._gated_norm_and_project`) instead of the reshape-and-``rms_norm``
-#: form.  The two are the same arithmetic; which is cheaper depends on how many rows there are.
-#: Measured on this checkout at the real shapes, median over 25 repeats, microseconds:
-#:
-#:     batch    |   1  |   4  |   8  |  16  |  32
-#:     reshape  | 72.1 | 99.4 | 91.5 | 150.8 | 240.8
-#:     group    | 162.0 | 164.0 | 163.0 | 164.8 | 165.2
-#:
-#: The group form is nearly batch-independent (it is two skinny constant matmuls) while the
-#: reshape form's two tile relayouts grow with the row count, so they cross between 16 and 32.
-#: PCC between the two outputs is 0.999993 or better at every batch measured.
+#: form.  The two are the same arithmetic; which is cheaper is a pure function of the row count,
+#: because the group form is two skinny constant matmuls that barely move with it while the
+#: reshape form's two tile relayouts grow with it.  Measured at the real decode shapes over five
+#: batch sizes by ``doc/fused_decoder/probes/probe_gated_norm_batch.py``; the table is
+#: ``work_log.md`` section 3.17, generated from that probe's log so the two cannot drift.  The
+#: two forms cross between 16 and 32, and their outputs agree to PCC 0.99999 or better at every
+#: batch measured.
 _GATED_NORM_GROUP_BATCH = 32
 
 #: Epsilon of the GatedDeltaNet Q/K L2 norm, matching HF's ``l2norm(x, dim=-1, eps=1e-6)`` and
@@ -324,6 +323,14 @@ class FusedDecoder(FunctionalDecoder):
             packed[:, : s.num_v_heads] = b_w.t()
             packed[:, _AB_STRIDE : _AB_STRIDE + s.num_v_heads] = a_w.t()
             layer.w["in_proj_ab"] = _tt(packed.reshape(1, 1, s.hidden_size, 2 * _AB_STRIDE), ttnn.float32)
+            # ``dt_bias`` is added to ``a`` right after that matmul, and a bias row is what
+            # ``ttnn.linear`` already takes - the skill's "matmul + bias -> linear" merge.  Pack it
+            # into the ``a`` block's columns, zeros under ``b``.
+            packed_bias = torch.zeros(2 * _AB_STRIDE, dtype=torch.float32)
+            packed_bias[_AB_STRIDE : _AB_STRIDE + s.num_v_heads] = (
+                state_dict["linear_attn.dt_bias"].to(torch.float32).reshape(-1)
+            )
+            layer.w["in_proj_ab_bias"] = _tt(packed_bias.reshape(1, 1, 1, 2 * _AB_STRIDE), ttnn.float32)
             # The two unpacked weights are dead in this graph; free them rather than hold 2.6 MB
             # of device DRAM per layer that nothing reads.
             for dead in ("in_proj_b", "in_proj_a"):
@@ -590,7 +597,13 @@ class FusedDecoder(FunctionalDecoder):
         s = self.shapes
         mixed_qkv = ttnn.linear(x, self.w["in_proj_qkv"], dtype=ttnn.float32, compute_kernel_config=self.compute_cfg)
         z = ttnn.linear(x, self.w["in_proj_z"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg)
-        ab = ttnn.linear(x, self.w["in_proj_ab"], dtype=ttnn.float32, compute_kernel_config=self.compute_cfg)
+        ab = ttnn.linear(
+            x,
+            self.w["in_proj_ab"],
+            bias=self.w["in_proj_ab_bias"],
+            dtype=ttnn.float32,
+            compute_kernel_config=self.compute_cfg,
+        )
         lead = _shape(ab)[:-1]
         starts = [0] * len(lead)
         b = ttnn.slice(ab, [*starts, 0], [*lead, s.num_v_heads])
@@ -598,10 +611,9 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(ab)
         beta = ttnn.sigmoid(b)
         ttnn.deallocate(b)
-        biased = ttnn.add(a, self.w["dt_bias"])
+        # ``a`` already carries ``dt_bias``: it is the packed matmul's bias row.
+        soft = ttnn.softplus(a, beta=1.0, threshold=20.0)
         ttnn.deallocate(a)
-        soft = ttnn.softplus(biased, beta=1.0, threshold=20.0)
-        ttnn.deallocate(biased)
         g = ttnn.multiply(soft, self.w["neg_exp_A"])
         ttnn.deallocate(soft)
         return mixed_qkv, z, beta, g
@@ -732,10 +744,9 @@ class FusedDecoder(FunctionalDecoder):
             squares, self.const["gdn_group_mean"], dtype=ttnn.float32, compute_kernel_config=self.compute_cfg
         )
         ttnn.deallocate(squares)
-        shifted = ttnn.add(mean_square, s.rms_norm_eps)
+        # rsqrt is the add's *output* activation, not an op after it.
+        inv = ttnn.add(mean_square, s.rms_norm_eps, activations=[ttnn.UnaryOpType.RSQRT])
         ttnn.deallocate(mean_square)
-        inv = ttnn.rsqrt(shifted)
-        ttnn.deallocate(shifted)
         inv16 = ttnn.typecast(inv, ttnn.bfloat16)
         _free(inv, inv16)
         scale = ttnn.matmul(
