@@ -155,7 +155,13 @@ _AB_STRIDE = 64
 #: (PCC 1.000000 against torch) - the grid only changes how the independent per-head problems are
 #: distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
 #: state read and rejected: its contract ties the batch dim to the number of users
-#: ("Num of users must match!"), which here is ``batch * num_v_heads``, not ``batch``.
+#: ("Num of users must match!") - and a stage review showed that first attempt had mapped the op's
+#: batch axis onto the flattened ``batch * num_v_heads`` axis.  Mapped the way the op wants
+#: (``a = [1, num_v_heads, batch, head_dim]``, ``b = [batch, num_v_heads, head_k_dim, head_v_dim]``,
+#: which the user-major state provides as a free view) every shape assertion passes at
+#: ``max_batch`` 32 - and the op then overflows L1: its circular buffers come to 6484864 B in
+#: float32 and 3298176 B in bfloat16 against 1572864 B of L1.  That is the real blocker, it is
+#: quantified, and it is a factor of two out even at half precision.  See ``work_log.md`` §3.6.
 #: ``core_grid`` for the two recurrence matmuls.  Swept over eighteen grids at **both** decode
 #: regimes - 48 head problems at batch 1 and 1536 at the advertised ``max_batch`` - by
 #: ``doc/fused_decoder/probes/probe_decode_recurrence.py``; the tables are ``work_log.md``
@@ -201,13 +207,14 @@ _GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
 #: reshape form's two tile relayouts grow with it.  Measured at the real decode shapes over five
 #: batch sizes by ``doc/fused_decoder/probes/probe_gated_norm_batch.py``; the table is
 #: ``work_log.md`` section 3.17, generated from that probe's log so the two cannot drift.  The
-#: two forms cross between **8 and 16** - at 16 the group form is already no slower than the
-#: reshape one, within the run-to-run spread, and from there it pulls away - so the threshold is
-#: 16 rather than the advertised batch.  A stage review pointed out that pinning it at 32 left
-#: every ``max_batch`` in 17..31 taking the form the probe's own trend says is slower.  Their
-#: outputs agree to PCC 0.99999 or better at every batch measured, and
-#: ``test_batched_users[16-linear_attention]`` covers the boundary.
-_GATED_NORM_GROUP_BATCH = 16
+#: two forms cross between **16 and 32**: at 16 the reshape form is still faster by several times
+#: the run-to-run spread, and at 32 the group form wins by half again.  The threshold has been at
+#: 32, then 16, and is 32 again - each move followed the measurement of the day, and
+#: ``test_selected_constants_are_the_measured_best`` now binds it to the probe log so it cannot
+#: drift from it silently.  Their outputs agree to PCC 0.99999 or better at every batch measured,
+#: and ``test_batched_users`` covers 4, 16 and 32, i.e. both sides of the boundary and the
+#: boundary itself.
+_GATED_NORM_GROUP_BATCH = 32
 
 #: The *decode* causal-conv FIR stays float32, and this constant is why it is not a knob.
 #:
@@ -1138,7 +1145,9 @@ class FusedDecoder(FunctionalDecoder):
         core = ttnn.reshape(out, (1, batch, nv, s.head_v_dim))
         _free(out, core)
         z_heads = ttnn.reshape(z, (1, batch, nv, s.head_v_dim))
-        normed = self._rms_norm(ttnn.typecast(core, ttnn.bfloat16), self.w["gated_norm"])
+        core16 = ttnn.typecast(core, ttnn.bfloat16)
+        normed = self._rms_norm(core16, self.w["gated_norm"])
+        ttnn.deallocate(core16)
         ttnn.deallocate(core)
         gated = ttnn.multiply(normed, z_heads, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
         ttnn.deallocate(normed)

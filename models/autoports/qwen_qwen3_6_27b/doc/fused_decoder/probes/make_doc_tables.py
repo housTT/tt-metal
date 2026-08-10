@@ -515,21 +515,29 @@ def gated_norm_batches() -> str:
     """The decode z-gated norm's two forms across batch sizes, read from the probe log."""
     log = _probe("probe_gated_norm_batch")
     rows = re.findall(
-        r"gated_norm batch=\s*(\d+) reshape_us=\s*([\d.]+) \(\s*[\d.]+\) group_us=\s*([\d.]+) "
-        r"\(\s*[\d.]+\) pcc_between=([\d.]+)",
+        r"gated_norm batch=\s*(\d+) reshape_us=\s*([\d.]+) \(\s*([\d.]+)\) group_us=\s*([\d.]+) "
+        r"\(\s*([\d.]+)\) pcc_between=([\d.]+)",
         log,
     )
+    # (batch, reshape, group, pcc, reshape spread, group spread) - the spreads are in the table
+    # because "within the spread" was a claim nobody could check from it.
+    rows = [(r[0], r[1], r[3], r[5], r[2], r[4]) for r in rows]
     if not rows:
         raise SystemExit("probe_gated_norm_batch.log has no measurements")
     batches = [row[0] for row in rows]
     header = "| batch | " + " | ".join(batches) + " |"
-    reshape = "| reshape + `ttnn.rms_norm` (us) | " + " | ".join(row[1] for row in rows) + " |"
-    group = "| group reduction (us) | " + " | ".join(row[2] for row in rows) + " |"
+    reshape = "| reshape + `ttnn.rms_norm` (us) | " + " | ".join(f"{row[1]} ({row[4]})" for row in rows) + " |"
+    group = "| group reduction (us) | " + " | ".join(f"{row[2]} ({row[5]})" for row in rows) + " |"
     worst = min(float(row[3]) for row in rows)
+    crossing = next(
+        (row[0] for row in rows if float(row[2]) + float(row[5]) < float(row[1])),
+        None,
+    )
     return (
         header + "\n" + "|---" * (len(batches) + 1) + "|\n" + reshape + "\n" + group + "\n\n"
-        f"Median over 25 repeats. Lowest PCC between the two forms' outputs, over all batches "
-        f"measured: {worst:.6f}."
+        f"Median and (stdev) in microseconds over 25 repeats. Lowest PCC between the two forms' "
+        f"outputs, over all batches measured: {worst:.6f}. The group form first becomes "
+        f"distinguishably faster at batch {crossing}, which is where the shipped threshold sits."
     )
 
 
@@ -838,9 +846,8 @@ def rejected_decode_variants() -> str:
     rows.append("")
     rows.append(
         "Median microseconds over 25 repeats. Both alternatives are the same arithmetic as what "
-        "ships. The bolded cell in each row is the faster of the pair as measured; where the two "
-        "are within a stdev of each other the difference is not meaningful, which is the case for "
-        "the bfloat16 FIR at the advertised batch."
+        "ships. The bolded cell in each row is the faster of the pair as measured, and a row with "
+        "no bold is one where the two are inside their combined spread."
     )
     return "\n".join(rows)
 
@@ -1118,10 +1125,33 @@ def decode_conv_dtype() -> str:
     return "\n".join(rows)
 
 
+def group_attn_matmul() -> str:
+    """What ``group_attn_matmul`` does when it is mapped the way its contract wants."""
+    log = _probe("probe_group_attn_matmul")
+    rows = ["| input dtype | outcome |", "|---|---|"]
+    for dtype in ("fp32", "bf16"):
+        match = re.search(rf"group_attn_matmul batch=\d+ dtype={dtype} (rejected: .*|accepted.*)", log)
+        if not match:
+            raise SystemExit(f"probe_group_attn_matmul.log has no {dtype} outcome")
+        rows.append(f"| {dtype} | `{match.group(1).strip()}` |")
+    sizes = re.findall(
+        r"circular buffers on core range \[[^\]]+\] grow to (\d+) B which is beyond max L1 size of (\d+) B", log
+    )
+    rows.append("")
+    if sizes:
+        rows.append(
+            "The overflow is the whole of it: "
+            + "; ".join(f"{grew} B of circular buffers against {limit} B of L1" for grew, limit in sizes)
+            + "."
+        )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
     "gated_norm_batches": gated_norm_batches,
+    "group_attn_matmul": group_attn_matmul,
     "python_op_counts": python_op_counts,
     "delta": delta_table,
     "before_after": before_after_table,

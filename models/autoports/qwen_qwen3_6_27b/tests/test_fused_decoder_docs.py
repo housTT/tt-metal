@@ -754,6 +754,50 @@ def test_selected_grids_are_the_measured_best():
     assert tolerance_note  # the comparison actually ran
 
 
+def test_selected_constants_are_the_measured_best():
+    """The shipped *scalar* configuration constants agree with the probe logs that chose them.
+
+    ``test_selected_grids_are_the_measured_best`` binds the ``core_grid`` constants.  The threshold
+    constants were not bound to anything, and a stage review found ``_GATED_NORM_GROUP_BATCH``
+    shipping the slower of two measured forms for a whole range of batches after a re-measurement
+    moved the crossing.
+    """
+    source = (ROOT / "tt" / "fused_decoder.py").read_text()
+
+    def constant(name):
+        match = re.search(rf"^{name} = (\d+|None)$", source, re.MULTILINE)
+        assert match, f"{name} is not a scalar literal in tt/fused_decoder.py"
+        return None if match.group(1) == "None" else int(match.group(1))
+
+    # 1. the z-gated norm threshold: the batch at which the group form first becomes
+    #    distinguishably faster than the reshape form.
+    rows = re.findall(
+        r"gated_norm batch=\s*(\d+) reshape_us=\s*([\d.]+) \(\s*([\d.]+)\) group_us=\s*([\d.]+) \(\s*([\d.]+)\)",
+        (DOC / "logs" / "probe_gated_norm_batch.log").read_text(errors="replace"),
+    )
+    assert rows, "probe_gated_norm_batch.log has no measurements"
+    crossing = next(
+        (
+            int(batch)
+            for batch, reshape, r_spread, group, g_spread in rows
+            if float(group) + float(g_spread) < float(reshape)
+        ),
+        None,
+    )
+    assert crossing is not None, "the probe log shows no batch where the group form wins"
+    assert constant("_GATED_NORM_GROUP_BATCH") == crossing, (
+        f"_GATED_NORM_GROUP_BATCH is {constant('_GATED_NORM_GROUP_BATCH')} but the probe log puts the "
+        f"crossing at {crossing}"
+    )
+
+    # 2. the decode FIR dtype: ``None`` means float32 always, and §3.25 says why the faster
+    #    bfloat16 form is not shipped, so the constant must *not* be a batch.
+    assert constant("_DECODE_CONV_BF16_BATCH") is None, (
+        "the bfloat16 decode FIR was measured faster and reverted for PCC (§3.25); shipping it "
+        "behind a threshold again needs new correctness evidence"
+    )
+
+
 def test_probe_readme_covers_every_probe():
     """``probes/README.md`` has a row for every probe, a log for every row, and states its own counts.
 
