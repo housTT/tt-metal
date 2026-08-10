@@ -1052,25 +1052,29 @@ def rope_half_traced() -> str:
 
 def conv_tap_addcmul() -> str:
     """The FIR's non-final taps as two ops or one, at both widths."""
-    rows = ["| pass | rows | `multiply` + `add` | `addcmul` | agreement |", "|---|---|---|---|---|"]
+    rows = [
+        "| pass | rows | dtype | `multiply` + `add` | `addcmul` | agreement |",
+        "|---|---|---|---|---|---|",
+    ]
     for label in ("prefill", "decode"):
         match = re.search(
-            rf"conv_tap {label}\s+rows=\s*(\d+) two_ops_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"conv_tap {label}\s+rows=\s*(\d+) dtype=(\w+) two_ops_us=\s*([\d.]+) \(\s*[\d.]+\) "
             rf"addcmul_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+) max_abs_diff=(\S+)",
             _probe("probe_addcmul_state"),
         )
         if not match:
             raise SystemExit(f"probe_addcmul_state.log has no conv_tap {label} row")
         rows.append(
-            f"| {label} | {match.group(1)} | {match.group(2)} us | **{match.group(3)} us** | "
-            f"PCC {match.group(4)}, max abs diff {match.group(5)} |"
+            f"| {label} | {match.group(1)} | {match.group(2)} | {match.group(3)} us | "
+            f"**{match.group(4)} us** | PCC {match.group(5)}, max abs diff {match.group(6)} |"
         )
     rows.append("")
     rows.append(
-        "Median over 15 repeats, per tap. The difference in the last column is bfloat16 rounding "
-        "of the *intermediate*: the two-op form rounds `state * w` to bfloat16 before the add and "
-        "the fused one keeps it in the accumulator, so the fused result is the closer of the two "
-        "to float32 arithmetic, not the further."
+        "Median over 15 repeats, per tap, each at the dtype its path runs (§3.7 makes the prefill "
+        "FIR bfloat16, §3.25 keeps the decode one float32). Where the two forms differ at all it "
+        "is rounding of the *intermediate*: the two-op form rounds `state * w` to the tensor dtype "
+        "before the add and the fused one keeps it in the accumulator, so the fused result is the "
+        "closer of the two to exact arithmetic, not the further."
     )
     return "\n".join(rows)
 

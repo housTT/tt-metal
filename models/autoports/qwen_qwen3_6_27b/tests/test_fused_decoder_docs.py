@@ -754,6 +754,61 @@ def test_selected_grids_are_the_measured_best():
     assert tolerance_note  # the comparison actually ran
 
 
+def test_quoted_blockers_appear_in_a_committed_log():
+    """Every exact blocker the documents quote is a string some committed log actually contains.
+
+    §6 is where the stage's "nothing was rejected without evidence" claim lives, and its rows quote
+    device errors verbatim.  A stage review found one of those quotes still stating a blocker §3.6
+    had retracted two rounds earlier - a *contract* blocker where the real one is an L1 overflow,
+    which is revisitable.  A quoted error is checkable: it either appears in a log or it does not.
+    """
+    logs = "\n".join(path.read_text(errors="replace") for path in sorted((DOC / "logs").glob("*.log")))
+    # Quoted device errors and blocker phrases the documents use.  Each must be findable in some
+    # committed log; a retracted one is not.
+    quoted = set()
+    for text in list(_documents().values()) + [(DOC / "probes" / "README.md").read_text()]:
+        quoted.update(re.findall(r"`(TT_FATAL[^`]*)`", text))
+        quoted.update(re.findall(r"`(TT_THROW[^`]*)`", text))
+        quoted.update(re.findall(r"`(found_valid_config[^`]*)`", text))
+        quoted.update(re.findall(r"`(shard_grid_fit_error[^`]*)`", text))
+        quoted.update(re.findall(r"`(Num of users[^`]*)`", text))
+
+    def grounded(phrase: str) -> bool:
+        """A quoted blocker is grounded in a committed log *or* in the checkout's own source.
+
+        Both are legitimate: some blockers were observed and captured in a probe log, others are
+        citations of the assertion in the op's C++ - and a citation is checkable against the tree.
+        What is *not* legitimate is a quote that is in neither, which is what a retracted or
+        mis-transcribed blocker looks like.
+        """
+        # ``TT_FATAL @ path/file.cpp:161: !expr`` -> ``expr``; ``TT_FATAL(expr, ...)`` -> ``expr``;
+        # ``TT_FATAL: message`` -> ``message``.  The leading ``!`` of an asserted-negation is
+        # dropped because the source spells the condition, not the failure.
+        needle = phrase
+        if "@" in needle:
+            needle = needle.rsplit(":", 1)[-1]
+        else:
+            needle = re.sub(r"^TT_(FATAL|THROW)\s*[:(]?", "", needle)
+        needle = needle.split(",")[0].strip(" ().`!")
+        if not needle:
+            return True
+        if needle in logs:
+            return True
+        found = subprocess.run(
+            ["grep", "-rlF", needle, "ttnn/cpp", "tt_metal"],
+            cwd=ROOT.parents[2],
+            capture_output=True,
+            text=True,
+        )
+        return bool(found.stdout.strip())
+
+    missing = sorted(phrase for phrase in quoted if not grounded(phrase))
+    assert not missing, (
+        "these blocker strings are quoted in the documents but appear in neither a committed log "
+        f"nor this checkout's source - a retracted or mis-transcribed blocker: {missing}"
+    )
+
+
 def test_selected_constants_are_the_measured_best():
     """The shipped *scalar* configuration constants agree with the probe logs that chose them.
 

@@ -6,8 +6,9 @@ At batch 1 the decode recurrence is 48 independent ``[1,128] x [128,128]`` (and 
 ``[128,1] x [1,128]`` outer product) problems.  ``ttnn.matmul``'s default batched program
 factory picks 4 and 16 cores for them, which is where ~260 us of a ~2.7 ms decode step goes.
 This probe measures the default against an explicit ``MatmulMultiCoreReuseProgramConfig`` over
-a wider grid, and against ``ttnn.experimental.group_attn_matmul`` for the two shapes whose
-contract it can express.
+a wider grid, and against ``ttnn.experimental.group_attn_matmul``, whose own mapping is measured by
+``probe_group_attn_matmul.py`` - the call here is the mis-mapped one an early round tried, kept
+because its error message is what §3.6 corrects.
 
     python .../probes/probe_decode_recurrence.py
 """

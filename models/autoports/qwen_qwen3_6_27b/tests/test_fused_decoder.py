@@ -598,7 +598,8 @@ def test_fused_matches_functional(mesh_device, layer_idx):
 
 @pytest.mark.timeout(0)
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_repeated_runs_stable(mesh_device, layer_idx):
+@pytest.mark.parametrize("max_batch", [1, 32])
+def test_repeated_runs_stable(mesh_device, layer_idx, max_batch):
     """Stress: repeated prefill+decode cycles stay bit-identical and free every allocation.
 
     Six cycles of a 2049-token prefill plus four decode steps.  Bit-identical output across
@@ -608,16 +609,19 @@ def test_repeated_runs_stable(mesh_device, layer_idx):
     in the fused graph's ``_free`` aliasing rules.
     """
     cycles = 6
-    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
+    # Run at the advertised ``max_batch`` too: that is a different decode graph (the
+    # group-reduction gated norm, and every recurrence op 32 times as wide), and a review pointed
+    # out it was the one branch no leak check covered.
+    lut = _build(mesh_device, layer_idx, max_batch=max_batch, max_seq_len=8192)
     hidden = ref.synthetic_hidden_states(lut.config, 1, 2049, _stats())
-    tokens = [ref.synthetic_hidden_states(lut.config, 1, 1, _stats(), seed=700 + s) for s in range(4)]
+    tokens = [ref.synthetic_hidden_states(lut.config, max_batch, 1, _stats(), seed=700 + s) for s in range(4)]
 
     baseline_free = None
     reference_out = None
     for cycle in range(cycles):
         prefill = H.run_tt_prefill(lut, hidden)
         H.prepare_decode(lut)
-        decodes = [H.run_tt_decode(lut, tokens[s], torch.tensor([2049 + s])) for s in range(4)]
+        decodes = [H.run_tt_decode(lut, tokens[s], torch.full((max_batch,), 2049 + s)) for s in range(4)]
         assert torch.isfinite(prefill).all() and all(torch.isfinite(d).all() for d in decodes)
         result = (prefill, torch.cat(decodes, dim=0))
         if reference_out is None:
@@ -633,7 +637,7 @@ def test_repeated_runs_stable(mesh_device, layer_idx):
                 f"DRAM bytes allocated per bank moved from {baseline_free} to {allocated} on cycle {cycle}: "
                 "the fused graph is leaking a device buffer per cycle"
             )
-    H.record("fused_repeated_run_bit_identical", True, kind=_kind(lut), cycles=cycles, decode_steps=4)
+    H.record("fused_repeated_run_bit_identical", True, kind=_kind(lut), cycles=cycles, decode_steps=4, batch=max_batch)
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)

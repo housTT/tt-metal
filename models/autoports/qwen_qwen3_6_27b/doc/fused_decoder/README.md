@@ -42,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.987 ms | **25.693 ms** | **5.88x** | 801 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.040 ms | **2.352 ms** | **1.29x** | 92 | 67 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.632 ms | **5.159 ms** | **7.10x** | 93 | 70 |
-| `full_attention` | prefill, 2048 tokens | 18.633 ms | **17.783 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.071 ms** | **1.10x** | 50 | 50 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.062 ms | **2.874 ms** | **1.06x** | 49 | 49 |
+| `linear_attention` | prefill, 2048 tokens | 150.925 ms | **25.718 ms** | **5.87x** | 801 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.041 ms | **2.354 ms** | **1.29x** | 92 | 67 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.639 ms | **5.163 ms** | **7.10x** | 93 | 70 |
+| `full_attention` | prefill, 2048 tokens | 18.641 ms | **17.793 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.073 ms** | **1.10x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.075 ms | **2.870 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster, and none is larger; the stage contract is the first of those, not the second.
@@ -69,11 +69,11 @@ the `Device Time` column of the committed `tt-perf-report` CSVs.
 <!-- GENERATED:batch32_shares -->
 | pass | bucket | batch 1 | batch 32 | growth |
 |---|---|---|---|---|
-| `linear_attention` | `batched_matmul` | 0.060 ms (2.6 %) | 1.255 ms (24.3 %) | 20.9x |
-| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.785 ms (15.2 %) | 14.5x |
+| `linear_attention` | `batched_matmul` | 0.060 ms (2.5 %) | 1.253 ms (24.3 %) | 20.9x |
+| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.787 ms (15.2 %) | 14.6x |
 | `linear_attention` | `elementwise` | 0.123 ms (5.2 %) | 0.239 ms (4.6 %) | 1.9x |
 | `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.946 ms (18.3 %) | 4.6x |
-| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.863 ms (30.0 %) | 8.3x |
+| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.1 %) | 8.3x |
 <!-- END GENERATED:batch32_shares -->
 
 ### Where the time goes now
@@ -117,16 +117,16 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.476 ms | 1.880 ms | 1.904 ms | 13.464 ms | 1.806 ms | 1.815 ms |
-| `gated_delta_rule` | 2.778 ms | — | — | — | — | — |
-| `state_update` (the fused recurrent-state update, §3.21) | 0.743 ms | 0.054 ms | 0.785 ms | — | — | — |
-| `sdpa` | — | — | — | 1.280 ms | 0.104 ms | 0.863 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.255 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.751 ms | 0.207 ms | 0.946 ms | 1.065 ms | 0.044 ms | 0.056 ms |
-| `elementwise` | 2.570 ms | 0.123 ms | 0.239 ms | 1.017 ms | 0.046 ms | 0.045 ms |
-| `norm` | 0.375 ms | 0.027 ms | 0.031 ms | 0.536 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.419 ms | 0.045 ms | 0.066 ms |
-| **total** | **25.693 ms** | **2.352 ms** | **5.159 ms** | **17.783 ms** | **2.071 ms** | **2.874 ms** |
+| `matmul` (projections, MLP, gated-norm constants) | 14.475 ms | 1.883 ms | 1.907 ms | 13.469 ms | 1.808 ms | 1.810 ms |
+| `gated_delta_rule` | 2.772 ms | — | — | — | — | — |
+| `state_update` (the fused recurrent-state update, §3.21) | 0.754 ms | 0.054 ms | 0.787 ms | — | — | — |
+| `sdpa` | — | — | — | 1.279 ms | 0.104 ms | 0.864 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.253 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.782 ms | 0.207 ms | 0.946 ms | 1.069 ms | 0.044 ms | 0.056 ms |
+| `elementwise` | 2.560 ms | 0.123 ms | 0.239 ms | 1.015 ms | 0.046 ms | 0.045 ms |
+| `norm` | 0.376 ms | 0.027 ms | 0.031 ms | 0.536 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.426 ms | 0.045 ms | 0.066 ms |
+| **total** | **25.718 ms** | **2.354 ms** | **5.163 ms** | **17.793 ms** | **2.073 ms** | **2.870 ms** |
 
 Every op is classified: the `other` bucket is empty in all 12 measured passes.
 <!-- END GENERATED:breakdown -->
@@ -153,9 +153,9 @@ Read out of `logs/suite_main.log` and `logs/watcher_run.log` rather than describ
 hand-written versions of these sentences went stale as tests were added:
 
 <!-- GENERATED:coverage_claims -->
-* **Watcher run:** `21` selected cases across `9` test functions, **21 passed**, offender grep zero over the whole log (`watcher/WATCHER_AUDIT.md`).
+* **Watcher run:** `23` selected cases across `9` test functions, **23 passed**, offender grep zero over the whole log (`watcher/WATCHER_AUDIT.md`).
 * **Trace capture and replay:** batches `1`, `4`, `32` (`test_traced_decode_pcc`, `test_traced_decode_batched`).
-* **Layer-kind coverage:** 87 collected cases over 24 test functions. 20 carry the layer kind in their id, and 20 of those run for **both** kinds. The remaining 4 are not parametrised by layer kind because they exercise one by construction: `test_alternate_page_block_size`, `test_bfloat8_kv_cache`, `test_block_size_incompatible_with_prefill_chunk_is_rejected`, `test_conv_state_after_decode_matches_reference`.
+* **Layer-kind coverage:** 89 collected cases over 24 test functions. 20 carry the layer kind in their id, and 20 of those run for **both** kinds. The remaining 4 are not parametrised by layer kind because they exercise one by construction: `test_alternate_page_block_size`, `test_bfloat8_kv_cache`, `test_block_size_incompatible_with_prefill_chunk_is_rejected`, `test_conv_state_after_decode_matches_reference`.
 <!-- END GENERATED:coverage_claims -->
 
 ## Correctness

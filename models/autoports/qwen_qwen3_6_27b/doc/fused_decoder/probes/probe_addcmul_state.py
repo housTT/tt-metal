@@ -145,17 +145,20 @@ def main() -> None:
         # One non-final FIR tap at the prefill and decode widths: ``acc + state * w`` as two ops
         # or one.  These carry no activation, so §3.14's blocker does not apply to them.
         conv_dim = 10240
-        for rows, label in ((2048, "prefill"), (32, "decode")):
+        # The prefill FIR is bfloat16 (§3.7) and the decode FIR is float32 (§3.25), so each row is
+        # measured at the dtype that path actually runs - a stage review found this probe measuring
+        # bfloat16 for both.
+        for rows, label, tap_dtype in ((2048, "prefill", ttnn.bfloat16), (32, "decode", ttnn.float32)):
             acc_host = torch.randn(1, 1, rows, conv_dim) * 0.3
             state_host = torch.randn(1, 1, rows, conv_dim) * 0.3
             tap_host = torch.randn(1, 1, 1, conv_dim) * 0.3
 
-            def dev16(tensor):
-                return ttnn.from_torch(tensor, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+            def dev_tap(tensor):
+                return ttnn.from_torch(tensor, dtype=tap_dtype, layout=ttnn.TILE_LAYOUT, device=device)
 
-            acc = dev16(acc_host)
-            state16 = dev16(state_host)
-            tap = dev16(tap_host)
+            acc = dev_tap(acc_host)
+            state16 = dev_tap(state_host)
+            tap = dev_tap(tap_host)
 
             def two_ops():
                 term = ttnn.multiply(state16, tap)
@@ -181,7 +184,8 @@ def main() -> None:
             two_median, two_stdev = median_us(two_ops, device)
             one_median, one_stdev = median_us(one_op, device)
             print(
-                f"conv_tap {label:8s} rows={rows:5d} two_ops_us={two_median:9.1f} ({two_stdev:6.1f}) "
+                f"conv_tap {label:8s} rows={rows:5d} dtype={'fp32' if tap_dtype == ttnn.float32 else 'bf16'} "
+                f"two_ops_us={two_median:9.1f} ({two_stdev:6.1f}) "
                 f"addcmul_us={one_median:9.1f} ({one_stdev:6.1f}) "
                 f"pcc_between={pcc(got_two, got_one):.6f} "
                 f"max_abs_diff={float((got_two - got_one).abs().max()):.3e}",

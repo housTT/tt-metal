@@ -21,7 +21,7 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
     -v -s
 ```
 
-Result: **21 passed, 66 deselected** in 396.52 s. Selected tests:
+Result: **23 passed, 66 deselected** in 410.21 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
@@ -36,8 +36,10 @@ Result: **21 passed, 66 deselected** in 396.52 s. Selected tests:
   test_decode_pcc[2049-linear_attention]
   test_merged_unaries_are_not_dispatched[32-full_attention]
   test_merged_unaries_are_not_dispatched[32-linear_attention]
-  test_repeated_runs_stable[full_attention]
-  test_repeated_runs_stable[linear_attention]
+  test_repeated_runs_stable[1-full_attention]
+  test_repeated_runs_stable[1-linear_attention]
+  test_repeated_runs_stable[32-full_attention]
+  test_repeated_runs_stable[32-linear_attention]
   test_traced_decode_batched[32-full_attention]
   test_traced_decode_batched[32-linear_attention]
   test_traced_decode_batched[4-full_attention]
@@ -54,7 +56,7 @@ alternate page block sizes through prefill *and* decode, and the advertised-`max
 The selected tests are listed below, read from the run log rather than described. Run log:
 `../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (11385 lines, 80 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (11939 lines, 84 `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
 repo's 500 KB per-file commit limit, and so is `kernel_elf_paths.txt`. The
 `generated/inspector/` tree the run also emits is not stage evidence and is not committed.
@@ -71,12 +73,12 @@ Line categories present, all normal watcher bookkeeping:
 
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
-   5280 Device
-   1393 k_ids:
-    661 k_ids:294|293|295|295|295
-    285 k_id[
+   5544 Device
+   1787 k_ids:
+    550 k_ids:294|293|295|295|295
+    307 k_id[
     220 k_ids:2451|2450|
-    212 k_ids:806|805|809|809|809
+    168 k_ids:3516|3515|3517|3517|3517
 ```
 
 `Dump` lines delimit the periodic watcher dumps; `Device` / `k_id` / `k_ids` lines are the
