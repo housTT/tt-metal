@@ -933,6 +933,38 @@ the corpus. And it re-imposed the history rule twice more — §10's account of 
 finding and §12's of the op-suite count now describe the superseded figures instead of quoting
 them, because the checker cannot tell a historical quote from a live claim and should not try.
 
-What remains outside it is unchanged and stated in three places: the five stage documents only,
-so numbers in `tt/`, `tests/` and `probes/*.py` are not gated; and a swap of two numbers that
-both exist in the corpus.
+What remains outside it, measured rather than intended: the five stage documents only, so
+numbers in `tt/`, `tests/` and `probes/*.py` are not gated; a swap of two numbers that both
+exist in the corpus; and digit runs inside an identifier (a commit SHA, `p300c`,
+`p150_mesh_graph_descriptor`), which are skipped by design because they are not quantities.
+
+## 17. Eleventh stage review — the gate now holds on a fresh clone
+
+The eleventh review again re-derived every substantive claim clean and returned two findings,
+both on the checker, both demonstrable:
+
+* **It passed here and failed on the committed tree.** `artifact_corpus` built its size facts by
+  `stat`-ing the *uncompressed* Tracy ops CSVs, which are gitignored. The reviewer ran the
+  checker against a `git archive HEAD` export and it exited 1: one of the four sizes the gzip
+  rationale quotes had no committed backing at all, and two others matched only by coincidence
+  against unrelated numbers. So the README's instruction — run this to verify these documents —
+  did not work on a fresh clone, and round 10's fix for exactly this class was incomplete.
+  The sizes now come from the **gzip trailer of the committed `.gz`** (ISIZE, the last four
+  bytes), which recovers all four uncompressed sizes exactly with nothing untracked involved.
+  And the guard is now standing rather than remembered: `--self-test` exports the model
+  directory with `git archive HEAD`, overlays the checker under test, and runs the whole check
+  suite there, so a dependency on an untracked file fails the self-test.
+* **The integer net had three syntactic blind spots.** The old rule refused any digits adjacent
+  to a dot or a word character, which correctly skipped commit SHAs but also skipped
+  `735..768`, `64..3071` and any sentence-final figure — the non-aligned-length coverage claims,
+  which is precisely what the checker exists to protect. The rule is now "take the maximal
+  alphanumeric run around the digits; if it is longer and contains a letter it is an identifier,
+  otherwise it is a figure", with two explicit carve-outs: the fraction of a decimal (already
+  checked as a decimal, including when written as a regex like `0\.9779`) and a trailing `x`
+  multiplier. The `--self-test` battery now contains the round-4 batch-32 regression and the
+  integer scale blow-up, and all 15 classes are rejected.
+
+Both were found by measurement, not reading — the reviewer's 43-mutation drift battery and a
+16-case syntactic-position battery using a token first proved absent from the corpus. That is
+the right way to check a checker, and it is why the "outside its reach" list in §16 is now
+written from measurement.

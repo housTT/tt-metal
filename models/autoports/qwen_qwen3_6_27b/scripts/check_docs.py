@@ -49,6 +49,7 @@ import csv
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -71,6 +72,42 @@ RUN_LOGS = {
 
 class Failure(Exception):
     pass
+
+
+def _is_decimal_fraction(text: str, match: re.Match) -> bool:
+    """True when the digits are the fraction part of a decimal, already checked as a decimal.
+
+    ``0.998031`` must not also be read as the integer ``998031``.  The test is a preceding ``.``
+    that itself follows a digit; ``735..768`` is a range, not a decimal, so its ``768`` is a
+    figure and is checked.
+    """
+    start = match.start(1)
+    if start < 2 or text[start - 1] != ".":
+        return False
+    # a digit before the dot, or a backslash - the documents quote regexes like ``0\.9779``
+    return text[start - 2].isdigit() or text[start - 2] == "\\"
+
+
+def _is_identifier_fragment(text: str, match: re.Match) -> bool:
+    """True when the digits are part of a longer alphanumeric token, not a figure.
+
+    A commit SHA (``9d18c856aaa9b203804d6e...``), a board name (``p300c``) or a descriptor file
+    name (``p150_mesh_graph_descriptor``) contains digit runs that are not quantities.  Take the
+    maximal alphanumeric/underscore run around the match: if it is longer than the digits and
+    contains a letter, it is an identifier.  ``735..768`` and a sentence-final ``262143.`` are
+    *not* identifiers, which is the point - an earlier revision refused any digits adjacent to a
+    dot or a word character and let those escape.
+    """
+    start, end = match.start(1), match.end(1)
+    while start > 0 and (text[start - 1].isalnum() or text[start - 1] == "_"):
+        start -= 1
+    while end < len(text) and (text[end].isalnum() or text[end] == "_"):
+        end += 1
+    run = text[start:end]
+    if run == match.group(1) + "x":
+        # "3705x" is a multiplier, not an identifier - the documents write scale blow-ups that way.
+        return False
+    return run != match.group(1) and any(character.isalpha() for character in run)
 
 
 def documents(root: Path) -> list[Path]:
@@ -210,10 +247,16 @@ def artifact_corpus(root: Path) -> str:
             token = line.split(" ")[0] if line else ""
             histogram[token] = histogram.get(token, 0) + 1
         parts.extend(f"{count} {token}" for token, count in histogram.items())
-    # Artifact sizes are facts about the tree, and the documents quote them (the gzip rationale).
-    for path in sorted(doc.rglob("*_ops.csv")) + sorted(doc.rglob("*_ops.csv.gz")):
-        size = path.stat().st_size
-        parts.append(f"{path.name} {size} {size / 1e6:.2f} MB {size / 1024:.0f} KB")
+    # Artifact sizes are facts about the tree and the documents quote them (the gzip rationale).
+    # Only *committed* files may contribute: the uncompressed ops CSVs are gitignored, so their
+    # sizes come from the gzip trailer of the committed .gz (ISIZE, last 4 bytes little-endian)
+    # rather than from a stat() of a file a fresh clone would not have.
+    for path in sorted(doc.rglob("*_ops.csv.gz")):
+        compressed = path.stat().st_size
+        trailer = path.read_bytes()[-4:]
+        uncompressed = int.from_bytes(trailer, "little")
+        for size in (compressed, uncompressed):
+            parts.append(f"{path.name} {size} {size / 1e6:.2f} MB {size / 1024:.0f} KB")
     return "\n".join(parts)
 
 
@@ -246,6 +289,9 @@ def check_quoted_numbers(root: Path, corpus: str) -> None:
       everything else rests on this weaker but much broader net.
     """
     corpus_numbers = [float(n) for n in re.findall(r"(?<![\d.])\d+\.\d+", corpus)]
+    # Corpus integers are matched by the same whole-run rule as the document side, so a document
+    # 1712 is not satisfied by a corpus "1712abc".
+    corpus_integers = {m.group(1) for m in re.finditer(r"(?<![\w.])(\d{3,})(?![\w])", corpus)}
     invented = []
     for path in documents(root):
         text = path.read_text()
@@ -262,13 +308,15 @@ def check_quoted_numbers(root: Path, corpus: str) -> None:
             invented.append(f"{path.name}: {quoted} is no artifact number rounded | {line.strip()[:90]}")
         # Integers of three digits or more: sequence lengths, positions, op counts, line
         # censuses, scale blow-ups. Two-digit and smaller integers are ordinary prose.
-        for match in re.finditer(r"(?<![\w.])(\d{3,})x?(?![\w.])", text):
+        for match in re.finditer(r"(?<![\d])(\d{3,})(?![\d])", text):
             quoted = match.group(1)
+            if _is_identifier_fragment(text, match) or _is_decimal_fraction(text, match):
+                continue
             line_start = text.rfind("\n", 0, match.start()) + 1
             line = text[line_start : text.find("\n", match.end())]
             if "(earlier pass)" in line:
                 continue
-            if re.search(r"(?<![\d.])" + quoted + r"(?![\d])", corpus):
+            if any(number == quoted for number in corpus_integers):
                 continue
             invented.append(f"{path.name}: integer {quoted} appears in no artifact | {line.strip()[:90]}")
     if invented:
@@ -385,6 +433,37 @@ def run(root: Path) -> None:
     check_prose(root, evidence, perf, counts)
 
 
+def check_clean_export() -> int:
+    """Run the checks against a tracked-files-only export.
+
+    The uncompressed Tracy ops CSVs are gitignored, so a corpus built by stat()-ing the working
+    tree can be satisfied by files a fresh clone does not have.  A stage review caught exactly
+    that: the checker was green here and red on ``git archive HEAD``.  This mode is the standing
+    guard - it exports the model directory from HEAD, overlays this checker (so an uncommitted
+    fix is tested rather than the committed one), and runs the checks there.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        export = Path(tmp) / "export"
+        export.mkdir()
+        repo = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, text=True).strip())
+        relative = ROOT.relative_to(repo)
+        archive = subprocess.check_output(["git", "archive", "HEAD", str(relative)], cwd=repo)
+        subprocess.run(["tar", "-x", "-C", str(export)], input=archive, check=True)
+        exported_root = export / relative
+        shutil.copy2(Path(__file__), exported_root / "scripts" / Path(__file__).name)
+        for name in ("README.md", "work_log.md"):
+            source = ROOT / "doc" / "functional_decoder" / name
+            shutil.copy2(source, exported_root / "doc" / "functional_decoder" / name)
+        shutil.copy2(ROOT / "doc" / "context_contract.json", exported_root / "doc" / "context_contract.json")
+        try:
+            run(exported_root)
+        except Failure as failure:
+            print(f"FAIL on a tracked-files-only export: {failure}")
+            return 1
+    print("\nok   the checks also pass on a tracked-files-only `git archive HEAD` export")
+    return 0
+
+
 def self_test() -> int:
     """Prove the checker rejects the mutations it claims to catch."""
     doc = ROOT / "doc" / "functional_decoder"
@@ -456,11 +535,14 @@ def main() -> int:
     parser.add_argument("--self-test", action="store_true", help="prove the checks are not vacuous")
     args = parser.parse_args()
     if args.self_test:
-        print("== checking the committed tree ==")
+        print("== checking the working tree ==")
         try:
             run(ROOT)
         except Failure as failure:
             print(f"FAIL {failure}")
+            return 1
+        print("\n== checking a tracked-files-only export ==")
+        if check_clean_export():
             return 1
         print("\n== mutating copies, expecting each to be rejected ==")
         return self_test()
