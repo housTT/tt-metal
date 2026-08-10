@@ -30,6 +30,13 @@ def pytest_addoption(parser):
         choices=("fused", "functional"),
         help="decoder implementation the fused-stage perf runs measure (before/after pair)",
     )
+    parser.addoption(
+        "--perf-batch",
+        action="store",
+        type=int,
+        default=1,
+        help="users in the traced-decode perf window; 32 measures the advertised max_batch graph",
+    )
 
 
 @pytest.fixture(autouse=True)

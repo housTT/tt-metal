@@ -19,7 +19,7 @@ checkout's own `python_env`, sourced through
 * Every rewrite, with the measurement that kept or rejected it: [`work_log.md`](work_log.md)
 * Probes: [`probes/README.md`](probes/README.md)
 * Context capability: [`../context_contract.json`](../context_contract.json)
-* Every measured number: [`pcc_evidence.json`](pcc_evidence.json) (285 records: 264 PCC, 4 full-context scale ratios, 17 non-numeric)
+* Every measured number: [`pcc_evidence.json`](pcc_evidence.json) — record counts and minima are the generated block in [`work_log.md`](work_log.md) §4
 * Perf: [`perf_summary.json`](perf_summary.json) and [`tracy/`](tracy/)
 * Watcher: [`watcher/WATCHER_AUDIT.md`](watcher/WATCHER_AUDIT.md) (generated from the committed log by [`probes/make_watcher_audit.py`](probes/make_watcher_audit.py))
 * Run logs: [`logs/`](logs/) — `suite_main.log`, `long_context.log`, `watcher_run.log`, `doc_gate.log`, and one per probe
@@ -27,10 +27,12 @@ checkout's own `python_env`, sourced through
 
 ## Performance — before and after
 
-Warmed, batch 1, one Blackhole chip, from **Tracy device-profiler** runs with the measured
-window delimited by signposts. Prefill is one warmed 2048-token pass; decode is **traced** —
-capture once, then replay `execute_trace` 8x inside the window, and the number below is the
-mean replay. Both implementations were measured by the same script
+Warmed, one Blackhole chip, from **Tracy device-profiler** runs with the measured window
+delimited by signposts. Prefill is one warmed 2048-token pass; decode is **traced** — capture
+once, then replay `execute_trace` 8x inside the window, and the number below is the mean replay.
+Decode is measured at batch 1 *and* at the advertised `max_batch` of 32, because those are two
+different graphs rather than one graph with a wider tensor: at 32 the z-gated norm switches to
+the group-reduction form and every recurrence op grows 32-fold. Both implementations were measured by the same script
 ([`probes/run_perf.sh`](probes/run_perf.sh)) on the same machine, against the same build, with
 `<impl>` the only argument that differs; the `.provenance` files next to each CSV carry the
 run timestamps. The functional baseline's code is untouched by this stage (`tt/functional_decoder.py` is byte-identical between the two commits and no tt-metal C++
@@ -39,13 +41,17 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.971 ms | **26.144 ms** | **5.78x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token | 3.034 ms | **2.395 ms** | **1.27x** | 92 | 67 |
-| `full_attention` | prefill, 2048 tokens | 18.588 ms | **17.778 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token | 2.270 ms | **2.061 ms** | **1.10x** | 50 | 44 |
+| `linear_attention` | prefill, 2048 tokens | 151.080 ms | **26.057 ms** | **5.80x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.036 ms | **2.344 ms** | **1.29x** | 92 | 65 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.625 ms | **6.222 ms** | **5.89x** | 93 | 68 |
+| `full_attention` | prefill, 2048 tokens | 18.638 ms | **17.792 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.066 ms** | **1.10x** | 50 | 44 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.064 ms | **2.906 ms** | **1.05x** | 49 | 43 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
+The batch-32 `linear_attention` row is the largest single win in the stage after the prefill:
+the spelled-out recurrence ran 48 head matmuls per user there.
 `tests/test_fused_decoder_docs.py::test_speedup_block_is_consistent` asserts both directions
 straight out of `perf_summary.json`, and
 `::test_perf_summary_rederives_from_the_report` re-derives every figure in the table by summing
@@ -67,15 +73,15 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode | `full_attention` prefill | `full_attention` decode |
 |---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.528 ms | 1.928 ms | 13.466 ms | 1.803 ms |
-| `gated_delta_rule` | 2.780 ms | — | — | — |
+| `matmul` (projections, MLP, gated-norm constants) | 14.482 ms | 1.883 ms | 13.470 ms | 1.808 ms |
+| `gated_delta_rule` | 2.781 ms | — | — | — |
 | `sdpa` | — | — | 1.281 ms | 0.105 ms |
 | `batched_matmul` (the decode recurrence) | — | 0.058 ms | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.787 ms | 0.180 ms | 1.059 ms | 0.037 ms |
-| `elementwise` | 3.673 ms | 0.202 ms | 1.013 ms | 0.042 ms |
-| `norm` | 0.376 ms | 0.028 ms | 0.533 ms | 0.026 ms |
-| `heads_and_cache` | — | — | 0.426 ms | 0.048 ms |
-| **total** | **26.144 ms** | **2.395 ms** | **17.778 ms** | **2.061 ms** |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.748 ms | 0.179 ms | 1.069 ms | 0.037 ms |
+| `elementwise` | 3.671 ms | 0.197 ms | 1.015 ms | 0.042 ms |
+| `norm` | 0.375 ms | 0.028 ms | 0.540 ms | 0.026 ms |
+| `heads_and_cache` | — | — | 0.417 ms | 0.048 ms |
+| **total** | **26.057 ms** | **2.344 ms** | **17.792 ms** | **2.066 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
@@ -103,10 +109,10 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | prefill vs HF, longest single-shot reference length | 0.999882 | 0.999415 |
 | decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000 | min 0.999869 | min 0.999178 |
 | batch 32 and 4, unequal prompts 64..3071, permuted page table - prefill | min 0.999889 | min 0.999383 |
-| batch 32 and 4 - decode | min 0.999863 | min 0.999268 |
-| **real checkpoint weights** - prefill @ 2049 | 0.999936 | 0.999964 |
+| batch 32 and 4 - decode | min 0.999864 | min 0.999268 |
+| **real checkpoint weights** - prefill @ 2049 | 0.999937 | 0.999964 |
 | **real checkpoint weights** - decode @ 2049 | 0.999973 | 0.999988 |
-| traced decode, replay output vs HF | min 0.999880 | min 0.999436 |
+| traced decode, replay output vs HF | min 0.999881 | min 0.999436 |
 | traced decode at batch 4, per-user positions | min 0.999914 | min 0.999478 |
 | paged K cache vs HF after prefill 2049 | — | 0.999989 |
 | paged V cache vs HF after prefill 2049 | — | 0.999993 |
@@ -123,9 +129,9 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | **full context 262143** - recurrent state vs HF | 0.999934 | — |
 | **full context 262143** - paged K cache vs HF | — | 0.999989 |
 | **full context 262143** - paged V cache vs HF | — | 0.999993 |
-| **full context 262143** - decode at position 262143 | 0.999918 | 0.999266 |
-| **full context 262143** - best-fit *scale* vs HF, prefill tail | 0.997681 | 0.997495 |
-| **full context 262143** - best-fit *scale* vs HF, decode | 0.996096 | 0.995766 |
+| **full context 262143** - decode at position 262143 | 0.999915 | 0.999266 |
+| **full context 262143** - best-fit *scale* vs HF, prefill tail | 0.997682 | 0.997495 |
+| **full context 262143** - best-fit *scale* vs HF, decode | 0.996456 | 0.995766 |
 | fused vs functional output, prefill and decode @ 2049 | min 0.999921 | min 0.999859 |
 
 Minimum over all 264 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
@@ -140,7 +146,7 @@ Every fused figure sits within a few times 1e-4 of the functional one, in both d
 |---|---|---|---|
 | `linear_attention` full-context prefill tail | 0.999947 | 0.999879 | -6.8e-05 |
 | `linear_attention` full-context recurrent state | 0.999984 | 0.999934 | -5.0e-05 |
-| `linear_attention` full-context decode @ 262143 | 0.999955 | 0.999918 | -3.8e-05 |
+| `linear_attention` full-context decode @ 262143 | 0.999955 | 0.999915 | -4.0e-05 |
 | `full_attention` full-context prefill tail | 0.998031 | 0.998030 | -4.4e-07 |
 | `full_attention` full-context decode @ 262143 | 0.999201 | 0.999266 | +6.5e-05 |
 <!-- END GENERATED:delta -->
@@ -166,7 +172,7 @@ graph is the one running:
 | `test_fused_matches_functional` | fused and functional agree with **each other** from identical weights and inputs, not only with HF |
 | `test_no_layout_round_trip_in_the_measured_prefill` (in `test_fused_decoder_docs.py`) | the committed `tt-perf-report` op sequence contains no `Tilize*` immediately followed by an `Untilize*`. Reading the *device* report is the point: `ttnn.concat` and `ttnn.slice` relayout inside themselves, so a python-level trap cannot see them - which is how a round trip over the whole conv window survived three review rounds |
 | `test_no_redundant_relayout_in_measured_prefill` | the same property at the python-call level, on the calls the *layer itself* makes. Weaker than the report-level check above and kept alongside it, not instead of it |
-| `test_no_relayout_or_host_ops_in_measured_decode` | the layer asks for no `tilize`/`untilize`/`to_layout` in a measured decode, and its reshard count stays inside a budget each remaining reshard's op contract justifies (4 of 6 for `linear_attention`, 9 of 12 for `full_attention`) |
+| `test_no_relayout_or_host_ops_in_measured_decode` | the layer asks for no `tilize`/`untilize`/`to_layout` in a measured decode, and its reshard count is **exactly** the set each remaining reshard's op contract justifies — 4 for `linear_attention`, 9 for `full_attention`, enumerated in the test |
 | `test_repeated_runs_stable` | six prefill+decode cycles bit-identical, with per-bank DRAM allocation unchanged from cycle 1 — no per-cycle device leak in the `_free` aliasing rules |
 | `test_no_runtime_host_fallback` | source scan **and** a live run with `from_torch`/`to_torch`/`as_tensor` stubbed to raise |
 
@@ -174,14 +180,14 @@ The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out o
 [`pcc_evidence.json`](pcc_evidence.json):
 
 <!-- GENERATED:python_op_counts -->
-`full_attention` 53 -> 37 prefill, 55 -> 49 decode; `linear_attention` 780 -> 69 prefill, 78 -> 65 decode
+`full_attention` 53 -> 37 prefill, 55 -> 49 decode; `linear_attention` 780 -> 69 prefill, 78 -> 63 decode
 <!-- END GENERATED:python_op_counts -->
 
 ### Capability-contract evidence
 
 | claim | evidence | remaining risk |
 |---|---|---|
-| Both HF layer kinds implemented and correct through the fused graph | 71 fused tests, both kinds in every parametrised case except the five that are `full_attention`-only by construction; `logs/suite_main.log` = `71 passed, 2 skipped` | Only layers 0 and 3 are instantiated; `decoder_shapes` rejects a third kind |
+| Both HF layer kinds implemented and correct through the fused graph | the whole fused suite, both kinds in every parametrised case except the five that are `full_attention`-only by construction; the pass counts are the generated block in [`work_log.md`](work_log.md) §4 | Only layers 0 and 3 are instantiated; `decoder_shapes` rejects a third kind |
 | Advertised context 262144 preserved, not reduced | `test_full_advertised_context` prefills 262143 and decodes at 262143 for both kinds against a real HF reference; all four PCCs >= 0.998030, all four scale ratios inside ±2 % | Reference is segmented (`linear_attention`) or projection-built and `torch.equal`-validated (`full_attention`), as in stage 1 |
 | Fusing did not change capacity | `test_fused_persistent_state_delta` reads the DRAM allocator around a real `from_state_dict` at batch 32: a `linear_attention` layer grows by 8290304 bytes and a `full_attention` layer by exactly 0, against 31 GiB of measured DRAM and a 1818230784-byte worst-case layer — `../context_contract.json` `fused_decoder` block | measured at one `max_batch` (32) |
 | Non-aligned logical lengths still work on the public API | 1, 17, 128, 2049, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts | — |
@@ -196,7 +202,7 @@ The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out o
 cd /home/ttuser/dev/qwen/tt-metal
 source models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh
 
-# fused suite (71 tests + 2 long-context skips, ~9 min)
+# fused suite (~9 min; the two long-context cases are skipped without --long-context)
 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py -v -s
 
 # full advertised context, 262143-token prompt + decode at 262143 (2 tests, ~6 min)

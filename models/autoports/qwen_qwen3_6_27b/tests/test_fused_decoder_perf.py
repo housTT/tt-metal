@@ -53,6 +53,18 @@ def decoder_cls(request):
     return IMPLS[request.config.getoption("--impl")]
 
 
+@pytest.fixture
+def perf_batch(request):
+    """Users in the decode window.
+
+    Decode at ``max_batch`` 32 is not the batch-1 graph with a wider tensor: the z-gated norm
+    switches to the group-reduction form (:data:`~...tt.fused_decoder._GATED_NORM_GROUP_BATCH`)
+    and every recurrence op grows by 32x, so the advertised-batch path needs its own before/after
+    pair rather than an extrapolation of the batch-1 one.
+    """
+    return int(request.config.getoption("--perf-batch"))
+
+
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 def test_perf_prefill(mesh_device, layer_idx, decoder_cls):
     """Warmed prefill, signposted, with all host work outside the measured window."""
@@ -90,9 +102,9 @@ def test_perf_prefill(mesh_device, layer_idx, decoder_cls):
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_perf_decode_traced(mesh_device, layer_idx, decoder_cls):
+def test_perf_decode_traced(mesh_device, layer_idx, decoder_cls, perf_batch):
     """Warmed *traced* decode: capture once, then replay inside the signposted window."""
-    lut = H.build_layer(mesh_device, layer_idx, max_batch=1, max_seq_len=8192, decoder_cls=decoder_cls)
+    lut = H.build_layer(mesh_device, layer_idx, max_batch=perf_batch, max_seq_len=8192, decoder_cls=decoder_cls)
     stats = ref.load_weight_stats()
     hidden = ref.synthetic_hidden_states(lut.config, 1, PERF_DECODE_POS, stats)
     H.run_tt_prefill(lut, hidden)
@@ -100,9 +112,9 @@ def test_perf_decode_traced(mesh_device, layer_idx, decoder_cls):
     ttnn.synchronize_device(mesh_device)
     ttnn.ReadDeviceProfiler(mesh_device)
 
-    runner = H.TracedDecode(lut, batch=1)
-    token = ref.synthetic_hidden_states(lut.config, 1, 1, stats, seed=400)
-    positions = torch.tensor([PERF_DECODE_POS])
+    runner = H.TracedDecode(lut, batch=perf_batch)
+    token = ref.synthetic_hidden_states(lut.config, perf_batch, 1, stats, seed=400)
+    positions = torch.full((perf_batch,), PERF_DECODE_POS)
     runner.warmup(token, positions)
     runner.capture()
     runner.replay(token, positions)  # warm the replay path
@@ -119,7 +131,7 @@ def test_perf_decode_traced(mesh_device, layer_idx, decoder_cls):
 
     print(
         f"\nPERF decode impl={decoder_cls.__name__} layer_idx={lut.layer_idx} "
-        f"kind={lut.config.layer_types[lut.layer_idx]} iters={PERF_DECODE_ITERS} "
+        f"kind={lut.config.layer_types[lut.layer_idx]} batch={perf_batch} iters={PERF_DECODE_ITERS} "
         f"wall_total_ms={elapsed * 1e3:.3f} wall_per_iter_ms={elapsed * 1e3 / PERF_DECODE_ITERS:.3f}"
     )
     runner.release()

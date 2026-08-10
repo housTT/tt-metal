@@ -2,8 +2,13 @@
  "note": "Warmed measurements on one Blackhole chip (device 2 of a p300c board), batch 1, from Tracy device-profiler runs with the measured window delimited by signposts. Device time is the sum of the 'Device Time' column of the tt-perf-report --csv output, in MICROSECONDS, divided by the replay count for decode. Decode is traced: capture once, then replay execute_trace 8x inside the window. 'functional' is tt/functional_decoder.py (the stage-1 baseline) and 'fused' is tt/fused_decoder.py, measured by the same script (probes/run_perf.sh) on the same machine against the same build, with --impl the only argument that differs; the .provenance file next to each ops CSV carries that run's timestamp, and the two halves are separate processes.",
  "prefill_tokens": 2048,
  "decode_position": 2048,
+ "decode_batches": {
+  "prefill": 1,
+  "decode": 1,
+  "decode_batch32": 32
+ },
  "decode_replays": 8,
- "command": "doc/fused_decoder/probes/run_perf.sh <layer_kind> <prefill|decode> <functional|fused>",
+ "command": "doc/fused_decoder/probes/run_perf.sh <layer_kind> <prefill|decode|decode_batch32> <functional|fused>",
  "measurements": {
   "functional/linear_attention/prefill": {
    "impl": "functional",
@@ -11,37 +16,37 @@
    "phase": "prefill",
    "ops_in_window": 801,
    "ops_per_pass": 801,
-   "device_kernel_time_ms": 150.971,
+   "device_kernel_time_ms": 151.08,
    "op_to_op_gap_ms": 8.115,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "batched_matmul": 78.985,
-    "layout": 33.429,
-    "elementwise": 23.501,
-    "matmul": 14.387,
-    "norm": 0.599,
-    "other": 0.072
+    "batched_matmul": 79.027,
+    "layout": 33.455,
+    "elementwise": 23.536,
+    "matmul": 14.389,
+    "norm": 0.601,
+    "other": 0.073
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6373.7
+     "device_time_us": 6380.9
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6369.1
+     "device_time_us": 6380.3
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6366.7
+     "device_time_us": 6377.3
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6366.6
+     "device_time_us": 6376.7
     },
     {
      "op": "MatmulDeviceOperation b={6144} x 32 x 32 x 32",
-     "device_time_us": 6365.5
+     "device_time_us": 6376.5
     }
    ],
    "artifacts": {
@@ -59,36 +64,36 @@
    "phase": "decode",
    "ops_in_window": 736,
    "ops_per_pass": 92,
-   "device_kernel_time_ms": 3.034,
+   "device_kernel_time_ms": 3.036,
    "op_to_op_gap_ms": 0.359,
    "periodicity_check": "736 ops over 8 replays = 92 ops per replay, exact",
    "breakdown_ms": {
     "matmul": 1.985,
     "elementwise": 0.29,
-    "layout": 0.288,
+    "layout": 0.289,
     "batched_matmul": 0.259,
     "norm": 0.213
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 872.4
+     "device_time_us": 871.7
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.7
+     "device_time_us": 868.8
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.4
+     "device_time_us": 867.2
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.2
+     "device_time_us": 866.8
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.1
+     "device_time_us": 866.7
     }
    ],
    "artifacts": {
@@ -100,43 +105,90 @@
     "tracy_run_log": "logs/tracy_functional_linear_attention_decode.log"
    }
   },
+  "functional/linear_attention/decode_batch32": {
+   "impl": "functional",
+   "layer_kind": "linear_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 744,
+   "ops_per_pass": 93,
+   "device_kernel_time_ms": 36.625,
+   "op_to_op_gap_ms": 0.053,
+   "periodicity_check": "744 ops over 8 replays = 93 ops per replay, exact",
+   "breakdown_ms": {
+    "batched_matmul": 24.87,
+    "elementwise": 6.056,
+    "layout": 4.031,
+    "matmul": 1.454,
+    "norm": 0.214
+   },
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
+     "device_time_us": 8207.8
+    },
+    {
+     "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
+     "device_time_us": 8207.0
+    },
+    {
+     "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
+     "device_time_us": 8204.6
+    },
+    {
+     "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
+     "device_time_us": 8204.1
+    },
+    {
+     "op": "MatmulDeviceOperation b={32} x 32 x 5120 x 10240",
+     "device_time_us": 8201.2
+    }
+   ],
+   "artifacts": {
+    "ops_csv_gz": "tracy/functional/linear_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/functional/linear_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/functional/linear_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/functional/linear_attention/decode_batch32_perf_report.csv",
+    "console_log": "tracy/functional/linear_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_functional_linear_attention_decode_batch32.log"
+   }
+  },
   "functional/full_attention/prefill": {
    "impl": "functional",
    "layer_kind": "full_attention",
    "phase": "prefill",
    "ops_in_window": 44,
    "ops_per_pass": 44,
-   "device_kernel_time_ms": 18.588,
-   "op_to_op_gap_ms": 0.022,
+   "device_kernel_time_ms": 18.638,
+   "op_to_op_gap_ms": 0.023,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "matmul": 13.465,
-    "elementwise": 1.853,
-    "sdpa": 1.279,
-    "layout": 1.142,
-    "norm": 0.536,
-    "heads_and_cache": 0.313
+    "matmul": 13.469,
+    "elementwise": 1.875,
+    "sdpa": 1.282,
+    "layout": 1.159,
+    "norm": 0.539,
+    "heads_and_cache": 0.314
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-     "device_time_us": 6105.7
+     "device_time_us": 6108.0
     },
     {
      "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-     "device_time_us": 3305.3
+     "device_time_us": 3306.1
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
-     "device_time_us": 1598.5
+     "device_time_us": 1598.1
     },
     {
      "op": "SDPAOperation",
-     "device_time_us": 1278.6
+     "device_time_us": 1281.9
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
-     "device_time_us": 1237.3
+     "device_time_us": 1238.2
     }
    ],
    "artifacts": {
@@ -154,7 +206,7 @@
    "phase": "decode",
    "ops_in_window": 400,
    "ops_per_pass": 50,
-   "device_kernel_time_ms": 2.27,
+   "device_kernel_time_ms": 2.271,
    "op_to_op_gap_ms": 0.046,
    "periodicity_check": "400 ops over 8 replays = 50 ops per replay, exact",
    "breakdown_ms": {
@@ -168,23 +220,23 @@
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 872.1
+     "device_time_us": 869.0
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.3
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.9
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 869.2
+     "device_time_us": 868.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
      "device_time_us": 868.2
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.6
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.6
     }
    ],
    "artifacts": {
@@ -196,42 +248,90 @@
     "tracy_run_log": "logs/tracy_functional_full_attention_decode.log"
    }
   },
+  "functional/full_attention/decode_batch32": {
+   "impl": "functional",
+   "layer_kind": "full_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 392,
+   "ops_per_pass": 49,
+   "device_kernel_time_ms": 3.064,
+   "op_to_op_gap_ms": 0.061,
+   "periodicity_check": "392 ops over 8 replays = 49 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.808,
+    "sdpa": 0.864,
+    "norm": 0.222,
+    "heads_and_cache": 0.066,
+    "layout": 0.053,
+    "elementwise": 0.051
+   },
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 869.1
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.4
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.3
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.7
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.4
+    }
+   ],
+   "artifacts": {
+    "ops_csv_gz": "tracy/functional/full_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/functional/full_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/functional/full_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/functional/full_attention/decode_batch32_perf_report.csv",
+    "console_log": "tracy/functional/full_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_functional_full_attention_decode_batch32.log"
+   }
+  },
   "fused/linear_attention/prefill": {
    "impl": "fused",
    "layer_kind": "linear_attention",
    "phase": "prefill",
    "ops_in_window": 68,
    "ops_per_pass": 68,
-   "device_kernel_time_ms": 26.144,
-   "op_to_op_gap_ms": 0.233,
+   "device_kernel_time_ms": 26.057,
+   "op_to_op_gap_ms": 0.234,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "matmul": 14.528,
-    "layout": 4.787,
-    "elementwise": 3.673,
-    "gated_delta_rule": 2.78,
-    "norm": 0.376
+    "matmul": 14.482,
+    "layout": 4.748,
+    "elementwise": 3.671,
+    "gated_delta_rule": 2.781,
+    "norm": 0.375
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-     "device_time_us": 6106.7
+     "device_time_us": 6112.9
     },
     {
      "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-     "device_time_us": 3304.5
+     "device_time_us": 3305.6
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 10240",
-     "device_time_us": 2243.1
+     "device_time_us": 2242.0
     },
     {
      "op": "ChunkGdnPrepOperation",
-     "device_time_us": 1625.6
+     "device_time_us": 1617.0
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
-     "device_time_us": 1237.4
+     "device_time_us": 1237.7
     }
    ],
    "artifacts": {
@@ -247,38 +347,38 @@
    "impl": "fused",
    "layer_kind": "linear_attention",
    "phase": "decode",
-   "ops_in_window": 536,
-   "ops_per_pass": 67,
-   "device_kernel_time_ms": 2.395,
-   "op_to_op_gap_ms": 0.052,
-   "periodicity_check": "536 ops over 8 replays = 67 ops per replay, exact",
+   "ops_in_window": 520,
+   "ops_per_pass": 65,
+   "device_kernel_time_ms": 2.344,
+   "op_to_op_gap_ms": 0.051,
+   "periodicity_check": "520 ops over 8 replays = 65 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.928,
-    "elementwise": 0.202,
-    "layout": 0.18,
+    "matmul": 1.883,
+    "elementwise": 0.197,
+    "layout": 0.179,
     "batched_matmul": 0.058,
     "norm": 0.028
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.2
+     "device_time_us": 868.6
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.9
+     "device_time_us": 868.3
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.9
+     "device_time_us": 867.5
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 866.5
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
      "device_time_us": 865.9
-    },
-    {
-     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 865.6
     }
    ],
    "artifacts": {
@@ -290,35 +390,82 @@
     "tracy_run_log": "logs/tracy_fused_linear_attention_decode.log"
    }
   },
+  "fused/linear_attention/decode_batch32": {
+   "impl": "fused",
+   "layer_kind": "linear_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 544,
+   "ops_per_pass": 68,
+   "device_kernel_time_ms": 6.222,
+   "op_to_op_gap_ms": 0.05,
+   "periodicity_check": "544 ops over 8 replays = 68 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.905,
+    "elementwise": 1.901,
+    "batched_matmul": 1.404,
+    "layout": 0.981,
+    "norm": 0.031
+   },
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 872.2
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 869.9
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 866.9
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 866.3
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 866.3
+    }
+   ],
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/linear_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/linear_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/fused/linear_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/fused/linear_attention/decode_batch32_perf_report.csv",
+    "console_log": "tracy/fused/linear_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_linear_attention_decode_batch32.log"
+   }
+  },
   "fused/full_attention/prefill": {
    "impl": "fused",
    "layer_kind": "full_attention",
    "phase": "prefill",
    "ops_in_window": 28,
    "ops_per_pass": 28,
-   "device_kernel_time_ms": 17.778,
+   "device_kernel_time_ms": 17.792,
    "op_to_op_gap_ms": 0.014,
    "periodicity_check": "single pass",
    "breakdown_ms": {
-    "matmul": 13.466,
+    "matmul": 13.47,
     "sdpa": 1.281,
-    "layout": 1.059,
-    "elementwise": 1.013,
-    "norm": 0.533,
-    "heads_and_cache": 0.426
+    "layout": 1.069,
+    "elementwise": 1.015,
+    "norm": 0.54,
+    "heads_and_cache": 0.417
    },
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
-     "device_time_us": 6105.8
+     "device_time_us": 6108.1
     },
     {
      "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
-     "device_time_us": 3304.5
+     "device_time_us": 3305.9
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
-     "device_time_us": 1599.4
+     "device_time_us": 1598.8
     },
     {
      "op": "SDPAOperation",
@@ -326,7 +473,7 @@
     },
     {
      "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
-     "device_time_us": 1238.4
+     "device_time_us": 1238.5
     }
    ],
    "artifacts": {
@@ -344,11 +491,11 @@
    "phase": "decode",
    "ops_in_window": 352,
    "ops_per_pass": 44,
-   "device_kernel_time_ms": 2.061,
+   "device_kernel_time_ms": 2.066,
    "op_to_op_gap_ms": 0.046,
    "periodicity_check": "352 ops over 8 replays = 44 ops per replay, exact",
    "breakdown_ms": {
-    "matmul": 1.803,
+    "matmul": 1.808,
     "sdpa": 0.105,
     "heads_and_cache": 0.048,
     "elementwise": 0.042,
@@ -358,23 +505,23 @@
    "top_ops_by_device_time": [
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 870.5
+     "device_time_us": 871.5
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.7
+     "device_time_us": 869.2
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.6
+     "device_time_us": 869.2
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 867.0
+     "device_time_us": 868.5
     },
     {
      "op": "MatmulDeviceOperation 32 x 5120 x 34816",
-     "device_time_us": 866.5
+     "device_time_us": 868.2
     }
    ],
    "artifacts": {
@@ -385,40 +532,104 @@
     "console_log": "tracy/fused/full_attention/decode_perf_report.console.log",
     "tracy_run_log": "logs/tracy_fused_full_attention_decode.log"
    }
+  },
+  "fused/full_attention/decode_batch32": {
+   "impl": "fused",
+   "layer_kind": "full_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 344,
+   "ops_per_pass": 43,
+   "device_kernel_time_ms": 2.906,
+   "op_to_op_gap_ms": 0.036,
+   "periodicity_check": "344 ops over 8 replays = 43 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.803,
+    "sdpa": 0.864,
+    "heads_and_cache": 0.119,
+    "layout": 0.048,
+    "elementwise": 0.043,
+    "norm": 0.029
+   },
+   "top_ops_by_device_time": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 871.2
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 868.7
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.9
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 867.5
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "device_time_us": 866.5
+    }
+   ],
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/full_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/full_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/fused/full_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/fused/full_attention/decode_batch32_perf_report.csv",
+    "console_log": "tracy/fused/full_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_full_attention_decode_batch32.log"
+   }
   }
  },
  "speedup": {
   "linear_attention/prefill": {
-   "device_ms_before": 150.971,
-   "device_ms_after": 26.144,
-   "speedup_x": 5.775,
-   "reduction_pct": 82.68,
+   "device_ms_before": 151.08,
+   "device_ms_after": 26.057,
+   "speedup_x": 5.798,
+   "reduction_pct": 82.75,
    "ops_before": 801,
    "ops_after": 68
   },
   "linear_attention/decode": {
-   "device_ms_before": 3.034,
-   "device_ms_after": 2.395,
-   "speedup_x": 1.267,
-   "reduction_pct": 21.06,
+   "device_ms_before": 3.036,
+   "device_ms_after": 2.344,
+   "speedup_x": 1.295,
+   "reduction_pct": 22.79,
    "ops_before": 92,
-   "ops_after": 67
+   "ops_after": 65
+  },
+  "linear_attention/decode_batch32": {
+   "device_ms_before": 36.625,
+   "device_ms_after": 6.222,
+   "speedup_x": 5.886,
+   "reduction_pct": 83.01,
+   "ops_before": 93,
+   "ops_after": 68
   },
   "full_attention/prefill": {
-   "device_ms_before": 18.588,
-   "device_ms_after": 17.778,
-   "speedup_x": 1.046,
-   "reduction_pct": 4.36,
+   "device_ms_before": 18.638,
+   "device_ms_after": 17.792,
+   "speedup_x": 1.048,
+   "reduction_pct": 4.54,
    "ops_before": 44,
    "ops_after": 28
   },
   "full_attention/decode": {
-   "device_ms_before": 2.27,
-   "device_ms_after": 2.061,
-   "speedup_x": 1.101,
-   "reduction_pct": 9.21,
+   "device_ms_before": 2.271,
+   "device_ms_after": 2.066,
+   "speedup_x": 1.099,
+   "reduction_pct": 9.03,
    "ops_before": 50,
    "ops_after": 44
+  },
+  "full_attention/decode_batch32": {
+   "device_ms_before": 3.064,
+   "device_ms_after": 2.906,
+   "speedup_x": 1.054,
+   "reduction_pct": 5.16,
+   "ops_before": 49,
+   "ops_after": 43
   }
  }
 }

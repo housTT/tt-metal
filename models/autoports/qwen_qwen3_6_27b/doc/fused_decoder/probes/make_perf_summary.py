@@ -95,15 +95,16 @@ def main() -> None:
         ),
         "prefill_tokens": 2048,
         "decode_position": 2048,
+        "decode_batches": {"prefill": 1, "decode": 1, "decode_batch32": 32},
         "decode_replays": DECODE_REPLAYS,
-        "command": "doc/fused_decoder/probes/run_perf.sh <layer_kind> <prefill|decode> <functional|fused>",
+        "command": "doc/fused_decoder/probes/run_perf.sh <layer_kind> <prefill|decode|decode_batch32> <functional|fused>",
         "measurements": {},
         "speedup": {},
     }
 
     for impl in IMPLS:
         for kind in KINDS:
-            for phase, replays in (("prefill", 1), ("decode", DECODE_REPLAYS)):
+            for phase, replays in (("prefill", 1), ("decode", DECODE_REPLAYS), ("decode_batch32", DECODE_REPLAYS)):
                 report = DOC / "tracy" / impl / kind / f"{phase}_perf_report.csv"
                 if not report.exists():
                     raise SystemExit(f"missing {report}")
@@ -144,7 +145,7 @@ def main() -> None:
                 }
 
     for kind in KINDS:
-        for phase in ("prefill", "decode"):
+        for phase in ("prefill", "decode", "decode_batch32"):
             before = summary["measurements"][f"functional/{kind}/{phase}"]["device_kernel_time_ms"]
             after = summary["measurements"][f"fused/{kind}/{phase}"]["device_kernel_time_ms"]
             before_ops = summary["measurements"][f"functional/{kind}/{phase}"]["ops_per_pass"]

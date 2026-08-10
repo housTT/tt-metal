@@ -36,7 +36,7 @@ from transformers.cache_utils import DynamicCache
 import ttnn
 from models.autoports.qwen_qwen3_6_27b.reference import hf_reference as ref
 from models.autoports.qwen_qwen3_6_27b.tests import harness as H
-from models.autoports.qwen_qwen3_6_27b.tt.functional_decoder import FunctionalDecoder
+from models.autoports.qwen_qwen3_6_27b.tt.functional_decoder import PREFILL_CHUNK, FunctionalDecoder
 from models.autoports.qwen_qwen3_6_27b.tt.fused_decoder import FusedDecoder
 
 LAYER_KINDS = [
@@ -392,6 +392,55 @@ def test_fused_ops_are_dispatched(mesh_device, layer_idx):
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+def test_merged_unaries_are_not_dispatched(mesh_device, layer_idx):
+    """The unaries this stage merged into their consumers are gone from the measured passes.
+
+    ``test_fused_ops_are_dispatched`` pins the dedicated ops the graph *gains*; this pins the
+    ops it *loses*, which is the other half of the same claim and the half a stage review found
+    unpinned.  Each of these was a standalone dispatch in stage 1 and now rides on a neighbour:
+
+    ``rsqrt``     the gated norm's epsilon add carries it as its output activation (§3.17);
+    ``sigmoid``   decode's ``beta`` rides on the ``delta`` multiply (§3.19), and the output gate
+                  rides on the epilogue multiply (§3.14);
+    ``exp``       decode's decay rides on the recurrent-state multiply (§3.19);
+    ``silu``      the MLP's gate and the causal conv's tail ride on their multiply/add (§3.8);
+    ``ttnn.add``  ``dt_bias`` is the packed projection's ``bias=`` row (§3.9) - the graph still
+                  has other adds, so this one is checked by op *count*, below.
+
+    A regression here is silent: the PCC is identical either way, and only the op count moves.
+    """
+    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=8192)
+    merged = ("ttnn.rsqrt", "ttnn.sigmoid", "ttnn.exp", "ttnn.silu")
+    kind = _kind(lut)
+
+    prefill_calls = _count_ops(merged)
+    hidden = ref.synthetic_hidden_states(lut.config, 1, 2049, _stats())
+    with prefill_calls:
+        H.run_tt_prefill(lut, hidden)
+    H.prepare_decode(lut)
+
+    decode_calls = _count_ops(merged)
+    token = ref.synthetic_hidden_states(lut.config, 1, 1, _stats(), seed=31)
+    with decode_calls:
+        H.run_tt_decode(lut, token, torch.tensor([2049]))
+
+    decode_left = {name: count for name, count in decode_calls.counts.items() if count}
+    H.record("fused_merged_unary_calls", {"decode": len(decode_left)}, kind=kind)
+    assert not decode_left, (
+        f"a unary this stage merged into its consumer is dispatched on its own in a {kind} " f"decode: {decode_left}"
+    )
+
+    # Prefill keeps exactly one of them, and only for ``linear_attention``: ``beta`` is an
+    # *input* of ``chunk_gated_delta_rule``, so its sigmoid has no consumer to ride on - one per
+    # prefill chunk, and a 2049-token prompt is two chunks.
+    prefill_left = {name: count for name, count in prefill_calls.counts.items() if count}
+    chunks = -(-2049 // PREFILL_CHUNK)
+    allowed = {"ttnn.sigmoid": chunks} if kind == "linear_attention" else {}
+    H.record("fused_merged_unary_calls", {"prefill": len(prefill_left)}, kind=kind)
+    assert prefill_left == allowed, f"{kind} prefill dispatches merged unaries {prefill_left}, expected {allowed}"
+
+
+@pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 def test_fused_graph_is_smaller(mesh_device, layer_idx):
     """The fused graph dispatches strictly fewer ttnn ops than the functional one.
 
@@ -616,11 +665,19 @@ def test_no_relayout_or_host_ops_in_measured_decode(mesh_device, layer_idx):
     #   2 x width-sharded RMS norm       -> 2 to_memory_config + 2 sharded_to_interleaved
     #   full_attention only: Q and K off the head op, K back on, the SDPA output on for
     #                        nlp_concat_heads_decode, and its result back off
+    #
+    # This is an equality, not a budget.  It used to be ``<= 6`` / ``<= 12`` against actual counts
+    # of 4 and 9, which left room for two or three new unnecessary reshards to appear under a test
+    # whose docstring said none could - a stage review called that out.  Every reshard here is
+    # accounted for above, so the count is exact and a change in either direction is a review.
     reshards = sum(v for k, v in counter.counts.items() if k.rsplit(".", 1)[1] in resharding)
-    budget = 6 if not lut.is_full_attention else 12
+    expected = 4 if not lut.is_full_attention else 9
     # A dict, not a bare int, for the same reason as ``fused_op_calls`` above.
-    H.record("fused_decode_reshard_ops", {"reshards": reshards, "budget": budget}, kind=_kind(lut))
-    assert reshards <= budget, f"measured decode reshards {reshards} times (budget {budget}): {counter.counts}"
+    H.record("fused_decode_reshard_ops", {"reshards": reshards, "expected": expected}, kind=_kind(lut))
+    assert reshards == expected, (
+        f"measured decode reshards {reshards} times, expected exactly {expected}; "
+        f"if this is deliberate, account for the new one in the comment above: {counter.counts}"
+    )
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)

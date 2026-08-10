@@ -53,9 +53,13 @@ SOURCES = (
     ROOT / "tests" / "test_fused_decoder_perf.py",
     ROOT / "tests" / "test_fused_decoder_docs.py",
 )
+#: Decimal places the fused block of ``doc/context_contract.json`` states its PCC figures to.
+CONTRACT_DECIMALS = 6
 IMPLS = ("functional", "fused")
 KINDS = ("linear_attention", "full_attention")
-PHASES = {"prefill": 1, "decode": 8}
+#: measured window -> trace replays inside it.  ``decode_batch32`` is the same window at the
+#: advertised ``max_batch``, which takes a different branch of the z-gated norm.
+PHASES = {"prefill": 1, "decode": 8, "decode_batch32": 8}
 #: Run log, the regex that finds its pytest summary, and words the sentence quoting its pass
 #: count must contain. The keyword is what stops the watcher count being attributed to the main
 #: suite, or vice versa.
@@ -332,8 +336,8 @@ def test_context_contract_matches_the_evidence():
     assert acceptance["records"] == evidence["num_records"]
     assert acceptance["pcc_records"] == evidence["num_pcc_records"]
     assert acceptance["scale_records"] == evidence["num_scale_records"]
-    assert acceptance["min_pcc"] == evidence["min_pcc"]
-    assert acceptance["scale_range"] == evidence["scale_range"]
+    assert acceptance["min_pcc"] == round(evidence["min_pcc"], CONTRACT_DECIMALS)
+    assert acceptance["scale_range"] == [round(value, CONTRACT_DECIMALS) for value in evidence["scale_range"]]
     assert acceptance["pcc_records_below_bar"] == 0
 
     # The long-context figures the contract quotes are records in the evidence, not prose.
@@ -356,7 +360,12 @@ def test_context_contract_matches_the_evidence():
         ):
             if field not in results:
                 continue
-            assert recorded[(metric, kind)] == results[field], f"{kind}.{field} disagrees with pcc_evidence.json"
+            # 6 dp: the precision the contract states these to.  Comparing full doubles made
+            # every re-measurement a document edit without making any claim more true.
+            assert round(recorded[(metric, kind)], CONTRACT_DECIMALS) == results[field], (
+                f"{kind}.{field} disagrees with pcc_evidence.json "
+                f"({results[field]} vs {round(recorded[(metric, kind)], CONTRACT_DECIMALS)})"
+            )
 
     # And the measured persistent-state delta.
     delta_records = {
@@ -367,6 +376,73 @@ def test_context_contract_matches_the_evidence():
             continue
         for field in ("functional", "fused", "delta"):
             assert block[field] == delta_records[kind][field], f"{kind}.{field} disagrees with the measurement"
+
+
+def test_contract_prose_matches_the_evidence():
+    """Every number in the fused contract's *prose* re-derives from a measured field.
+
+    ``test_context_contract_matches_the_evidence`` pins the contract's numeric fields, and the
+    document gate pins the stage documents' prose — but the contract's own sentences are neither,
+    and a stage review found the capacity conclusion still quoting a superseded byte count three
+    rounds after the field beside it had been corrected.  The contract is what later stages read,
+    so its prose is held to the same rule as the documents': a figure must be derivable.
+    """
+    contract = json.loads((ROOT / "doc" / "context_contract.json").read_text())["fused_decoder"]
+    evidence = json.loads((DOC / "pcc_evidence.json").read_text())
+    delta = {r.get("kind"): r["value"] for r in evidence["records"] if r["metric"] == "fused_persistent_dram_bytes"}
+    linear = delta["linear_attention"]
+
+    allowed = set()
+    for record in evidence["records"]:
+        value = record["value"]
+        for item in value.values() if isinstance(value, dict) else (value,):
+            if isinstance(item, (int, float)) and not isinstance(item, bool):
+                allowed.add(f"{item}")
+                allowed.add(f"{float(item):.6f}".rstrip("0"))
+    for block in contract["extra_persistent_device_bytes_per_layer"].values():
+        if isinstance(block, dict):
+            allowed.update(f"{v}" for v in block.values() if isinstance(v, int))
+    # Percentages the conclusion is entitled to quote, at the precision it quotes them.
+    dram_bytes = 31 * 1024**3
+    for digits in (1, 2, 3):
+        allowed.add(f"{100.0 * linear['delta'] / linear['functional']:.{digits}f}")
+        allowed.add(f"{100.0 * linear['delta'] / dram_bytes:.{digits}f}")
+    for record in evidence["records"]:
+        if isinstance(record["value"], (int, float)) and not isinstance(record["value"], bool):
+            for digits in (5, 6, 7):
+                allowed.add(f"{round(record['value'], digits)}")
+    allowed.update({"31", "1", "0", "1818230784", "262143", "262144", "0.995", "1.02", "0.98"})
+    # Stage-1 figures the delta prose compares against, from the functional stage's own evidence.
+    functional = json.loads((ROOT / "doc" / "functional_decoder" / "pcc_evidence.json").read_text())
+    for record in functional["records"]:
+        if isinstance(record["value"], (int, float)) and not isinstance(record["value"], bool):
+            for digits in (5, 6, 7):
+                allowed.add(f"{round(record['value'], digits)}")
+
+    unexplained = []
+    for key, text in contract.items():
+        for path, value in _walk_strings(key, text):
+            # Two shapes of figure: a unit-carrying one (``8290304 bytes``, ``0.78 %``) and a
+            # bare PCC-like decimal (``0.999879``), which is how the largest_context prose
+            # states its measurements.
+            figures = re.findall(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(?:%|bytes|GiB|B\b)", value)
+            figures += re.findall(r"(?<![\w.])(0\.\d{4,})(?![\d])", value)
+            for figure in figures:
+                if figure not in allowed and figure.rstrip("0") not in allowed:
+                    unexplained.append(f"{path}: {figure}")
+    assert not unexplained, f"the contract's prose quotes figures no measurement derives: {unexplained}"
+
+
+def _walk_strings(prefix, value):
+    """Yield ``(dotted path, string)`` for every string inside a nested JSON value."""
+    if isinstance(value, str):
+        yield prefix, value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _walk_strings(f"{prefix}.{key}", item)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _walk_strings(f"{prefix}[{index}]", item)
 
 
 def test_watcher_audit_matches_its_artifacts():

@@ -46,9 +46,13 @@ def before_after_table() -> str:
         "| layer kind | phase | device time before | device time after | speed-up | ops before | ops after |",
         "|---|---|---|---|---|---|---|",
     ]
-    labels = {"prefill": "prefill, 2048 tokens", "decode": "traced decode, 1 token"}
+    labels = {
+        "prefill": "prefill, 2048 tokens",
+        "decode": "traced decode, 1 token, batch 1",
+        "decode_batch32": "traced decode, 1 token, batch 32 (advertised `max_batch`)",
+    }
     for kind in KINDS:
-        for phase in ("prefill", "decode"):
+        for phase in ("prefill", "decode", "decode_batch32"):
             row = summary["speedup"][f"{kind}/{phase}"]
             rows.append(
                 f"| `{kind}` | {labels[phase]} | {row['device_ms_before']:.3f} ms | "
@@ -169,12 +173,16 @@ def recurrence_table() -> str:
     grids = ("default", "1x4", "1x8", "1x11", "2x4", "2x8", "2x11", "4x4", "4x8", "4x11", "6x4", "6x8", "6x11")
     header = "| shape | " + " | ".join(grids) + " | selected |"
     rows = [header, "|---" * (len(grids) + 2) + "|"]
-    for kind, label, selected in (("read", "state read", "6x4"), ("outer", "outer product", "6x8")):
+    for kind, prefix, label, selected in (
+        ("read", "", "state read", "6x4"),
+        ("outer", "", "outer product (`transpose` + `matmul`)", "6x8"),
+        ("outer", "transpose_a ", "outer product (`transpose_a=True`, shipped)", "6x8"),
+    ):
         cells = []
         for grid in grids:
             token = "default" if grid == "default" else f"core_grid {grid}"
             match = re.search(
-                rf"{kind}\s+{re.escape(token)}\s+median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
+                rf"{kind}\s+{re.escape(prefix + token)}\s*median_us=\s*([\d.]+) stdev_us=\s*([\d.]+)",
                 _probe("probe_decode_recurrence"),
             )
             cells.append("—" if match is None else f"{match.group(1)} ({match.group(2)})")
@@ -184,7 +192,9 @@ def recurrence_table() -> str:
         "Median and (stdev) in microseconds over 30 repeats. The default program factory is "
         "several times slower than any explicit grid; the explicit grids sit within about a "
         "stdev of each other, so the two selected are a representative pick from that flat "
-        "region rather than a unique optimum."
+        "region rather than a unique optimum. The shipped outer product folds its transpose "
+        "into the matmul, which is one dispatch fewer and bit-exact; its own row is here so "
+        "that choice is visible as a measurement rather than only as an argument."
     )
     return "\n".join(rows)
 
@@ -451,6 +461,154 @@ def before_breakdown() -> str:
     return "\n".join(rows)
 
 
+def qkv_gate_table() -> str:
+    """The last shared-LHS matmul pair: two matmuls, or one and two slices."""
+    rows = ["| rows | two matmuls (shipped) | one packed matmul + 2 slices |", "|---|---|---|"]
+    for rows_label, pattern in (("2048 (prefill)", "2048"), ("32 (decode)", "32")):
+        match = re.search(
+            rf"qkv_gate rows=\s*{pattern} split_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"packed_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_qkv=([\d.]+)",
+            _probe("probe_qkv_gate_pack"),
+        )
+        if not match:
+            raise SystemExit(f"probe_qkv_gate_pack.log has no row for {pattern}")
+        rows.append(f"| {rows_label} | **{match.group(1)} us** | {match.group(2)} us |")
+    rows.append("")
+    rows.append(
+        "Median over 25 repeats (9 at 2048 rows), outputs identical (PCC 1.000000). The packed "
+        "form loses at prefill by more than a third: the two slices of the merged output are "
+        "full copies of a 14336-wide TILE tensor, which costs more than the activation re-read "
+        "and the dispatch it saves. At decode the two are within a stdev of each other."
+    )
+    return "\n".join(rows)
+
+
+def matmul_grid_table() -> str:
+    """Every ``Bound=SLOW`` row against the graph levers that could move it."""
+    log = _probe("probe_matmul_bound")
+    grids = ("10x11", "8x8", "4x8", "2x8", "2x4", "1x4", "1x2")
+    header = "| row | shape | default | " + " | ".join(grids) + " |"
+    rows = [header, "|---" * (len(grids) + 3) + "|"]
+    for match in re.finditer(r"matmul (\S+\s+\S+)\s+(\d+)x\s*(\d+)x\s*(\d+) out=\w+\+fp32dest_us=\s*([\d.]+)", log):
+        label, m_dim, k_dim, n_dim, default = match.groups()
+        label = " ".join(label.split())
+        cells = []
+        for grid in grids:
+            cell = re.search(
+                rf"matmul {re.escape(label.split()[0])}\s+{label.split()[1]}\s+core_grid "
+                rf"{grid.replace('x', 'x *')}\s+us=\s*([\d.]+)",
+                log,
+            )
+            cells.append("—" if cell is None else cell.group(1))
+        rows.append(
+            f"| `{label.split()[0]}` {label.split()[1]} | {m_dim}x{k_dim}x{n_dim} | {default} | "
+            + " | ".join(cells)
+            + " |"
+        )
+    rows.append("")
+    rows.append(
+        "Median microseconds over 25 repeats; `default` is the program factory's own choice at "
+        "the shipped output dtype. The rows whose N is 2 or 4 tiles are 2-3x faster on a small "
+        "explicit grid, because the default spreads output columns over the whole device and "
+        "then broadcasts the activation to cores that have nothing to do."
+    )
+    return "\n".join(rows)
+
+
+def dtype_lever_table() -> str:
+    """The output-dtype and DEST-precision levers on the same rows, for the ones a grid cannot fix."""
+    rows = ["| row | shape | shipped | output dtype swapped | `fp32_dest_acc_en=False` |", "|---|---|---|---|---|"]
+    for match in re.finditer(
+        r"matmul (\S+\s+\S+)\s+(\d+)x\s*(\d+)x\s*(\d+) out=(\w+)\+fp32dest_us=\s*([\d.]+) \(\s*[\d.]+\) "
+        r"out=(\w+)\+fp32dest_us=\s*([\d.]+) \(\s*[\d.]+\) out=\w+\+bf16dest_us=\s*([\d.]+)",
+        _probe("probe_matmul_bound"),
+    ):
+        label, m_dim, k_dim, n_dim, shipped, base, other, swapped, no_dest = match.groups()
+        label = " ".join(label.split())
+        rows.append(
+            f"| `{label.split()[0]}` {label.split()[1]} | {m_dim}x{k_dim}x{n_dim} | "
+            f"{base} us ({shipped}) | {swapped} us ({other}) | {no_dest} us |"
+        )
+    rows.append("")
+    rows.append(
+        "Median microseconds over 25 repeats. Neither lever is worth taking here, and both are "
+        "precision policy rather than graph shape: the output dtype of these rows is what the "
+        "next op consumes, and `fp32_dest_acc_en` is the stage-1 compute-kernel policy."
+    )
+    return "\n".join(rows)
+
+
+def input_fold_table() -> str:
+    """The two decode unary-into-binary folds, and the rank-3 slice order that was not taken."""
+    rows = ["| fold | batch | separate unary | folded into the binary | agreement |", "|---|---|---|---|---|"]
+    labels = {
+        "decay": "`exp(g)` into the recurrent-state multiply",
+        "beta": "`sigmoid(b)` into the `delta` multiply",
+    }
+    for name, label in labels.items():
+        for batch in ("1", "32"):
+            match = re.search(
+                rf"fold {name}\s+batch=\s*{batch} split_us=\s*([\d.]+) \(\s*[\d.]+\) "
+                rf"folded_us=\s*([\d.]+) \(\s*[\d.]+\) pcc=([\d.]+) max_abs_diff=(\S+)",
+                _probe("probe_gdn_input_folds"),
+            )
+            if not match:
+                raise SystemExit(f"probe_gdn_input_folds.log has no {name} row at batch {batch}")
+            rows.append(
+                f"| {label} | {batch} | {match.group(1)} us | **{match.group(2)} us** | "
+                f"PCC {match.group(3)}, max abs diff {match.group(4)} |"
+            )
+    match = re.search(
+        r"rank3 seq=(\d+) rank4_first_us=\s*([\d.]+) \(\s*[\d.]+\) rank3_first_us=\s*([\d.]+) "
+        r"\(\s*[\d.]+\) pcc_beta=([\d.]+) pcc_g=([\d.]+) max_abs_diff=(\S+)",
+        _probe("probe_gdn_input_folds"),
+    )
+    if not match:
+        raise SystemExit("probe_gdn_input_folds.log has no rank3 row")
+    rows.append(
+        f"| rank-3 before the slices instead of after (not taken) | {match.group(1)} rows | "
+        f"{match.group(2)} us (shipped) | {match.group(3)} us | "
+        f"PCC {match.group(4)}, max abs diff {match.group(6)} |"
+    )
+    rows.append("")
+    rows.append(
+        "Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact "
+        "and both were taken. Moving the rank change ahead of the slices removes two float32 "
+        "reshapes and adds one, and measures as a tie, so the shipped order stands."
+    )
+    return "\n".join(rows)
+
+
+def run_totals() -> str:
+    """Test counts and evidence-record counts, from the logs and the evidence file itself.
+
+    These were hand-written in four places and went stale the moment a test was added, which is
+    the drift class this whole file exists to remove.
+    """
+    evidence = _evidence()
+    lines = []
+    for log, label in (
+        ("suite_main", "`logs/suite_main.log`"),
+        ("long_context", "`logs/long_context.log`"),
+        ("watcher_run", "`logs/watcher_run.log`"),
+    ):
+        text = (DOC / "logs" / f"{log}.log").read_text(errors="replace")
+        match = re.findall(r"=+ (\d+) passed(?:, (\d+) skipped)?[^=]*=+", text)
+        if not match:
+            raise SystemExit(f"{log}.log has no pytest summary line")
+        passed, skipped = match[-1]
+        tail = f", {skipped} skipped" if skipped else ""
+        lines.append(f"* {label} — **{passed} passed{tail}**")
+    scales = [record["value"] for record in evidence["records"] if str(record["metric"]).endswith("_scale")]
+    lines.append(
+        f"* `pcc_evidence.json` — {evidence['num_records']} records, {evidence['num_pcc_records']} of them "
+        f"PCC, **minimum {evidence['min_pcc']:.6f}**, none below the 0.995 bar; "
+        f"{evidence['num_scale_records']} full-context scale ratios, range {min(scales):.5f} to "
+        f"{max(scales):.5f}, inside the ±2 % tolerance."
+    )
+    return "\n".join(lines)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -468,6 +626,11 @@ BLOCKS = {
     "gdr_call_shapes": gdr_table,
     "gdn_epilogue": epilogue_table,
     "rope_width": rope_table,
+    "qkv_gate_pack": qkv_gate_table,
+    "matmul_grids": matmul_grid_table,
+    "matmul_dtype_levers": dtype_lever_table,
+    "input_folds": input_fold_table,
+    "run_totals": run_totals,
 }
 
 
@@ -476,10 +639,14 @@ def main() -> None:
     for path in (DOC / "README.md", DOC / "work_log.md", DOC / "probes" / "README.md"):
         text = path.read_text()
         for name, builder in BLOCKS.items():
-            pattern = re.compile(rf"(<!-- GENERATED:{name} -->\n).*?(\n<!-- END GENERATED:{name} -->)", re.DOTALL)
+            # ``.*?`` between the markers, *including* the empty case: a block whose content is
+            # not there yet has a single newline between its markers, and a pattern that demands
+            # one on each side skips it forever - which is how a placeholder block once survived
+            # four review rounds.  ``test_generated_blocks_are_current`` rejects an empty block.
+            pattern = re.compile(rf"(<!-- GENERATED:{name} -->\n)(.*?)(<!-- END GENERATED:{name} -->)", re.DOTALL)
             if not pattern.search(text):
                 continue
-            text = pattern.sub(lambda m: m.group(1) + builder() + m.group(2), text)
+            text = pattern.sub(lambda m: m.group(1) + builder() + "\n" + m.group(3), text)
             filled += 1
         path.write_text(text)
     print(f"filled {filled} generated blocks")

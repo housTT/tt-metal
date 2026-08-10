@@ -109,22 +109,41 @@ def main() -> None:
         except Exception as exc:  # noqa: BLE001
             print(f"read  group_attn_matmul    FAILED {str(exc).splitlines()[0][:110]}", flush=True)
 
-        # The transpose can be an argument of the matmul instead of an op before it.
+        # The transpose can be an argument of the matmul instead of an op before it.  Swept over
+        # the same grids as the spelled-out form, so the shipped variant is a row of the table
+        # rather than a single point next to it.
         (ms, sd), got = bench(
-            lambda: ttnn.matmul(
-                tk,
-                td,
-                dtype=ttnn.float32,
-                compute_kernel_config=cfg,
-                core_grid=ttnn.CoreGrid(y=6, x=8),
-                transpose_a=True,
-            ),
+            lambda: ttnn.matmul(tk, td, dtype=ttnn.float32, compute_kernel_config=cfg, transpose_a=True),
             device,
         )
         print(
-            f"outer transpose_a 6x8       median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+            f"outer transpose_a default   median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
             flush=True,
         )
+        for gy in (1, 2, 4, 6):
+            for gx in (4, 8, 11):
+                try:
+                    (ms, sd), got = bench(
+                        lambda: ttnn.matmul(
+                            tk,
+                            td,
+                            dtype=ttnn.float32,
+                            compute_kernel_config=cfg,
+                            core_grid=ttnn.CoreGrid(y=gy, x=gx),
+                            transpose_a=True,
+                        ),
+                        device,
+                    )
+                    print(
+                        f"outer transpose_a core_grid {gy}x{gx:<2d} median_us={ms:8.1f} "
+                        f"stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
+                        flush=True,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"outer transpose_a core_grid {gy}x{gx:<2d} FAILED {str(exc).splitlines()[0][:90]}",
+                        flush=True,
+                    )
 
         tk_t = ttnn.transpose(tk, -2, -1)
         (ms, sd), got = bench(lambda: ttnn.matmul(tk_t, td, dtype=ttnn.float32, compute_kernel_config=cfg), device)
@@ -132,8 +151,8 @@ def main() -> None:
             f"outer default              median_us={ms:8.1f} stdev_us={sd:6.1f} pcc={pcc(ref_outer, got):.6f}",
             flush=True,
         )
-        for gy in (2, 4, 6):
-            for gx in (8, 11):
+        for gy in (1, 2, 4, 6):
+            for gx in (4, 8, 11):
                 try:
                     (ms, sd), got = bench(
                         lambda: ttnn.matmul(

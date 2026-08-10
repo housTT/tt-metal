@@ -157,6 +157,20 @@ _AB_STRIDE = 64
 _RECURRENCE_READ_GRID = (6, 4)
 _RECURRENCE_OUTER_GRID = (6, 8)
 
+#: ``core_grid`` for the three matmuls this stage created whose N is a handful of tiles: the
+#: packed ``a``/``b`` projection (N = 4 tiles) and the two gated-norm constant matmuls (N = 2 and
+#: N = 192 tiles).  The default 1D program config spreads output columns over the whole grid, so a
+#: row with 2 or 4 output tiles pays a full-grid broadcast of its activation to fill a handful of
+#: cores.  Naming a smaller grid is the same lever §3.6 used on the decode recurrence, and it is
+#: worth 2-3x on the two-and-four-tile rows at decode.  The winning grid is a function of both the
+#: shape *and* the row count, so prefill and decode are separate entries; every grid from the full
+#: device down to 1x2 was measured at both row counts by
+#: ``doc/fused_decoder/probes/probe_matmul_bound.py``, and the tables are ``work_log.md``
+#: section 3.18, generated from that probe's log.  ``None`` means the default won.
+_AB_MATMUL_GRID = {"prefill": (4, 8), "decode": (1, 4)}
+_GROUP_SUM_GRID = {"prefill": (8, 8), "decode": (1, 4)}
+_GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
+
 #: ``max_batch`` at and above which the decode z-gated norm uses the same group reduction as
 #: prefill (:meth:`FusedDecoder._gated_norm_and_project`) instead of the reshape-and-``rms_norm``
 #: form.  The two are the same arithmetic; which is cheaper is a pure function of the row count,
@@ -259,6 +273,17 @@ class FusedDecoder(FunctionalDecoder):
         self.recurrence_outer_grid = ttnn.CoreGrid(
             y=min(_RECURRENCE_OUTER_GRID[0], grid.y), x=min(_RECURRENCE_OUTER_GRID[1], grid.x)
         )
+
+        def _clamped(spec):
+            """``{phase: (y, x) or None}`` -> ``{phase: CoreGrid or None}`` for this device."""
+            return {
+                phase: None if value is None else ttnn.CoreGrid(y=min(value[0], grid.y), x=min(value[1], grid.x))
+                for phase, value in spec.items()
+            }
+
+        self.ab_matmul_grid = _clamped(_AB_MATMUL_GRID)
+        self.group_sum_grid = _clamped(_GROUP_SUM_GRID)
+        self.group_expand_grid = _clamped(_GROUP_EXPAND_GRID)
         # Decode causal-conv state, one batch-major buffer per tap: buffer ``j`` holds token
         # ``t - (K - 1) + j`` of every user, which is row ``j + 1`` of the functional layer's
         # packed ``[1, batch, K, conv_dim]`` state.  A decode step therefore reads each buffer
@@ -592,8 +617,14 @@ class FusedDecoder(FunctionalDecoder):
 
     # ----------------------------------------------------- linear attention
 
-    def _gdn_inputs(self, x):
-        """Shared GatedDeltaNet input projections, with ``b`` and ``a`` packed into one matmul."""
+    def _gdn_inputs(self, x, *, raw_beta: bool = False, phase: str = "prefill"):
+        """Shared GatedDeltaNet input projections, with ``b`` and ``a`` packed into one matmul.
+
+        ``raw_beta`` returns ``b`` itself instead of ``sigmoid(b)``, for the decode path, which
+        carries the sigmoid on the multiply that consumes it (see :meth:`_linear_attention_decode`).
+        The prefill path cannot: ``beta`` is an *input* of ``chunk_gated_delta_rule``, and an op
+        input has no activation slot to ride on.
+        """
         s = self.shapes
         mixed_qkv = ttnn.linear(x, self.w["in_proj_qkv"], dtype=ttnn.float32, compute_kernel_config=self.compute_cfg)
         z = ttnn.linear(x, self.w["in_proj_z"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg)
@@ -603,14 +634,18 @@ class FusedDecoder(FunctionalDecoder):
             bias=self.w["in_proj_ab_bias"],
             dtype=ttnn.float32,
             compute_kernel_config=self.compute_cfg,
+            core_grid=self.ab_matmul_grid[phase],
         )
         lead = _shape(ab)[:-1]
         starts = [0] * len(lead)
         b = ttnn.slice(ab, [*starts, 0], [*lead, s.num_v_heads])
         a = ttnn.slice(ab, [*starts, _AB_STRIDE], [*lead, _AB_STRIDE + s.num_v_heads])
         ttnn.deallocate(ab)
-        beta = ttnn.sigmoid(b)
-        ttnn.deallocate(b)
+        if raw_beta:
+            beta = b
+        else:
+            beta = ttnn.sigmoid(b)
+            ttnn.deallocate(b)
         # ``a`` already carries ``dt_bias``: it is the packed matmul's bias row.
         soft = ttnn.softplus(a, beta=1.0, threshold=20.0)
         ttnn.deallocate(a)
@@ -726,7 +761,7 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(rows)
         return acc, new_state
 
-    def _gated_norm_and_project(self, core, z, rows: int):
+    def _gated_norm_and_project(self, core, z, rows: int, *, phase: str = "prefill"):
         """z-gated per-head RMS norm + ``out_proj``, on the flat token-major layout.
 
         ``core`` is ``[1, 1, rows, value_dim]`` (all ``num_v_heads`` heads laid out along the
@@ -741,7 +776,11 @@ class FusedDecoder(FunctionalDecoder):
         s = self.shapes
         squares = ttnn.multiply(core, core)
         mean_square = ttnn.matmul(
-            squares, self.const["gdn_group_mean"], dtype=ttnn.float32, compute_kernel_config=self.compute_cfg
+            squares,
+            self.const["gdn_group_mean"],
+            dtype=ttnn.float32,
+            compute_kernel_config=self.compute_cfg,
+            core_grid=self.group_sum_grid[phase],
         )
         ttnn.deallocate(squares)
         # rsqrt is the add's *output* activation, not an op after it.
@@ -750,7 +789,11 @@ class FusedDecoder(FunctionalDecoder):
         inv16 = ttnn.typecast(inv, ttnn.bfloat16)
         _free(inv, inv16)
         scale = ttnn.matmul(
-            inv16, self.const["gdn_scale_expand"], dtype=ttnn.bfloat16, compute_kernel_config=self.compute_cfg
+            inv16,
+            self.const["gdn_scale_expand"],
+            dtype=ttnn.bfloat16,
+            compute_kernel_config=self.compute_cfg,
+            core_grid=self.group_expand_grid[phase],
         )
         ttnn.deallocate(inv16)
         normed = ttnn.multiply(core, scale)
@@ -851,7 +894,9 @@ class FusedDecoder(FunctionalDecoder):
         taps = self.w["conv_taps"]
         k_size = s.conv_kernel_size
 
-        mixed_qkv, z, beta, g = self._gdn_inputs(x)  # [1, 1, batch, *]
+        # ``raw_beta``: the sigmoid rides on the ``delta`` multiply below instead of being its own
+        # op, which the prefill path cannot do because ``beta`` is an op *input* there.
+        mixed_qkv, z, b_raw, g = self._gdn_inputs(x, raw_beta=True, phase="decode")  # [1, 1, batch, *]
 
         # Depthwise causal conv over the batch-major tap buffers: tap j reads a whole buffer, the
         # newest tap reads this token, and the shift is an in-place copy chain.
@@ -900,22 +945,26 @@ class FusedDecoder(FunctionalDecoder):
         _free(k_flat, k)
         _free(v_flat, v)
 
-        beta_h = ttnn.reshape(beta, (1, batch * nv, 1, 1))
+        b_h = ttnn.reshape(b_raw, (1, batch * nv, 1, 1))
         g_h = ttnn.reshape(g, (1, batch * nv, 1, 1))
-        _free(beta, beta_h)
+        _free(b_raw, b_h)
         _free(g, g_h)
-        decay = ttnn.exp(g_h)
-        ttnn.deallocate(g_h)
 
-        state = ttnn.multiply(self.recurrent_state, decay)
-        ttnn.deallocate(decay)
+        # ``exp(g)`` rides on the state multiply as its b-operand activation, and ``sigmoid(b)`` on
+        # the ``delta`` multiply below: the skill's unary-into-binary merge, two dispatches fewer.
+        # Both operands are height-and-width broadcast, and both folds are bit-exact (max absolute
+        # difference 0.0) - measured in ``doc/fused_decoder/logs/probe_gdn_input_folds.log``.
+        state = ttnn.multiply(self.recurrent_state, g_h, input_tensor_b_activations=[ttnn.UnaryOpType.EXP])
+        ttnn.deallocate(g_h)
         kv_mem = ttnn.matmul(
             k, state, dtype=ttnn.float32, compute_kernel_config=self.compute_cfg, core_grid=self.recurrence_read_grid
         )
-        delta = ttnn.multiply(ttnn.subtract(v, kv_mem), beta_h)
+        residual = ttnn.subtract(v, kv_mem)
+        delta = ttnn.multiply(residual, b_h, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
+        ttnn.deallocate(residual)
         ttnn.deallocate(kv_mem)
         ttnn.deallocate(v)
-        ttnn.deallocate(beta_h)
+        ttnn.deallocate(b_h)
         # The outer product's transpose is an argument of the matmul, not an op before it - the
         # skill's "permute/transpose + matmul" merge.  Exact (PCC 1.000000 against torch) and one
         # dispatch fewer; measured in ``doc/fused_decoder/logs/probe_decode_recurrence.log``.
@@ -951,7 +1000,7 @@ class FusedDecoder(FunctionalDecoder):
             _free(out, flat)
             core = ttnn.typecast(flat, ttnn.bfloat16)
             _free(flat, core)
-            result = self._gated_norm_and_project(core, z, batch)
+            result = self._gated_norm_and_project(core, z, batch, phase="decode")
             ttnn.deallocate(core)
             ttnn.deallocate(z)
             return result

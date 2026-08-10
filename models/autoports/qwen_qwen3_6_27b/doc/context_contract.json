@@ -231,7 +231,7 @@
     "what_is_added": "nothing: the fused full_attention rewrites are op substitutions and memory-config choices, with no new persistent tensor"
    }
   },
-  "capacity_conclusion": "Measured +8257536 bytes on a linear_attention layer and exactly 0 on a full_attention layer, against the 31 GiB of allocatable DRAM measured in device_capacity above and the 1818230784-byte worst-case single layer at batch 1 and full context. That is 0.78 % of the smaller layer and 0.03 % of measured DRAM, so no capability reduction was made or needed.",
+  "capacity_conclusion": "Measured +8290304 bytes on a linear_attention layer and exactly 0 on a full_attention layer, against the 31 GiB of allocatable DRAM measured in device_capacity above and the 1818230784-byte worst-case single layer at batch 1 and full context. That is 0.78 % of the smaller layer and 0.025 % of measured DRAM, so no capability reduction was made or needed. Every figure in this sentence is checked against pcc_evidence.json by tests/test_fused_decoder_docs.py::test_contract_prose_matches_the_evidence.",
   "largest_context_tested": {
    "prefill": 262143,
    "decode_position": 262143,
@@ -243,43 +243,44 @@
    "evidence_method": "identical to the functional stage's: a segmented HF reference for linear_attention, and for full_attention a K/V cache built from k_proj/v_proj + k_norm + RoPE, validated torch.equal against a genuine short reference prefill, with the real HF layer run over the last 256 queries.",
    "results": {
     "linear_attention": {
-     "prefill_tail_8192_pcc": 0.9998790209845737,
-     "conv_state_pcc": 0.9999946280463557,
-     "recurrent_state_pcc": 0.9999336743901379,
-     "decode_at_262143_pcc": 0.9999176727080874,
-     "prefill_tail_scale": 0.9976808928566281,
-     "decode_scale": 0.9960964340414425,
+     "prefill_tail_8192_pcc": 0.999879,
+     "conv_state_pcc": 0.999995,
+     "recurrent_state_pcc": 0.999934,
+     "decode_at_262143_pcc": 0.999915,
+     "prefill_tail_scale": 0.997682,
+     "decode_scale": 0.996456,
      "verdict": "passes the 0.995 bar"
     },
     "full_attention": {
-     "paged_k_cache_pcc": 0.999988725692351,
-     "paged_v_cache_pcc": 0.9999926599608485,
-     "prefill_tail_256_pcc": 0.9980303234801929,
-     "decode_at_262143_pcc": 0.9992660896964991,
-     "prefill_tail_scale": 0.9974952435099962,
-     "decode_scale": 0.9957661979426642,
+     "paged_k_cache_pcc": 0.999989,
+     "paged_v_cache_pcc": 0.999993,
+     "prefill_tail_256_pcc": 0.99803,
+     "decode_at_262143_pcc": 0.999266,
+     "prefill_tail_scale": 0.997495,
+     "decode_scale": 0.995766,
      "verdict": "passes the 0.995 bar"
     }
    },
-   "delta_against_functional": "linear_attention moves by at most 6.8e-5 (prefill tail 0.999947 -> 0.999879, recurrent state 0.999984 -> 0.999934, decode 0.999955 -> 0.999918), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
+   "delta_against_functional": "linear_attention moves by at most 6.8e-5 (prefill tail 0.999947 -> 0.999879, recurrent state 0.999984 -> 0.999934, decode 0.999955 -> 0.999915), all from the deliberate bfloat16 causal-conv FIR whose output feeds an op that casts to bfloat16 anyway; full_attention prefill tail is unchanged to 1e-6 and its decode moves *up*, 0.999201 -> 0.999266."
   },
   "non_aligned_length_coverage": "unchanged and re-run against the fused graph: 1, 17, 128, 2048, 2049, 4096, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and 31 of the 32 batch-32 prompts. The fused prefill's internal chunking is a multiple of 32 (chunk_gated_delta_rule's flat path needs T % 32 == 0) but that is padding the layer owns; no divisibility requirement reaches the public API.",
   "acceptance": {
    "pcc_bar": 0.995,
-   "records": 285,
+   "records": 287,
    "pcc_records": 264,
    "scale_records": 4,
-   "min_pcc": 0.9980303234801929,
+   "min_pcc": 0.99803,
    "pcc_records_below_bar": 0,
    "scale_range": [
-    0.9957661979426642,
-    0.9976808928566281
+    0.995766,
+    0.997682
    ],
    "scale_tolerance": [
     0.98,
     1.02
    ],
-   "evidence": "doc/fused_decoder/pcc_evidence.json"
+   "evidence": "doc/fused_decoder/pcc_evidence.json",
+   "precision_note": "PCC and scale figures here are the measurement rounded to 6 decimal places, which is the precision this contract states them to; tests/test_fused_decoder_docs.py rounds the evidence the same way before comparing, so a re-measurement that moves a value in the 8th decimal does not make the contract wrong, and one that moves it in the 6th does."
   }
  },
  "hardware": {

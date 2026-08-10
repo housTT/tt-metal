@@ -1,42 +1,42 @@
-2026-08-10 05:00:31.235 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+2026-08-10 06:03:44.102 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
-2026-08-10 05:00:31.350 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
-2026-08-10 05:00:31.350 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
-2026-08-10 05:00:31.350 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
-2026-08-10 05:00:31.350 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
-2026-08-10 05:00:31.353 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
-2026-08-10 05:00:31.353 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
-2026-08-10 05:00:31.353 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
-2026-08-10 05:00:31.373 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:173)
-2026-08-10 05:00:31.373 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
-2026-08-10 05:00:31.373 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
-2026-08-10 05:00:31.373 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
-2026-08-10 05:00:31.373 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
-2026-08-10 05:00:31.373 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
-2026-08-10 05:00:31.474 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
-2026-08-10 05:00:31.528 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:433)
-2026-08-10 05:00:31.529 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
-2026-08-10 05:00:31.529 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
-2026-08-10 05:00:31.529 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1176)
-2026-08-10 05:00:31.529 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1422)
-2026-08-10 05:00:31.529 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2410)
-2026-08-10 05:00:31.529 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2418)
-conv tile        fp32 best_ms=  16.930 median_ms=  17.061 stdev_ms= 0.136 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 (self) max_abs_diff=0.000e+00
-conv rm_shift    fp32 best_ms=  16.704 median_ms=  16.782 stdev_ms= 0.077 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv rm_concat   fp32 best_ms=  15.167 median_ms=  15.325 stdev_ms= 0.049 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv rm_arith    fp32 best_ms=  14.179 median_ms=  14.268 stdev_ms= 0.048 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv aligned_win fp32 best_ms=  19.085 median_ms=  19.149 stdev_ms= 0.032 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv tile        bf16 best_ms=   5.498 median_ms=   5.626 stdev_ms= 0.046 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 (self) max_abs_diff=0.000e+00
-conv rm_shift    bf16 best_ms=   5.382 median_ms=   5.494 stdev_ms= 0.043 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv rm_concat   bf16 best_ms=   4.602 median_ms=   4.714 stdev_ms= 0.033 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv rm_arith    bf16 best_ms=   7.327 median_ms=   7.425 stdev_ms= 0.031 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-conv aligned_win bf16 best_ms=   6.734 median_ms=   6.834 stdev_ms= 0.031 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
-multiply bcast fp32 best_ms=   2.172 median_ms=   2.282 stdev_ms= 0.033 eff_GBps=   73.6
-multiply same  fp32 best_ms=   0.698 median_ms=   0.709 stdev_ms= 0.007 eff_GBps=  355.3
-multiply bcast bf16 best_ms=   0.347 median_ms=   0.441 stdev_ms= 0.029 eff_GBps=  190.7
-multiply same  bf16 best_ms=   0.369 median_ms=   0.438 stdev_ms= 0.022 eff_GBps=  287.5
+2026-08-10 06:03:44.221 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-10 06:03:44.221 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-10 06:03:44.221 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-10 06:03:44.221 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-10 06:03:44.224 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-10 06:03:44.224 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-10 06:03:44.224 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-10 06:03:44.244 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[2] and remote chip ids {} (cluster.cpp:173)
+2026-08-10 06:03:44.244 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-10 06:03:44.244 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
+2026-08-10 06:03:44.244 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-10 06:03:44.244 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:202)
+2026-08-10 06:03:44.244 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
+2026-08-10 06:03:44.343 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
+2026-08-10 06:03:44.400 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:433)
+2026-08-10 06:03:44.400 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-10 06:03:44.400 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-10 06:03:44.401 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1176)
+2026-08-10 06:03:44.401 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1422)
+2026-08-10 06:03:44.401 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2410)
+2026-08-10 06:03:44.401 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2418)
+conv tile        fp32 best_ms=  16.954 median_ms=  17.055 stdev_ms= 0.136 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 (self) max_abs_diff=0.000e+00
+conv rm_shift    fp32 best_ms=  16.785 median_ms=  16.847 stdev_ms= 0.051 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv rm_concat   fp32 best_ms=  15.247 median_ms=  15.315 stdev_ms= 0.036 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv rm_arith    fp32 best_ms=  14.189 median_ms=  14.290 stdev_ms= 0.065 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv aligned_win fp32 best_ms=  19.065 median_ms=  19.149 stdev_ms= 0.040 pcc_vs_torch=1.000000 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv tile        bf16 best_ms=   5.534 median_ms=   5.626 stdev_ms= 0.043 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 (self) max_abs_diff=0.000e+00
+conv rm_shift    bf16 best_ms=   5.385 median_ms=   5.489 stdev_ms= 0.032 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv rm_concat   bf16 best_ms=   4.579 median_ms=   4.709 stdev_ms= 0.039 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv rm_arith    bf16 best_ms=   7.317 median_ms=   7.419 stdev_ms= 0.032 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+conv aligned_win bf16 best_ms=   6.707 median_ms=   6.838 stdev_ms= 0.041 pcc_vs_torch=0.999990 pcc_vs_first=1.000000 max_abs_diff=0.000e+00
+multiply bcast fp32 best_ms=   2.176 median_ms=   2.280 stdev_ms= 0.031 eff_GBps=   73.7
+multiply same  fp32 best_ms=   0.644 median_ms=   0.708 stdev_ms= 0.020 eff_GBps=  355.7
+multiply bcast bf16 best_ms=   0.348 median_ms=   0.444 stdev_ms= 0.030 eff_GBps=  189.0
+multiply same  bf16 best_ms=   0.372 median_ms=   0.433 stdev_ms= 0.023 eff_GBps=  290.8
 nanobind: leaked 1 instances!
- - leaked instance 0x70cecf8bb1c8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x74b46b7cf078 of type "ttnn._ttnn.tensor.CoreRangeSet"
 nanobind: leaked 42 types!
  - leaked type "DispatchCoreAxis"
  - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
@@ -50,22 +50,22 @@ nanobind: leaked 42 types!
  - leaked type "Layout"
  - ... skipped remainder
 nanobind: leaked 347 functions!
- - leaked function ""
- - leaked function "__repr__"
- - leaked function "empty"
+ - leaked function "extract_shard"
  - leaked function ""
  - leaked function ""
- - leaked function "from_json"
+ - leaked function "create_submesh"
  - leaked function ""
+ - leaked function "__iter__"
  - leaked function ""
- - leaked function "__len__"
- - leaked function "reset_sub_device_stall_group"
+ - leaked function "buffer_aligned_page_size"
+ - leaked function "get_max_worker_l1_unreserved_size"
+ - leaked function "get_device_ids"
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.
-See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-10 05:00:45.898 | info     |    BuildKernels | JIT cache stats: 163/163 hits (100.0%) [163 cached, 103 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
-2026-08-10 05:00:45.898 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
-2026-08-10 05:00:45.904 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
-2026-08-10 05:00:45.904 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
-2026-08-10 05:00:46.053 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
-2026-08-10 05:00:46.053 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
-2026-08-10 05:00:46.053 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-10 06:03:58.713 | info     |    BuildKernels | JIT cache stats: 163/163 hits (100.0%) [163 cached, 103 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-10 06:03:58.713 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-10 06:03:58.719 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-10 06:03:58.719 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
+2026-08-10 06:03:58.823 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
+2026-08-10 06:03:58.823 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
+2026-08-10 06:03:58.823 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
