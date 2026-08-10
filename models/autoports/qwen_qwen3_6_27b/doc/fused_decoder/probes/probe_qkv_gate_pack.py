@@ -62,10 +62,14 @@ def median_us(fn, device, iters):
     return statistics.median(samples), statistics.stdev(samples)
 
 
-#: ``(label, hidden, first width, second width)`` - the two pairs, each read by one LHS.
+#: ``(label, hidden, first width, second width, first dtype, second dtype)`` - the two pairs, each
+#: read by one LHS, at the output dtypes the layer actually ships.  ``in_proj_qkv`` emits float32
+#: because the causal conv carries its state in float32; a packed matmul has *one* output dtype, so
+#: the packed form has to emit float32 for both, which is the trade this measures rather than a
+#: bfloat16-everywhere comparison that the layer could not use.
 PAIRS = (
-    ("qkv_gate", HIDDEN, QKV, GATE),
-    ("qkv_z", HIDDEN, 10240, 6144),
+    ("qkv_gate", HIDDEN, QKV, GATE, ttnn.bfloat16, ttnn.bfloat16),
+    ("qkv_z", HIDDEN, 10240, 6144, ttnn.float32, ttnn.bfloat16),
 )
 
 
@@ -80,7 +84,10 @@ def main() -> None:
         def dev(tensor, dtype=ttnn.bfloat16):
             return ttnn.from_torch(tensor, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device)
 
-        for label, hidden, first, second in PAIRS:
+        for label, hidden, first, second, first_dtype, second_dtype in PAIRS:
+            # The packed form must emit one dtype for both halves; float32 when either half needs
+            # it, which is the honest cost of the merge.
+            packed_dtype = ttnn.float32 if ttnn.float32 in (first_dtype, second_dtype) else ttnn.bfloat16
             merged_width = first + second
             w_first = torch.randn(hidden, first) * 0.02
             w_second = torch.randn(hidden, second) * 0.02
@@ -92,12 +99,12 @@ def main() -> None:
                 x = dev(torch.randn(1, 1, rows, hidden))
 
                 def split_form():
-                    one = ttnn.linear(x, t_first, dtype=ttnn.bfloat16, compute_kernel_config=cfg)
-                    two = ttnn.linear(x, t_second, dtype=ttnn.bfloat16, compute_kernel_config=cfg)
+                    one = ttnn.linear(x, t_first, dtype=first_dtype, compute_kernel_config=cfg)
+                    two = ttnn.linear(x, t_second, dtype=second_dtype, compute_kernel_config=cfg)
                     return one, two
 
                 def packed_form():
-                    both = ttnn.linear(x, t_merged, dtype=ttnn.bfloat16, compute_kernel_config=cfg)
+                    both = ttnn.linear(x, t_merged, dtype=packed_dtype, compute_kernel_config=cfg)
                     one = ttnn.slice(both, [0, 0, 0, 0], [1, 1, rows, first])
                     two = ttnn.slice(both, [0, 0, 0, first], [1, 1, rows, merged_width])
                     ttnn.deallocate(both)
@@ -113,9 +120,12 @@ def main() -> None:
                 iters = 9 if rows > 256 else 25
                 split_median, split_stdev = median_us(split_form, device, iters)
                 packed_median, packed_stdev = median_us(packed_form, device, iters)
+                names = {ttnn.float32: "fp32", ttnn.bfloat16: "bf16"}
                 print(
                     f"{label} rows={rows:5d} split_us={split_median:9.1f} ({split_stdev:6.1f}) "
                     f"packed_us={packed_median:9.1f} ({packed_stdev:6.1f}) "
+                    f"split_dtypes={names[first_dtype]}/{names[second_dtype]} "
+                    f"packed_dtype={names[packed_dtype]} "
                     f"pcc_first={agree_one:.6f} pcc_second={agree_two:.6f}",
                     flush=True,
                 )

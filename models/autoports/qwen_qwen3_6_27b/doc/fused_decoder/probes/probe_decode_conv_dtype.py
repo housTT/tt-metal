@@ -32,7 +32,9 @@ import ttnn
 
 CONV_DIM = 10240
 K_SIZE = 4
-BATCHES = (1, 32)
+#: Every batch the layer can be built at that the sweep can distinguish, so the crossing between
+#: the two dtypes is measured rather than interpolated.
+BATCHES = (1, 4, 8, 16, 32)
 
 
 def pcc(a, b):
@@ -74,15 +76,23 @@ def main() -> None:
             token32 = dev(token_host, ttnn.float32)
             state32 = [dev(row, ttnn.float32) for row in state_host]
 
+            def _accumulate(acc, piece, weight, index):
+                """The shipped tap arithmetic (§3.23): ``addcmul`` except on the SiLU-carrying tap."""
+                if index != K_SIZE - 2:
+                    merged = ttnn.addcmul(acc, piece, weight)
+                    ttnn.deallocate(acc)
+                    return merged
+                term = ttnn.multiply(piece, weight)
+                merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU])
+                ttnn.deallocate(term)
+                ttnn.deallocate(acc)
+                return merged
+
             def float32_form():
-                """What the fused decoder ships: every tap multiply in float32."""
+                """What the fused decoder ships: every tap in float32."""
                 acc = ttnn.multiply(token32, taps32[K_SIZE - 1])
                 for j in range(K_SIZE - 1):
-                    term = ttnn.multiply(state32[j], taps32[j])
-                    merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == K_SIZE - 2 else [])
-                    ttnn.deallocate(term)
-                    ttnn.deallocate(acc)
-                    acc = merged
+                    acc = _accumulate(acc, state32[j], taps32[j], j)
                 return acc
 
             def bfloat16_form():
@@ -90,14 +100,13 @@ def main() -> None:
                 token16 = ttnn.typecast(token32, ttnn.bfloat16)
                 acc = ttnn.multiply(token16, taps16[K_SIZE - 1])
                 ttnn.deallocate(token16)
+                casts = []
                 for j in range(K_SIZE - 1):
                     state16 = ttnn.typecast(state32[j], ttnn.bfloat16)
-                    term = ttnn.multiply(state16, taps16[j])
+                    casts.append(state16)
+                    acc = _accumulate(acc, state16, taps16[j], j)
+                for state16 in casts:
                     ttnn.deallocate(state16)
-                    merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == K_SIZE - 2 else [])
-                    ttnn.deallocate(term)
-                    ttnn.deallocate(acc)
-                    acc = merged
                 return acc
 
             got32 = ttnn.to_torch(float32_form()).float()

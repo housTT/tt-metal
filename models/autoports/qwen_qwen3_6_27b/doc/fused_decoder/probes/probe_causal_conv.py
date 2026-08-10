@@ -20,6 +20,11 @@ Variants compared (all produce the same FIR + SiLU, all checked against torch):
 ``scale_shift`` scale on the TILE tensor first, then untilize once per tap and shift-and-add in
                 ROW_MAJOR - the only ordering that moves the per-tap tilize off the critical path
 
+Every formulation accumulates the way the shipped FIR does (``_accumulate``: ``ttnn.addcmul`` for
+the non-final taps, a multiply and an add for the last so the SiLU can ride on it), except where
+the arithmetic is in ROW_MAJOR and ``addcmul`` is contract-blocked - so this stays a comparison of
+layouts rather than of tap arithmetic.
+
 Each runs in float32 and in bfloat16; every result is checked against torch *and* against the
 first variant's, so "the formulations agree" is a measurement.  A final microbenchmark isolates
 broadcast-vs-same-shape multiply bandwidth.
@@ -64,6 +69,33 @@ def timed(fn, device, iters=12):
     return (min(samples), statistics.median(samples), statistics.stdev(samples)), got
 
 
+def _accumulate(acc, piece, weight, index, last, silu_on_last=True):
+    """``acc + piece * weight``, the way the shipped FIR does it (§3.23).
+
+    Non-final taps are one ``ttnn.addcmul``; the final tap keeps a separate multiply and add so
+    the SiLU can ride on the add.  Every formulation below uses this, so the comparison stays a
+    comparison of *layouts* rather than of tap arithmetic - a stage review found this probe's
+    "what ships" variant still using the pre-§3.23 sequence.
+    """
+    if acc is None:
+        out = ttnn.multiply(piece, weight)
+        return out
+    # ``addcmul`` is TILE-only on this checkout (``ternary_device_operation.cpp``: "Ternary
+    # operation requires tensor to be in Tile layout"), so the all-ROW_MAJOR formulation cannot
+    # use it and keeps the two-op form.  That is an exact op-contract blocker, and one more
+    # reason the shipped formulation is the TILE-arithmetic one.
+    row_major = acc.layout != ttnn.TILE_LAYOUT or piece.layout != ttnn.TILE_LAYOUT
+    if index != last and not row_major:
+        merged = ttnn.addcmul(acc, piece, weight)
+        ttnn.deallocate(acc)
+        return merged
+    term = ttnn.multiply(piece, weight)
+    merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if silu_on_last else [])
+    ttnn.deallocate(term)
+    ttnn.deallocate(acc)
+    return merged
+
+
 def main() -> None:
     device = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)
     try:
@@ -87,13 +119,8 @@ def main() -> None:
                 acc = None
                 for j in range(K):
                     tap = ttnn.slice(window, [0, 0, j, 0], [1, 1, j + SEQ, CONV_DIM])
-                    term = ttnn.multiply(tap, tt_taps[j])
+                    acc = _accumulate(acc, tap, tt_taps[j], j, K - 1, silu_on_last=False)
                     ttnn.deallocate(tap)
-                    if acc is None:
-                        acc = term
-                    else:
-                        acc = ttnn.add(acc, term)
-                        ttnn.deallocate(term)
                 ttnn.deallocate(window)
                 out = ttnn.silu(acc)
                 ttnn.deallocate(acc)
@@ -108,13 +135,8 @@ def main() -> None:
                     piece = ttnn.slice(rm, [0, 0, j, 0], [1, 1, j + SEQ, CONV_DIM])
                     tap = ttnn.to_layout(piece, ttnn.TILE_LAYOUT)
                     ttnn.deallocate(piece)
-                    term = ttnn.multiply(tap, tt_taps[j])
+                    acc = _accumulate(acc, tap, tt_taps[j], j, K - 1, silu_on_last=False)
                     ttnn.deallocate(tap)
-                    if acc is None:
-                        acc = term
-                    else:
-                        acc = ttnn.add(acc, term)
-                        ttnn.deallocate(term)
                 ttnn.deallocate(rm)
                 out = ttnn.silu(acc)
                 ttnn.deallocate(acc)
@@ -136,15 +158,8 @@ def main() -> None:
                     piece = ttnn.slice(rm, [0, 0, j, 0], [1, 1, j + SEQ, CONV_DIM])
                     tap = ttnn.to_layout(piece, ttnn.TILE_LAYOUT)
                     ttnn.deallocate(piece)
-                    term = ttnn.multiply(tap, tt_taps[j])
+                    acc = _accumulate(acc, tap, tt_taps[j], j, K - 1)
                     ttnn.deallocate(tap)
-                    if acc is None:
-                        acc = term
-                        continue
-                    merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU] if j == K - 1 else [])
-                    ttnn.deallocate(term)
-                    ttnn.deallocate(acc)
-                    acc = merged
                 ttnn.deallocate(rm)
                 return acc
 
@@ -157,13 +172,8 @@ def main() -> None:
                 acc = None
                 for j in range(K):
                     tap = ttnn.slice(rm, [0, 0, j, 0], [1, 1, j + SEQ, CONV_DIM])
-                    term = ttnn.multiply(tap, rm_taps[j])
+                    acc = _accumulate(acc, tap, rm_taps[j], j, K - 1, silu_on_last=False)
                     ttnn.deallocate(tap)
-                    if acc is None:
-                        acc = term
-                    else:
-                        acc = ttnn.add(acc, term)
-                        ttnn.deallocate(term)
                 ttnn.deallocate(rm)
                 for t in rm_taps:
                     ttnn.deallocate(t)
@@ -193,13 +203,8 @@ def main() -> None:
                     start = lead + j
                     tap = ttnn.slice(window, [0, 0, start, 0], [1, 1, start + SEQ, CONV_DIM])
                     ttnn.deallocate(window)
-                    term = ttnn.multiply(tap, tt_taps[j])
+                    acc = _accumulate(acc, tap, tt_taps[j], j, K - 1, silu_on_last=False)
                     ttnn.deallocate(tap)
-                    if acc is None:
-                        acc = term
-                    else:
-                        acc = ttnn.add(acc, term)
-                        ttnn.deallocate(term)
                 out = ttnn.silu(acc)
                 ttnn.deallocate(acc)
                 return out

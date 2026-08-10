@@ -209,6 +209,18 @@ _GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
 #: ``test_batched_users[16-linear_attention]`` covers the boundary.
 _GATED_NORM_GROUP_BATCH = 16
 
+#: The *decode* causal-conv FIR stays float32, and this constant is why it is not a knob.
+#:
+#: ``doc/fused_decoder/probes/probe_decode_conv_dtype.py`` measures the bfloat16 form as clearly
+#: faster from batch 4 up (the table is ``work_log.md`` §3.25) - and it was built, shipped behind
+#: this threshold, and **reverted**, because the suite caught what the probe cannot see: the decode
+#: FIR's output feeds the *recurrent state*, whose error compounds across steps, and batched traced
+#: decode fell to PCC 0.98 against HF - below the 0.995 bar.  The prefill FIR can be bfloat16
+#: because its output feeds ``chunk_gated_delta_rule``, which casts to bfloat16 anyway and
+#: accumulates the state in-kernel at higher precision.  The one-token FIR has no such kernel
+#: behind it.
+_DECODE_CONV_BF16_BATCH = None
+
 #: Epsilon of the GatedDeltaNet Q/K L2 norm, matching HF's ``l2norm(x, dim=-1, eps=1e-6)`` and
 #: the functional layer's ``FunctionalDecoder._l2norm``.
 _L2NORM_EPS = 1e-6
@@ -947,8 +959,10 @@ class FusedDecoder(FunctionalDecoder):
         s = self.shapes
         batch = self.max_batch
         nv = s.num_v_heads
-        taps = self.w["conv_taps"]
         k_size = s.conv_kernel_size
+        # §3.25: float32, always - the bfloat16 form is faster and loses PCC.
+        bf16_fir = _DECODE_CONV_BF16_BATCH is not None and batch >= _DECODE_CONV_BF16_BATCH
+        taps = self.w["conv_taps_bf16"] if bf16_fir else self.w["conv_taps"]
 
         # ``raw_beta``: the sigmoid rides on the ``delta`` multiply below instead of being its own
         # op, which the prefill path cannot do because ``beta`` is an op *input* there.
@@ -956,24 +970,36 @@ class FusedDecoder(FunctionalDecoder):
 
         # Depthwise causal conv over the batch-major tap buffers: tap j reads a whole buffer, the
         # newest tap reads this token, and the shift is an in-place copy chain.
-        acc = ttnn.multiply(mixed_qkv, taps[k_size - 1])
+        token = ttnn.typecast(mixed_qkv, ttnn.bfloat16) if bf16_fir else mixed_qkv
+        acc = ttnn.multiply(token, taps[k_size - 1])
+        if bf16_fir:
+            ttnn.deallocate(token)
+        cast_rows = []
         for j in range(k_size - 1):
             # Buffer ``j`` is packed row ``j``; the FIR's tap ``j`` reads the *previous* tokens,
             # which are rows 1..K-1.  Row 0 is the token that falls out of the window this step,
             # and it is kept only so :meth:`current_conv_state` can rebuild the packed state the
             # functional layer maintains - see that method.
+            row = self.conv_state_split[j + 1]
+            if bf16_fir:
+                # Cast a *copy* of the carried row; the buffer itself stays float32, so the
+                # recurrence's carried precision is unchanged (§3.25).
+                row = ttnn.typecast(row, ttnn.bfloat16)
+                cast_rows.append(row)
             if j == k_size - 2:
                 # The last tap keeps its own multiply, because the SiLU rides on this add and
                 # ``addcmul`` has no activation slot (§3.14).
-                term = ttnn.multiply(self.conv_state_split[j + 1], taps[j])
+                term = ttnn.multiply(row, taps[j])
                 merged = ttnn.add(acc, term, activations=[ttnn.UnaryOpType.SILU])
                 ttnn.deallocate(term)
             else:
                 # ``acc + state * tap`` in one op.  Nothing rides on these adds, so §3.14's
                 # blocker does not apply to them - §3.23.
-                merged = ttnn.addcmul(acc, self.conv_state_split[j + 1], taps[j])
+                merged = ttnn.addcmul(acc, row, taps[j])
             ttnn.deallocate(acc)
             acc = merged
+        for row in cast_rows:
+            ttnn.deallocate(row)
         for j in range(k_size - 1):
             ttnn.copy(self.conv_state_split[j + 1], self.conv_state_split[j])
         ttnn.copy(mixed_qkv, self.conv_state_split[k_size - 1])

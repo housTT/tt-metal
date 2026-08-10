@@ -21,7 +21,7 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
     -v -s
 ```
 
-Result: **21 passed, 66 deselected** in 385.27 s. Selected tests:
+Result: **21 passed, 66 deselected** in 385.20 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
@@ -54,7 +54,7 @@ alternate page block sizes through prefill *and* decode, and the advertised-`max
 The selected tests are listed below, read from the run log rather than described. Run log:
 `../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (11069 lines, 78 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (11077 lines, 78 `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
 repo's 500 KB per-file commit limit, and so is `kernel_elf_paths.txt`. The
 `generated/inspector/` tree the run also emits is not stage evidence and is not committed.
@@ -72,11 +72,11 @@ Line categories present, all normal watcher bookkeeping:
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
    5148 Device
-   1324 k_ids:
+   1586 k_ids:
     770 k_ids:294|293|295|295|295
-    440 k_ids:2451|2450|
-    336 k_ids:3516|3515|3517|3517|3517
+    336 k_ids:3558|3557|3559|3559|3559
     312 k_ids:3865|3864|3866|3866|3866
+    288 k_ids:4110|4109|4111|4111|4111
 ```
 
 `Dump` lines delimit the periodic watcher dumps; `Device` / `k_id` / `k_ids` lines are the

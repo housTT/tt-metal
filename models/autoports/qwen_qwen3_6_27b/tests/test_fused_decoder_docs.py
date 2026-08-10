@@ -872,10 +872,18 @@ def test_readme_watcher_claims_match_the_audit():
         for line in text.splitlines():
             if "WATCHER_AUDIT" not in line and "watcher/WATCHER_AUDIT.md" not in line:
                 continue
-            for number in re.findall(r"(?<![\w.])(\d+)(?![\w])", line):
-                assert (
-                    number in audit
-                ), f"{name} quotes {number} on a line naming the watcher audit; the audit does not state it"
+            # A *count*, not any integer: a §8 narrative row that names the audit and a review
+            # round in the same sentence is not quoting a quantity of the run.
+            counts = re.findall(
+                r"(?<![\w.])(\d+)(?![\w])\s*(?:passed|selected|deselected|lines|dumps|tests|runs|cases)",
+                line,
+            )
+            for number in counts:
+                # Word-boundaried, not a substring: "11" is inside the audit's "11077 lines" and
+                # a substring test would accept it.
+                assert re.search(
+                    rf"(?<![\d.]){number}(?![\d])", audit
+                ), f"{name} quotes {number} as a watcher-run count; the audit does not state it"
 
 
 def test_generated_blocks_are_current():

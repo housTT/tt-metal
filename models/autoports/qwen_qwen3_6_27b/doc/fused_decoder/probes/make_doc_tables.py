@@ -568,30 +568,53 @@ def before_breakdown() -> str:
 
 
 def qkv_gate_table() -> str:
-    """Both shared-LHS pairs: two matmuls, or one and two slices."""
+    """Both shared-LHS pairs: two matmuls, or one and two slices, at the shipped output dtypes.
+
+    The verdict cell and the closing sentence are derived from the measured medians and spreads -
+    a stage review found this table asserting "within a stdev" over numbers that were not, and
+    bolding the shipped column unconditionally.
+    """
     pairs = {
         "qkv_gate": "`full_attention` `wqkv` + `wgate`",
         "qkv_z": "`linear_attention` `in_proj_qkv` + `in_proj_z`",
     }
-    rows = ["| pair | rows | two matmuls (shipped) | one packed matmul + 2 slices |", "|---|---|---|---|"]
+    rows = [
+        "| pair | rows | output dtypes | two matmuls (shipped) | one packed matmul + 2 slices | verdict |",
+        "|---|---|---|---|---|---|",
+    ]
+    ties = []
     for key, label in pairs.items():
         for rows_label, pattern in (("2048 (prefill)", "2048"), ("32 (decode)", "32")):
             match = re.search(
-                rf"{key} rows=\s*{pattern} split_us=\s*([\d.]+) \(\s*[\d.]+\) "
-                rf"packed_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_first=([\d.]+)",
+                rf"{key} rows=\s*{pattern} split_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+                rf"packed_us=\s*([\d.]+) \(\s*([\d.]+)\) split_dtypes=(\S+) packed_dtype=(\S+) "
+                rf"pcc_first=([\d.]+)",
                 _probe("probe_qkv_gate_pack"),
             )
             if not match:
                 raise SystemExit(f"probe_qkv_gate_pack.log has no {key} row for {pattern}")
-            rows.append(f"| {label} | {rows_label} | **{match.group(1)} us** | {match.group(2)} us |")
+            split, split_spread = float(match.group(1)), float(match.group(2))
+            packed, packed_spread = float(match.group(3)), float(match.group(4))
+            if abs(split - packed) <= split_spread + packed_spread:
+                verdict, mark_split, mark_packed = "tie", "", ""
+                ties.append(f"{key} at {rows_label.split()[0]} rows")
+            elif split < packed:
+                verdict, mark_split, mark_packed = "shipped wins", "**", ""
+            else:
+                verdict, mark_split, mark_packed = "**packed wins**", "", "**"
+            rows.append(
+                f"| {label} | {rows_label} | {match.group(5)} split, {match.group(6)} packed | "
+                f"{mark_split}{match.group(1)} us{mark_split} | {mark_packed}{match.group(3)} us{mark_packed} | "
+                f"{verdict} |"
+            )
     rows.append("")
     rows.append(
-        "Median over 25 repeats (9 at 2048 rows), outputs identical (PCC 1.000000). Both pairs "
-        "lose the merge at prefill by a third or more: the two slices of the merged output are "
-        "full copies of a wide TILE tensor, which costs more than the activation re-read and the "
-        "dispatch it saves. At decode both are within a stdev of each other. The "
-        "`linear_attention` pair is the one with no dtype objection - both weights are bfloat16 - "
-        "so the cut is the whole of the answer there."
+        "Median over 25 repeats (9 at 2048 rows), outputs identical to the precision the dtypes "
+        "allow. A row is a tie when the two medians are inside their combined spread"
+        + (f" - that is the case for {', '.join(ties)}." if ties else ", which happens in none of them.")
+        + " The output dtype matters and is measured, not assumed: `in_proj_qkv` emits float32 "
+        "because the causal conv carries float32 state, and a packed matmul has one output dtype, "
+        "so the merge would push `in_proj_z` to float32 as well."
     )
     return "\n".join(rows)
 
@@ -1070,6 +1093,31 @@ def dense_recurrence() -> str:
     return "\n".join(rows)
 
 
+def decode_conv_dtype() -> str:
+    """The decode FIR in float32 or bfloat16, swept across the batches the layer can be built at."""
+    rows = ["| batch | float32 (shipped) | bfloat16 | PCC of each against torch |", "|---|---|---|---|"]
+    for match in re.finditer(
+        r"decode_conv batch=\s*(\d+) float32_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+        r"bfloat16_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc_float32_vs_torch=([\d.]+) "
+        r"pcc_bfloat16_vs_torch=([\d.]+)",
+        _probe("probe_decode_conv_dtype"),
+    ):
+        batch, f32, f32_spread, bf16, bf16_spread = match.group(1), *(float(match.group(i)) for i in (2, 3, 4, 5))
+        if abs(f32 - bf16) <= f32_spread + bf16_spread:
+            cells = (f"{f32:.1f} us", f"{bf16:.1f} us", "tie")
+        elif f32 < bf16:
+            cells = (f"**{f32:.1f} us**", f"{bf16:.1f} us", "float32 faster")
+        else:
+            cells = (f"{f32:.1f} us", f"**{bf16:.1f} us**", "bfloat16 faster")
+        rows.append(f"| {batch} | {cells[0]} | {cells[1]} | {match.group(6)} / {match.group(7)} ({cells[2]}) |")
+    rows.append("")
+    rows.append(
+        "Median over 25 repeats, both forms accumulating the way the shipped FIR does. The bolded "
+        "cell is the faster of the pair where they are outside their combined spread."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -1097,6 +1145,7 @@ BLOCKS = {
     "addcmul_state": addcmul_state,
     "conv_tap_addcmul": conv_tap_addcmul,
     "dense_recurrence": dense_recurrence,
+    "decode_conv_dtype": decode_conv_dtype,
     "rope_half": rope_half,
     "rope_half_traced": rope_half_traced,
     "slow_rows": slow_rows,

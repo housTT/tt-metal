@@ -42,15 +42,15 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 151.120 ms | **25.773 ms** | **5.86x** | 801 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.034 ms | **2.354 ms** | **1.29x** | 92 | 67 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.611 ms | **5.162 ms** | **7.09x** | 93 | 70 |
-| `full_attention` | prefill, 2048 tokens | 18.507 ms | **17.783 ms** | **1.04x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.076 ms** | **1.09x** | 50 | 50 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.867 ms** | **1.07x** | 49 | 49 |
+| `linear_attention` | prefill, 2048 tokens | 150.965 ms | **25.711 ms** | **5.87x** | 801 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.042 ms | **2.350 ms** | **1.29x** | 92 | 67 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.621 ms | **5.166 ms** | **7.09x** | 93 | 70 |
+| `full_attention` | prefill, 2048 tokens | 18.556 ms | **17.786 ms** | **1.04x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.269 ms | **2.072 ms** | **1.09x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.068 ms | **2.868 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
-Every row is faster **and** smaller; the stage contract is the first of those, not the second.
+Every row is faster, and none is larger; the stage contract is the first of those, not the second.
 The batch-32 `linear_attention` row is the largest single win in the stage after the prefill,
 and most of it is **not** the recurrence. In the committed baseline report the stage-1 decode's
 projections run as 32 separate padded batched matmuls — it reshapes the hidden state to
@@ -69,10 +69,10 @@ the `Device Time` column of the committed `tt-perf-report` CSVs.
 <!-- GENERATED:batch32_shares -->
 | pass | bucket | batch 1 | batch 32 | growth |
 |---|---|---|---|---|
-| `linear_attention` | `batched_matmul` | 0.060 ms (2.5 %) | 1.253 ms (24.3 %) | 20.9x |
-| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.788 ms (15.3 %) | 14.6x |
+| `linear_attention` | `batched_matmul` | 0.060 ms (2.6 %) | 1.254 ms (24.3 %) | 20.9x |
+| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.787 ms (15.2 %) | 14.6x |
 | `linear_attention` | `elementwise` | 0.123 ms (5.2 %) | 0.239 ms (4.6 %) | 1.9x |
-| `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.946 ms (18.3 %) | 4.6x |
+| `linear_attention` | `layout` | 0.206 ms (8.8 %) | 0.947 ms (18.3 %) | 4.6x |
 | `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.1 %) | 8.3x |
 <!-- END GENERATED:batch32_shares -->
 
@@ -117,23 +117,23 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.471 ms | 1.883 ms | 1.906 ms | 13.467 ms | 1.811 ms | 1.809 ms |
-| `gated_delta_rule` | 2.816 ms | — | — | — | — | — |
-| `state_update` (the fused recurrent-state update, §3.21) | 0.751 ms | 0.054 ms | 0.788 ms | — | — | — |
-| `sdpa` | — | — | — | 1.280 ms | 0.104 ms | 0.864 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.253 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.780 ms | 0.207 ms | 0.946 ms | 1.056 ms | 0.044 ms | 0.056 ms |
-| `elementwise` | 2.579 ms | 0.123 ms | 0.239 ms | 1.016 ms | 0.046 ms | 0.045 ms |
-| `norm` | 0.375 ms | 0.027 ms | 0.031 ms | 0.539 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.423 ms | 0.045 ms | 0.065 ms |
-| **total** | **25.773 ms** | **2.354 ms** | **5.162 ms** | **17.783 ms** | **2.076 ms** | **2.867 ms** |
+| `matmul` (projections, MLP, gated-norm constants) | 14.481 ms | 1.879 ms | 1.907 ms | 13.473 ms | 1.807 ms | 1.808 ms |
+| `gated_delta_rule` | 2.777 ms | — | — | — | — | — |
+| `state_update` (the fused recurrent-state update, §3.21) | 0.747 ms | 0.054 ms | 0.787 ms | — | — | — |
+| `sdpa` | — | — | — | 1.278 ms | 0.104 ms | 0.864 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.254 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.783 ms | 0.206 ms | 0.947 ms | 1.067 ms | 0.044 ms | 0.056 ms |
+| `elementwise` | 2.549 ms | 0.123 ms | 0.239 ms | 1.016 ms | 0.046 ms | 0.045 ms |
+| `norm` | 0.374 ms | 0.028 ms | 0.031 ms | 0.536 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.416 ms | 0.045 ms | 0.066 ms |
+| **total** | **25.711 ms** | **2.350 ms** | **5.166 ms** | **17.786 ms** | **2.072 ms** | **2.868 ms** |
 
 Every op is classified: the `other` bucket is empty in all 12 measured passes.
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
 which the probe measures in isolation (`logs/probe_causal_conv.log`) and which `work_log.md`
-§3.7 records five whole formulations for; the rest is the delta-rule output relayout (§3.13
+§3.7 records every formulation of; the rest is the delta-rule output relayout (§3.13
 measures the alternative at 2x the cost), the MLP's two slices (§3.8 measures the alternative
 as clearly slower), the three `_split_qkv` slices and the rank-3 conversion of `beta`/`g` (§3.19
 measures moving that rank change and finds a tie). The batch-32 decode's `layout` bucket is the
@@ -231,7 +231,7 @@ graph is the one running:
 | test | what it pins |
 |---|---|
 | `test_fused_ops_are_dispatched` | every op in `FusedDecoder.FUSED_OPS` — `chunk_gated_delta_rule`, `rotary_embedding_hf` and `addcmul` — is really dispatched on a real prefill/decode pass; the call counts are recorded in `pcc_evidence.json` rather than asserted, so a graph change that dispatches one more is not a failure. `rotate_half` is deliberately absent: §3.22 measured it and kept the spelled-out form |
-| `test_fused_graph_is_smaller` | `ttnn` op count per pass falls, counted at the python boundary (so it differs from the device op counts above) - see below |
+| `test_fused_graph_is_smaller` | `ttnn` op count per pass falls at prefill and does not rise at decode (§3.22 trades six ops for device time there), counted at the python boundary (so it differs from the device op counts above) - see below |
 | `test_fused_matches_functional` | fused and functional agree with **each other** from identical weights and inputs, not only with HF |
 | `test_no_layout_round_trip_in_the_measured_pass` (in `test_fused_decoder_docs.py`) | the committed `tt-perf-report` op sequence contains no `Tilize*` immediately followed by an `Untilize*`. Reading the *device* report is the point: `ttnn.concat` and `ttnn.slice` relayout inside themselves, so a python-level trap cannot see them - which is how a round trip over the whole conv window survived three review rounds |
 | `test_no_redundant_relayout_in_measured_prefill` | the same property at the python-call level, on the calls the *layer itself* makes. Weaker than the report-level check above and kept alongside it, not instead of it |
@@ -324,7 +324,7 @@ for two `bfloat16 -> bfloat16` no-ops.
 a head-channel permutation that would make RoPE a single op, `paged_fused_update_cache`,
 `group_attn_matmul`, `hc_sum_reduce` / `repeat_and_interleave_eltwise_mul`, `ttnn.conv1d`,
 `output_head_major` on the delta-rule op, `ttnn.addcmul` for the conv taps,
-four alternative causal-conv formulations, split gate/up MLP matmuls, packing
+every other causal-conv formulation, split gate/up MLP matmuls, packing
 `in_proj_qkv`/`in_proj_z` into the a/b matmul, and removing `repeat_interleave` from the decode
 GQA head expansion. See [`work_log.md`](work_log.md) §5.
 
