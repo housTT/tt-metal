@@ -45,7 +45,8 @@ so the idiomatic fused op sequence for both of this model's mixers is available 
 | `ttnn.transformer.chunk_gated_delta_rule` | the whole `linear_attention` prefill delta-rule core | **taken** (§3.1) |
 | `ttnn.transformer.gated_delta_attn_seq` | the same core, but as a scan kernel fed by python/ttnn preprocessing | rejected: strictly more ops than the above, which is the fully-fused successor (`fused_chunk.py` in the demo says so and uses the fused op for prefill) |
 | `ttnn.experimental.rotary_embedding_hf` | prefill partial RoPE | **taken** (§3.2) |
-| `ttnn.experimental.rotate_half` | decode partial RoPE's slice/slice/neg/concat | **taken** (§3.2) |
+| `ttnn.experimental.rotate_half` | decode partial RoPE's slice/slice/neg/concat | taken in §3.2, then **reverted on measurement** in §3.22: single-core by construction |
+| `ttnn.addcmul` | decode recurrent-state update's multiply + add | **taken** (§3.21) |
 | `ttnn.experimental.rotary_embedding` / `rotary_embedding_llama` / `rotary_embedding_llama_fused_qk` | ditto | rejected: rotate-half over the **whole** head_dim, and this model's rotary factor is 0.25, so they cannot express the partial rotation without permuting head channels (§3.2) |
 | `ttnn.experimental.paged_fused_update_cache` | the two decode `paged_update_cache` calls | rejected with an exact op-contract blocker (§3.5) |
 | `ttnn.experimental.group_attn_matmul` | the decode recurrent-state read | rejected with an exact op-contract blocker (§3.6) |
@@ -69,10 +70,9 @@ From `doc/functional_decoder/tracy/*/{prefill,decode}_perf_report.csv`, warmed, 
 | `batched_matmul` (the spelled-out delta rule / recurrence) | 79.040 ms | 0.259 ms | — | — |
 | `sdpa` | — | — | 1.280 ms | 0.104 ms |
 | `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 33.417 ms | 0.289 ms | 1.142 ms | 0.038 ms |
-| `elementwise` | 23.487 ms | 0.290 ms | 1.854 ms | 0.053 ms |
+| `elementwise` | 23.561 ms | 0.290 ms | 1.854 ms | 0.053 ms |
 | `norm` | 0.602 ms | 0.213 ms | 0.540 ms | 0.219 ms |
 | `heads_and_cache` | — | — | 0.314 ms | 0.045 ms |
-| `other` | 0.074 ms | — | — | — |
 | **total** | **151.012 ms** | **3.037 ms** | **18.601 ms** | **2.273 ms** |
 | ops in one pass | 801 | 92 | 44 | 50 |
 | op-to-op gap | 8.116 ms | 0.359 ms | 0.023 ms | 0.046 ms |
@@ -144,9 +144,10 @@ spelled-out form on `[1, 24, 2048, 256]`.
 *Decode* — the same op's decode mode needs a HEIGHT_SHARDED input **and** sharded per-user
 cos/sin (`rotary_embedding_hf_device_operation.cpp` lines 55-68), and its prefill mode
 broadcasts cos/sin over dim 1, which is the *batch* axis in the decode layout — so it cannot
-serve per-user positions. Rejected for decode with that exact contract blocker; the rotate-half
-itself is still replaced by `ttnn.experimental.rotate_half`, taking the decode RoPE from 10 ops
-to 7.
+serve per-user positions. Rejected for decode with that exact contract blocker. The rotate-half
+itself was replaced by `ttnn.experimental.rotate_half` here, which took the decode RoPE from 10
+ops to 7 — and §3.22 later measured that substitution and **reverted** it, because the dedicated
+op is single-core by construction and the op count was the wrong thing to have optimised.
 
 **Also considered, built as a probe, and rejected on the measurement:** permuting head channels
 at load time so that the rotary pairs land at `(c, c+128)` and the whole 256-wide head can go
@@ -637,8 +638,8 @@ point at which graph fusing stops being the lever and weight dtype starts.
 
 At the advertised `max_batch` of 32 the weights are the same bytes but the state is not: the
 `linear_attention` step's `batched_matmul` and `elementwise` buckets grow by more than
-twenty-fold and nearly ten-fold - the generated breakdown in [`README.md`](README.md) carries
-both columns - to half the pass between them, because the carried recurrent state is 100 MB at
+an order of magnitude - the growth table in [`README.md`](README.md) carries each bucket at both
+batches - to well over half the pass between them, because the carried recurrent state is 100 MB at
 that batch and a step decays, reads and writes it. §6.1 records every `Bound=SLOW` row of both regimes and what
 each was measured against; the levers that exist there — the two recurrence core grids, the
 `exp`/`sigmoid` folds, the per-head norm/expand order and the decode FIR's dtype — were all
@@ -648,7 +649,7 @@ layout, which is the recurrent state's *shape* rather than the graph over it: ch
 change what `prepare_decode_state` carries and what the HF cache comparison reads, so it is
 recorded in §6 rather than taken here.
 
-The full bucket breakdown of all four passes is the `breakdown_ms` block of
+The full bucket breakdown of all six measured passes is the `breakdown_ms` block of
 `perf_summary.json`, reproduced in [`README.md`](README.md); it is derived from the report's own
 op codes rather than added up by hand, and its `other` bucket is empty.
 
@@ -708,8 +709,18 @@ Median over 25 repeats, *wall clock*, so dispatch is on the critical path - whic
 Wall-clock (above) favours the dedicated op, because four dispatches cost more than one when
 dispatch is on the critical path. Under **trace**, which is how decode actually runs, dispatch is
 not on the critical path and device time is - so the whole traced `full_attention` decode pass was
-profiled with each form, and the spelled-out one is about one and a half percent faster at batch 32
-and level at batch 1. It ships. Prefill keeps `rotary_embedding_hf`, which is a different op on a
+profiled with each form, and **both runs are committed**:
+
+<!-- GENERATED:rope_half_traced -->
+| pass | dedicated `rotate_half` (rejected) | spelled out (shipped) | difference |
+|---|---|---|---|
+| `full_attention` decode, batch 1 | 2.067 ms | **2.072 ms** | -0.2 % |
+| `full_attention` decode, batch 32 | 2.911 ms | **2.865 ms** | +1.6 % |
+
+Device time per trace replay, summed over the signposted window of each committed report. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
+<!-- END GENERATED:rope_half_traced -->
+
+The spelled-out form ships. Prefill keeps `rotary_embedding_hf`, which is a different op on a
 different shape and a measured win (§3.2).
 
 This is the one place in the stage where the graph has *more* python-level ops than it could have,
@@ -789,7 +800,7 @@ Device time is the sum of the `Device Time` column of the `tt-perf-report --csv`
 | `linear_attention` | traced decode, 1 token, batch 1 | 3.037 ms | **2.345 ms** | **1.29x** | 92 | 67 |
 | `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.620 ms | **5.754 ms** | **6.36x** | 93 | 70 |
 | `full_attention` | prefill, 2048 tokens | 18.601 ms | **17.824 ms** | **1.04x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.068 ms** | **1.10x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.072 ms** | **1.10x** | 50 | 50 |
 | `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.865 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
@@ -855,7 +866,7 @@ Recorded here so "no remaining fusing" is a claim with evidence behind it, not a
 | packing `in_proj_qkv`/`in_proj_z` into the `a`/`b` matmul | DRAM-bound already; would force a weight-dtype change (§3.9) |
 | packing `in_proj_qkv` and `in_proj_z` into one matmul (the pair on its own, no dtype objection - both are bfloat16) | **measured and rejected**: it is the largest shared-LHS pair in the `linear_attention` graph, and the merged output has to be cut apart again. At 2048 rows the packed form is about 44 % slower; at decode the two are inside a stdev. Same table as §6.2 (`probes/probe_qkv_gate_pack.py`) |
 | removing `repeat_interleave` from the decode GQA head expansion | it is a relayout **inside** a dedicated op — 2 `untilize_with_unpadding` + 2 `tilize_with_val_padding` in the committed decode report, about 1 % of the step at batch 1 and half that at batch 32. The two alternatives are a `[key_dim, value_dim]` 0/1-matrix matmul, whose weight alone is 25 MB against a percent of the step in headroom, or a recurrent-state layout in which v-head `h` maps to k-head `h % num_k_heads` instead of `h // v_per_k`, which would break the direct comparison of the on-device state against HF's cache object |
-| widening the decode SDPA beyond one core per head | not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to work around an upstream cross-core tree-reduction defect in `sdpa_decode`, documented with a model-free reproducer, and hands the kernel fix to the optimization stage. It is the whole `sdpa` bucket of the fused decode breakdown — 5.1 % of the step at batch 1 and 29.7 % at the advertised `max_batch` — and this stage does not touch it |
+| widening the decode SDPA beyond one core per head | not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to work around an upstream cross-core tree-reduction defect in `sdpa_decode`, documented with a model-free reproducer, and hands the kernel fix to the optimization stage. It is the whole `sdpa` bucket of the fused decode breakdown, and the README's growth table carries its share at both batches; this stage does not touch it |
 | bfloat8/bfloat4 weights, lower math fidelity | precision policy, owned by the datatype-sweep stage; this stage changes the graph at a fixed precision policy, with the one exception in §3.7 where the arithmetic dtype *is* the graph property being measured |
 
 | merging the decode Q and K head chains into one norm, scale and rank change | **measured and rejected**: they are the same shape and take the same path, so one `rms_norm` over `2 * num_k_heads` heads with a per-head scale column replaces two - but concatenating them and cutting the result apart costs more than the shared norm saves, at both batches and with identical outputs (`probes/probe_decode_qk_pair.py`). This is the only part of the batch-32 `layout` bucket a graph rewrite can reach without changing the recurrent state's format |
@@ -1134,7 +1145,7 @@ gap between what an artifact *says* and what it *is*:
 |---|---|
 | the whole batch-32 evidence set and six probe logs were never committed - the repository ignores `*.log` and `*.csv`, earlier rounds' artifacts had been force-added by hand and rounds 5-7's had not, so every "committed artifact" sentence about the batch-32 analysis was false and the document gate could not run on a fresh clone | all of it force-added; `probes/regenerate_evidence.sh` now force-adds after every regeneration; and `::test_every_artifact_the_gate_reads_is_tracked_by_git` derives the artifact list from the probe directory and the phase/impl/kind matrix and asserts each one is in `git ls-files` |
 | the shipped outer-product recurrence grid was **not** the one that wins at batch 32 - its own probe log put another grid several stdevs ahead of the shipped one at 1536 head problems - and six places said it was, including a "selected" column inside a GENERATED block, because that cell was a literal in the generator | the grid is `2x11` now, and `::test_selected_grids_are_the_measured_best` re-derives every shipped `core_grid` constant from its probe log at every regime measured and fails if a grid is distinguishably slower than the log's own minimum. It rejects the `6x11` that shipped one commit ago, which is the point |
-| the fused decode never wrote the packed `conv_state`, so anything reading it mid-generation got the post-prefill window, while the functional layer keeps it current - a silent divergence with no test | fixed structurally rather than papered over: there is one tap buffer per *packed row* now (`K`, not `K - 1`), the FIR reads rows 1..K-1, the shift rotates all of them, and `current_conv_state()` folds them back exactly. `test_conv_state_after_decode_matches_reference` runs 1 and 5 decode steps and compares against HF's cache object - PCC 0.999994 at both |
+| the fused decode never wrote the packed `conv_state`, so anything reading it mid-generation got the post-prefill window, while the functional layer keeps it current - a silent divergence with no test | fixed structurally rather than papered over: there is one tap buffer per *packed row* now (`K`, not `K - 1`), the FIR reads rows 1..K-1, the shift rotates all of them, and `current_conv_state()` folds them back exactly. `test_conv_state_after_decode_matches_reference` runs 1 and 5 decode steps and compares the *post-decode* packed state against HF's cache object (a different quantity from the post-prefill one the correctness table carries) |
 | four citations named the round-trip gate by its pre-round-7 name | corrected, and `::test_every_cited_test_name_exists` parses the test modules and fails on any cited `test_...` identifier that is not defined |
 | §6 called the rejected bfloat16 decode FIR "level at batch 32"; the generated table under it says 9.8 % slower | restated from the table |
 
@@ -1221,6 +1232,20 @@ prints does; and §6 records why `nlp_create_qkv_heads`-style ops cannot express
 `linear_attention`'s `_split_qkv` (q and k are 16 heads of 128 and v is 48, which those signatures
 cannot describe).
 
+Round 13 returned **more-work-needed** with two P1s and two P2s, all of them round 12's own
+changes not having been propagated - and it confirmed the round-12 work itself: the reviewer
+re-derived the `addcmul` algebra, the in-place aliasing and every perf figure and found no defect.
+
+| finding | what was done |
+|---|---|
+| an eighth of the advertised-batch decode was sitting in the breakdown's `other` bucket - the stage's own new ternary op, which the bucket predicates never named - while both documents asserted `other` was empty | the recurrent-state update has its own `state_update` bucket, the last unclassified op (`Accumulation*`) joins `elementwise`, the "is it empty" sentence is **generated** from the summary rather than asserted, and `::test_no_device_time_is_unclassified` fails if anything lands in `other` again |
+| five artifacts still claimed `ttnn.experimental.rotate_half` is dispatched after §3.22 reverted it - including the implementation's own module docstring and a README row describing a test guarantee that did not exist | all five corrected, `addcmul` added to the docstring's dedicated-op list, and `::test_documented_dedicated_ops_are_the_ones_shipped` now binds every dedicated-op name the documents use to what the layer actually dispatches, exempting only the paragraphs that record the revert |
+| the batch-32 growth multipliers and the SDPA hand-off percentages were pre-round-12 numbers, true only if the addcmul's time is counted back into `elementwise` | replaced by a generated growth table carrying every bucket at both batches, and the prose points at it |
+| §3.22's decisive measurement - the traced pass profiled with the dedicated op - was described but not committed, and the only committed measurement (wall clock) points the other way | both traced runs are committed now: the rejected alternative's reports live under `tracy/rejected/rotate_half_dedicated/` with their own `FUSED_BUILD` fingerprint, which is what identifies them as the alternative, and §3.22 carries a generated table over the pair |
+
+Its concerns were taken too: "all four passes" is six; `build_fingerprint.py` states the limit of
+what it covers; and the two conv-state PCC figures are named as the different quantities they are.
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1236,6 +1261,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `2241c099254` | Qwen3.6-27B fused decoder: ninth-review fixes |
 | `8f412308861` | Qwen3.6-27B fused decoder: tenth-review fixes |
 | `306c4991604` | Qwen3.6-27B fused decoder: eleventh-review fixes |
+| `60178c2fb06` | Qwen3.6-27B fused decoder: twelfth-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -

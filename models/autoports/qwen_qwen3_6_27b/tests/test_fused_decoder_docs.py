@@ -489,6 +489,71 @@ def test_every_cited_test_name_exists():
     assert not unknown, f"these cited test names are not defined in tests/: {unknown}"
 
 
+def test_no_device_time_is_unclassified():
+    """Every measured pass classifies all of its device time; the ``other`` bucket is empty.
+
+    A stage review found an eighth of the advertised-batch decode sitting in ``other`` - the
+    stage's own new ternary op, which the bucket predicates did not name - while both documents
+    asserted the bucket was empty.  The breakdown table is what every "where the time goes"
+    conclusion rests on, so nothing may hide in it.
+    """
+    unclassified = {
+        key: row["breakdown_ms"]["other"]
+        for key, row in _perf_summary()["measurements"].items()
+        if row["breakdown_ms"].get("other")
+    }
+    assert not unclassified, (
+        "these passes have device time in no named bucket; add a predicate to "
+        f"probes/make_perf_summary.py::CATEGORIES: {unclassified}"
+    )
+
+
+def test_documented_dedicated_ops_are_the_ones_shipped():
+    """Any TTNN op the documents say this layer *dispatches* is one the layer really dispatches.
+
+    §3.22 reverted a dedicated-op substitution, and five artifacts - including the implementation's
+    own module docstring and a README row describing what a test guarantees - went on claiming it
+    for a round.  The claim is checkable: ``FusedDecoder.FUSED_OPS`` is the set the dispatch test
+    pins, and the source is the ground truth for what is called.
+    """
+    source = (ROOT / "tt" / "fused_decoder.py").read_text()
+    shipped = set(re.findall(r'"(ttnn\.[\w.]+)"', source.split("FUSED_OPS = (")[1].split(")")[0]))
+    assert shipped, "FUSED_OPS did not parse"
+    called = set(re.findall(r"\bttnn\.(?:experimental\.|transformer\.)?[a-z_0-9]+\(", source))
+    called = {name.rstrip("(") for name in called}
+
+    # Every op the documents name as one this layer dispatches must be in FUSED_OPS or called.
+    dedicated = (
+        "ttnn.experimental.rotate_half",
+        "ttnn.experimental.rotary_embedding_hf",
+        "ttnn.transformer.chunk_gated_delta_rule",
+        "ttnn.addcmul",
+    )
+    # Scanned per paragraph, and with generated blocks and the section that records the revert
+    # removed: those are statements *about* a rewrite that was measured and dropped, not claims
+    # that the layer dispatches it.
+    strip = re.compile(r"<!-- GENERATED:\w+ -->.*?<!-- END GENERATED:\w+ -->", re.DOTALL)
+    reverted_section = re.compile(r"### 3\.22.*?(?=\n### |\n---)", re.DOTALL)
+    claims = []
+    for path, text in _documents().items():
+        text = reverted_section.sub("", strip.sub("", text))
+        for paragraph in re.split(r"\n\s*\n", text):
+            for op in dedicated:
+                if op.split(".")[-1] not in paragraph:
+                    continue
+                if any(
+                    token in paragraph
+                    for token in ("revert", "reject", "not a dedicated", "deliberately absent", "3.22")
+                ):
+                    continue
+                if op in shipped or op in called:
+                    continue
+                claims.append(f"{path.name}: {' '.join(paragraph.split())[:110]}")
+    assert not claims, "these document lines name a dedicated op the shipped layer does not dispatch: " + "; ".join(
+        claims
+    )
+
+
 def test_every_run_was_made_against_the_shipped_build():
     """Every committed run log and profiler provenance names the *current* fused decoder source.
 
@@ -549,6 +614,17 @@ def test_every_artifact_the_gate_reads_is_tracked_by_git():
     tracked = {name for name in tracked if name}
 
     required = [DOC / "perf_summary.json", DOC / "pcc_evidence.json", DOC / "watcher" / "WATCHER_AUDIT.md"]
+    # The rejected alternative's traced reports (§3.22) are evidence too: without them the
+    # rejection is an assertion.
+    required += [
+        DOC / "tracy" / "rejected" / "rotate_half_dedicated" / name
+        for name in (
+            "decode_perf_report.csv",
+            "decode_batch32_perf_report.csv",
+            "decode_ops.csv.provenance",
+            "decode_batch32_ops.csv.provenance",
+        )
+    ]
     # The watcher evidence lives under a ``generated/`` path, which .gitignore also matches, and
     # one of its three files went untracked for a round while the audit claimed it was committed.
     required += [

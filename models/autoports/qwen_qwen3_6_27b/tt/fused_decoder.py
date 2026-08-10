@@ -28,10 +28,12 @@ primitive sequence):
     Replaces the prefill partial-RoPE ``slice/slice/neg/concat/mul/mul/add`` with one op on the
     rotary slice.  Only the rotary/passthrough split remains, because the rotary factor is 0.25
     (64 of 256 head channels) and the op rotates its whole input width.
-``ttnn.experimental.rotate_half``
-    Replaces the decode partial-RoPE ``slice/slice/neg/concat`` (the op's decode mode needs a
-    height-sharded input *and* sharded per-user cos/sin, which prefill mode cannot serve - see
-    ``doc/fused_decoder/work_log.md``).
+``ttnn.addcmul``
+    Replaces the decode recurrent-state update's ``multiply`` + ``add`` with one pass over the
+    carried state, written in place at the persistent buffer's address (work log section 3.21).
+    ``ttnn.experimental.rotate_half`` was used here too and was **reverted on measurement**: it is
+    single-core by construction, so the four ops it replaced are faster under trace at the
+    advertised batch (work log section 3.22).
 ``ttnn.rms_norm``
     Replaces the decode GatedDeltaNet Q/K L2 norm's ``mul/sum/rsqrt/mul`` (plus the query's
     scale multiply), by the identity ``l2norm(x) == rms_norm(x, eps/D) / sqrt(D)``.

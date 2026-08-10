@@ -46,7 +46,7 @@ changed), so the pair is like-for-like.
 | `linear_attention` | traced decode, 1 token, batch 1 | 3.037 ms | **2.345 ms** | **1.29x** | 92 | 67 |
 | `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.620 ms | **5.754 ms** | **6.36x** | 93 | 70 |
 | `full_attention` | prefill, 2048 tokens | 18.601 ms | **17.824 ms** | **1.04x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.068 ms** | **1.10x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.072 ms** | **1.10x** | 50 | 50 |
 | `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.865 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
@@ -64,6 +64,18 @@ straight out of `perf_summary.json`, and
 `::test_perf_summary_rederives_from_the_report` re-derives every figure in the table by summing
 the `Device Time` column of the committed `tt-perf-report` CSVs.
 
+### What grows with the batch
+
+<!-- GENERATED:batch32_shares -->
+| pass | bucket | batch 1 | batch 32 | growth |
+|---|---|---|---|---|
+| `linear_attention` | `batched_matmul` | 0.060 ms (2.6 %) | 1.252 ms (21.8 %) | 20.9x |
+| `linear_attention` | `state_update` | 0.027 ms (1.2 %) | 0.705 ms (12.3 %) | 26.1x |
+| `linear_attention` | `elementwise` | 0.173 ms (7.4 %) | 0.877 ms (15.2 %) | 5.1x |
+| `linear_attention` | `layout` | 0.179 ms (7.6 %) | 0.982 ms (17.1 %) | 5.5x |
+| `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.2 %) | 8.3x |
+<!-- END GENERATED:batch32_shares -->
+
 ### Where the time goes now
 
 At batch 1 both decode paths are **DRAM-bandwidth bound on bfloat16 weights**, and that is the
@@ -78,8 +90,8 @@ carries all six measured passes rather than the four the stage first measured. T
 the same bytes — one token or thirty-two, a decode step reads every weight once — so the
 `matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
 instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
-`batched_matmul` and `elementwise` buckets grow by more than twenty-fold and nearly ten-fold — the two
-`decode b32` columns of the table below against their `decode b1` neighbours — because the
+recurrence's own buckets grow by an order of magnitude — the table below carries each one at both
+batches, read from the summary — because the
 carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
 reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
 `work_log.md` §3.6 and §6.1 record what was measured against it: eighteen core grids at both regimes
@@ -90,9 +102,9 @@ the norm-before-expand order (§6, both measured and slower). A per-head layout 
 trade the state's shape for its tile padding is **not** measured: it changes what
 `prepare_decode_state` writes and what the HF cache comparison reads, so §6 hands it to the stage
 that owns the decode state, with that reason. The `full_attention`
-decode's batch-32 cost is dominated instead by SDPA — its `sdpa` bucket is eight times the
-batch-1 one, the two `sdpa` cells of the table below — which is the one-core-per-head
-workaround stage 1 pinned and handed to the optimization stage — 29.7 % of that step at batch 32
+decode's batch-32 cost is dominated instead by SDPA, whose growth is the last row of that same
+table — the one-core-per-head
+workaround stage 1 pinned and handed to the optimization stage — the `sdpa` row of the growth table above at batch 32
 against 5.1 % at batch 1.
 
 What is left after fusing, per pass. These are the `breakdown_ms` blocks of
@@ -103,16 +115,18 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.473 ms | 1.879 ms | 1.907 ms | 13.473 ms | 1.803 ms | 1.805 ms |
+| `matmul` (projections, MLP, gated-norm constants) | 14.473 ms | 1.879 ms | 1.907 ms | 13.473 ms | 1.806 ms | 1.806 ms |
 | `gated_delta_rule` | 2.767 ms | — | — | — | — | — |
+| `state_update` (the fused recurrent-state update, §3.21) | — | 0.027 ms | 0.705 ms | — | — | — |
 | `sdpa` | — | — | — | 1.282 ms | 0.104 ms | 0.864 ms |
 | `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.252 ms | — | — | — |
 | `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.774 ms | 0.179 ms | 0.982 ms | 1.087 ms | 0.044 ms | 0.056 ms |
 | `elementwise` | 3.686 ms | 0.173 ms | 0.877 ms | 1.015 ms | 0.046 ms | 0.045 ms |
 | `norm` | 0.376 ms | 0.028 ms | 0.031 ms | 0.540 ms | 0.026 ms | 0.029 ms |
 | `heads_and_cache` | — | — | — | 0.427 ms | 0.045 ms | 0.066 ms |
-| `other` | — | 0.027 ms | 0.705 ms | — | — | — |
-| **total** | **26.076 ms** | **2.345 ms** | **5.754 ms** | **17.824 ms** | **2.068 ms** | **2.865 ms** |
+| **total** | **26.076 ms** | **2.345 ms** | **5.754 ms** | **17.824 ms** | **2.072 ms** | **2.865 ms** |
+
+Every op is classified: the `other` bucket is empty in all 12 measured passes.
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
@@ -213,7 +227,7 @@ graph is the one running:
 
 | test | what it pins |
 |---|---|
-| `test_fused_ops_are_dispatched` | `chunk_gated_delta_rule`, `rotary_embedding_hf` and `rotate_half` are really dispatched on a real prefill/decode pass; the call counts are recorded in `pcc_evidence.json` rather than asserted, so a graph change that dispatches one more is not a failure |
+| `test_fused_ops_are_dispatched` | every op in `FusedDecoder.FUSED_OPS` — `chunk_gated_delta_rule`, `rotary_embedding_hf` and `addcmul` — is really dispatched on a real prefill/decode pass; the call counts are recorded in `pcc_evidence.json` rather than asserted, so a graph change that dispatches one more is not a failure. `rotate_half` is deliberately absent: §3.22 measured it and kept the spelled-out form |
 | `test_fused_graph_is_smaller` | `ttnn` op count per pass falls, counted at the python boundary (so it differs from the device op counts above) - see below |
 | `test_fused_matches_functional` | fused and functional agree with **each other** from identical weights and inputs, not only with HF |
 | `test_no_layout_round_trip_in_the_measured_pass` (in `test_fused_decoder_docs.py`) | the committed `tt-perf-report` op sequence contains no `Tilize*` immediately followed by an `Untilize*`. Reading the *device* report is the point: `ttnn.concat` and `ttnn.slice` relayout inside themselves, so a python-level trap cannot see them - which is how a round trip over the whole conv window survived three review rounds |
@@ -283,8 +297,10 @@ Full narrative, with the measurement that kept or rejected each one, in
 decay cumsum and mask, the recursive WY inverse and the python loop over sub-chunks, ~700 device
 ops — with one op, called on the flat rank-3 path at `chunk_size=32` so the norm and the scale
 happen in-kernel too. `ttnn.experimental.rotary_embedding_hf` replaces the prefill partial RoPE,
-`ttnn.experimental.rotate_half` the decode one's rotate-half, and `ttnn.rms_norm` the decode
-GatedDeltaNet Q/K L2 norm.
+`ttnn.addcmul` the decode recurrent-state update's multiply-and-add, and `ttnn.rms_norm` the
+decode GatedDeltaNet Q/K L2 norm. The decode rotate-half is *not* a dedicated op: §3.22 measured
+`ttnn.experimental.rotate_half` against the four ops it replaced and kept the four, because that
+op is single-core by construction.
 
 **Graph rewrites.** The per-head gated RMS norm becomes a group reduction against two constant
 matrices so it runs on the flat token-major layout with no tile relayout; the decode RMS norms
@@ -324,8 +340,8 @@ GQA head expansion. See [`work_log.md`](work_log.md) §5.
   state mid-generation must call the accessor.
 
 * **The decode SDPA still runs on one core per head** (the `sdpa` row of the breakdown table
-  above — 5.1 % of the `full_attention` decode step at batch 1 and **29.7 %** at the advertised
-  `max_batch` of 32, which is the number the optimization stage should plan against). That is not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to
+  above, and the `sdpa` row of the growth table, which carries its share at both batches — the
+  advertised-`max_batch` one is what the optimization stage should plan against). That is not a graph property: stage 1 pins `max_cores_per_head_batch = 1` to
   work around an upstream cross-core tree-reduction defect in `sdpa_decode`, documented there
   with a model-free reproducer and handed to the optimization stage. This stage does not touch
   it.

@@ -36,6 +36,10 @@ def _rows(path: Path):
 #: in ``other``, which the documents quote too, so a new op cannot hide there.
 CATEGORIES = (
     ("gated_delta_rule", lambda code: code.startswith("ChunkGdn")),
+    # The fused recurrent-state update (§3.21) is a ternary op, and it is a large enough share of
+    # the advertised-batch decode that letting it fall through to ``other`` hid an eighth of that
+    # step - which is what a stage review found, next to prose claiming ``other`` was empty.
+    ("state_update", lambda code: code.startswith("Ternary")),
     ("sdpa", lambda code: "dpa" in code.lower()),
     ("batched_matmul", lambda code: code.startswith("Matmul") and "b={" in code),
     ("matmul", lambda code: code.startswith("Matmul")),
@@ -55,7 +59,9 @@ CATEGORIES = (
     ),
     (
         "elementwise",
-        lambda code: code.startswith(("BinaryNg", "Unary", "Typecast", "Copy", "Fill", "Reduce", "Softplus")),
+        lambda code: code.startswith(
+            ("BinaryNg", "Unary", "Typecast", "Copy", "Fill", "Reduce", "Softplus", "Accumulation")
+        ),
     ),
 )
 

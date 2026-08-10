@@ -91,6 +91,7 @@ def breakdown_table() -> str:
     labels = {
         "matmul": "`matmul` (projections, MLP, gated-norm constants)",
         "gated_delta_rule": "`gated_delta_rule`",
+        "state_update": "`state_update` (the fused recurrent-state update, §3.21)",
         "sdpa": "`sdpa`",
         "batched_matmul": "`batched_matmul` (the decode recurrence)",
         "layout": "`layout` (tilize/untilize/reshape/permute/concat/slice/shard)",
@@ -116,6 +117,21 @@ def breakdown_table() -> str:
         rows.append(f"| {label} | " + " | ".join(cells) + " |")
     totals = [summary["measurements"][column]["device_kernel_time_ms"] for column in columns]
     rows.append("| **total** | " + " | ".join(f"**{value:.3f} ms**" for value in totals) + " |")
+    # State what ``other`` holds rather than asserting it is empty: a stage review found an eighth
+    # of the advertised-batch decode sitting in it while both documents said it was empty.
+    leftovers = {
+        column: summary["measurements"][column]["breakdown_ms"]["other"]
+        for column in summary["measurements"]
+        if summary["measurements"][column]["breakdown_ms"].get("other")
+    }
+    rows.append("")
+    rows.append(
+        "Every op is classified: the `other` bucket is empty in all " f"{len(summary['measurements'])} measured passes."
+        if not leftovers
+        else "Unclassified (`other`) time remains in: "
+        + ", ".join(f"`{column}` {value:.3f} ms" for column, value in sorted(leftovers.items()))
+        + "."
+    )
     return "\n".join(rows)
 
 
@@ -938,6 +954,64 @@ def rope_half() -> str:
     return "\n".join(rows)
 
 
+def batch32_shares() -> str:
+    """What grows with the batch, and what the optimization stage should plan against.
+
+    These sentences were hand-written multiples and percentages, and two of them were stale the
+    moment §3.21 moved a bucket's worth of work into a bucket of its own.
+    """
+    summary = _summary()["measurements"]
+    lines = []
+    for kind, buckets in (
+        ("linear_attention", ("batched_matmul", "state_update", "elementwise", "layout")),
+        ("full_attention", ("sdpa",)),
+    ):
+        small = summary[f"fused/{kind}/decode"]
+        large = summary[f"fused/{kind}/decode_batch32"]
+        for bucket in buckets:
+            one = small["breakdown_ms"].get(bucket, 0.0)
+            many = large["breakdown_ms"].get(bucket, 0.0)
+            if not many:
+                continue
+            growth = f"{many / one:.1f}x" if one else "from nothing"
+            lines.append(
+                f"| `{kind}` | `{bucket}` | {one:.3f} ms ({100.0 * one / small['device_kernel_time_ms']:.1f} %) | "
+                f"{many:.3f} ms ({100.0 * many / large['device_kernel_time_ms']:.1f} %) | {growth} |"
+            )
+    header = ["| pass | bucket | batch 1 | batch 32 | growth |", "|---|---|---|---|---|"]
+    return "\n".join(header + lines)
+
+
+def rope_half_traced() -> str:
+    """The decisive rotate-half measurement: the whole traced pass, profiled with each form.
+
+    The wall-clock probe favours the dedicated op; under trace, where dispatch is not on the
+    critical path, device time decides.  Both runs are committed - the rejected one under
+    ``tracy/rejected/rotate_half_dedicated/``, with its own build fingerprint in its provenance,
+    which is what makes it a measurement of the alternative rather than of the shipped code.
+    """
+    rows = ["| pass | dedicated `rotate_half` (rejected) | spelled out (shipped) | difference |", "|---|---|---|---|"]
+    for phase, label in (
+        ("decode", "`full_attention` decode, batch 1"),
+        ("decode_batch32", "`full_attention` decode, batch 32"),
+    ):
+        shipped = _summary()["measurements"][f"fused/full_attention/{phase}"]["device_kernel_time_ms"]
+        report = DOC / "tracy" / "rejected" / "rotate_half_dedicated" / f"{phase}_perf_report.csv"
+        with report.open() as handle:
+            rejected = sum(float(row["Device Time"] or 0) for row in csv.DictReader(handle)) / 8 / 1000.0
+        rows.append(
+            f"| {label} | {rejected:.3f} ms | **{shipped:.3f} ms** | "
+            f"{100.0 * (rejected - shipped) / rejected:+.1f} % |"
+        )
+    rows.append("")
+    rows.append(
+        "Device time per trace replay, summed over the signposted window of each committed report. "
+        "The two runs differ only in this one op - the rejected one's provenance carries a "
+        "different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -961,8 +1035,10 @@ BLOCKS = {
     "input_folds": input_fold_table,
     "run_totals": run_totals,
     "coverage_claims": coverage_claims,
+    "batch32_shares": batch32_shares,
     "addcmul_state": addcmul_state,
     "rope_half": rope_half,
+    "rope_half_traced": rope_half_traced,
     "slow_rows": slow_rows,
     "rejected_decode_variants": rejected_decode_variants,
     "rejected_shared_work": rejected_shared_work,
