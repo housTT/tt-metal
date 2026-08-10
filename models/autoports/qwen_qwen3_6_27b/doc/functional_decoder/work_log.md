@@ -727,8 +727,8 @@ re-run again here and is again identical.
 The seventh review again re-derived every headline number clean and again found three
 single-place stragglers of multi-place corrections: `README.md`'s capability table still said
 "24 non-64-divisible batch-32 prompts" while its own sequence-length table two sections later
-said 31; `doc/context_contract.json`'s `blast_radius` still carried the round-5 op-suite scope
-("21 passed") that round 6 had superseded; and §12 quoted a grep count nobody could reproduce
+said 31; `doc/context_contract.json`'s `blast_radius` still carried the round-5 op-suite scope and
+count that round 6 had superseded; and §12 quoted a grep count nobody could reproduce
 because the command it described had no `--include` filters.
 
 All three are fixed. But seven rounds have now produced findings in exactly this class, and the
@@ -757,9 +757,16 @@ periodicity; re-derives the test counts from the run logs; and asserts that ever
 and backticked artifact path resolves.
 
 It earned its keep immediately: on its first run it found a **fourth** straggler this round had
-missed — §10 still citing `logs/long_context_stock_control.log` at its pre-move path — and then
-a fifth, the superseded "21 passed" surviving in §12's own narrative. Neither would have been
+missed — §10 still citing the long-context control log at its pre-move path, i.e. without the
+`controls/` component — and then
+a fifth, a superseded op-suite pass count surviving in §12's own narrative. Neither would have been
 caught by re-reading. Both are fixed, and the checker is green.
+
+It also constrains how this log may write history: a superseded figure cannot be quoted
+verbatim, because the checker cannot tell a historical quote from a live claim. Two sentences
+in §12 and §13 are phrased around that ("a superseded op-suite pass count" rather than the
+number). That is the right trade - a reader who wants the old number can read the review
+history in git, and no reader can mistake it for a current one.
 
 Two smaller items from the same review: the gzip rationale claimed the raw Tracy ops CSVs are
 "0.9-3.2 MB" when one of the four is 0.18 MB and under the commit limit (it is gzipped only so
