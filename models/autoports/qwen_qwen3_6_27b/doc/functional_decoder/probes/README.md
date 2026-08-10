@@ -30,8 +30,8 @@ selects the healthy PCI device.)
 | `probe_blockinv.py` *(earlier pass)* | does block-recursive inversion fix the accuracy | yes: 3.269 → 3.3e-2 (base 32) → 8.8e-3 (base 16) → 1.8e-3 (base 8) |
 | `probe_capacity.py` | device DRAM and the byte budget at full context | feeds `../../context_contract.json` |
 | `probe_tri_inv_base.py` | model-level PCC and warmed prefill time for `TRI_INV_BASE` in {8,16,32}, on real weights | all three clear the bar; 204.7 / 161.1 / 136.4 ms, recurrent-state PCC 0.999993 / 0.999992 / 0.999988 -> base 16 selected (`../logs/tri_inv_base_sweep.log`) |
-| `probe_sdpa_localise.py` | which stage of `full_attention` prefill loses the accuracy at 262143 | the SDPA op alone: it scores well on its own Q/K/V while the layer does not (earlier-pass localisation; kept as the method) |
-| `probe_amplification.py` | is the layer error propagation of the SDPA error, or something downstream (host only) | pure propagation: a torch continuation of the *device* attention output reproduces the layer PCC |
+| `probe_sdpa_localise.py` *(earlier pass)* | which stage of `full_attention` prefill loses the accuracy at 262143 | the SDPA op alone: it scores well on its own Q/K/V while the layer does not (earlier-pass localisation; kept as the method) |
+| `probe_amplification.py` *(earlier pass)* | is the layer error propagation of the SDPA error, or something downstream (host only) | pure propagation: a torch continuation of the *device* attention output reproduces the layer PCC |
 | `probe_sdpa_synthetic.py` | model-free `chunked_scaled_dot_product_attention` vs float32, with the fitted output scale | on this branch the output is scaled by **1.204** at 1024 k chunks and **1.091** at 512; the scale tracks the chunk count, not the context (`../logs/sdpa_long_sweep_v2.log`) |
 | `probe_sdpa_decode_synthetic.py` | model-free `paged_scaled_dot_product_attention_decode` vs float32, by position | **37.7x** too large at position 262143 with the default config; explicit configs fix that position and break others (3705x at 1023, NaN at 261887) (`../logs/sdpa_decode_default_v2.log`, `../logs/sdpa_decode_cfg_sweep_v2.log`) |
 | `probe_sdpa_precision.py` / `probe_sdpa_chunk.py` / `probe_sdpa_config.py` / `probe_sdpa_blocksize.py` / `probe_sdpa_dtype.py` | earlier-pass sweeps of individual SDPA knobs | superseded on this branch by the `sdpa_*_sweep_v2` logs; kept because they are the shape of the knob sweep |
@@ -66,4 +66,9 @@ have no `../logs/` artifact here; they are kept because the probes are the repro
 not because the figures were re-measured. `../work_log.md` section 0 says the same thing about
 the narrative.
 
-Every other row was measured on this branch and names its backing log in `../logs/`.
+Every other row either names its backing log in `../logs/` inline
+(`probe_sdpa_synthetic.py`, `probe_sdpa_decode_synthetic.py`, `probe_tri_inv_base.py`) or feeds
+a document that does: `probe_capacity.py` -> `../logs/capacity_probe.log` and the
+`device_capacity` block of `../../context_contract.json`, and `run_perf.sh` -> `../logs/tracy_*.log`
+and `../tracy/`. If a row carries a number and neither names a log nor is tagged
+***(earlier pass)***, that is a defect in this file.

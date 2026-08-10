@@ -175,9 +175,10 @@ alone is not enough to trigger it, because that value also collapses to 1 for or
 decode (B x KV heads >= the core grid) — an earlier revision of this stage gated on the derived
 value and a stage review correctly rejected it. Blast radius is measured three ways: no caller
 outside this autoport passes `1` (repo-wide grep), the `max_cores_per_head_batch = 16` probe row
-is digit-for-digit identical before and after, and tt-metal's own two non-nightly `sdpa_decode` op files
-(`test_sdpa_decode.py`, `test_paged_sdpa_decode_flexible_geometry.py`, 22 collected) are
-**21 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`).
+is digit-for-digit identical before and after, and every non-nightly unit-test file under
+`tests/ttnn/unit_tests/operations/sdpa/` that reaches this program factory - the two
+`sdpa_decode`-named files plus `test_bounded_sliding_kv_cache.py` and `test_mla_decode.py`,
+31 collected - is **30 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`).
 
 The fix is also load-bearing rather than precautionary, shown by a stock-main control: with the
 `.cpp` change reverted and everything else identical, `full_context_decode_pcc` at position

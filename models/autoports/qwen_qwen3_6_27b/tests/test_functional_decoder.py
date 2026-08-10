@@ -535,8 +535,9 @@ def test_full_advertised_context(mesh_device, layer_idx, request):
     H.record("full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
     assert tail_pcc >= H.PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
     # PCC is scale-invariant and both SDPA defects this layer works around are pure scale
-    # errors, so assert the magnitude too. This is the check that would have caught the
-    # stock-kernel decode (0.9779 PCC but a 1.29x attention scale) at the op level.
+    # errors, so assert the magnitude too: this bounds a quantity PCC cannot see. It is an
+    # independent check, not a rescue - the reverted-build control fails on decode PCC alone
+    # (0.977888, below the 0.995 bar) before any scale assertion is reached.
     tail_scale = H.scale_ratio(golden, got[:, -tail:, :])
     H.record("full_context_prefill_tail_scale", tail_scale, kind=_kind(lut), seq_len=LONG_PROMPT)
     assert (

@@ -265,7 +265,7 @@ Blast radius, measured rather than asserted:
 |---|---|
 | repo-wide `grep -rn max_cores_per_head_batch models/ tests/ ttnn/` | no source literal `1` outside this autoport; the values in the repo are the struct default `16`, plus explicit `16` (`models/demos/gemma4`) and `4` (`tests/.../test_mla_decode.py`, `test_sdpa_decode_cache.py`, `test_mla_decode_stress.py`). Four sweep-framework loaders parse the value out of a config *string*, so a data-driven sweep config could in principle select 1; that is an explicit opt-in by the same definition, and the promotion only raises precision. |
 | `k_chunk = 128, max_cores_per_head_batch = 16` probe row, before vs after | digit-for-digit identical (0.99671, 0.99893, 0.99975, 1.00195, 1.00178, 1.00613, and the same NaN at 261887) |
-| `tests/ttnn/unit_tests/operations/sdpa/test_sdpa_decode.py` + `test_paged_sdpa_decode_flexible_geometry.py` (22 collected, the two non-nightly `sdpa_decode` op files) | **21 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`); the skip needs a (10,11) grid. The larger `tests/ttnn/nightly/.../test_sdpa_decode.py` was *not* run; it cannot reach the new branch either, because its cases omit `program_config`, so `program_config.has_value()` is false. |
+| every non-nightly unit-test file under `tests/ttnn/unit_tests/operations/sdpa/` that reaches `SdpaDecodeDeviceOperation::create_descriptor`: the two `sdpa_decode`-named files, plus `test_bounded_sliding_kv_cache.py` (calls `paged_scaled_dot_product_attention_decode`) and `test_mla_decode.py` (calls `flash_multi_latent_attention_decode`, same factory) - 31 collected | **30 passed, 1 skipped** (`logs/ttnn_sdpa_decode_op_tests.log`); the skip needs a (10,11) grid. None of them can trigger the gate: `test_bounded_sliding_kv_cache.py` passes no `program_config`, `test_mla_decode.py` passes `max_cores_per_head_batch=4`. The larger `tests/ttnn/nightly/.../test_sdpa_decode.py` was *not* run; its cases also omit `program_config`. |
 
 The first row is what makes the gate safe: a caller has to opt in by name, and nothing in the
 repo does.
@@ -370,7 +370,7 @@ needed.
 | functional suite | **57 passed, 2 skipped** in 07:40 (the 2 skips are the `--long-context` cases, run separately) | `logs/suite_main.log` |
 | full advertised context, both layer kinds | **2 passed** in 06:25 | `logs/long_context.log` |
 | watcher (`TT_METAL_WATCHER=10`) | **9 passed**, log clean, 0 fatal/assert/sanitize lines in 1712 | `logs/watcher_run.log`, `watcher/WATCHER_AUDIT.md` |
-| tt-metal `sdpa_decode` op suites (blast-radius control for the `.cpp` change) | **21 passed, 1 skipped** | `logs/ttnn_sdpa_decode_op_tests.log` |
+| tt-metal op suites reaching the modified factory (blast-radius control for the `.cpp` change) | **30 passed, 1 skipped** | `logs/ttnn_sdpa_decode_op_tests.log` |
 | profiling | 4 Tracy runs, marker-drop-free windows (exact op-count periodicity) | `perf_summary.json`, `tracy/*/*_perf_report.txt` |
 | recorded measurements | 268 records (260 PCC, 4 scale, 4 booleans), **minimum PCC 0.998031**, **0 below the 0.995 bar**; scale ratios 0.99493-0.99853 | `pcc_evidence.json` |
 | context contract | OK, target = supported = 262144 | `../context_contract.json` |
@@ -550,7 +550,8 @@ stage's own headline defect class is gated rather than only narrated. Measured:
 
 An earlier revision of this paragraph said this was "the check that fails on the stock decode
 kernel (scale 1.29) while PCC alone still reads 0.978". Both halves were wrong and §10 records
-the correction: 1.29 is the **op-level** probe `alpha`, and the reverted-build control fails on
+the correction: 1.29 is the **op-level** probe `alpha`
+(`logs/controls/sdpa_decode_stock_baseline.log`), and the reverted-build control fails on
 decode **PCC** (0.977888, already below the 0.995 bar) before the decode scale assertion is
 evaluated, so the layer-level stock decode scale is not a recorded number. PCC does catch the
 stock kernel at the layer level; the scale gate is a second, independent check of a quantity PCC
@@ -669,3 +670,44 @@ grepped back out of the file before being written up:
   files, 22 collected, 21 passed / 1 skipped, with a note that the larger nightly file was not
   run and cannot reach the new branch (its cases omit `program_config`).
 * §5's two timings are now taken from the logs they cite (07:40 and 06:25).
+
+## 12. Sixth stage review — findings and what changed
+
+The sixth `$stage-review` re-derived every headline number from raw artifacts and found none
+stale, no dead paths and no corrupt artifacts — the first round with no numeric finding. It
+returned three scope/attribution findings, all fixed:
+
+* **The round-5 misattribution survived in one more place: the shipped test source.** The
+  comment on the *prefill* scale assertion still said "the check that would have caught the
+  stock-kernel decode (0.9779 PCC but a 1.29x attention scale) at the op level" — pairing a
+  layer-level PCC with an op-level alpha, and re-asserting the framing §11 had just corrected.
+  §11 said each edit was "grepped back out of the file", and that is exactly the flaw: the check
+  was per-file. It is now repo-wide. `grep -rn '1\.29\|0\.9779\|0\.977'` over the model directory
+  and the `.cpp` returns 19 hits, every one of which is either the correction itself or a
+  properly attributed op-level/layer-level statement.
+* **The blast-radius op-suite claim said "the two non-nightly `sdpa_decode` op files" as though
+  that were the complete set.** It is not: `test_bounded_sliding_kv_cache.py` calls
+  `paged_scaled_dot_product_attention_decode`, and `test_mla_decode.py` calls
+  `flash_multi_latent_attention_decode` — both go through the edited
+  `SdpaDecodeDeviceOperation::create_descriptor`. Rather than reword the scope down, the
+  **coverage was widened**: all four files now run, 31 collected, **30 passed, 1 skipped**. None
+  can trigger the gate (`test_bounded_sliding_kv_cache.py` passes no `program_config`,
+  `test_mla_decode.py` passes `max_cores_per_head_batch=4`), which is the point.
+* **`probes/README.md`'s provenance sentence was still over-broad.** The round-3 fix tagged nine
+  earlier-pass rows and then re-asserted completeness without re-checking the rest;
+  `probe_sdpa_localise.py` and `probe_amplification.py` were untagged, and the former's own
+  verdict text said "earlier-pass localisation" while the row was not marked. Both are tagged
+  now, and the closing sentence is written so it can be checked row by row - it names which rows
+  carry an inline log, which feed a document that does, and states that any row with a number
+  and neither is a defect in that file.
+
+Two smaller items: `logs/sdpa_decode_cfg_sweep_v2.log` — the *before* side of the invariance
+check, and the one blast-radius artifact without a header — now carries one that is explicit
+about being added after the fact and points at the file's own embedded device timestamps
+(earliest 15:11:09, before the first build of the fix) as the dating evidence; and §8 now names
+the log the 1.29 figure comes from.
+
+The reviewer also noted that `pcc_evidence.json` was not re-emitted by the previous commit even
+though the logs it derives from were re-run. That is because re-running the collector against
+the final logs produces a byte-identical file, which is the intended property; it has been
+re-run again here and is again identical.
