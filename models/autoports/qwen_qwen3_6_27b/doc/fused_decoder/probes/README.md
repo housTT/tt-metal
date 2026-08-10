@@ -1,6 +1,6 @@
 # Fused-decoder probes
 
-Seven model-free probes and three pieces of tooling. Every probe is self-checking: it computes the
+Seven model-free probes and four pieces of tooling. Every probe is self-checking: it computes the
 same quantity two ways (device against torch, or fused against unfused) and prints the PCC next
 to the timing, so a number in this stage's documents can be reproduced without the model, the
 checkpoint or the test harness.
@@ -29,4 +29,5 @@ Tooling:
 |---|---|
 | `run_perf.sh <kind> <phase> <impl>` | one Tracy device-profiler run of `tests/test_fused_decoder_perf.py`, then `tt-perf-report` over the signposted window; writes `../tracy/<impl>/<kind>/<phase>_*` and `../logs/tracy_<impl>_<kind>_<phase>.log`. `<impl>` is `functional` or `fused`, so the before/after pair comes from the same script on the same machine |
 | `make_watcher_audit.py` | writes `../watcher/WATCHER_AUDIT.md` out of the committed watcher log and run log — line count, dump count, category histogram, selected tests, pass/deselect counts and the offender grep — so the audit cannot describe a different run than the one committed |
+| `make_doc_tables.py` | fills every `<!-- GENERATED:... -->` block in these documents from `../perf_summary.json` and the probe logs, so no volatile figure is hand-maintained; `tests/test_fused_decoder_docs.py::test_generated_blocks_are_current` re-runs it and requires the committed text to match |
 | `make_perf_summary.py` | re-derives `../perf_summary.json` from those CSVs — device time by summing the `Device Time` column, and an exact op-code periodicity check on each decode window. Reads committed artifacts only |

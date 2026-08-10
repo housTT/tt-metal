@@ -39,10 +39,10 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 150.971 ms | **26.275 ms** | **5.75x** | 801 | 74 |
-| `linear_attention` | traced decode, 1 token | 3.034 ms | **2.395 ms** | **1.27x** | 92 | 68 |
-| `full_attention` | prefill, 2048 tokens | 18.588 ms | **17.776 ms** | **1.05x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token | 2.270 ms | **2.066 ms** | **1.10x** | 50 | 44 |
+| `linear_attention` | prefill, 2048 tokens | 150.971 ms | **26.189 ms** | **5.76x** | 801 | 70 |
+| `linear_attention` | traced decode, 1 token | 3.034 ms | **2.397 ms** | **1.27x** | 92 | 68 |
+| `full_attention` | prefill, 2048 tokens | 18.588 ms | **17.772 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token | 2.270 ms | **2.062 ms** | **1.10x** | 50 | 44 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -68,15 +68,15 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode | `full_attention` prefill | `full_attention` decode |
 |---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.526 ms | 1.926 ms | 13.472 ms | 1.807 ms |
-| `gated_delta_rule` | 2.813 ms | — | — | — |
-| `sdpa` | — | — | 1.279 ms | 0.105 ms |
+| `matmul` (projections, MLP, gated-norm constants) | 14.523 ms | 1.927 ms | 13.467 ms | 1.804 ms |
+| `gated_delta_rule` | 2.765 ms | — | — | — |
+| `sdpa` | — | — | 1.280 ms | 0.105 ms |
 | `batched_matmul` (the decode recurrence) | — | 0.058 ms | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.835 ms | 0.178 ms | 1.049 ms | 0.037 ms |
-| `elementwise` | 3.723 ms | 0.206 ms | 1.016 ms | 0.042 ms |
-| `norm` | 0.377 ms | 0.028 ms | 0.537 ms | 0.026 ms |
-| `heads_and_cache` | — | — | 0.422 ms | 0.048 ms |
-| **total** | **26.275 ms** | **2.395 ms** | **17.776 ms** | **2.066 ms** |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.802 ms | 0.178 ms | 1.043 ms | 0.037 ms |
+| `elementwise` | 3.724 ms | 0.205 ms | 1.018 ms | 0.042 ms |
+| `norm` | 0.375 ms | 0.028 ms | 0.540 ms | 0.026 ms |
+| `heads_and_cache` | — | — | 0.423 ms | 0.048 ms |
+| **total** | **26.189 ms** | **2.397 ms** | **17.772 ms** | **2.062 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
@@ -104,7 +104,7 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | prefill vs HF, longest single-shot reference length | 0.999881 | 0.999415 |
 | decode vs HF, 4 steps after prefill 17 / 2048 / 2049 / 5000 | min 0.999872 | min 0.999178 |
 | batch 32 and 4, unequal prompts 64..3071, permuted page table - prefill | min 0.999889 | min 0.999383 |
-| batch 32 and 4 - decode | min 0.999878 | min 0.999268 |
+| batch 32 and 4 - decode | min 0.999867 | min 0.999268 |
 | **real checkpoint weights** - prefill @ 2049 | 0.999936 | 0.999964 |
 | **real checkpoint weights** - decode @ 2049 | 0.999975 | 0.999988 |
 | traced decode, replay output vs HF | min 0.999887 | min 0.999436 |
@@ -163,12 +163,19 @@ graph is the one running:
 | test | what it pins |
 |---|---|
 | `test_fused_ops_are_dispatched` | `chunk_gated_delta_rule`, `rotary_embedding_hf` and `rotate_half` are really dispatched on a real prefill/decode pass; the call counts are recorded in `pcc_evidence.json` rather than asserted, so a graph change that dispatches one more is not a failure |
-| `test_fused_graph_is_smaller` | `ttnn` op count per pass falls - <!-- GENERATED:python_op_counts -->PLACEHOLDER<!-- END GENERATED:python_op_counts --> - counted at the python boundary, so it differs from the device op counts above |
+| `test_fused_graph_is_smaller` | `ttnn` op count per pass falls, counted at the python boundary (so it differs from the device op counts above) - see below |
 | `test_fused_matches_functional` | fused and functional agree with **each other** from identical weights and inputs, not only with HF |
 | `test_no_redundant_relayout_in_measured_prefill` | the measured prefill never converts a tensor's layout and immediately converts it back - matched on the tensor, not on a recycled buffer address. This is what caught a `tilize` -> `untilize` round trip over the whole conv window that three review rounds and the decode-only budget had missed |
 | `test_no_relayout_or_host_ops_in_measured_decode` | the layer asks for no `tilize`/`untilize`/`to_layout` in a measured decode, and its reshard count stays inside a budget each remaining reshard's op contract justifies (4 of 6 for `linear_attention`, 9 of 12 for `full_attention`) |
 | `test_repeated_runs_stable` | six prefill+decode cycles bit-identical, with per-bank DRAM allocation unchanged from cycle 1 — no per-cycle device leak in the `_free` aliasing rules |
 | `test_no_runtime_host_fallback` | source scan **and** a live run with `from_torch`/`to_torch`/`as_tensor` stubbed to raise |
+
+The python-boundary op counts `test_fused_graph_is_smaller` recorded, read out of
+[`pcc_evidence.json`](pcc_evidence.json):
+
+<!-- GENERATED:python_op_counts -->
+`full_attention` 53 -> 37 prefill, 55 -> 49 decode; `linear_attention` 780 -> 71 prefill, 78 -> 66 decode
+<!-- END GENERATED:python_op_counts -->
 
 ### Capability-contract evidence
 

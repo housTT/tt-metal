@@ -38,6 +38,9 @@ import pytest
 
 from models.autoports.qwen_qwen3_6_27b.tests.harness import PCC_BAR
 
+#: Split so this file can name the token without tripping its own check.
+_UNFILLED = "PLACE" + "HOLDER"
+
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "doc" / "fused_decoder"
 DOCUMENTS = (DOC / "README.md", DOC / "work_log.md", DOC / "probes" / "README.md")
@@ -209,14 +212,21 @@ def test_prose_perf_figures_match_the_summary():
 
 
 def test_prose_op_counts_match_the_summary():
-    """Every ``N -> M`` op-count claim in the prose is a pair the perf summary actually contains."""
+    """Every device op-count pair the before/after table states is a pair the summary contains.
+
+    Scoped to the generated before/after block, because a markdown table of two numbers is not by
+    itself an op-count claim - the batch sweep in ``work_log.md`` section 3.17 is one too.
+    """
     summary = _perf_summary()
     pairs = {(row["ops_before"], row["ops_after"]) for row in summary["speedup"].values()}
     quoted = set()
     for text in _documents().values():
-        for before, after in re.findall(r"\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*$", text, flags=re.MULTILINE):
-            quoted.add((int(before), int(after)))
-    assert quoted, "no op-count pairs found in the documents - the table shape changed"
+        for block in re.findall(
+            r"<!-- GENERATED:before_after -->\n(.*?)\n<!-- END GENERATED:before_after -->", text, flags=re.DOTALL
+        ):
+            for before, after in re.findall(r"\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*$", block, flags=re.MULTILINE):
+                quoted.add((int(before), int(after)))
+    assert quoted, "no op-count pairs found in a generated before/after block - the table shape changed"
     assert quoted <= pairs, f"documents quote op-count pairs the summary does not have: {sorted(quoted - pairs)}"
 
 
@@ -387,6 +397,66 @@ def test_readme_watcher_claims_match_the_audit():
             continue
         for number in re.findall(r"(?<![\w.])(\d{3,})(?![\w])", line):
             assert number in audit, f"README quotes {number} next to the watcher audit; the audit does not"
+
+
+def test_generated_blocks_are_current():
+    """Re-run every document generator and require the committed text to match, byte for byte.
+
+    This is the gate that retires the stale-figure class four review rounds kept finding: a
+    generated block that was never filled (one survived a whole round holding the generator's
+    placeholder text, because its markers were inline and the generator's regex needs them on
+    their own lines), or one filled from an older artifact, fails here rather than in a review.
+    """
+    import subprocess
+    import sys
+
+    generator = DOC / "probes" / "make_doc_tables.py"
+    before = {path: path.read_text() for path in DOCUMENTS}
+    result = subprocess.run([sys.executable, str(generator)], capture_output=True, text=True)
+    assert result.returncode == 0, f"{generator.name} failed: {result.stderr[-2000:]}"
+    stale = []
+    for path, text in before.items():
+        after = path.read_text()
+        if after != text:
+            path.write_text(text)  # leave the tree as we found it; the diff is the finding
+            stale.append(path.name)
+        assert _UNFILLED not in after, f"{path.name} has a generated block the generator never filled"
+    assert not stale, (
+        "these documents' generated blocks are out of date with the artifacts; " f"re-run {generator.name}: {stale}"
+    )
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_no_layout_round_trip_in_the_measured_prefill(kind):
+    """No profiled prefill op converts a layout that the very next op converts back.
+
+    The device report is the ground truth here, not the python call trace: ``ttnn.concat``,
+    ``ttnn.slice`` and friends relayout *inside* themselves, so a python-level trap cannot see
+    them - which is exactly how a ``tilize`` immediately followed by an ``untilize`` of the same
+    tensor survived three review rounds in the ``linear_attention`` prefill.
+    """
+    report = DOC / "tracy" / "fused" / kind / "prefill_perf_report.csv"
+    with report.open() as handle:
+        codes = [row["OP Code"] for row in csv.DictReader(handle)]
+    to_tile = ("Tilize",)
+    to_rows = ("Untilize",)
+
+    def kindof(code: str) -> str | None:
+        if any(code.startswith(token) for token in to_tile):
+            return "tilize"
+        if any(code.startswith(token) for token in to_rows):
+            return "untilize"
+        return None
+
+    # Only the tilize -> untilize direction is a defect: a misaligned ``ttnn.slice`` legitimately
+    # untilizes, cuts and re-tilizes inside itself, so untilize -> tilize is that op's own cost.
+    # Producing a TILE tensor and immediately converting it straight back is not.
+    offenders = [
+        f"op {index}: {first} -> {second}"
+        for index, (first, second) in enumerate(zip(codes, codes[1:]))
+        if kindof(first) == "tilize" and kindof(second) == "untilize"
+    ]
+    assert not offenders, f"the profiled {kind} prefill undoes a layout conversion it just made: {offenders}"
 
 
 def test_watcher_log_is_clean():

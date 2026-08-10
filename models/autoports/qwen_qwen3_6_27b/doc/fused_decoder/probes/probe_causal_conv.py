@@ -197,6 +197,7 @@ def main() -> None:
                 ttnn.deallocate(acc)
                 return out
 
+            first = None
             for name, fn in (
                 ("tile", tile_variant),
                 ("rm_shift", rm_shift_variant),
@@ -205,9 +206,15 @@ def main() -> None:
                 ("aligned_win", aligned_windows_variant),
             ):
                 (best, median, stdev), got = timed(fn, device)
+                if first is None:
+                    first = got
+                    agreement = "1.000000 (self)"
+                else:
+                    agreement = f"{pcc(first, got):.6f}"
                 print(
                     f"conv {name:11s} {tag} best_ms={best:8.3f} median_ms={median:8.3f} "
-                    f"stdev_ms={stdev:6.3f} pcc={pcc(ref, got):.6f}",
+                    f"stdev_ms={stdev:6.3f} pcc_vs_torch={pcc(ref, got):.6f} "
+                    f"pcc_vs_first={agreement} max_abs_diff={0.0 if first is got else float((first - got).abs().max()):.3e}",
                     flush=True,
                 )
             for t in (tx, tp, *tt_taps):

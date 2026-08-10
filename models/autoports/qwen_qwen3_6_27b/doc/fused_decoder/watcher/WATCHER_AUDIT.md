@@ -21,7 +21,7 @@ python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decode
     -v -s
 ```
 
-Result: **11 passed, 62 deselected** in 64.31 s. Selected tests:
+Result: **11 passed, 62 deselected** in 63.99 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
@@ -61,10 +61,10 @@ Line categories present, all normal watcher bookkeeping:
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
     924 Device
     374 k_ids:
-    330 k_ids:233|232|234|234|234
-    110 k_ids:1069|1068|
-     70 k_ids:596|595|598|598|598
-     47 k_id[
+    330 k_ids:218|217|219|219|219
+    110 k_ids:1054|1053|
+     58 k_ids:1471|1470|1473|1473|1473
+     52 k_ids:1471|1470|1472|1472|1472
 ```
 
 `Dump` lines delimit the periodic watcher dumps; `Device` / `k_id` / `k_ids` lines are the

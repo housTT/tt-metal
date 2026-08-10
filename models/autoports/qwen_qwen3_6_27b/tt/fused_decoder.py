@@ -155,6 +155,20 @@ _AB_STRIDE = 64
 _RECURRENCE_READ_GRID = (6, 4)
 _RECURRENCE_OUTER_GRID = (6, 8)
 
+#: ``max_batch`` at and above which the decode z-gated norm uses the same group reduction as
+#: prefill (:meth:`FusedDecoder._gated_norm_and_project`) instead of the reshape-and-``rms_norm``
+#: form.  The two are the same arithmetic; which is cheaper depends on how many rows there are.
+#: Measured on this checkout at the real shapes, median over 25 repeats, microseconds:
+#:
+#:     batch    |   1  |   4  |   8  |  16  |  32
+#:     reshape  | 72.1 | 99.4 | 91.5 | 150.8 | 240.8
+#:     group    | 162.0 | 164.0 | 163.0 | 164.8 | 165.2
+#:
+#: The group form is nearly batch-independent (it is two skinny constant matmuls) while the
+#: reshape form's two tile relayouts grow with the row count, so they cross between 16 and 32.
+#: PCC between the two outputs is 0.999993 or better at every batch measured.
+_GATED_NORM_GROUP_BATCH = 32
+
 #: Epsilon of the GatedDeltaNet Q/K L2 norm, matching HF's ``l2norm(x, dim=-1, eps=1e-6)`` and
 #: the functional layer's ``FunctionalDecoder._l2norm``.
 _L2NORM_EPS = 1e-6
@@ -246,14 +260,16 @@ class FusedDecoder(FunctionalDecoder):
         self.recurrence_outer_grid = ttnn.CoreGrid(
             y=min(_RECURRENCE_OUTER_GRID[0], grid.y), x=min(_RECURRENCE_OUTER_GRID[1], grid.x)
         )
-        # Decode causal-conv state, one batch-major buffer per tap.  Note the inherited packed
-        # ``conv_state`` buffer is **not** used by the fused decode: it is kept only because
-        # ``_reset_linear_state`` reads its dtype, and :meth:`prepare_decode_state` still refills
-        # it, so it holds the post-prefill state and goes stale after the first decode step.  The
-        # per-user ``user_conv_state`` list, which is what the tests and later stages read, stays
-        # authoritative.  ``conv_state_split[j]`` holds
-        # token ``t - (K - 1) + j`` for every user, so a decode step reads each buffer whole and
-        # the shift is a copy chain rather than a slice out of a tile-height axis.
+        # Decode causal-conv state, one batch-major buffer per tap: buffer ``j`` holds token
+        # ``t - (K - 1) + j`` of every user, which is row ``j + 1`` of the functional layer's
+        # packed ``[1, batch, K, conv_dim]`` state.  A decode step therefore reads each buffer
+        # whole and the shift is a copy chain, rather than a slice out of a tile-height axis.
+        #
+        # The inherited packed ``conv_state`` is **not** read by the fused decode: it is kept
+        # because ``_reset_linear_state`` reads its dtype, and :meth:`prepare_decode_state` still
+        # refills it, so it holds the post-prefill state and goes stale after the first decode
+        # step.  The per-user ``user_conv_state`` list - what the tests and later stages read -
+        # stays authoritative.
         self.conv_state_split: list = []
         if s.layer_type == LINEAR_ATTENTION:
             self.conv_state_split = [
@@ -627,23 +643,35 @@ class FusedDecoder(FunctionalDecoder):
         # take a tile-aligned two-tile block around them first - that slice is a plain tile copy -
         # and do the ragged cut inside the block.  ``length`` is the padded chunk length, always a
         # multiple of the tile height, so both block ends are tile-aligned.
+        # ...and the ragged cut, the concat with the left context and the final K-row cut all
+        # happen in ROW_MAJOR, so the block is untilized once and the K-row result tilized once.
+        # Doing them on TILE tensors instead makes every one of them its own untilize/tilize
+        # sandwich, and leaves a tilize immediately undone by the next op - which is what
+        # ``tests/test_fused_decoder_docs.py::test_no_layout_round_trip_in_the_measured_prefill``
+        # reads out of the committed report.
         tile = ttnn.TILE_SIZE
         block_start = max(0, ((logical - k) // tile) * tile)
         block_end = min(length, block_start + 2 * tile)
         block = ttnn.slice(mixed_qkv, [0, 0, block_start, 0], [1, 1, block_end, s.conv_dim])
+        block_rows = ttnn.to_layout(block, ttnn.ROW_MAJOR_LAYOUT)
+        # A full-range ttnn.slice returns a view, so ``block`` can alias ``mixed_qkv`` on a short
+        # chunk; ``_free`` has to see every tensor that is still live.
+        _free(block, block_rows, mixed_qkv)
         tail = ttnn.slice(
-            block,
+            block_rows,
             [0, 0, max(0, logical - k) - block_start, 0],
             [1, 1, logical - block_start, s.conv_dim],
         )
-        # A full-range ttnn.slice returns a view, so both of these can alias ``mixed_qkv`` (short
-        # chunks) or each other; ``_free`` has to see every tensor that is still live.
-        _free(block, tail, mixed_qkv)
-        merged = ttnn.concat([prefix, tail], dim=-2)
-        _free(tail, merged, block, mixed_qkv)
-        rows = int(merged.shape[-2])
-        new_state = ttnn.slice(merged, [0, 0, rows - k, 0], [1, 1, rows, s.conv_dim])
-        _free(merged, new_state)
+        _free(block_rows, tail, mixed_qkv)
+        prefix_rows = ttnn.to_layout(prefix, ttnn.ROW_MAJOR_LAYOUT)
+        merged = ttnn.concat([prefix_rows, tail], dim=-2)
+        _free(prefix_rows, merged, prefix)
+        _free(tail, merged, mixed_qkv)
+        rows_in = int(merged.shape[-2])
+        state_rows = ttnn.slice(merged, [0, 0, rows_in - k, 0], [1, 1, rows_in, s.conv_dim])
+        _free(merged, state_rows)
+        new_state = ttnn.to_layout(state_rows, ttnn.TILE_LAYOUT)
+        _free(state_rows, new_state)
 
         taps = self.w["conv_taps_bf16"]
         # Build the window in ROW_MAJOR and take each tap's one-row-shifted view there, where a row
@@ -655,8 +683,12 @@ class FusedDecoder(FunctionalDecoder):
         # (``doc/fused_decoder/logs/probe_causal_conv.log``, which reports median and stdev):
         # faster than either all-TILE form by several times the run-to-run spread, and
         # bit-identical to them.  ``work_log.md`` section 3.7 has the table.
-        prefix_rows = ttnn.to_layout(ttnn.typecast(prefix, ttnn.bfloat16), ttnn.ROW_MAJOR_LAYOUT)
-        input_rows = ttnn.to_layout(ttnn.typecast(mixed_qkv, ttnn.bfloat16), ttnn.ROW_MAJOR_LAYOUT)
+        prefix_bf16 = ttnn.typecast(prefix, ttnn.bfloat16)
+        prefix_rows = ttnn.to_layout(prefix_bf16, ttnn.ROW_MAJOR_LAYOUT)
+        _free(prefix_bf16, prefix_rows, prefix)
+        input_bf16 = ttnn.typecast(mixed_qkv, ttnn.bfloat16)
+        input_rows = ttnn.to_layout(input_bf16, ttnn.ROW_MAJOR_LAYOUT)
+        _free(input_bf16, input_rows, mixed_qkv)
         rows = ttnn.concat([prefix_rows, input_rows], dim=-2)
         ttnn.deallocate(prefix_rows)
         ttnn.deallocate(input_rows)
@@ -776,8 +808,9 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(state)
 
         # ``core`` is token-major ROW_MAJOR [1, L, num_v_heads, head_v_dim].  Merging the trailing
-        # two axes is contiguous in ROW_MAJOR, so this reshape is a plain restride rather than the
-        # TILE [L, H*D] <-> [L, H, D] relayout it replaces, and the tilize that follows lands on
+        # two axes is contiguous in ROW_MAJOR.  That is still a real op in the report - a
+        # ROW_MAJOR page-size change is a copy - but it is one copy instead of the two full TILE
+        # [L, H*D] <-> [L, H, D] relayouts it replaces, and the tilize that follows lands on
         # tile-aligned dims with no head-axis padding.  Both costs are rows of the committed
         # prefill report; work_log.md section 3.4 has the comparison.
         #
@@ -899,6 +932,18 @@ class FusedDecoder(FunctionalDecoder):
             core_grid=self.recurrence_read_grid,
         )
         ttnn.deallocate(q)
+
+        if batch >= _GATED_NORM_GROUP_BATCH:
+            # Enough rows that the two tile relayouts cost more than the group reduction; see
+            # :data:`_GATED_NORM_GROUP_BATCH`.  This is the prefill path, reused verbatim.
+            flat = ttnn.reshape(out, (1, 1, batch, s.value_dim))
+            _free(out, flat)
+            core = ttnn.typecast(flat, ttnn.bfloat16)
+            _free(flat, core)
+            result = self._gated_norm_and_project(core, z, batch)
+            ttnn.deallocate(core)
+            ttnn.deallocate(z)
+            return result
 
         core = ttnn.reshape(out, (1, batch, nv, s.head_v_dim))
         _free(out, core)
