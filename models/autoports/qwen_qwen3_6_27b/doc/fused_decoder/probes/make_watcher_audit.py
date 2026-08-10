@@ -29,10 +29,24 @@ OFFENDER = re.compile(
     r"fatal|assert|corrupt|sanitiz|out of bounds|overflow|invalid|exception|error|fault|hang|unexpected",
     re.IGNORECASE,
 )
-SELECTOR = (
-    "test_traced_decode_pcc or (test_decode_pcc and 2049) or test_bfloat8_kv_cache or "
-    "test_traced_decode_batched or test_alternate_page_block_size or test_repeated_runs_stable"
-)
+
+
+def _selector() -> str:
+    """The ``-k`` expression the committed run actually used, read out of the script that ran it.
+
+    It was a literal here, and when the run grew to cover the advertised ``max_batch`` branch the
+    literal did not: the audit published a command that selects eleven of the seventeen tests the
+    log records.  ``test_watcher_audit_matches_its_artifacts`` checks every PASSED id in the log
+    against this expression, so the two cannot drift again.
+    """
+    script = (DOC / "probes" / "regenerate_evidence.sh").read_text()
+    match = re.search(r'-k "([^"]+)"', script)
+    if not match:
+        raise SystemExit("regenerate_evidence.sh has no -k selector")
+    return match.group(1)
+
+
+SELECTOR = _selector()
 
 
 def read_log() -> str:
@@ -97,14 +111,16 @@ Result: **{passed} passed, {deselected} deselected** in {seconds} s. Selected te
 ```
 
 That is both layer kinds through paged prefill at 2049, paged decode, trace capture and replay
-at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, and the two
-alternate page block sizes through prefill *and* decode. Run log: `../logs/watcher_run.log`.
+at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, the two
+alternate page block sizes through prefill *and* decode, and the advertised-`max_batch` branch
+(batched users, the merged-unary graph check and the post-decode conv-state check at batch 32).
+The selected tests are listed below, read from the run log rather than described. Run log:
+`../logs/watcher_run.log`.
 
 Watcher log: `generated/watcher/watcher.log` ({len(lines)} lines, {dumps} `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
-repo's 500 KB per-file commit limit; `kernel_elf_paths.txt` is under it and is committed
-verbatim. The `generated/inspector/` tree the run also emits is not stage evidence and
-is not committed.
+repo's 500 KB per-file commit limit, and so is `kernel_elf_paths.txt`. The
+`generated/inspector/` tree the run also emits is not stage evidence and is not committed.
 
 ## Clean-run audit
 

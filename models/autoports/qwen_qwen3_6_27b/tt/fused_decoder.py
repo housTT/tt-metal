@@ -1107,7 +1107,8 @@ class FusedDecoder(FunctionalDecoder):
         ``test_conv_state_after_decode_matches_reference`` - calls this, which is exact: buffer
         ``j`` *is* packed row ``j``.
 
-        Host-visible work, so not callable inside a captured trace; call it between steps.
+        Allocates (the concat needs a new buffer), so it is not callable inside a captured
+        trace; call it between steps.
         """
         if self.shapes.layer_type != LINEAR_ATTENTION:
             return None

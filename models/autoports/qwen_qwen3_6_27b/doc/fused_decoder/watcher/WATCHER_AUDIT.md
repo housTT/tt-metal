@@ -17,41 +17,47 @@ export ART=$REPO/models/autoports/qwen_qwen3_6_27b/doc/fused_decoder
 export TT_METAL_LOGS_PATH=$ART/watcher TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=0 \
        TT_METAL_WATCHER_NOINLINE=1 TT_METAL_WATCHER_DISABLE_ETH=1
 python -m pytest $REPO/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py \
-    -k "test_traced_decode_pcc or (test_decode_pcc and 2049) or test_bfloat8_kv_cache or test_traced_decode_batched or test_alternate_page_block_size or test_repeated_runs_stable" \
+    -k "test_traced_decode_pcc or (test_decode_pcc and 2049) or test_bfloat8_kv_cache or test_traced_decode_batched or test_alternate_page_block_size or test_repeated_runs_stable or (test_batched_users and 32) or (test_merged_unaries_are_not_dispatched and 32) or test_conv_state_after_decode_matches_reference" \
     -v -s
 ```
 
-Result: **17 passed, 64 deselected** in 408.27 s. Selected tests:
+Result: **21 passed, 64 deselected** in 386.10 s. Selected tests:
 
 ```
   test_alternate_page_block_size[128]
   test_alternate_page_block_size[32]
   test_batched_users[32-full_attention]
   test_batched_users[32-linear_attention]
-  test_conv_state_after_decode_matches_reference[1]
-  test_conv_state_after_decode_matches_reference[5]
+  test_conv_state_after_decode_matches_reference[1-1]
+  test_conv_state_after_decode_matches_reference[1-5]
+  test_conv_state_after_decode_matches_reference[32-1]
+  test_conv_state_after_decode_matches_reference[32-5]
   test_decode_pcc[2049-full_attention]
   test_decode_pcc[2049-linear_attention]
   test_merged_unaries_are_not_dispatched[32-full_attention]
   test_merged_unaries_are_not_dispatched[32-linear_attention]
   test_repeated_runs_stable[full_attention]
   test_repeated_runs_stable[linear_attention]
-  test_traced_decode_batched[full_attention]
-  test_traced_decode_batched[linear_attention]
+  test_traced_decode_batched[32-full_attention]
+  test_traced_decode_batched[32-linear_attention]
+  test_traced_decode_batched[4-full_attention]
+  test_traced_decode_batched[4-linear_attention]
   test_traced_decode_pcc[full_attention]
   test_traced_decode_pcc[linear_attention]
   test_bfloat8_kv_cache
 ```
 
 That is both layer kinds through paged prefill at 2049, paged decode, trace capture and replay
-at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, and the two
-alternate page block sizes through prefill *and* decode. Run log: `../logs/watcher_run.log`.
+at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, the two
+alternate page block sizes through prefill *and* decode, and the advertised-`max_batch` branch
+(batched users, the merged-unary graph check and the post-decode conv-state check at batch 32).
+The selected tests are listed below, read from the run log rather than described. Run log:
+`../logs/watcher_run.log`.
 
-Watcher log: `generated/watcher/watcher.log` (11650 lines, 82 `Dump` header/footer
+Watcher log: `generated/watcher/watcher.log` (14794 lines, 104 `Dump` header/footer
 lines). `watcher.log` and `kernel_names.txt` are committed **gzipped** because each exceeds this
-repo's 500 KB per-file commit limit; `kernel_elf_paths.txt` is under it and is committed
-verbatim. The `generated/inspector/` tree the run also emits is not stage evidence and
-is not committed.
+repo's 500 KB per-file commit limit, and so is `kernel_elf_paths.txt`. The
+`generated/inspector/` tree the run also emits is not stage evidence and is not committed.
 
 ## Clean-run audit
 
@@ -65,12 +71,12 @@ Line categories present, all normal watcher bookkeeping:
 
 ```
 $ awk '{print $1}' generated/watcher/watcher.log | sort | uniq -c | sort -rn | head -6
-   5412 Device
-   1640 k_ids:
-    555 k_ids:215|214|216|216|216
-    285 k_id[
-    220 k_ids:277|276|278|278|278
-    110 k_ids:1565|1564|
+   6864 Device
+   1835 k_ids:
+    665 k_ids:215|214|216|216|216
+    390 k_ids:3779|3778|3780|3780|3780
+    360 k_id[
+    360 k_ids:4021|4020|4022|4022|4022
 ```
 
 `Dump` lines delimit the periodic watcher dumps; `Device` / `k_id` / `k_ids` lines are the

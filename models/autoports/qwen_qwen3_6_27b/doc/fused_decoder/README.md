@@ -4,7 +4,8 @@ Graph-fused TTNN implementation of the Qwen3.6-27B (HF `model_type: qwen3_5`) de
 `FusedDecoder` is a drop-in replacement for stage 1's `FunctionalDecoder`: same constructor,
 same `prefill_forward` / `decode_forward` / `prefill_chunk_plan` / `prepare_decode_state`
 contract, same paged KV cache, same per-user linear-attention state, same acceptance bar. Only
-the op graph changes.
+the op graph changes, with one documented exception — the packed `conv_state` view during
+decode, in [Known limitations](#known-limitations).
 
 Hardware and environment are unchanged from stage 1: one Blackhole chip
 (`/dev/tenstorrent/2`, `TT_VISIBLE_DEVICES=2`) of the intact p300c board, 1x1 mesh, this
@@ -41,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 151.173 ms | **26.031 ms** | **5.81x** | 801 | 68 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.045 ms | **2.346 ms** | **1.30x** | 92 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.618 ms | **6.163 ms** | **5.94x** | 93 | 69 |
-| `full_attention` | prefill, 2048 tokens | 18.585 ms | **17.793 ms** | **1.04x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.276 ms | **2.062 ms** | **1.10x** | 50 | 44 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.068 ms | **2.911 ms** | **1.05x** | 49 | 43 |
+| `linear_attention` | prefill, 2048 tokens | 151.210 ms | **26.169 ms** | **5.78x** | 801 | 68 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.036 ms | **2.355 ms** | **1.29x** | 92 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.620 ms | **6.170 ms** | **5.93x** | 93 | 69 |
+| `full_attention` | prefill, 2048 tokens | 18.633 ms | **17.779 ms** | **1.05x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.276 ms | **2.067 ms** | **1.10x** | 50 | 44 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.069 ms | **2.910 ms** | **1.05x** | 49 | 43 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster **and** smaller; the stage contract is the first of those, not the second.
@@ -71,7 +72,7 @@ carries all six measured passes rather than the four the stage first measured. T
 the same 534 MB — one token or thirty-two, a decode step reads every weight once — so the
 `matmul` bucket barely moves, and everything that scales *with* the batch becomes visible
 instead. In `linear_attention` decode at batch 32 the recurrence's own work is the story: its
-`batched_matmul` and `elementwise` buckets grow by 24x and 10x — the two
+`batched_matmul` and `elementwise` buckets grow by more than twenty-fold and nearly ten-fold — the two
 `decode b32` columns of the table below against their `decode b1` neighbours — because the
 carried state is `[batch * 48, 128, 128]` float32 — 100 MB at batch 32 — and a step decays it,
 reads it and writes it back. That is bandwidth against the state, not dispatch overhead, and
@@ -91,15 +92,15 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.478 ms | 1.877 ms | 1.901 ms | 13.467 ms | 1.804 ms | 1.809 ms |
-| `gated_delta_rule` | 2.722 ms | — | — | — | — | — |
+| `matmul` (projections, MLP, gated-norm constants) | 14.477 ms | 1.883 ms | 1.907 ms | 13.470 ms | 1.809 ms | 1.808 ms |
+| `gated_delta_rule` | 2.848 ms | — | — | — | — | — |
 | `sdpa` | — | — | — | 1.280 ms | 0.105 ms | 0.863 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.059 ms | 1.344 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.786 ms | 0.179 ms | 0.983 ms | 1.065 ms | 0.037 ms | 0.048 ms |
-| `elementwise` | 3.672 ms | 0.204 ms | 1.903 ms | 1.016 ms | 0.042 ms | 0.043 ms |
-| `norm` | 0.373 ms | 0.028 ms | 0.031 ms | 0.543 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.422 ms | 0.048 ms | 0.119 ms |
-| **total** | **26.031 ms** | **2.346 ms** | **6.163 ms** | **17.793 ms** | **2.062 ms** | **2.911 ms** |
+| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.345 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.782 ms | 0.179 ms | 0.982 ms | 1.060 ms | 0.037 ms | 0.048 ms |
+| `elementwise` | 3.686 ms | 0.205 ms | 1.906 ms | 1.015 ms | 0.042 ms | 0.043 ms |
+| `norm` | 0.375 ms | 0.028 ms | 0.031 ms | 0.537 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.417 ms | 0.048 ms | 0.119 ms |
+| **total** | **26.169 ms** | **2.355 ms** | **6.170 ms** | **17.779 ms** | **2.067 ms** | **2.910 ms** |
 <!-- END GENERATED:breakdown -->
 
 Most of the `linear_attention` prefill's `layout` + `elementwise` is the 4-tap causal conv,
@@ -135,7 +136,7 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | **real checkpoint weights** - prefill @ 2049 | 0.999937 | 0.999964 |
 | **real checkpoint weights** - decode @ 2049 | 0.999973 | 0.999988 |
 | traced decode, replay output vs HF | min 0.999881 | min 0.999436 |
-| traced decode at batch 4, per-user positions | min 0.999914 | min 0.999478 |
+| traced decode at batch 4, per-user positions | min 0.999858 | min 0.999278 |
 | paged K cache vs HF after prefill 2049 | — | 0.999989 |
 | paged V cache vs HF after prefill 2049 | — | 0.999993 |
 | conv state vs HF after prefill 2049 | 0.999995 | — |
@@ -156,7 +157,7 @@ records in [`pcc_evidence.json`](pcc_evidence.json), read out of it by
 | **full context 262143** - best-fit *scale* vs HF, decode | 0.996456 | 0.995766 |
 | fused vs functional output, prefill and decode @ 2049 | min 0.999921 | min 0.999859 |
 
-Minimum over all 266 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
+Minimum over all 396 PCC records: **0.998030**, against a bar of 0.995. No exception, no waiver, no open gap.
 <!-- END GENERATED:correctness -->
 
 ### Delta against the functional stage
@@ -286,6 +287,18 @@ four alternative causal-conv formulations, split gate/up MLP matmuls, packing
 GQA head expansion. See [`work_log.md`](work_log.md) §5.
 
 ## Known limitations
+
+* **The packed `conv_state` is not written by a fused decode step.** The functional layer
+  rewrites `[1, batch, K, conv_dim]` every step; the fused one keeps the same state as `K`
+  batch-major per-row buffers, because a decode step then reads whole buffers instead of slicing
+  a tile-height axis (§3.11). The buffers *are* the packed rows, so
+  `FusedDecoder.current_conv_state()` folds them back exactly and
+  `test_conv_state_after_decode_matches_reference` checks the result against HF's own cache
+  object after 1 and 5 decode steps. The limitation is the API asymmetry: a consumer written
+  against the stage-1 attribute reads a post-prefill window instead of an error, and the
+  accessor exists only on the subclass, because this stage's scope is `tt/fused_decoder.py` and
+  adding the method to the base class is a stage-1 edit. A serving stage that inspects conv
+  state mid-generation must call the accessor.
 
 * **The decode SDPA still runs on one core per head** (the `sdpa` row of the breakdown table
   above — 5.1 % of the `full_attention` decode step at batch 1 and **29.7 %** at the advertised

@@ -203,9 +203,15 @@ def test_traced_decode_pcc(mesh_device, layer_idx):
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_traced_decode_batched(mesh_device, layer_idx):
-    """Trace capture and replay at batch > 1, with per-user positions and page tables."""
-    batch = 4
+@pytest.mark.parametrize("batch", [4, 32])
+def test_traced_decode_batched(mesh_device, layer_idx, batch):
+    """Trace capture and replay at batch > 1, with per-user positions and page tables.
+
+    Run at 4 and at the advertised ``max_batch`` of 32.  32 is not 4 with a wider tensor: it is
+    the branch of the z-gated norm ``_GATED_NORM_GROUP_BATCH`` selects, and it is the graph the
+    ``decode_batch32`` perf window measures - which a stage review pointed out was measured but
+    never correctness-checked *traced*.
+    """
     seq_lens = [64 + 97 * u for u in range(batch)]
     lut = _build(mesh_device, layer_idx, max_batch=batch, max_seq_len=8192)
 
@@ -274,7 +280,8 @@ def test_linear_state_and_kv_cache_match_reference(mesh_device, layer_idx):
 
 
 @pytest.mark.parametrize("steps", [1, 5])
-def test_conv_state_after_decode_matches_reference(mesh_device, steps):
+@pytest.mark.parametrize("max_batch", [1, 32])
+def test_conv_state_after_decode_matches_reference(mesh_device, steps, max_batch):
     """The carried conv state is still HF's after N *decode* steps, not just after prefill.
 
     ``test_linear_state_and_kv_cache_match_reference`` reads the state after a prefill.  The
@@ -284,25 +291,32 @@ def test_conv_state_after_decode_matches_reference(mesh_device, steps):
     ``FusedDecoder.current_conv_state`` folds the buffers back and the result is compared against
     HF's own cache object after the same number of steps.
     """
-    lut = _build(mesh_device, H.LINEAR_LAYER_IDX, max_batch=1, max_seq_len=8192)
+    lut = _build(mesh_device, H.LINEAR_LAYER_IDX, max_batch=max_batch, max_seq_len=8192)
     seq_len = 2049
+    # One user is prefilled with real content and checked; the rest hold zeros, which is what
+    # ``prepare_decode_state`` folds in for an unfilled slot.  At max_batch 32 the fold and the
+    # rebuild both take their real paths (a 32-row concat, a non-aliasing reshape) rather than
+    # the single-row ones batch 1 exercises.
+    user_id = max_batch - 1
     hidden = ref.synthetic_hidden_states(lut.config, 1, seq_len, _stats())
-    H.run_tt_prefill(lut, hidden)
+    for slot in range(max_batch):
+        H.run_tt_prefill(lut, hidden if slot == user_id else torch.zeros_like(hidden), user_id=slot)
     cache = DynamicCache(config=lut.config)
     H.reference_prefill(lut, hidden, cache)
     H.prepare_decode(lut)
 
     for step in range(steps):
         token = ref.synthetic_hidden_states(lut.config, 1, 1, _stats(), seed=900 + step)
-        H.run_tt_decode(lut, token, torch.tensor([seq_len + step]))
+        batched = token.repeat(max_batch, 1, 1)
+        H.run_tt_decode(lut, batched, torch.full((max_batch,), seq_len + step))
         H.reference_decode(lut, token, seq_len + step, cache)
 
     packed = ttnn.to_torch(lut.tt_layer.current_conv_state()).to(torch.float32)
-    got = packed.reshape(packed.shape[-2], packed.shape[-1])
+    got = packed.reshape(packed.shape[-3], packed.shape[-2], packed.shape[-1])[user_id]
     expected = cache.layers[lut.layer_idx].conv_states[0].to(torch.float32)
     value = H.pcc(expected, got.T)
-    H.record("fused_conv_state_after_decode_pcc", value, kind="linear_attention", steps=steps)
-    assert value >= H.PCC_BAR, f"conv state after {steps} decode steps mismatches HF: PCC {value}"
+    H.record("fused_conv_state_after_decode_pcc", value, kind="linear_attention", steps=steps, batch=max_batch)
+    assert value >= H.PCC_BAR, f"conv state after {steps} decode steps at batch {max_batch}: PCC {value}"
 
 
 @pytest.mark.parametrize("block_size", [32, 128])

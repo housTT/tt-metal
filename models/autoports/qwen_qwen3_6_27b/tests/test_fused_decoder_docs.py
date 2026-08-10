@@ -243,10 +243,14 @@ def test_prose_perf_figures_match_the_summary():
     for path, text in scanned.items():
         # ``x`` counts only when attached *and* carrying a decimal point (a speedup): ``8x8`` is a
         # core grid.  Microsecond figures count with or without a decimal point.
-        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}(?:\s*(ms|%|GB/s|us|bytes)|(x))\b", text)
+        # ``x`` counts when it is a multiplier - a number, ``x``, then a non-digit.  ``8x8`` is a
+        # core grid and does not match; ``24x`` does.  The old rule exempted every bare-integer
+        # multiplier, which is how two stale ones sat next to the table they misquoted.  Note the
+        # limit of this check for *small* integers: the allowed set is every figure any artifact
+        # prints, and a one- or two-digit value is almost always in it, so the documents state
+        # ratios in words or point at the generated table rather than typing them.
+        quoted = re.findall(r"\*{0,2}(\d+(?:\.\d+)?)\*{0,2}(?:\s*(ms|%|GB/s|us|bytes)\b|(x)(?![\dx]))", text)
         for value, unit, attached in quoted:
-            if not unit and "." not in value:
-                continue
             if value in allowed:
                 continue
             unexplained.append(f"{path.name}: {value} {unit or attached}")
@@ -499,6 +503,12 @@ def test_every_artifact_the_gate_reads_is_tracked_by_git():
     tracked = {name for name in tracked if name}
 
     required = [DOC / "perf_summary.json", DOC / "pcc_evidence.json", DOC / "watcher" / "WATCHER_AUDIT.md"]
+    # The watcher evidence lives under a ``generated/`` path, which .gitignore also matches, and
+    # one of its three files went untracked for a round while the audit claimed it was committed.
+    required += [
+        DOC / "watcher" / "generated" / "watcher" / name
+        for name in ("watcher.log.gz", "kernel_names.txt.gz", "kernel_elf_paths.txt.gz")
+    ]
     required += [DOC / "logs" / f"{path.stem}.log" for path in (DOC / "probes").glob("probe_*.py")]
     required += [DOC / "logs" / f"{name}.log" for name in ("suite_main", "long_context", "watcher_run", "doc_gate")]
     for impl in IMPLS:
@@ -745,9 +755,11 @@ def test_generated_blocks_are_current():
     # restoring them leaves them regenerated if this test is interrupted.
     with tempfile.TemporaryDirectory() as scratch:
         # Mirror the whole ``doc/`` tree: the generator reads the *functional* stage's evidence
-        # too, for the delta table.
+        # too, for the delta table.  And ``tt/``, because the grid tables' "selected" cells are
+        # read out of the shipped constants in ``tt/fused_decoder.py``.
         mirror_doc = Path(scratch) / "doc"
         shutil.copytree(DOC.parent, mirror_doc, symlinks=True)
+        shutil.copytree(ROOT / "tt", Path(scratch) / "tt", symlinks=True)
         mirror = mirror_doc / "fused_decoder"
         result = subprocess.run(
             [sys.executable, str(mirror / "probes" / "make_doc_tables.py")], capture_output=True, text=True
@@ -796,6 +808,53 @@ def test_no_layout_round_trip_in_the_measured_pass(kind, phase):
         if kindof(first) == "tilize" and kindof(second) == "untilize"
     ]
     assert not offenders, f"the profiled {kind} {phase} undoes a layout conversion it just made: {offenders}"
+
+
+def _selects(expression: str, candidate: str) -> bool:
+    """Evaluate the subset of pytest ``-k`` syntax this stage's watcher command uses.
+
+    That is a disjunction of terms, each either a bare substring or ``(a and b)``.  Anything
+    outside that grammar raises rather than being silently treated as a match.
+    """
+    for term in re.split(r"\bor\b", expression):
+        term = term.strip()
+        if term.startswith("(") and term.endswith(")"):
+            parts = [part.strip() for part in re.split(r"\band\b", term[1:-1])]
+        else:
+            parts = [term]
+        for part in parts:
+            assert re.fullmatch(r"[\w.\[\]-]+", part), f"unsupported -k syntax in {expression!r}: {part!r}"
+        if all(part in candidate for part in parts):
+            return True
+    return False
+
+
+def test_watcher_command_selects_the_run_it_documents():
+    """The published watcher ``-k`` selects every test the committed watcher log ran.
+
+    The audit and the work log publish a command as the reproduction recipe.  It was a literal in
+    the audit generator, and when the run grew to cover the advertised ``max_batch`` branch the
+    literal did not: the documented command selected eleven of the seventeen tests the log
+    records, quietly dropping exactly the coverage that had just been added.
+    """
+    audit = (DOC / "watcher" / "WATCHER_AUDIT.md").read_text()
+    match = re.search(r'-k "([^"]+)"', audit)
+    assert match, "WATCHER_AUDIT.md publishes no -k expression"
+    expression = match.group(1)
+
+    run = (DOC / "logs" / "watcher_run.log").read_text(errors="replace")
+    # ``-v -s`` interleaves device logging between the test id and its PASSED, so the id is
+    # matched on its own rather than by adjacency.
+    ran = sorted({name for name in re.findall(r"test_fused_decoder\.py::(\w+(?:\[[^\]]*\])?)", run)})
+    assert ran, "watcher_run.log records no PASSED tests"
+    unselected = [name for name in ran if not _selects(expression, name)]
+    assert (
+        not unselected
+    ), f"the published watcher command does not select these tests the committed run ran: {unselected}"
+    # And the documents publish the same command the audit does.
+    for path, text in _documents().items():
+        for published in re.findall(r'-k "([^"]+)"', text):
+            assert published == expression, f"{path.name} publishes a different watcher -k than the audit"
 
 
 def test_watcher_log_is_clean():

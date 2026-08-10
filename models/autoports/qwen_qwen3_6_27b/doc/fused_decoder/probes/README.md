@@ -1,6 +1,6 @@
 # Fused-decoder probes
 
-Thirteen model-free probes and five pieces of tooling. Every probe is self-checking: it computes the
+Fifteen model-free probes and five pieces of tooling. Every probe is self-checking: it computes the
 same quantity two ways (device against torch, or fused against unfused) and prints the PCC next
 to the timing, so a number in this stage's documents can be reproduced without the model, the
 checkpoint or the test harness.
@@ -27,6 +27,8 @@ python models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/probes/<probe>.py
 | `probe_gdn_input_folds.py` | can `exp(g)` and `sigmoid(b)` ride on the multiplies that consume them, and should the rank-3 change move ahead of the `a`/`b` slices? | both folds are bit-exact and cheaper, and both are shipped; the rank-3 reorder is a tie and was not taken (work_log.md §3.19) | `../logs/probe_gdn_input_folds.log` |
 | `probe_decode_conv_dtype.py` | should the *decode* causal-conv FIR run in bfloat16, as the prefill one does? | no: its taps read the carried float32 state, so it pays `K - 1` typecasts per step that prefill does not, and they cancel the bandwidth won (work_log.md §6) | `../logs/probe_decode_conv_dtype.log` |
 | `probe_gdn_decode_heads.py` | should the decode Q/K L2 norm run before the GQA expansion instead of after? | no: normalising 16 heads instead of 48 is real work saved, but expanding on the flattened head axis costs more than it saves, at both batch sizes (work_log.md §6) | `../logs/probe_gdn_decode_heads.log` |
+| `probe_decode_qk_pair.py` | Q and K are the same shape and take the same path at decode - should they be one tensor through the norm, scale and rank change? | no: one `rms_norm` over twice the heads is real work saved, but concatenating Q and K and cutting the result apart costs more, at both batches (work_log.md §6) | `../logs/probe_decode_qk_pair.log` |
+| `probe_prefill_qkv_split.py` | should `in_proj_qkv` be three projections and three FIRs instead of one and three slices? | no: the packed chain is faster end to end, the same result §6.2 found for `wqkv`/`wgate` in the other direction | `../logs/probe_prefill_qkv_split.log` |
 | `probe_mlp_variants.py` | fused gate/up matmul or split, and where should the SiLU live? | the fused gate/up matmul with the SiLU folded into the multiply is the fastest of the three at prefill; splitting the matmul is a wash at decode (work_log.md §3.8) | `../logs/probe_mlp_variants.log` |
 
 Tooling:

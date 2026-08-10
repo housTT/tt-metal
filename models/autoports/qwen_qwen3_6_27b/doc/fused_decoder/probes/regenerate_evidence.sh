@@ -62,7 +62,8 @@ python $ART/probes/make_doc_tables.py 2>&1 | grep -v nanobind | tail -1
 # generators; ``test_every_artifact_the_gate_reads_is_tracked_by_git`` is the gate for it.
 # The raw *_ops.csv are megabytes each and are committed only gzipped, so they are excluded here.
 git add -f $ART/logs/*.log $ART/tracy/*/*/*_perf_report*.csv $ART/tracy/*/*/*.console.log \
-           $ART/tracy/*/*/*.provenance $ART/tracy/*/*/*.gz
+           $ART/tracy/*/*/*.provenance $ART/tracy/*/*/*.gz \
+           $ART/watcher/WATCHER_AUDIT.md $ART/watcher/generated/watcher/*.gz
 
 timeout 600 python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder_docs.py -v > $ART/logs/doc_gate.log 2>&1
 grep -E "^=+.*(passed|failed)" $ART/logs/doc_gate.log

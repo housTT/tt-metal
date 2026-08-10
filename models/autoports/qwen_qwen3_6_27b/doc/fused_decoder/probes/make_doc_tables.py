@@ -41,6 +41,20 @@ def _grep(name: str, pattern: str, group: int = 1) -> str:
     return match.group(group)
 
 
+def _shipped_grid(name: str) -> str:
+    """``(y, x)`` of a shipped ``core_grid`` constant, read out of ``tt/fused_decoder.py``.
+
+    The "selected" cells of the grid tables used to be literals in this file, so a table inside a
+    GENERATED block could - and did - name a grid the layer does not ship.  Reading the constant
+    is what makes the cell a fact about the code.
+    """
+    source = (DOC.parents[1] / "tt" / "fused_decoder.py").read_text()
+    match = re.search(rf"^{name} = \((\d+), (\d+)\)$", source, re.MULTILINE)
+    if not match:
+        raise SystemExit(f"tt/fused_decoder.py has no {name} = (y, x) literal")
+    return f"{match.group(1)}x{match.group(2)}"
+
+
 def before_after_table() -> str:
     summary = _summary()
     rows = [
@@ -189,9 +203,14 @@ def recurrence_table() -> str:
             "|---" * (len(grids) + 2) + "|",
         ]
         for kind, prefix, label, selected in (
-            ("read", "", "state read", "6x4"),
+            ("read", "", "state read", _shipped_grid("_RECURRENCE_READ_GRID")),
             ("outer", "", "outer product (`transpose` + `matmul`)", "—"),
-            ("outer", "transpose_a ", "outer product (`transpose_a=True`, shipped)", "6x11"),
+            (
+                "outer",
+                "transpose_a ",
+                "outer product (`transpose_a=True`, shipped)",
+                _shipped_grid("_RECURRENCE_OUTER_GRID"),
+            ),
         ):
             cells = []
             for grid in grids:
@@ -716,6 +735,43 @@ def rejected_decode_variants() -> str:
     return "\n".join(rows)
 
 
+def rejected_shared_work() -> str:
+    """Two shared-work merges the batch-32 and prefill profiles suggested, both measured."""
+    rows = ["| candidate | shape | shipped | merged | agreement |", "|---|---|---|---|---|"]
+    for batch in ("1", "32"):
+        match = re.search(
+            rf"decode_qk batch=\s*{batch} separate_us=\s*([\d.]+) \(\s*[\d.]+\) "
+            rf"merged_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_q=([\d.]+) pcc_k=([\d.]+)",
+            _probe("probe_decode_qk_pair"),
+        )
+        if not match:
+            raise SystemExit(f"probe_decode_qk_pair.log has no batch {batch} row")
+        rows.append(
+            f"| decode Q and K through one norm/scale/rank-change chain | batch {batch} | "
+            f"**{match.group(1)} us** (separate) | {match.group(2)} us (merged) | "
+            f"PCC {match.group(3)} / {match.group(4)} |"
+        )
+    match = re.search(
+        r"prefill_qkv seq=(\d+) packed_ms=\s*([\d.]+) \(\s*[\d.]+\) split_ms=\s*([\d.]+) \(\s*[\d.]+\) "
+        r"pcc_q=([\d.]+)",
+        _probe("probe_prefill_qkv_split"),
+    )
+    if not match:
+        raise SystemExit("probe_prefill_qkv_split.log has no measurement")
+    rows.append(
+        f"| prefill `in_proj_qkv` as three projections and three FIRs instead of one and three slices | "
+        f"{match.group(1)} tokens | **{match.group(2)} ms** (packed) | {match.group(3)} ms (split) | "
+        f"PCC {match.group(4)} |"
+    )
+    rows.append("")
+    rows.append(
+        "Median over 25 repeats (9 for the prefill row). Both merges are the same arithmetic as what "
+        "ships and both measure slower: cutting a wide TILE tensor apart, or concatenating one, costs "
+        "more than the shared work it enables - the same result §6.2 found for `wqkv`/`wgate`."
+    )
+    return "\n".join(rows)
+
+
 BLOCKS = {
     "before_breakdown": before_breakdown,
     "correctness": correctness_table,
@@ -740,6 +796,7 @@ BLOCKS = {
     "run_totals": run_totals,
     "slow_rows": slow_rows,
     "rejected_decode_variants": rejected_decode_variants,
+    "rejected_shared_work": rejected_shared_work,
 }
 
 
