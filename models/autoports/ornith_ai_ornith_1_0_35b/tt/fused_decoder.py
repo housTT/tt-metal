@@ -1790,9 +1790,18 @@ class FusedDecoder(LightweightModule):
             ttnn.deallocate(normed)
             merged = ttnn.reshape(swapped, [batch, seq, nv * dv])
             ttnn.deallocate(swapped)
-        # Deliberately unfused: folding the SiLU into the multiply's input activations is
-        # documented to overflow to NaN for large-magnitude z in this exact layer family
-        # (models/demos/blackhole/qwen36/tt/gdn/tp.py). Confirmed by the A/B in doc/fused_decoder.
+        # Deliberately unfused, and this is the one place in the graph where an op-level A/B is not
+        # sufficient evidence. `models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` reports that
+        # folding the SiLU here breaks "in the real layer for large-magnitude z (op-level PCC hid
+        # it - small inputs)". Measured at this gate's own shape, the fold looks *good*: the two
+        # arms agree to PCC 0.999996 with zero non-finite outputs at every |z| up to ~663, and the
+        # folded form is measurably faster (GATEFOLD / GATEFOLDTIME rows in
+        # doc/fused_decoder/logs/probe_fused_ops.txt). Landing it on that evidence collapses
+        # fused-vs-functional agreement to essentially zero on real checkpoint weights - the
+        # isolated probe passes and the model is destroyed. So the rejection stands, now on this
+        # stage's own controls rather than on the citation, and work_log.md §4.8 records both: the
+        # op-level A/B that would have justified the merge, and the real-weight control that
+        # refutes it.
         gated = ttnn.multiply(merged, ttnn.silu(z))
         ttnn.deallocate(merged)
         ttnn.deallocate(z)

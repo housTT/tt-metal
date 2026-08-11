@@ -327,13 +327,48 @@ parallelises over the token extent, of which decode has one. All three agree exa
 1.000000 at 128 and 2048); the *flat* untilize/reshape/tilize spelling is not equivalent at all
 there, because it does not transpose head↔token — §4.12 records the PCCs that show it.
 
-### 4.8 Fusing SiLU into the DeltaNet output gate's multiply — known NaN hazard
+### 4.8 Fusing SiLU into the DeltaNet output gate's multiply — the op-level A/B passes and the model breaks
 
-`models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` documents that fusing the SiLU via
+This is the one rejection in the catalogue that an op-level A/B would have got **wrong**, and until
+round 20 it was also the one still resting on another port's source comment rather than on a
+measurement of ours — the same objection round 19 raised against §4.15, left standing in the sibling
+section. `models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` says folding the SiLU via
 `input_tensor_b_activations` on this exact gate "overflows to NaN in the real layer for
-large-magnitude z (op-level PCC hid it — small inputs)". The fused decoder therefore keeps
-`ttnn.multiply(x, ttnn.silu(z))` unfused for that one gate, and uses the fused form only where the
-magnitudes are bounded (the SwiGLU inputs and the sigmoid attention gate, both PCC-verified).
+large-magnitude z (op-level PCC hid it — small inputs)". Round 20 also caught the source comment
+claiming an A/B "in doc/fused_decoder" that did not exist. Both are now measured, and the result is
+more interesting than either the citation or the missing A/B.
+
+**The op-level A/B says take the merge.** `probe_fused_ops.py`'s `GATEFOLD` arm runs the gate at its
+own shape (`[1, 2048, linear_v_dim]`, not the `[1, 1, 64, 512]` of the generic activation probe,
+which is exactly the small-input case the citation says hides the failure) and sweeps `|z|` upward,
+comparing both arms against a float32 `x · silu(z)` reference and counting non-finite outputs rather
+than letting them disappear into a NaN PCC. At every magnitude tested — up to `max|z| ≈ 663` — the
+folded and separate forms agree to PCC 0.999996 with **zero** non-finite outputs, and `GATEFOLDTIME`
+puts the folded form about a third faster. On that evidence alone the merge is a clear win: exact,
+cheaper, and it is a catalogued `$graph-fusing` op-merging pattern this graph already uses in four
+other places.
+
+**The real-weight control says it destroys the layer.** Landing the fold and running the delivered
+suite against real checkpoint weights collapses the fused-vs-functional agreement to essentially zero
+against the 0.9999 bar, in both prefill and decode — not a degradation, a different function.
+`test_real_weights_pcc`, `test_fused_matches_functional` and `test_determinism_repeated_inputs` all
+fail for `linear_attention`; reverting the one line restores all four to passing, which is the
+control that makes this attributable to the fold and nothing else. So the shipped spelling stays
+`ttnn.multiply(merged, ttnn.silu(z))`.
+
+No number is quoted for that control, deliberately: the run that produced it was reverted, so no
+committed artifact records it, and §4.12's rule is that a figure belongs in prose only when an
+artifact backs it. It reproduces in about a minute — change the one line in `_gdn_out` to
+`ttnn.multiply(merged, z, input_tensor_b_activations=_SILU)` and run
+`pytest tests/test_fused_decoder.py -k "(real_weights_pcc or fused_matches_functional) and linear"`.
+What *is* committed is the half that misleads: the `GATEFOLD` rows, which pass.
+
+Two things are worth keeping from this beyond the verdict. First, the citation was right and the
+mechanism it names — op-level PCC hiding a real-layer failure — is now reproduced rather than
+repeated: this stage's *own* isolated probe is the thing that would have misled it. Second, it is a
+standing caveat on every other fold in §3.3: those are verified by the full real-weight suite, not by
+their op-level probes, and this section is why that distinction matters. The fused form is kept only
+where the real-weight suite covers it (the SwiGLU inputs and the sigmoid attention gate).
 
 ### 4.9 `ttnn.linear(activation="silu")` — not actually fused for interleaved inputs
 
@@ -506,11 +541,25 @@ group and the loop body runs once. So the candidate trades a fixed three-op-per-
 one-slice-per-group read, which is a real launch saving in prefill only, bounded above by a window
 share that §5.4's ranking shows is smaller than every item it lists.
 
-Two things follow, and both are stated rather than implied. First, this stage's claim is that no
-*material* graph fusing is left, not that the graph is provably minimal: this is a live example of the
-difference, and it is the natural first item for the optimized-decoder stage, which owns prefill
-launch count. Second, it is the only candidate of its kind found by nineteen review rounds — every
-other redundancy in the catalogue was either taken (§3) or rejected with a measurement (§4).
+**There are two instances, not one, and the one this section was written about is the smaller.**
+Round 20 pointed out that `_routed_experts` rebuilds the down-projection's score operand the same
+way: `scores = ttnn.permute(dense_routing, (0, 3, 2, 1))` also runs once per 32-token group, from the
+same whole-call `dense` that `FusedMoE.forward` already slices, and it is hoistable by the identical
+argument (compute `[1, E, tokens, 1]` once, take each group's rows). In the committed prefill
+captures it is one `PermuteDeviceOperation` launch per group against the mask chain's `Reduce` plus
+`UntilizeWithUnpadding` plus `gtz`, and by device time the permute is the **larger** of the two —
+both are fractions of a percent of the window, and both are below every row §5.4 ranks, but a
+section whose purpose is to bound what is left cannot name only the cheaper one. An earlier revision
+of this paragraph called the mask "the only candidate of its kind"; the shipped graph refutes that,
+and the claim is withdrawn.
+
+So the honest scoping is: no *material* graph fusing is left, not that the graph is provably minimal.
+Both hoists are exact and both are a few lines; neither is landed here because each would need its
+own measured before/after to be worth claiming, and the ceiling on the pair together is a fraction of
+one percent of prefill and nothing at all in decode. They are the natural first item for the
+optimized-decoder stage, which owns prefill launch count. What *is* claimed is narrower and holds:
+every redundancy in this catalogue is either taken (§3), rejected with a measurement (§4), or named
+here with its cost.
 
 ### 4.12 The probe measurements behind §3 and §4
 
@@ -524,19 +573,19 @@ made twenty of this file's inline probe figures stale, which is what prompted mo
 <!-- generated:worklog-probe-figures -->
 | Comparison | Measured | Artifact |
 | --- | --- | --- |
-| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.855807** — the activation is silently ignored | `probe_fused_ops.txt` |
-| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.8 µs vs 1959.4 µs | `probe_decode_micro.txt` |
-| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 109.9 µs vs 120.3 µs | `probe_router_and_reduce.txt` |
-| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.717 ms vs 2.484 ms | `probe_conv1d_and_norm.txt` |
-| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.376 ms vs PCC 0.825507 at 0.296 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
-| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 256.79 ms vs 256.92 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
-| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.5 µs, width-sharded x8 36.2 µs, width-sharded x16 39.4 µs, width-sharded x32 44.4 µs, width-sharded x64 45.6 µs | `probe_conv1d_and_norm.txt` |
+| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.853888** — the activation is silently ignored | `probe_fused_ops.txt` |
+| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 90.0 µs vs 1959.7 µs | `probe_decode_micro.txt` |
+| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 104.5 µs vs 136.9 µs | `probe_router_and_reduce.txt` |
+| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.714 ms vs 2.495 ms | `probe_conv1d_and_norm.txt` |
+| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.374 ms vs PCC 0.825507 at 0.296 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
+| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 256.90 ms vs 256.97 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
+| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.6 µs, width-sharded x8 36.6 µs, width-sharded x16 28.5 µs, width-sharded x32 32.1 µs, width-sharded x64 53.3 µs | `probe_conv1d_and_norm.txt` |
 | §3.3, §4.7 — decode head merge at `seq_len 1`: `permute + reshape` (shipped) vs `nlp_concat_heads` vs the flat untilize/reshape/tilize | 11.1 µs vs 52.9 µs vs 44.6 µs; all three bitwise-equal | `probe_decode_micro.txt` |
 | §4.7 — the flat untilize/reshape/tilize spelling above `seq_len 1` (it does not transpose head↔token, so it is not an alternative there at all) | PCC 0.000659 at 128 and 0.000095 at 2048 against the other two | `probe_decode_micro.txt` |
-| §3.2 — explicit `core_grid` on the recurrent-state read | 61.0 µs → 14.3 µs | `probe_decode_micro.txt` |
+| §3.2 — explicit `core_grid` on the recurrent-state read | 61.0 µs → 14.4 µs | `probe_decode_micro.txt` |
 | §3.3 — delta-rule outer product: `transpose + matmul` vs `matmul(transpose_a=True)` | 21.3 µs → 17.9 µs | `probe_decode_micro.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.830 ms vs 1.856 ms | `ab_rope_mode.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.59 ms vs 243.28 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.830 ms vs 1.855 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.32 ms vs 243.19 ms | `ab_rope_mode.txt` |
 <!-- /generated:worklog-probe-figures -->
 
 The MoE expert-group sweep and the functional-vs-fused headline are tabulated in
@@ -1341,6 +1390,36 @@ Round 19's implementation read found **no new correctness bug**; it re-derived a
 the four op-row counts, the per-op-code decode diffs, the `SLOW` sums and attribution, the MoE shares,
 the `FILL`/`BinaryNg` splits, the census and both A/B sweeps from the raw captures and reproduced them
 exactly.
+
+### Round 20 — `more-work-needed`
+
+The twentieth review confirmed round 19's three findings genuinely closed — the suite log is a
+complete 93-passed run, `pcc_summary.txt` re-extracts from it byte for byte, the manifest matches the
+shipped sources, and §4.15's `CONV1DACT` arms are a fair symmetric A/B — re-derived every load-bearing
+figure from the raw captures and reproduced all of them exactly, and found no new correctness bug. It
+then returned two P2s, both of which are the same failure this stage keeps making: a claim broader
+than its evidence.
+
+| Finding | Fix |
+| --- | --- |
+| **P2** — §4.8 rejected the DeltaNet output-gate SiLU fold on `models/demos/blackhole/qwen36`'s source comment, which is exactly the objection round 19 raised against §4.15 and which §4.15 itself calls unacceptable — left standing in the sibling section. Worse, `_gdn_out`'s comment claimed the rejection was "confirmed by the A/B in doc/fused_decoder", and **no such A/B existed**: the only `SILU` probe in the tree is `[1, 1, 64, 512]` random data, i.e. precisely the small-input case the citation says *hides* the failure. | measured, both halves, and the result changed what §4.8 says. `probe_fused_ops.py` gains a `GATEFOLD` arm at the gate's own shape with a `|z|` sweep and non-finite counting; it says **take the merge** (PCC 0.999996, zero non-finite, ~a third faster). Landing it on that evidence takes the real-weight suite to essentially zero fused-vs-functional agreement, and reverting the one line restores it. §4.8 is rewritten around both halves, and the false "confirmed by" claim is gone. |
+| **P2** — §4.16 said the per-group sparsity-mask rebuild was "the only candidate of its kind"; `_routed_experts` rebuilds the down projection's score operand (`ttnn.permute`) per group the same way, and by device time it is the **larger** of the two. A section that exists to bound what is left cannot enumerate only the cheaper half. | §4.16 and README §8 item 12 now name both, the "only candidate" claim is withdrawn, and the scoping claim is narrowed to one that holds: every redundancy in the catalogue is taken, rejected with a measurement, or named here with its cost. |
+
+§4.8 is the one worth carrying forward. It is the only rejection in the catalogue that an op-level
+A/B gets **wrong**, and this stage had to build that A/B, watch it pass, and then be refuted by the
+real-weight control to establish it. Every other fold in §3.3 is verified by the full real-weight
+suite rather than by its own op-level probe; §4.8 is why that distinction is not pedantry.
+
+Round 20's other observations, all non-blocking and recorded rather than fixed: `run_evidence.sh`
+rewrites `pytest_full_suite.txt` once more after the suite ends (the reviewer re-derived the content
+and found it one monotonic, self-consistent session, and `check_summary_provenance` re-extracts
+`pcc_summary.txt` from it byte for byte); `audit_figures.py` was edited mid-pipeline, which cannot
+affect a measurement since it is not in the manifest and runs last, but is the habit §5 warns about;
+the §5 hang was killed without `tt-triage`; and `test_fused_decoder.py`'s chunk-invariance comment
+says 262 143 where the test runs 262 144. The reviewer also noted a real gate gap worth passing on:
+`check_summary_provenance` ties the suite log to the PCC summary, but nothing ties the tracy captures,
+the watcher log and the probe logs to the same pipeline pass — a run nonce in `source_manifest.txt`
+echoed by every producer would close it.
 
 ---
 
