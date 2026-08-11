@@ -1021,10 +1021,11 @@ def test_generated_table_bolding_marks_a_measured_win():
     * the row is a pair whose two values appear together on one probe-log line, which carries
       both spreads - the ``rejected_*`` and fold tables.
 
-    What it does **not** cover, stated rather than implied: a table with no spread anywhere -
-    the three probes that print a best-of-N wall time (``probe_mlp_variants``,
-    ``probe_output_paths``, ``probe_chunk_gdr``) and §3.22's pair of single traced passes.  There
-    the rule is inapplicable, so those four generators bold no timing cell and label the shipped
+    What it does **not** cover, stated rather than implied: a table with no spread anywhere.  That
+    is five tables, from four sources - the three probes that print a best-of-N wall time
+    (``probe_mlp_variants``, ``probe_output_paths`` which feeds two of the five, and
+    ``probe_chunk_gdr``) and §3.22's pair of single traced passes.  There
+    the rule is inapplicable, so those generators bold no timing cell and label the shipped
     row instead; §3.22's row is the reason that convention exists, because the shipped column was
     bolded there on a row where it is the *larger* number.
     """

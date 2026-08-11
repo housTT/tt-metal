@@ -344,19 +344,20 @@ GQA head expansion. See [`work_log.md`](work_log.md) §6, which is the table of 
   adding the method to the base class is a stage-1 edit. A serving stage that inspects conv
   state mid-generation must call the accessor.
 
-* **Four generated tables have no spread behind them, so none of them bolds a timing cell.**
+* **Five generated tables have no spread behind them, so none of them bolds a timing cell.**
   `probe_mlp_variants.py`, `probe_output_paths.py` and `probe_chunk_gdr.py` predate the
-  median-and-stdev convention every later probe follows, and §3.22's decisive rotate-half
-  comparison is a pair of single traced profiler passes rather than a repeated measurement. The
-  tie rule the rest of the evidence uses cannot be applied to any of the four, so those tables
+  median-and-stdev convention every later probe follows — and `probe_output_paths.py` feeds two of
+  the five tables — while §3.22's decisive rotate-half comparison is a pair of single traced
+  profiler passes rather than a repeated measurement. The
+  tie rule the rest of the evidence uses cannot be applied to any of the five, so those tables
   label the shipped row instead — §3.22's prints the signed difference — and
   `test_generated_table_bolding_marks_a_measured_win` states that as an explicit exclusion rather
   than pretending to cover them. The decisions resting on them are not close — the margins are in
   [`work_log.md`](work_log.md) §3.1, §3.2, §3.8, §3.13 and §3.22, and each is far outside any
-  spread this stage has measured on those shapes, except §3.22's batch-1 row, which is inside a
-  tenth of a percent and is not what that rewrite was decided on. Re-running the three probes with
-  median and stdev is the outstanding evidence-quality item, and it needs the board, which is why
-  it is listed here rather than done.
+  spread this stage has measured on those shapes, except §3.22's batch-1 row, whose signed
+  difference that table prints and which is not what that rewrite was decided on. Re-running the
+  three probes with median and stdev is the outstanding evidence-quality item, and it needs the
+  board, which is why it is listed here rather than done.
 
 * **Two decode configuration constants are measured at their ends, not across their range.**
   `_RECURRENCE_READ_GRID` is keyed at 1536 head problems and the sweep measures 48 and 1536, so

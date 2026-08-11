@@ -750,11 +750,12 @@ profiled with each form, and **both runs are committed**:
 | `full_attention` decode, batch 1 | 2.067 ms | 2.070 ms (shipped) | -0.1 % |
 | `full_attention` decode, batch 32 | 2.911 ms | 2.869 ms (shipped) | +1.4 % |
 
-Device time per trace replay, summed over the signposted window of each committed report. One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and the decision is the advertised-batch row - at batch 1 the two are within a tenth of a percent of each other and the sign is against the shipped form. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
+Device time per trace replay, summed over the signposted window of each committed report. One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and the decision is the advertised-batch row, where it is +1.44 %. At batch 1 it is -0.14 %, i.e. the sign is against the shipped form by a fraction of a percent - the difference column above is rounded to one decimal, so these two figures are the unrounded ones. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
 <!-- END GENERATED:rope_half_traced -->
 
-The spelled-out form ships, on the advertised-batch row: at batch 1 the two traced passes are
-within a tenth of a percent and the sign is against it, which is the regime this rewrite was never
+The spelled-out form ships, on the advertised-batch row: at batch 1 the two traced passes differ by
+the fraction of a percent the table's own difference column carries, and its sign is against the
+shipped form, which is the regime this rewrite was never
 about. Prefill keeps `rotary_embedding_hf`, which is a different op on a
 different shape and a measured win (§3.2).
 
@@ -1614,6 +1615,21 @@ Its two hardware-free concerns were taken as work rather than left as notes:
 | §3.22's traced rotate-half table is a fourth spread-less table and it bolded the shipped column on the batch-1 row, where the shipped form is the *larger* number | that table bolds nothing now and labels the shipped column; its caption states that a positive difference is the shipped form ahead and that the decision is the advertised-batch row; §3.22's prose says the same; and the gate's docstring and the README limitation name this table alongside the three spread-less probes |
 | the bolding gate's cell parser accepted an agreement cell holding a single decimal - "PCC 1.000000 between them" - as a second timing, which turned those rows into triples and skipped the probe-log pair lookup they depend on; two correctly-bolded cells were escaping the check | a timing cell may not name an agreement (`PCC`, `diff`, `%`, `GB/s`). Both rows are covered now, verified by injecting the wrong bold into each and watching the gate fail |
 
+Round 26 was a confirmation review of the final commit and returned **clean-pass**. It re-derived
+every headline figure exactly (all six before/after rows, all six op-count pairs, the evidence
+file key-for-key, the watcher grep, the reshard equalities, the zero host ops and zero layout
+round trips in all six fused reports), replayed both the old and the new cell parser over all 34
+generated blocks to confirm round 25's fix is strictly strengthening - 190 to 196 checked cells,
+no block losing coverage, and both wrong-bold injections now failing where they passed silently
+before - and re-checked the whole goal contract rather than the delta. It found no correctness,
+capability or performance defect, no unearned rejection and no stale artifact.
+
+Its two wording concerns are closed here: §3.22's "within a tenth of a percent" is replaced by the
+unrounded signed differences, derived in the caption at two decimals (the difference column itself
+is rounded to one), with the prose pointing at that column instead of restating a ratio; and the
+"four generated tables have no spread behind them" count is five, because `probe_output_paths.py`
+feeds two of them - corrected in the README limitation and in the gate's docstring.
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1642,6 +1658,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `c9a93716645` | Qwen3.6-27B fused decoder: twenty-second-review fixes |
 | `781c0fc935a` | Qwen3.6-27B fused decoder: twenty-third-review fixes |
 | `951da5df4e5` | Qwen3.6-27B fused decoder: twenty-fourth-review fixes |
+| `e9a5feab92f` | Qwen3.6-27B fused decoder: twenty-fifth-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -

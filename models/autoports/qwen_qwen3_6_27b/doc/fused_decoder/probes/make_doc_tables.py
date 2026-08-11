@@ -1165,6 +1165,7 @@ def rope_half_traced() -> str:
     which is what makes it a measurement of the alternative rather than of the shipped code.
     """
     rows = ["| pass | dedicated `rotate_half` (rejected) | spelled out (shipped) | difference |", "|---|---|---|---|"]
+    differences = {}
     for phase, label in (
         ("decode", "`full_attention` decode, batch 1"),
         ("decode_batch32", "`full_attention` decode, batch 32"),
@@ -1177,16 +1178,16 @@ def rope_half_traced() -> str:
         # spread to decide a win with.  The shipped column used to be bolded on both rows, and at
         # batch 1 that is the *larger* of the two numbers - the sign is in the difference column,
         # which is where the decision actually lives.
-        rows.append(
-            f"| {label} | {rejected:.3f} ms | {shipped:.3f} ms (shipped) | "
-            f"{100.0 * (rejected - shipped) / rejected:+.1f} % |"
-        )
+        differences[phase] = 100.0 * (rejected - shipped) / rejected
+        rows.append(f"| {label} | {rejected:.3f} ms | {shipped:.3f} ms (shipped) | " f"{differences[phase]:+.1f} % |")
     rows.append("")
     rows.append(
         "Device time per trace replay, summed over the signposted window of each committed report. "
         "One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and "
-        "the decision is the advertised-batch row - at batch 1 the two are within a tenth of a "
-        "percent of each other and the sign is against the shipped form. "
+        "the decision is the advertised-batch row, where it is "
+        f"{differences['decode_batch32']:+.2f} %. At batch 1 it is {differences['decode']:+.2f} %, "
+        "i.e. the sign is against the shipped form by a fraction of a percent - the difference "
+        "column above is rounded to one decimal, so these two figures are the unrounded ones. "
         "The two runs differ only in this one op - the rejected one's provenance carries a "
         "different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative."
     )
