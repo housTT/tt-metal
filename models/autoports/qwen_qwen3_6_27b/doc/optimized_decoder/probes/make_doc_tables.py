@@ -151,7 +151,8 @@ def dominant_matmuls(summary: dict) -> list:
     This is the OPT-013 artifact: the shipped policy is only implemented if these rows say so.
     """
     lines = [
-        "| pass | op | instances | device time | math fidelity (measured) | bound | cores | DRAM % | FLOPs % |",
+        "| pass | op | instances per pass | device time per pass | math fidelity (measured) | "
+        "bound | cores | DRAM % | FLOPs % |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for kind in KINDS:
@@ -159,11 +160,13 @@ def dominant_matmuls(summary: dict) -> list:
             entry = summary["measurements"].get(f"optimized/{kind}/{phase}")
             if not entry:
                 continue
+            replays = 8 if phase.startswith("decode") else 1
             for row in entry["dominant_matmul_rows"][:6]:
                 lines.append(
-                    f"| `{kind}` {phase} | `{row['op']}` | {row['instances']} | "
-                    f"{row['device_time_us']:.1f} us | `{row['math_fidelity']}` | {row['bound'] or '—'} | "
-                    f"{row['cores']} | {row['dram_pct'] or '—'} | {row['flops_pct'] or '—'} |"
+                    f"| `{kind}` {phase} | `{row['op']}` | {max(1, row['instances'] // replays)} | "
+                    f"{row['device_time_us'] / replays:.1f} us | `{row['math_fidelity']}` | "
+                    f"{row['bound'] or '—'} | {_span([row['cores']], 0)} | "
+                    f"{_span([row['dram_pct']], 1)} | {_span([row['flops_pct']], 1)} |"
                 )
     return lines
 
@@ -322,6 +325,27 @@ def recurrence_advice(rows: list) -> list:
     return lines
 
 
+def _span(values, digits: int) -> str:
+    """``min-max`` over a set of numeric strings, rounded - one cell per op group, not per instance.
+
+    An op group can have many instances in a window (one per trace replay, and more than one per
+    replay for a repeated role), and printing every instance's percentage made this table unreadable.
+    A range says the same thing and says it in one cell.
+    """
+    numbers = []
+    for value in values:
+        try:
+            numbers.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if not numbers:
+        return "—"
+    low, high = min(numbers), max(numbers)
+    if digits == 0:
+        return f"{int(low)}" if low == high else f"{int(low)}-{int(high)}"
+    return f"{low:.{digits}f}" if abs(high - low) < 10**-digits else f"{low:.{digits}f}-{high:.{digits}f}"
+
+
 def slow_rows(summary: dict) -> list:
     """Every ``Bound=SLOW`` op group in the committed optimized reports.
 
@@ -360,9 +384,9 @@ def slow_rows(summary: dict) -> list:
                 found += 1
                 per_pass = item["us"] / replays
                 lines.append(
-                    f"| `{kind}` {phase} | `{key}` | {item['n'] // replays} | {per_pass:.1f} us | "
-                    f"{100.0 * per_pass / total:.2f} % | {'/'.join(sorted(item['cores']))} | "
-                    f"{'/'.join(sorted(item['dram']))} | {'/'.join(sorted(item['flops']))} |"
+                    f"| `{kind}` {phase} | `{key}` | {max(1, item['n'] // replays)} | {per_pass:.1f} us | "
+                    f"{100.0 * per_pass / total:.2f} % | {_span(item['cores'], 0)} | "
+                    f"{_span(item['dram'], 1)} | {_span(item['flops'], 1)} |"
                 )
     lines.append("")
     lines.append(

@@ -956,41 +956,41 @@ Every op is classified: the `other` bucket is empty in all measured passes.
 This is the OPT-013 artifact: a precision policy is not implemented until the measured rows say so.
 
 <!-- GENERATED:dominant_matmuls -->
-| pass | op | instances | device time | math fidelity (measured) | bound | cores | DRAM % | FLOPs % |
+| pass | op | instances per pass | device time per pass | math fidelity (measured) | bound | cores | DRAM % | FLOPs % |
 |---|---|---|---|---|---|---|---|---|
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 17408` | 2 | 3012.7 us | `LoFi BF16 x BFP4 => BF16` | FLOP | 64.0 | 17.741182811901535 | 68.47739073133557 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 10240` | 1 | 1787.7 us | `HiFi2 BF16 x BFP8 => FP32` | FLOP | 64.0 | 17.184273928066585 | 67.88848959236181 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 17408 x 5120` | 1 | 1260.7 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64.0 | 28.103395213513586 | 81.82534251847245 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 6144` | 1 | 515.1 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64.0 | 29.419632371068776 | 70.67779548605111 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 5120` | 1 | 498.2 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64.0 | 30.422720684768162 | 73.08761726070429 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 128` | 1 | 134.5 us | `HiFi4 BF16 x FP32 => FP32` | SLOW | 32.0 | 35.77066579459813 | 45.100918259540585 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 16 | 2566.7 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.46467680370439 | 53.79227338637471 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 17408 x 5120` | 8 | 1552.0 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 89.61601227278109 | 44.25482087544745 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 10240` | 8 | 1474.5 us | `HiFi2 BF16 x BFP8 => FP32` | SLOW | 12 | 55.67880290573753 | 54.991410277271626 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 6144` | 8 | 581.9 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 85.87242131156707 | 42.406133981020766 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 6144 x 5120` | 8 | 581.7 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 80.59184637179284 | 39.7984426527372 |
-| `linear_attention` decode | `MatmulDeviceOperation b={48} x 32 x 128 x 128` | 24 | 479.6 us | `HiFi4 FP32 x FP32 => FP32` | SLOW | 24.0 | 48.31454783748361 | 7.9530119897092355 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation b={1536} x 32 x 128 x 128` | 24 | 10017.5 us | `HiFi4 FP32 x FP32 => FP32` | DRAM | 40.0 | 68.29275070339365 | 6.744963032433941 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 16 | 2559.9 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.44900410369332 | 53.77679417648723 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 17408 x 5120` | 8 | 1552.3 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 89.90713865159951 | 44.3985869884442 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 10240` | 8 | 1472.0 us | `HiFi2 BF16 x BFP8 => FP32` | SLOW | 12 | 55.5284420584567 | 54.84290573674735 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 5120` | 8 | 610.1 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 80.03960292853233 | 39.52572984125054 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 6144` | 8 | 576.6 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 83.59979862027674 | 41.283851170507035 |
-| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 17408` | 2 | 3017.9 us | `LoFi BF16 x BFP4 => BF16` | FLOP | 64.0 | 17.718518047080725 | 68.38990930617223 |
-| `full_attention` prefill | `MatmulDeviceOperation 2048 x 17408 x 5120` | 1 | 1261.8 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64.0 | 28.0789848249977 | 81.75426966815856 |
-| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 8192` | 1 | 776.3 us | `LoFi BF16 x BFP8 => BF16` | SLOW | 64.0 | 24.272311174492017 | 62.53735568307122 |
-| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 6144` | 1 | 515.6 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64.0 | 29.3914470175493 | 70.61008292504336 |
-| `full_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 5120` | 1 | 497.2 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64.0 | 30.48311734286467 | 73.23271433721241 |
-| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 16 | 2568.3 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.096384044549964 | 53.42852745140737 |
-| `full_attention` decode | `MatmulDeviceOperation 32 x 17408 x 5120` | 8 | 1550.7 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 89.75647986305538 | 44.32418758669401 |
-| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 8192` | 8 | 753.8 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.71535937334603 | 42.82239969054125 |
-| `full_attention` decode | `MatmulDeviceOperation 32 x 6144 x 5120` | 8 | 576.3 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 85.79208266424632 | 42.366460574936454 |
-| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 6144` | 8 | 569.6 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.20496127511504 | 42.5703512469704 |
-| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 16 | 2562.6 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.24269618107488 | 53.57303326525914 |
-| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 17408 x 5120` | 8 | 1551.1 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 90.1217119397808 | 44.50454910606459 |
-| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 8192` | 8 | 754.4 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.63374189659366 | 42.78209476374995 |
-| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 5120` | 8 | 599.6 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 81.87196844517882 | 40.43060170132287 |
-| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 6144` | 8 | 570.6 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.24973678669193 | 42.59246261071206 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 17408` | 2 | 3012.7 us | `LoFi BF16 x BFP4 => BF16` | FLOP | 64 | 17.7 | 68.5 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 10240` | 1 | 1787.7 us | `HiFi2 BF16 x BFP8 => FP32` | FLOP | 64 | 17.2 | 67.9 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 17408 x 5120` | 1 | 1260.7 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64 | 28.1 | 81.8 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 6144` | 1 | 515.1 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64 | 29.4 | 70.7 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 5120` | 1 | 498.2 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64 | 30.4 | 73.1 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 128` | 1 | 134.5 us | `HiFi4 BF16 x FP32 => FP32` | SLOW | 32 | 35.8 | 45.1 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.8 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.5 | 53.8 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 17408 x 5120` | 1 | 194.0 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 89.6 | 44.3 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 10240` | 1 | 184.3 us | `HiFi2 BF16 x BFP8 => FP32` | SLOW | 12 | 55.7 | 55.0 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 6144` | 1 | 72.7 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 85.9 | 42.4 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 6144 x 5120` | 1 | 72.7 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 80.6 | 39.8 |
+| `linear_attention` decode | `MatmulDeviceOperation b={48} x 32 x 128 x 128` | 3 | 60.0 us | `HiFi4 FP32 x FP32 => FP32` | SLOW | 24 | 48.3 | 8.0 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation b={1536} x 32 x 128 x 128` | 3 | 1252.2 us | `HiFi4 FP32 x FP32 => FP32` | DRAM | 40 | 68.3 | 6.7 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.0 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.4 | 53.8 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 17408 x 5120` | 1 | 194.0 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 89.9 | 44.4 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 10240` | 1 | 184.0 us | `HiFi2 BF16 x BFP8 => FP32` | SLOW | 12 | 55.5 | 54.8 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 5120` | 1 | 76.3 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 80.0 | 39.5 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 6144` | 1 | 72.1 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 83.6 | 41.3 |
+| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 17408` | 2 | 3017.9 us | `LoFi BF16 x BFP4 => BF16` | FLOP | 64 | 17.7 | 68.4 |
+| `full_attention` prefill | `MatmulDeviceOperation 2048 x 17408 x 5120` | 1 | 1261.8 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64 | 28.1 | 81.8 |
+| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 8192` | 1 | 776.3 us | `LoFi BF16 x BFP8 => BF16` | SLOW | 64 | 24.3 | 62.5 |
+| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 6144` | 1 | 515.6 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64 | 29.4 | 70.6 |
+| `full_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 5120` | 1 | 497.2 us | `LoFi BF16 x BFP8 => BF16` | FLOP | 64 | 30.5 | 73.2 |
+| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 321.0 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.1 | 53.4 |
+| `full_attention` decode | `MatmulDeviceOperation 32 x 17408 x 5120` | 1 | 193.8 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 89.8 | 44.3 |
+| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 8192` | 1 | 94.2 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.7 | 42.8 |
+| `full_attention` decode | `MatmulDeviceOperation 32 x 6144 x 5120` | 1 | 72.0 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 85.8 | 42.4 |
+| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 6144` | 1 | 71.2 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.2 | 42.6 |
+| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.3 us | `LoFi BF16 x BFP4 => BF16` | SLOW | 12 | 54.2 | 53.6 |
+| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 17408 x 5120` | 1 | 193.9 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 90.1 | 44.5 |
+| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 8192` | 1 | 94.3 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.6 | 42.8 |
+| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 5120` | 1 | 75.0 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 81.9 | 40.4 |
+| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 6144` | 1 | 71.3 us | `LoFi BF16 x BFP8 => BF16` | DRAM | 12 | 86.2 | 42.6 |
 <!-- END GENERATED:dominant_matmuls -->
 
 ### 5.4 Performance accounting
@@ -1126,21 +1126,21 @@ stage does not have to rediscover it.
 <!-- GENERATED:slow_rows -->
 | pass | op | instances per pass | device time per pass | share | cores | DRAM % | FLOPs % |
 |---|---|---|---|---|---|---|---|
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 128` | 1 | 134.5 us | 0.75 % | 32.0 | 35.77066579459813 | 45.100918259540585 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 64` | 1 | 119.7 us | 0.66 % | 64.0 | 43.202058513926715 | 15.208645461448347 |
-| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 64 x 6144` | 1 | 109.7 us | 0.61 % | 110.0 | 46.65275588398771 | 9.650994348525943 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.8 us | 24.05 % | 12 | 54.05103301807704/54.06513407581791/54.096047831248164/54.11891985997725/54.12968986125535/54.13170971373131/54.184616150800565/54.18765213818348/54.27618245876593/54.332763205533155/54.389122175564886/54.410882176435294/54.41224275461979/54.42959609287551/54.46229124561217/54.46467680370439 | 53.38373631415016/53.39766328475842/53.428195388887076/53.450785046891106/53.46142208519047/53.46341700121611/53.51567027239563/53.51866877845283/53.606106132114505/53.661988351143854/53.717651531422106/53.739142890306454/53.74048667122943/53.757625770741235/53.78991727961696/53.79227338637471 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 10240` | 1 | 184.3 us | 13.81 % | 12 | 55.263825400851616/55.298444191233244/55.52783983688696/55.6128822027915/55.65338376921236/55.67880290573753/55.68637260926547/55.7354742141788 | 54.58155595145839/54.61574734936616/54.84231095001182/54.926303410164444/54.966304957246784/54.991410277271626/54.9988865276696/55.047381939929686 |
-| `linear_attention` decode | `MatmulDeviceOperation b={48} x 32 x 128 x 128` | 3 | 59.9 us | 4.49 % | 22.0/24.0 | 40.740904469298435/41.25520390348718/41.39975742329634/41.44630329195898/41.56781381083397/41.948111060537094/42.02270758287356/42.068745149952065/47.83804827407215/47.850467289719624/48.14795465231701/48.31454783748361/48.46445098864114/48.492501973164956/48.71293408742534/48.74385148357751/48.78771836950768/49.073482428115014/49.13365676813989/49.1441369380899/49.23866004167334/49.465943857012505/49.585709673948124/49.93498049414824 | 7.315987334554153/7.408341890637427/7.43429987399261/7.4426582791396605/7.464478349869176/7.532769662947178/7.54616522251377/7.554432350159742/7.874575847583891/7.876620129994999/7.925589243179755/7.9530119897092355/7.977687405537637/7.982304851549786/8.01858997323874/8.023679256555969/8.030900143128836/8.07793949433992/8.08784473549628/8.089569866352248/8.105129224966806/8.142542198685184/8.162256736452369/8.219749875579957 |
-| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.0 us | 1.12 % | 4.0 | 38.31955011577902/38.662305587076965/38.69071476285905/38.6984699672613/38.71398970657041/38.73211180954929/38.992863875050496/38.99811473202262 | 50.18316364661055/50.63203514575252/50.669239713995886/50.679395905560135/50.6997205078884/50.72345315758449/51.06493325154965/51.071809757508646 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.0 us | 7.74 % | 12 | 54.210601710274716/54.21262760583731/54.25858855358221/54.38504411286896/54.42619260519125/54.43504255864712/54.43946861474569/54.44423594170262/54.44900410369332/54.45036658909491/54.460246647854184/54.460587403486386/54.4636543960754/54.47626677348288/54.49093174234504 | 53.541335022493556/53.54333590699982/53.58872943563675/53.713623815179226/53.75426430142345/53.76300499619469/53.76737640962537/53.772084880693946/53.77679417648723/53.7781398410814/53.787897923806604/53.78823447257914/53.79126360106212/53.80372027010654/53.81820418997041 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 10240` | 1 | 184.0 us | 4.45 % | 12 | 55.5284420584567/55.54892536698094/55.54922670485676/55.70788179483832/55.712428115189795/55.72091656554553/55.7236455453734/55.72637479252265 | 54.84290573674735/54.863136164919446/54.86343378257457/55.020130167741556/55.024620360681276/55.03300401535361/55.035699304072494/55.03839485681249 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 64` | 1 | 16.3 us | 0.39 % | 2.0 | 14.13083201364356/14.184397163120568/14.194811551639743/14.199155395067017/14.221786305400602/14.229636898920509/14.23225568983498/14.259373079287027 | 55.44050567804983/55.65066166680253/55.69152118344481/55.70856369558861/55.797353167548714/55.82815396358085/55.838428453605424/55.94482005053608 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.0 us | 0.36 % | 4.0 | 38.43397478433974/38.603039189549456/38.6648865153538/38.73470206647495/38.75802997858672/38.760623703406274/38.77878950187466/38.893365565404245 | 50.33301383666347/50.554420055886325/50.635415121396434/50.726845349997895/50.75739551114283/50.76079224509928/50.784582118272525/50.93463057470578 |
-| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 64 x 6144` | 1 | 7.3 us | 0.18 % | 16.0 | 31.281288053037475/31.332158829109634/31.395980445410103/31.524406872102535/31.64089229505953/32.102193835045824/32.22748815165877/32.69693112713901 | 15.3940979269081/15.419132372649107/15.45054016536906/15.51374117504469/15.571065796876663/15.798080780030238/15.859740420654834/16.090761954147613 |
-| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 8192` | 1 | 776.3 us | 8.21 % | 64.0 | 24.272311174492017 | 62.53735568307122 |
-| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 321.0 us | 33.78 % | 12 | 53.89707293814593/53.9756167135894/54.049019181688905/54.05908986454173/54.09134128379931/54.096047831248164/54.096384044549964/54.16607028396114/54.27313654332996/54.279567210252246/54.370436075384006/54.4027201360068/54.43946861474569/54.45411377556447/54.492978644812716 | 53.2316769759466/53.30925107515003/53.38174733993966/53.391693693374556/53.42354694696228/53.428195388887076/53.42852745140737/53.4973533668752/53.6030978205728/53.60944909654543/53.69919612383606/53.73108161580918/53.76737640962537/53.7818407659896/53.82022582203725 |
-| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.3 us | 22.64 % | 12 | 54.136423289111136/54.14349519153012/54.2234349399767/54.229178089019584/54.24269618107488/54.25622101431207/54.27584400683436/54.37145498613227/54.40748102864143/54.41428374948424/54.42857500187597/54.46944854689729/54.471834732052905/54.478994542086014/54.48206360831001/54.48683839869793 | 53.4680723843073/53.47505697928901/53.55400981726094/53.55968206322922/53.57303326525914/53.58639112524648/53.605771858601834/53.70020245543928/53.73578373199154/53.742502468626405/53.75661728580343/53.796986219157816/53.79934294523743/53.80641436255409/53.80944553907161/53.81416138143005 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 128` | 1 | 134.5 us | 0.75 % | 32 | 35.8 | 45.1 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 6144 x 64` | 1 | 119.7 us | 0.66 % | 64 | 43.2 | 15.2 |
+| `linear_attention` prefill | `MatmulDeviceOperation 2048 x 64 x 6144` | 1 | 109.7 us | 0.61 % | 110 | 46.7 | 9.7 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.8 us | 24.05 % | 12 | 54.1-54.5 | 53.4-53.8 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 10240` | 1 | 184.3 us | 13.81 % | 12 | 55.3-55.7 | 54.6-55.0 |
+| `linear_attention` decode | `MatmulDeviceOperation b={48} x 32 x 128 x 128` | 3 | 59.9 us | 4.49 % | 22-24 | 40.7-49.9 | 7.3-8.2 |
+| `linear_attention` decode | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.0 us | 1.12 % | 4 | 38.3-39.0 | 50.2-51.1 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.0 us | 7.74 % | 12 | 54.2-54.5 | 53.5-53.8 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 10240` | 1 | 184.0 us | 4.45 % | 12 | 55.5-55.7 | 54.8-55.0 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 6144 x 64` | 1 | 16.3 us | 0.39 % | 2 | 14.1-14.3 | 55.4-55.9 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 128` | 1 | 15.0 us | 0.36 % | 4 | 38.4-38.9 | 50.3-50.9 |
+| `linear_attention` decode_batch32 | `MatmulDeviceOperation 32 x 64 x 6144` | 1 | 7.3 us | 0.18 % | 16 | 31.3-32.7 | 15.4-16.1 |
+| `full_attention` prefill | `MatmulDeviceOperation 2048 x 5120 x 8192` | 1 | 776.3 us | 8.21 % | 64 | 24.3 | 62.5 |
+| `full_attention` decode | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 321.0 us | 33.78 % | 12 | 53.9-54.5 | 53.2-53.8 |
+| `full_attention` decode_batch32 | `MatmulDeviceOperation 32 x 5120 x 17408` | 2 | 320.3 us | 22.64 % | 12 | 54.1-54.5 | 53.5-53.8 |
 
 15 `Bound=SLOW` op groups across the six committed optimized reports.
 <!-- END GENERATED:slow_rows -->
