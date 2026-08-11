@@ -1173,13 +1173,20 @@ def rope_half_traced() -> str:
         report = DOC / "tracy" / "rejected" / "rotate_half_dedicated" / f"{phase}_perf_report.csv"
         with report.open() as handle:
             rejected = sum(float(row["Device Time"] or 0) for row in csv.DictReader(handle)) / 8 / 1000.0
+        # No bold: these are two profiler passes, not a repeated measurement, so there is no
+        # spread to decide a win with.  The shipped column used to be bolded on both rows, and at
+        # batch 1 that is the *larger* of the two numbers - the sign is in the difference column,
+        # which is where the decision actually lives.
         rows.append(
-            f"| {label} | {rejected:.3f} ms | **{shipped:.3f} ms** | "
+            f"| {label} | {rejected:.3f} ms | {shipped:.3f} ms (shipped) | "
             f"{100.0 * (rejected - shipped) / rejected:+.1f} % |"
         )
     rows.append("")
     rows.append(
         "Device time per trace replay, summed over the signposted window of each committed report. "
+        "One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and "
+        "the decision is the advertised-batch row - at batch 1 the two are within a tenth of a "
+        "percent of each other and the sign is against the shipped form. "
         "The two runs differ only in this one op - the rejected one's provenance carries a "
         "different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative."
     )

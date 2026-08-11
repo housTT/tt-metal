@@ -1021,10 +1021,12 @@ def test_generated_table_bolding_marks_a_measured_win():
     * the row is a pair whose two values appear together on one probe-log line, which carries
       both spreads - the ``rejected_*`` and fold tables.
 
-    What it does **not** cover, stated rather than implied: a table whose probe prints a
-    best-of-N wall time with no spread at all (``probe_mlp_variants``, ``probe_output_paths``,
-    ``probe_chunk_gdr``).  There the rule is inapplicable, so those generators bold no timing cell
-    and label the shipped row instead - and this gate asserts that, which is the checkable half.
+    What it does **not** cover, stated rather than implied: a table with no spread anywhere -
+    the three probes that print a best-of-N wall time (``probe_mlp_variants``,
+    ``probe_output_paths``, ``probe_chunk_gdr``) and §3.22's pair of single traced passes.  There
+    the rule is inapplicable, so those four generators bold no timing cell and label the shipped
+    row instead; §3.22's row is the reason that convention exists, because the shipped column was
+    bolded there on a row where it is the *larger* number.
     """
     pair_rule = re.compile(r"(\w+)_(?:us|ms)=\s*([\d.]+) \(\s*([\d.]+)\)")
     # (value, value) -> verdict, over every probe log line that measured two timings.
@@ -1059,7 +1061,11 @@ def test_generated_table_bolding_marks_a_measured_win():
             # 0.000e+00" - parses as a second timing and silently turned its row into a triple,
             # which skipped the pair lookup that row depended on.
             leftover = piece[: match.start()] + piece[match.end() :] if match else ""
-            if match and "GB/s" not in piece and not re.search(r"\d+\.\d+|\d+e[-+]\d+", leftover):
+            # An agreement cell holding a single decimal - "PCC 1.000000 between them" - passed the
+            # leftover test and parsed as a second timing, which turned its row into a triple and
+            # skipped the pair lookup that row depends on.  A timing cell names no agreement.
+            agreement = any(word in piece for word in ("PCC", "pcc", "diff", "GB/s", "%"))
+            if match and not agreement and not re.search(r"\d+\.\d+|\d+e[-+]\d+", leftover):
                 found.append((piece.count("**") >= 2, match.group(2), match.group(3)))
             else:
                 found.append(None)

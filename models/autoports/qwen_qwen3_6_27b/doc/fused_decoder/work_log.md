@@ -747,13 +747,15 @@ profiled with each form, and **both runs are committed**:
 <!-- GENERATED:rope_half_traced -->
 | pass | dedicated `rotate_half` (rejected) | spelled out (shipped) | difference |
 |---|---|---|---|
-| `full_attention` decode, batch 1 | 2.067 ms | **2.070 ms** | -0.1 % |
-| `full_attention` decode, batch 32 | 2.911 ms | **2.869 ms** | +1.4 % |
+| `full_attention` decode, batch 1 | 2.067 ms | 2.070 ms (shipped) | -0.1 % |
+| `full_attention` decode, batch 32 | 2.911 ms | 2.869 ms (shipped) | +1.4 % |
 
-Device time per trace replay, summed over the signposted window of each committed report. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
+Device time per trace replay, summed over the signposted window of each committed report. One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and the decision is the advertised-batch row - at batch 1 the two are within a tenth of a percent of each other and the sign is against the shipped form. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
 <!-- END GENERATED:rope_half_traced -->
 
-The spelled-out form ships. Prefill keeps `rotary_embedding_hf`, which is a different op on a
+The spelled-out form ships, on the advertised-batch row: at batch 1 the two traced passes are
+within a tenth of a percent and the sign is against it, which is the regime this rewrite was never
+about. Prefill keeps `rotary_embedding_hf`, which is a different op on a
 different shape and a measured win (§3.2).
 
 This is the one place in the stage where the graph has *more* python-level ops than it could have,
@@ -1598,6 +1600,20 @@ not print, so it now says the decode column decides nothing. §3.21's table stop
 in-place column as though it beat plain `addcmul` - they are inside each other's spread, and the
 in-place form ships for the trace-address reason its caption gives, not for the microseconds.
 
+Round 25 returned **clean-pass**. It re-derived all six before/after rows and their op counts, the
+whole evidence file (493 records, 460 PCC, minimum 0.998030), every bolding decision in the eleven
+spread-bearing tables against the raw log medians and stdevs - including the five ties that
+correctly carry no bold - and confirmed the perf pair is like-for-like with `--impl` the only
+difference. Its stated finding: the shipped decoder, its measurements and its capability contract
+are sound, and nine consecutive rounds have found no defect in the decoder itself.
+
+Its two hardware-free concerns were taken as work rather than left as notes:
+
+| concern | what was done |
+|---|---|
+| §3.22's traced rotate-half table is a fourth spread-less table and it bolded the shipped column on the batch-1 row, where the shipped form is the *larger* number | that table bolds nothing now and labels the shipped column; its caption states that a positive difference is the shipped form ahead and that the decision is the advertised-batch row; §3.22's prose says the same; and the gate's docstring and the README limitation name this table alongside the three spread-less probes |
+| the bolding gate's cell parser accepted an agreement cell holding a single decimal - "PCC 1.000000 between them" - as a second timing, which turned those rows into triples and skipped the probe-log pair lookup they depend on; two correctly-bolded cells were escaping the check | a timing cell may not name an agreement (`PCC`, `diff`, `%`, `GB/s`). Both rows are covered now, verified by injecting the wrong bold into each and watching the gate fail |
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1625,6 +1641,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `782fb23fc88` | Qwen3.6-27B fused decoder: twenty-first-review fixes |
 | `c9a93716645` | Qwen3.6-27B fused decoder: twenty-second-review fixes |
 | `781c0fc935a` | Qwen3.6-27B fused decoder: twenty-third-review fixes |
+| `951da5df4e5` | Qwen3.6-27B fused decoder: twenty-fourth-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -
