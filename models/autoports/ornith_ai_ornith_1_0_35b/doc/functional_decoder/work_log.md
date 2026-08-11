@@ -602,3 +602,20 @@ The audit earned its keep here: pointed at the new artifacts it reported 56 prob
 wall clock, every derived ratio whose operands had moved, and one `HISTORICAL` entry that had become
 inert because the new measurement produced the value it was exempting. That is exactly the drift the
 first nine rounds kept finding by hand.
+
+## 19. Local checkpoint commit
+
+```
+repo    /home/ttuser/dev/ornith/tt-metal
+branch  agentic-research/hous/ornith-1.0-35B
+commit  7f467566666c1262154e1d35a33d9c7faa6b6ff8
+        [autoports] Ornith-1.0-35B functional decoder (TTNN, single Blackhole)
+        70 files changed, 55118 insertions(+)
+parent  e85bf5dbc38 (branch tip before this stage)
+```
+
+Stage-owned files only, all under `models/autoports/`: the implementation, the reference, the tests
+and the whole `doc/` evidence tree including the generators. Nothing outside `models/autoports/` was
+touched, `__pycache__` is excluded, and the `*.csv` perf reports needed `git add -f` because the repo
+`.gitignore` excludes `*.csv`. The block above is
+[`logs/commit_record.txt`](logs/commit_record.txt), generated from `git log`/`git show`. **Not pushed** — this is a local checkpoint, as the stage requires.

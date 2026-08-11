@@ -46,6 +46,7 @@ ARTIFACTS = [
     DOC / "logs/pytest_full_suite.txt",
     DOC / "logs/watcher_pytest.txt",
     DOC / "logs/dram_capacity_probe.txt",
+    DOC / "logs/commit_record.txt",
     DOC / "logs/router_precision_ab.txt",
     DOC / "logs/probe_gated_delta_rule_op.txt",
     DOC / "logs/probe_moe_vs_hf.txt",

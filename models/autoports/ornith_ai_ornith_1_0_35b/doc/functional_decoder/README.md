@@ -15,7 +15,7 @@ context.
 * Bringup narrative, probes, bugs found, hardware incident, review rounds: [`work_log.md`](work_log.md)
 * Figure audit — asserts every measured number quoted in these docs exists in a committed artifact,
   and recomputes the ones that are derived rather than measured:
-  [`audit_figures.py`](audit_figures.py) (currently 0 problems: 5 documents against 23 artifacts, with
+  [`audit_figures.py`](audit_figures.py) (currently 0 problems: 5 documents against 24 artifacts, with
   decimals, integers and labelled figures such as `N passed` grepped, 16 derived ratios re-evaluated
   from their declared operands, and `context_contract.json`'s byte figures recomputed from the formulas
   it states)
