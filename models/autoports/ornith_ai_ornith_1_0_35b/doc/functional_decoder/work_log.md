@@ -659,3 +659,17 @@ touched, `__pycache__` is excluded, and the `*.csv` perf reports needed `git add
 `.gitignore` excludes `*.csv`. The commits used `--no-verify` for the reason recorded in §18 — six
 evidence artifacts exceed the 500 KB hook limit and the whitespace hooks would rewrite raw captures —
 after every other hook was run manually and passed.
+
+### One source edit after the evidence
+
+`tt/moe.py`'s `routing_weights` docstring was corrected after the evidence set was captured, which
+by §18's own doctrine invites the freshness question. Re-running two hours of captures for a docstring
+would be disproportionate, so it is settled by proof instead of by argument: parsing both revisions
+and comparing their ASTs with every docstring removed gives an exact match, so the change cannot
+affect execution. The command, for anyone re-checking:
+
+```python
+ast.dump(strip_docstrings(ast.parse(old))) == ast.dump(strip_docstrings(ast.parse(new)))  # True
+```
+
+No other source file was touched after its measurements.
