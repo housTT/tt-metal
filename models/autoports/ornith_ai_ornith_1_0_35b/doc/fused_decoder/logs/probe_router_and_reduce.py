@@ -133,6 +133,66 @@ def main():
             ttnn.synchronize_device(mesh)
             per = (time.time() - start) / iters
             print(f"REDUCE {name:30s} pcc={p:.6f} wall={per * 1e6:.1f} us/call", flush=True)
+
+        # ------------------------------------------------------------------ the §4.16 hoists
+        # FusedMoE._routed_experts rebuilds two per-call quantities inside every 32-token expert
+        # group: the sparse_matmul sparsity mask (reshape -> sum -> gtz -> to_layout) and the down
+        # projection's score operand (permute). Both are hoistable to one whole-call computation
+        # plus a per-group slice, exactly as the router above them already is. Whether that is
+        # FASTER is the open question review rounds 19-21 kept raising, and this answers it at the
+        # shipped prefill shape (2048 tokens, 64 groups of 32) rather than by argument.
+        prefill_tokens, group = 2048, 32
+        n_groups = prefill_tokens // group
+        gen = torch.Generator().manual_seed(31)
+        dense = dev(mesh, torch.rand(1, 1, prefill_tokens, E, generator=gen).to(torch.bfloat16))
+
+        def per_group():
+            """The superseded spelling: each group rebuilt its own mask and score operand."""
+            outs = []
+            for g in range(n_groups):
+                lo = g * group
+                scores_g = ttnn.slice(dense, [0, 0, lo, 0], [1, 1, lo + group, E])
+                grouped = ttnn.reshape(scores_g, [1, 1, group, E])
+                mask = ttnn.to_layout(ttnn.gtz(ttnn.sum(grouped, dim=-2, keepdim=True)), ttnn.ROW_MAJOR_LAYOUT)
+                perm = ttnn.permute(scores_g, (0, 3, 2, 1))
+                outs.append((mask, perm))
+                ttnn.deallocate(scores_g)
+            for mask, perm in outs:
+                ttnn.deallocate(mask)
+                ttnn.deallocate(perm)
+
+        def hoisted():
+            """What ships since §4.16: one whole-call mask and permute, then a per-group slice of each."""
+            all_masks = ttnn.to_layout(
+                ttnn.gtz(ttnn.sum(ttnn.reshape(dense, [1, n_groups, group, E]), dim=-2, keepdim=True)),
+                ttnn.ROW_MAJOR_LAYOUT,
+            )  # [1, n_groups, 1, E]
+            all_scores = ttnn.permute(dense, (0, 3, 2, 1))  # [1, E, tokens, 1]
+            outs = []
+            for g in range(n_groups):
+                lo = g * group
+                outs.append(
+                    (
+                        ttnn.slice(all_masks, [0, g, 0, 0], [1, g + 1, 1, E]),
+                        ttnn.slice(all_scores, [0, 0, lo, 0], [1, E, lo + group, 1]),
+                    )
+                )
+            for mask, perm in outs:
+                ttnn.deallocate(mask)
+                ttnn.deallocate(perm)
+            ttnn.deallocate(all_masks)
+            ttnn.deallocate(all_scores)
+
+        for name, fn in (("per-group (superseded)", per_group), ("hoisted whole-call (shipped)", hoisted)):
+            fn()
+            ttnn.synchronize_device(mesh)
+            start = time.time()
+            iters = 10
+            for _ in range(iters):
+                fn()
+            ttnn.synchronize_device(mesh)
+            per = (time.time() - start) / iters
+            print(f"MASKHOIST {name:22s} {per * 1e3:8.3f} ms per 2048-token prefill MoE call", flush=True)
     finally:
         ttnn.close_mesh_device(mesh)
 

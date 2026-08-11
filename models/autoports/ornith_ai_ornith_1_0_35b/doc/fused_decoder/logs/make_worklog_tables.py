@@ -96,6 +96,27 @@ def rows():
         "p",
         "t",
     )
+    gate_sep, gate_fold = grab(
+        fused,
+        r"GATEFOLD prefill f32xbf16\(real\).*?separate\(shipped\) pcc=(?P<a>[\d.]+) nonfinite=0 \| "
+        r"folded pcc=\S+ nonfinite=(?P<b>\d+)",
+        "a",
+        "b",
+    )
+    gate_bf16, gate_bf16_fold = grab(
+        fused,
+        r"GATEFOLD prefill bf16xbf16.*?separate\(shipped\) pcc=(?P<a>[\d.]+) nonfinite=0 \| "
+        r"folded pcc=(?P<b>[\d.]+) nonfinite=0",
+        "a",
+        "b",
+    )
+    hoist_per, hoist_all = grab(
+        router,
+        r"MASKHOIST per-group \(superseded\)\s+(?P<a>[\d.]+) ms[\s\S]*?"
+        r"MASKHOIST hoisted whole-call \(shipped\)\s+(?P<b>[\d.]+) ms",
+        "a",
+        "b",
+    )
     (rm_tail,) = grab(tail, r"CONVTAIL row-major tail \(shipped\)\s+best=\s*(?P<t>[\d.]+) ms", "t")
     (tile_tail,) = grab(tail, r"CONVTAIL tile tail\s+best=\s*(?P<t>[\d.]+) ms", "t")
     norm_text = conv.read_text(errors="replace")
@@ -139,6 +160,25 @@ def rows():
             "§3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens",
             f"{conv1d_ms} ms vs {fir_ms} ms",
             "`probe_conv1d_and_norm.txt`",
+        ),
+        (
+            "§4.8 — DeltaNet output gate, SiLU separate (shipped) vs folded into the multiply, at the "
+            "**real** `float32 x bfloat16` operand pairing, prefill shape",
+            f"separate PCC {gate_sep}, 0 non-finite; folded **{gate_fold} non-finite values** at the "
+            f"smallest magnitude tested",
+            "`probe_fused_ops.txt`",
+        ),
+        (
+            "§4.8 — the same fold with **matched** `bfloat16 x bfloat16` operands, i.e. what a naive "
+            "op-level probe writes, and why it passes",
+            f"separate PCC {gate_bf16} vs folded PCC {gate_bf16_fold}, both 0 non-finite",
+            "`probe_fused_ops.txt`",
+        ),
+        (
+            "§4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair "
+            "with per-group slices (shipped), 2048-token prefill",
+            f"{hoist_per} ms vs {hoist_all} ms per MoE call",
+            "`probe_router_and_reduce.txt`",
         ),
         (
             "§4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, "

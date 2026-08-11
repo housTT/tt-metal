@@ -640,17 +640,26 @@ class FusedMoE:
         return dense
 
     # ---------------- experts ----------------
-    def _routed_experts(self, x, dense_routing, tokens):
-        """Routed-expert output ``[1, 1, tokens, hidden]``."""
+    def _routed_experts(self, x, dense_routing, tokens, *, group_mask=None, scores=None):
+        """Routed-expert output ``[1, 1, tokens, hidden]``.
+
+        ``group_mask`` (``[1, groups, 1, E]``, ROW_MAJOR) and ``scores`` (``[1, E, tokens, 1]``) may
+        be supplied by the caller. Both are per-call quantities that this method would otherwise
+        rebuild from ``dense_routing`` on every expert group, which is the same redundancy the
+        router hoist removed one level up; :meth:`forward` computes them once and passes each
+        group its slice. Anything the caller supplies is borrowed, not owned, and is not freed here.
+        """
         E = self.cfg.num_experts
         H = self.cfg.dim
         I = self.cfg.moe_intermediate_size
         groups = tokens // TILE
 
-        grouped_scores = ttnn.reshape(dense_routing, [1, groups, TILE, E])
-        group_mask = ttnn.to_layout(
-            ttnn.gtz(ttnn.sum(grouped_scores, dim=-2, keepdim=True)), ttnn.ROW_MAJOR_LAYOUT
-        )  # [1, groups, 1, E]
+        mask_owned = group_mask is None
+        if mask_owned:
+            grouped_scores = ttnn.reshape(dense_routing, [1, groups, TILE, E])
+            group_mask = ttnn.to_layout(
+                ttnn.gtz(ttnn.sum(grouped_scores, dim=-2, keepdim=True)), ttnn.ROW_MAJOR_LAYOUT
+            )  # [1, groups, 1, E]
         if groups == 1:
             # The per-group union over the single group *is* the whole-call union; only the shape
             # differs, and [1,1,1,E] is what the group mask already is.
@@ -699,10 +708,13 @@ class FusedMoE:
 
         # Score the *input* of the down projection instead of its output: identical by linearity,
         # and moe_intermediate (512) wide instead of hidden (2048) wide.
-        scores = ttnn.permute(dense_routing, (0, 3, 2, 1))  # [1, E, tokens, 1]
+        scores_owned = scores is None
+        if scores_owned:
+            scores = ttnn.permute(dense_routing, (0, 3, 2, 1))  # [1, E, tokens, 1]
         scaled = ttnn.multiply(hidden, scores, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         ttnn.deallocate(hidden)
-        ttnn.deallocate(scores)
+        if scores_owned:
+            ttnn.deallocate(scores)
 
         down = ttnn.sparse_matmul(
             scaled,
@@ -719,7 +731,8 @@ class FusedMoE:
         ttnn.deallocate(scaled)
         if call_owned:
             ttnn.deallocate(call_mask)
-        ttnn.deallocate(group_mask)
+        if mask_owned:
+            ttnn.deallocate(group_mask)
 
         # deepseek_moe_fast_reduce_nc over ttnn.experimental.fast_reduce_nc: same latency at these
         # shapes but a materially more accurate accumulation (PCC 0.999999 vs 0.999409 against a
@@ -765,15 +778,35 @@ class FusedMoE:
             routed = self._routed_experts(x, dense, tokens)
             ttnn.deallocate(dense)
         else:
+            # Hoist the two per-call quantities out of the expert-group loop, exactly as the router
+            # above them already is: the sparsity mask and the down projection's score operand are
+            # both functions of the whole-call `dense`, so rebuilding them per group repeats the
+            # same reduce/relayout/permute once per 32 tokens. Computed once here, each group takes
+            # a slice. Measured at the shipped 2048-token prefill shape in
+            # doc/fused_decoder/logs/probe_router_and_reduce.txt (`MASKHOIST` rows), where the
+            # hoisted spelling is roughly half the cost of the per-group one.
+            E = self.cfg.num_experts
+            n_groups = tokens // TILE
+            all_masks = ttnn.to_layout(
+                ttnn.gtz(ttnn.sum(ttnn.reshape(dense, [1, n_groups, TILE, E]), dim=-2, keepdim=True)),
+                ttnn.ROW_MAJOR_LAYOUT,
+            )  # [1, n_groups, 1, E]
+            all_scores = ttnn.permute(dense, (0, 3, 2, 1))  # [1, E, tokens, 1]
             parts = []
             for start in range(0, tokens, self.group_tokens):
                 span = min(self.group_tokens, tokens - start)
                 chunk = ttnn.slice(x, [0, 0, start, 0], [1, 1, start + span, self.cfg.dim])
-                scores = ttnn.slice(dense, [0, 0, start, 0], [1, 1, start + span, self.cfg.num_experts])
-                part = self._routed_experts(chunk, scores, span)
+                scores = ttnn.slice(dense, [0, 0, start, 0], [1, 1, start + span, E])
+                group_mask = ttnn.slice(all_masks, [0, start // TILE, 0, 0], [1, (start + span) // TILE, 1, E])
+                group_scores = ttnn.slice(all_scores, [0, 0, start, 0], [1, E, start + span, 1])
+                part = self._routed_experts(chunk, scores, span, group_mask=group_mask, scores=group_scores)
                 ttnn.deallocate(chunk)
                 ttnn.deallocate(scores)
+                ttnn.deallocate(group_mask)
+                ttnn.deallocate(group_scores)
                 parts.append(part)
+            ttnn.deallocate(all_masks)
+            ttnn.deallocate(all_scores)
             ttnn.deallocate(dense)
             routed = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=2)
             if len(parts) > 1:
@@ -1790,18 +1823,19 @@ class FusedDecoder(LightweightModule):
             ttnn.deallocate(normed)
             merged = ttnn.reshape(swapped, [batch, seq, nv * dv])
             ttnn.deallocate(swapped)
-        # Deliberately unfused, and this is the one place in the graph where an op-level A/B is not
-        # sufficient evidence. `models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` reports that
-        # folding the SiLU here breaks "in the real layer for large-magnitude z (op-level PCC hid
-        # it - small inputs)". Measured at this gate's own shape, the fold looks *good*: the two
-        # arms agree to PCC 0.999996 with zero non-finite outputs at every |z| up to ~663, and the
-        # folded form is measurably faster (GATEFOLD / GATEFOLDTIME rows in
-        # doc/fused_decoder/logs/probe_fused_ops.txt). Landing it on that evidence collapses
-        # fused-vs-functional agreement to essentially zero on real checkpoint weights - the
-        # isolated probe passes and the model is destroyed. So the rejection stands, now on this
-        # stage's own controls rather than on the citation, and work_log.md §4.8 records both: the
-        # op-level A/B that would have justified the merge, and the real-weight control that
-        # refutes it.
+        # Deliberately unfused, and the reason is the DTYPES, not the magnitudes.
+        # `models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` reports that folding the SiLU here
+        # "overflows to NaN in the real layer for large-magnitude z (op-level PCC hid it - small
+        # inputs)". The NaN is real; the attribution to magnitude is not what reproduces here.
+        # This gate is a MIXED-DTYPE binary: `merged` is FLOAT32 (chunk_gated_delta_rule's output
+        # dtype) and `z` is BFLOAT16. The GATEFOLD rows in doc/fused_decoder/logs/probe_fused_ops.txt
+        # run both pairings at this gate's own prefill and decode shapes: with matching bfloat16
+        # operands the folded and separate forms agree to PCC 0.999996 with zero non-finite outputs
+        # at every |z| tested, and with the real float32 x bfloat16 pairing the folded form emits
+        # non-finite values at EVERY magnitude, including |z| < 4. So an op-level A/B on matched
+        # dtypes - which is what a naive probe writes - passes while the model breaks; work_log.md
+        # §4.8 records both arms and the real-weight control. `ttnn.silu(z)` first keeps the
+        # activation in bfloat16 and the multiply mixed-but-unfused, which is exact.
         gated = ttnn.multiply(merged, ttnn.silu(z))
         ttnn.deallocate(merged)
         ttnn.deallocate(z)

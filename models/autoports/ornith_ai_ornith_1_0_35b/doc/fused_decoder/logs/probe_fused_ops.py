@@ -161,34 +161,48 @@ def p_gdn_gate_fold(device):
 
     `models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` says folding the SiLU here
     "overflows to NaN in the real layer for large-magnitude z (op-level PCC hid it — small
-    inputs)". The existing `input_tensor_a_activations=[SILU]` probe above is exactly that hidden
-    case: `torch.randn(1, 1, 64, 512)`, i.e. |z| ~ 1. So this one runs the *gate's own* shape
-    ([1, seq, linear_v_dim]) and sweeps |z| upward until the two arms disagree, which is what
-    turns "documented elsewhere" into this stage's own measurement. Both arms are compared against
-    a float32 `x * silu(z)` reference, and non-finite outputs are counted rather than folded into
-    a PCC that would read as NaN.
+    inputs)". The existing `input_tensor_a_activations=[SILU]` probe above is a hidden case in
+    exactly that sense: `torch.randn(1, 1, 64, 512)`, both operands bfloat16.
+
+    The hiding factor turns out to be **dtype, not magnitude**. The real gate multiplies the
+    DeltaNet output — which `chunk_gated_delta_rule` returns in FLOAT32 — by a BFLOAT16 `z`, so it
+    is a *mixed-dtype* binary op. This probe therefore runs the gate's own shapes (prefill
+    ``[1, 2048, linear_v_dim]`` and decode ``[1, 1, linear_v_dim]``) under **both** dtype pairings
+    and sweeps |z|, so the log shows the matched-bfloat16 arm agreeing and the real
+    float32 x bfloat16 pairing diverging. Both arms are compared against a float32
+    ``x * silu(z)`` reference, and non-finite outputs are counted rather than folded into a PCC
+    that would read as NaN.
     """
-    b, s, d = 1, 2048, GDN_NV * GDN_DV
+    d = GDN_NV * GDN_DV
     gen = torch.Generator().manual_seed(23)
+    out = []
+    for label, s, x_dtype in (
+        ("prefill f32xbf16(real)", 2048, ttnn.float32),
+        ("prefill bf16xbf16", 2048, ttnn.bfloat16),
+        ("decode  f32xbf16(real)", 1, ttnn.float32),
+    ):
+        x = torch.randn(1, s, d, generator=gen)
+        xt = dev(x, device, dtype=x_dtype)
+        for scale in (1.0, 32.0, 128.0):
+            z = torch.randn(1, s, d, generator=gen) * scale
+            zt = dev(z, device)
+            ref = x.float() * torch.nn.functional.silu(z.float())
+            sep = ttnn.to_torch(ttnn.multiply(xt, ttnn.silu(zt))).float()
+            fold = ttnn.to_torch(ttnn.multiply(xt, zt, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])).float()
+            ttnn.deallocate(zt)
+            nf_sep = int((~torch.isfinite(sep)).sum())
+            nf_fold = int((~torch.isfinite(fold)).sum())
+            p_sep = pcc(ref, sep) if nf_sep == 0 else float("nan")
+            p_fold = pcc(ref, fold) if nf_fold == 0 else float("nan")
+            out.append(
+                f"GATEFOLD {label} max|z|={float(z.abs().max()):7.2f} separate(shipped) pcc={p_sep:.6f} "
+                f"nonfinite={nf_sep} | folded pcc={p_fold:.6f} nonfinite={nf_fold}"
+            )
+            print(out[-1], flush=True)
+        ttnn.deallocate(xt)
+    b, s = 1, 2048
     x = torch.randn(b, s, d, generator=gen)
     xt = dev(x, device)
-    out = []
-    for scale in (1.0, 8.0, 32.0, 64.0, 128.0):
-        z = torch.randn(b, s, d, generator=gen) * scale
-        zt = dev(z, device)
-        ref = x.float() * torch.nn.functional.silu(z.float())
-        sep = ttnn.to_torch(ttnn.multiply(xt, ttnn.silu(zt))).float()
-        fold = ttnn.to_torch(ttnn.multiply(xt, zt, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])).float()
-        ttnn.deallocate(zt)
-        nf_sep = int((~torch.isfinite(sep)).sum())
-        nf_fold = int((~torch.isfinite(fold)).sum())
-        p_sep = pcc(ref, sep) if nf_sep == 0 else float("nan")
-        p_fold = pcc(ref, fold) if nf_fold == 0 else float("nan")
-        out.append(
-            f"GATEFOLD max|z|={float(z.abs().max()):7.2f} separate(shipped) pcc={p_sep:.6f} nonfinite={nf_sep}"
-            f" | folded pcc={p_fold:.6f} nonfinite={nf_fold}"
-        )
-        print(out[-1], flush=True)
 
     # Latency, once the two arms are known to agree: the fold is worth taking only if it is faster.
     import time
