@@ -1,0 +1,105 @@
+test_rope_matches_hf: rope vs HF seq_len=1 start=12345 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=1 PCC=0.999996
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=130 step=0 pos=130 PCC=0.999995
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=130 step=1 pos=131 PCC=0.999993
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=130 step=2 pos=132 PCC=0.999969
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=130 step=3 pos=133 PCC=0.999994
+test_batched_prefill_decode_pcc: batched prefill layer=0 batch=4 PCC=0.999985
+test_batched_prefill_decode_pcc: batched decode layer=0 batch=4 PCC=0.999994
+test_batched_decode_ragged_positions: ragged-position decode batch=4 user=0 pos=70 PCC=0.999951
+test_batched_decode_ragged_positions: ragged-position decode batch=4 user=1 pos=74 PCC=0.999971
+test_batched_decode_ragged_positions: ragged-position decode batch=4 user=2 pos=90 PCC=0.999916
+test_batched_decode_ragged_positions: ragged-position decode batch=4 user=3 pos=192 PCC=0.999975
+test_permuted_page_table: permuted-page-table prefill PCC=0.999969 first_slot=106
+test_permuted_page_table: permuted-page-table decode step=0 PCC=0.999902
+test_permuted_page_table: permuted-page-table decode step=1 PCC=0.999928
+test_prefill_continuation: prefill continuation layer=0 PCC=0.999978
+test_unaligned_max_context: unaligned max_context=5000 layer=0 prefill+decode ok, tail std=0.5369
+test_determinism_repeated_inputs: determinism layer=0: 3/3 runs bit-identical for prefill and decode
+test_forward_with_poisoned_free_pool: poisoned-pool layer=0 seq_len=1 prefill PCC=0.999996 decode PCC=0.999997
+test_no_host_fallback_in_forward: fallback audit layer=0: both guards verified to fire; prefill+decode clean for ttnn ['from_torch', 'to_torch', 'as_tensor', 'from_device', 'to_device'] and all torch ops
+test_traced_decode_pcc: traced decode layer=0 step=0 replay PCC=0.999986
+test_traced_decode_pcc: traced decode layer=0 step=1 replay PCC=0.999994
+test_traced_decode_pcc: traced decode layer=0 step=2 replay PCC=0.999993
+test_real_weights_pcc: REAL WEIGHTS layer=0 (linear_attention) prefill PCC=0.999980 decode PCC=0.999927
+test_synthetic_weights_pcc: SYNTHETIC WEIGHTS layer=0 (linear_attention) prefill PCC=0.999993 decode PCC=0.999995
+test_full_context_prefill_and_decode: full-context layer=0 (linear_attention) seq_len=262143 prefill+decode completed, tail std=0.5307
+test_full_context_chunk_size_invariance: chunk-size invariance layer=0 (linear_attention) seq_len=262144 tail(128) PCC(chunk 2048 vs 1024)=1.000000
+test_long_context_pcc: long-context PCC layer=0 seq_len=8000 prefill=0.999965 decode=0.999992
+test_perf_prefill: PERF prefill layer=0 (linear_attention) seq_len=2048 wall=338.22 ms  tok/s=6055.2
+test_perf_decode_traced: PERF decode(traced) layer=0 (linear_attention) iters=32 wall/iter=2.614 ms  steps/s=382.5
+test_rope_matches_hf: rope vs HF seq_len=64 start=12345 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=1 PCC=0.999951
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=130 step=0 pos=130 PCC=0.999942
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=130 step=1 pos=131 PCC=0.999959
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=130 step=2 pos=132 PCC=0.999913
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=130 step=3 pos=133 PCC=0.999894
+test_batched_prefill_decode_pcc: batched prefill layer=3 batch=4 PCC=0.999962
+test_batched_prefill_decode_pcc: batched decode layer=3 batch=4 PCC=0.999915
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=0 pos=72 PCC=0.999926
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=1 pos=87 PCC=0.999948
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=2 pos=115 PCC=0.999969
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=3 pos=153 PCC=0.999932
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=4 pos=172 PCC=0.999955
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=5 pos=180 PCC=0.999931
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=6 pos=184 PCC=0.999973
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=7 pos=196 PCC=0.999951
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=8 pos=199 PCC=0.999909
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=9 pos=205 PCC=0.999957
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=10 pos=223 PCC=0.999967
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=11 pos=232 PCC=0.999954
+test_batched_decode_ragged_positions: ragged-position decode batch=13 user=12 pos=255 PCC=0.999895
+test_prefill_continuation: prefill continuation layer=3 PCC=0.999971
+test_unaligned_max_context: unaligned max_context=5000 layer=3 prefill+decode ok, tail std=0.5010
+test_determinism_repeated_inputs: determinism layer=3: 3/3 runs bit-identical for prefill and decode
+test_forward_with_poisoned_free_pool: poisoned-pool layer=3 seq_len=1 prefill PCC=0.999909 decode PCC=0.999883
+test_no_host_fallback_in_forward: fallback audit layer=3: both guards verified to fire; prefill+decode clean for ttnn ['from_torch', 'to_torch', 'as_tensor', 'from_device', 'to_device'] and all torch ops
+test_traced_decode_pcc: traced decode layer=3 step=0 replay PCC=0.999924
+test_traced_decode_pcc: traced decode layer=3 step=1 replay PCC=0.999931
+test_traced_decode_pcc: traced decode layer=3 step=2 replay PCC=0.999938
+test_real_weights_pcc: REAL WEIGHTS layer=3 (full_attention) prefill PCC=0.999970 decode PCC=0.999958
+test_synthetic_weights_pcc: SYNTHETIC WEIGHTS layer=3 (full_attention) prefill PCC=0.999979 decode PCC=0.999990
+test_full_context_prefill_and_decode: full-context layer=3 (full_attention) seq_len=262143 prefill+decode completed, tail std=0.5037
+test_full_context_chunk_size_invariance: chunk-size invariance layer=3 (full_attention) seq_len=262144 tail(128) PCC(chunk 2048 vs 1024)=1.000000
+test_long_context_pcc: long-context PCC layer=3 seq_len=8000 prefill=0.999982 decode=0.999943
+test_perf_prefill: PERF prefill layer=3 (full_attention) seq_len=2048 wall=317.04 ms  tok/s=6459.8
+test_perf_decode_traced: PERF decode(traced) layer=3 (full_attention) iters=32 wall/iter=2.393 ms  steps/s=417.9
+test_rope_matches_hf: rope vs HF seq_len=4096 start=0 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=7 PCC=0.999994
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=2048 step=0 pos=2048 PCC=0.999995
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=2048 step=1 pos=2049 PCC=0.999982
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=2048 step=2 pos=2050 PCC=0.999893
+test_decode_pcc: decode layer=0 (linear_attention) prefill_len=2048 step=3 pos=2051 PCC=0.999990
+test_batched_prefill_decode_pcc: batched prefill layer=0 batch=32 PCC=0.999984
+test_batched_prefill_decode_pcc: batched decode layer=0 batch=32 PCC=0.999975
+test_forward_with_poisoned_free_pool: poisoned-pool layer=0 seq_len=250 prefill PCC=0.999978 decode PCC=0.999938
+test_full_context_prefill_and_decode: full-context layer=0 (linear_attention) seq_len=262144 prefill+decode completed, tail std=0.5300
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=7 PCC=0.999946
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=2048 step=0 pos=2048 PCC=0.999983
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=2048 step=1 pos=2049 PCC=0.999966
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=2048 step=2 pos=2050 PCC=0.999947
+test_decode_pcc: decode layer=3 (full_attention) prefill_len=2048 step=3 pos=2051 PCC=0.999898
+test_batched_prefill_decode_pcc: batched prefill layer=3 batch=32 PCC=0.999964
+test_batched_prefill_decode_pcc: batched decode layer=3 batch=32 PCC=0.999935
+test_forward_with_poisoned_free_pool: poisoned-pool layer=3 seq_len=250 prefill PCC=0.999969 decode PCC=0.999930
+test_full_context_prefill_and_decode: full-context layer=3 (full_attention) seq_len=262144 prefill+decode completed, tail std=0.5036
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=32 PCC=0.999985
+test_forward_with_poisoned_free_pool: poisoned-pool layer=0 seq_len=300 prefill PCC=0.999982 decode PCC=0.999994
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=32 PCC=0.999962
+test_forward_with_poisoned_free_pool: poisoned-pool layer=3 seq_len=300 prefill PCC=0.999970 decode PCC=0.999925
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=64 PCC=0.999988
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=64 PCC=0.999960
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=128 PCC=0.999982
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=128 PCC=0.999966
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=129 PCC=0.999983
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=129 PCC=0.999965
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=250 PCC=0.999980
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=250 PCC=0.999971
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=2048 PCC=0.999971
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=2048 PCC=0.999978
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=2049 PCC=0.999973
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=2049 PCC=0.999978
+test_prefill_pcc: prefill layer=0 (linear_attention) seq_len=3000 PCC=0.999969
+test_prefill_pcc: prefill layer=3 (full_attention) seq_len=3000 PCC=0.999980
+
+================== 66 passed, 2 warnings in 564.89s (0:09:24) ==================

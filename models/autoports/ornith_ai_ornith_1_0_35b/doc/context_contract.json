@@ -1,0 +1,105 @@
+{
+  "hf_model_id": "ornith-ai/Ornith-1.0-35B",
+  "stage": "functional-decoder",
+  "target": "single decoder layer, both layer kinds, 1x1 Blackhole (p300c) mesh",
+  "advertised": {
+    "field": "text_config.max_position_embeddings",
+    "context_length": 262144,
+    "source": "config.json of the ornith-ai/Ornith-1.0-35B snapshot"
+  },
+  "supported": {
+    "context_length": 262144,
+    "capability_reduction": "none",
+    "reduction_reason": null,
+    "notes": "FunctionalDecoder.from_state_dict defaults max_context to text_config.max_position_embeddings; the tests exercise that default, they do not lower it."
+  },
+  "tested": {
+    "prefill": {
+      "max_context": 262144,
+      "layer_kinds": [
+        "linear_attention",
+        "full_attention"
+      ],
+      "test": "test_full_context_prefill_and_decode[262144]",
+      "non_aligned_max_context": 262143,
+      "non_aligned_test": "test_full_context_prefill_and_decode[262143]",
+      "pcc_validated_max_context": 8000,
+      "pcc_validated_test": "test_long_context_pcc",
+      "pcc_validation_note": "8000 is the largest length where the HF golden is tractable on host: the eager full-attention reference materialises a [1, 16, S, S] float32 weight tensor (4.1 GB at S=8000) and scales quadratically. Beyond it the 262144 cases assert device completion, finiteness and non-degeneracy instead of PCC.",
+      "aligned_and_boundary_lengths": [
+        1,
+        7,
+        32,
+        64,
+        128,
+        129,
+        2048,
+        2049,
+        3000,
+        8000,
+        262143,
+        262144
+      ],
+      "full_context_correctness_control": "test_full_context_chunk_size_invariance: the same 262144-token prefill run with internal chunk_size 2048 and 1024 agrees to tail(128) PCC 1.000000 for both layer kinds. This moves every block boundary, paged-fill span, chunked-SDPA offset and DeltaNet state hand-off, so it is the correctness evidence at the full context where no HF golden exists.",
+      "unaligned_max_context": "test_unaligned_max_context: max_context=5000 (not a multiple of the 128 physical alignment) prefills 5000 tokens and decodes, for both kinds. The RoPE table is built one prefill alignment past the logical context because a block's physical window can end past the last logical position; those rows only rotate zero padding."
+    },
+    "decode": {
+      "max_position": 262143,
+      "layer_kinds": [
+        "linear_attention",
+        "full_attention"
+      ],
+      "test": "test_full_context_prefill_and_decode[262143] (decodes at absolute position 262143, the last legal slot)",
+      "pcc_validated_max_position": 8000,
+      "pcc_validated_test": "test_long_context_pcc",
+      "traced": true,
+      "traced_test": "test_traced_decode_pcc"
+    },
+    "batch": {
+      "max_prefill_batch": 32,
+      "max_decode_batch": 32,
+      "test": "test_batched_prefill_decode_pcc[32]",
+      "note": "Disjoint per-user page-table block spans. Decode batch is bounded by the one-user-per-core paged_update_cache shard: a row-wise core range set of exactly `batch` cores, so any batch up to the 110-core grid is legal. ttnn.transformer.chunk_gated_delta_rule caps one prefill launch at floor(compute_cores / num_value_heads) = 3 users on an 11x10 Blackhole grid (chunk_gdn_phased_program_factory.cpp: BH <= ncores); FunctionalDecoder._chunk_delta_rule splits the batch across launches and concatenates outputs and final states, which is exact because the recurrence factorises over the batch axis.",
+      "tested_batches": [
+        1,
+        4,
+        13,
+        32
+      ],
+      "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (PCC 0.999895 - 0.999975). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid."
+    }
+  },
+  "capacity_evidence": {
+    "device": "Blackhole p300c, 1x1 mesh",
+    "measured_allocatable_dram_bytes": 34091302912,
+    "measured_allocatable_dram_note": "31.75 GiB, measured by allocating 0.25 GiB DRAM tensors until bank_manager.cpp:462 refused (probe log: doc/functional_decoder/logs/dram_capacity_probe.txt)",
+    "full_context_footprint_per_layer_bytes": {
+      "paged_kv_cache_k": 268435456,
+      "paged_kv_cache_v": 268435456,
+      "paged_kv_cache_note": "num_blocks=4096 (262144/64) x n_kv_heads=2 x block_size=64 x head_dim=256 x 2 B (bfloat16)",
+      "rope_cos_sin_tables": 67633152,
+      "rope_note": "2 tables x 264192 rows x rope_dim 64 x 2 B. The row count is align_up(max_context, prefill_chunk) + prefill_chunk so a final prefill block's padded window is always in range; the extra rows only rotate zero padding.",
+      "moe_routed_expert_weights": 1610612736,
+      "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 2 B",
+      "moe_shared_and_router_weights": 7340032,
+      "full_attention_projection_weights": 54525952,
+      "linear_attention_projection_weights": 67436544,
+      "deltanet_recurrent_state_batch1": 2097152,
+      "deltanet_conv_state_batch1": 49152,
+      "worst_case_layer_total": 2276982784,
+      "worst_case_layer_total_note": "2.12 GiB for a full_attention layer at the full 262144 context including its paged KV cache; 7% of the measured 31.75 GiB, so no DRAM-driven reduction is required. A linear_attention layer is smaller (no KV cache; 2 MiB recurrent + 48 KiB conv state per batch row)."
+    }
+  },
+  "internal_shape_policy": {
+    "public_prefill_seq_len": "any 1 <= seq_len <= supported_context - start_pos; no divisibility requirement",
+    "internal_prefill_chunk_tokens": 2048,
+    "internal_prefill_physical_alignment": 128,
+    "paged_block_size_tokens": 64,
+    "page_table_row_blocks_alignment": 32,
+    "gated_delta_rule_internal_chunk": 32,
+    "moe_sparsity_group_tokens": 32,
+    "moe_tokens_per_sparse_matmul_call": 256,
+    "padding_policy": "Each internal prefill block is zero-padded up to the physical alignment. For full_attention the padded key/value rows are exact zeros at absolute positions beyond the logical end and are excluded from every real query by causality. For linear_attention the padded steps are neutralised by zeroing beta (kills the delta write) and g (kills the decay), making each padded step an exact identity on the recurrent state, and the conv history is taken from the real tail at the logical length. Outputs are sliced back to the logical length.",
+    "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk \u2014 one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
+  }
+}
