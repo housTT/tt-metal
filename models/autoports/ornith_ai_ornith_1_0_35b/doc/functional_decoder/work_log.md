@@ -638,10 +638,12 @@ first nine rounds kept finding by hand.
 
 ## 19. Local checkpoint commit
 
-The stage is committed locally in four commits, all on
-`agentic-research/hous/ornith-1.0-35B`, parent `e85bf5dbc38`, and **none pushed**. The SHAs are
-generated into [`logs/commit_record.txt`](logs/commit_record.txt) so they are sourced figures like
-every other number in these documents:
+The stage is committed locally on `agentic-research/hous/ornith-1.0-35B`, parent `e85bf5dbc38`, and
+**nothing is pushed**. The SHAs below are generated into
+[`logs/commit_record.txt`](logs/commit_record.txt) so they are sourced figures like every other number
+in these documents. No total is claimed, deliberately: a commit that records SHAs cannot contain its
+own, so the last one or two commits in `git log` are always this bookkeeping rather than stage work —
+read `git log --oneline e85bf5dbc38..HEAD` for the full list.
 
 | Commit | What it is |
 | --- | --- |
