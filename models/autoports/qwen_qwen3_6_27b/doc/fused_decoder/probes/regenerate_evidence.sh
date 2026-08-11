@@ -34,9 +34,13 @@ grep -E "^=+.*(passed|failed)" $ART/logs/long_context.log
 )
 grep -E "^=+.*(passed|failed)" $ART/logs/watcher_run.log
 
+# Each probe log carries the build stamp too: three shipped constants and every rejection are
+# certified from these logs, and a review pointed out they were the one artifact class with no tie
+# to the source.  ``test_every_run_was_made_against_the_shipped_build`` checks them.
 for p in $ART/probes/probe_*.py; do
   p=$(basename "$p" .py)
   timeout 2400 python $ART/probes/$p.py > $ART/logs/$p.log 2>&1 || echo "PROBE FAILED $p"
+  python -m models.autoports.qwen_qwen3_6_27b.tt.build_fingerprint >> $ART/logs/$p.log
 done
 
 for impl in fused functional; do for kind in linear_attention full_attention; do

@@ -283,8 +283,8 @@ def recurrence_table() -> str:
     return (
         "\n\n".join(blocks)
         + "\n\nMedian and (stdev) in microseconds over 30 repeats, at both decode regimes, over "
-        + f"{len(grids) - 1} explicit grids plus the program factory's own choice. The default is "
-        "several times slower than any explicit grid. Read from the log: "
+        + f"{len(grids) - 1} explicit grids plus the program factory's own choice. The default is the "
+        "slowest row of every sweep here. Read from the log: "
         + "; ".join(notes)
         + ". The shipped form of the outer product folds its transpose into the matmul, which is one "
         "dispatch fewer and bit-exact, and has its own row so that choice is a measurement rather "

@@ -148,15 +148,16 @@ _AB_STRIDE = 64
 #: ``[128,1] x [1,128]`` outer product per head.  ``ttnn.matmul``'s default batched program
 #: factory spreads them over 4 and 16 cores respectively.  Measured on this checkout
 #: (``doc/fused_decoder/probes/probe_decode_recurrence.py``, log
-#: ``doc/fused_decoder/logs/probe_decode_recurrence.log``), best-of-20 wall time:
+#: ``doc/fused_decoder/logs/probe_decode_recurrence.log``), median and spread over 30 repeats.
 #:
 #: The measured table lives in ``doc/fused_decoder/work_log.md`` section 3.6, generated from that
-#: log, and is not transcribed here so the two cannot drift.  Its shape: the default is roughly
-#: 3x slower than any explicit grid, and the explicit grids are within run-to-run spread of each
-#: other (stdev over 30 repeats is comparable to the gap between them), so these two are a
-#: representative pick from that flat region rather than a unique optimum.  Both are exact
-#: (PCC 1.000000 against torch) - the grid only changes how the independent per-head problems are
-#: distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
+#: log, and is not transcribed here so the two cannot drift.  What it shows: the default program
+#: factory is the slowest row of every sweep, the explicit grids differ from each other by more
+#: than their spreads at 1536 head problems and by less at 48, and the caption names which is
+#: which per family and per regime.  That is why the state-read grid is keyed by regime and the
+#: outer product's is not, and ``test_selected_grids_are_the_measured_best`` re-derives both from
+#: the log.  Every grid is exact (PCC 1.000000 against torch) - a grid only changes how the
+#: independent per-head problems are distributed.  ``ttnn.experimental.group_attn_matmul`` was tried for the
 #: state read and rejected: its contract ties the batch dim to the number of users
 #: ("Num of users must match!") - and a stage review showed that first attempt had mapped the op's
 #: batch axis onto the flattened ``batch * num_v_heads`` axis.  Mapped the way the op wants
@@ -187,6 +188,11 @@ _RECURRENCE_READ_GRID = {"small": (6, 4), "large": (10, 4)}
 _RECURRENCE_OUTER_GRID = (2, 11)
 #: Head problems (``max_batch * num_v_heads``) at and above which the *large* recurrence-read grid
 #: is used.  1536 is the count the probe's second regime measures, i.e. ``max_batch`` 32.
+#:
+#: The sweep measures 48 and 1536, so every ``max_batch`` from 2 to 31 takes the small grid on the
+#: strength of the 48-head measurement rather than one of its own.  That is a real gap and it is
+#: recorded as a limitation in ``doc/fused_decoder/README.md``; the two grids differ by about a
+#: tenth of the state read at 1536, so the exposure is small and bounded by the two measured ends.
 _RECURRENCE_LARGE_HEADS = 1536
 
 #: ``core_grid`` for the three matmuls this stage created whose N is a handful of tiles: the
@@ -210,8 +216,9 @@ _GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
 #: reshape form's two tile relayouts grow with it.  Measured at the real decode shapes over five
 #: batch sizes by ``doc/fused_decoder/probes/probe_gated_norm_batch.py``; the table is
 #: ``work_log.md`` section 3.17, generated from that probe's log so the two cannot drift.  The
-#: two forms cross between **16 and 32**: at 16 the reshape form is still faster by several times
-#: the run-to-run spread, and at 32 the group form wins by half again.  The threshold has been at
+#: two forms cross between **16 and 32**: at 16 they are inside the group form's own spread - a
+#: tie - and at 32 the group form wins outright.  Which batch that is, is derived from the log by
+#: the generated caption in §3.17 rather than asserted here.  The threshold has been at
 #: 32, then 16, and is 32 again - each move followed the measurement of the day, and
 #: ``test_selected_constants_are_the_measured_best`` now binds it to the probe log so it cannot
 #: drift from it silently.  Their outputs agree to PCC 0.99999 or better at every batch measured,

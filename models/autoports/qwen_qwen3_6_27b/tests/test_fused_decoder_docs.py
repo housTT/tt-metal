@@ -573,7 +573,8 @@ def test_every_run_was_made_against_the_shipped_build():
 
     fingerprint = _fingerprint()
     stale = []
-    for name in ("suite_main", "long_context", "watcher_run"):
+    probes = sorted(path.stem for path in (DOC / "probes").glob("probe_*.py"))
+    for name in ("suite_main", "long_context", "watcher_run", *probes):
         text = (DOC / "logs" / f"{name}.log").read_text(errors="replace")
         stamps = re.findall(r"FUSED_BUILD tt/fused_decoder\.py code-sha256=([0-9a-f]{64})", text)
         if not stamps:

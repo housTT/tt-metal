@@ -42,12 +42,12 @@ changed), so the pair is like-for-like.
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | ops before | ops after |
 |---|---|---|---|---|---|---|
-| `linear_attention` | prefill, 2048 tokens | 151.054 ms | **25.697 ms** | **5.88x** | 801 | 66 |
-| `linear_attention` | traced decode, 1 token, batch 1 | 3.038 ms | **2.357 ms** | **1.29x** | 92 | 67 |
-| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.619 ms | **5.165 ms** | **7.09x** | 93 | 70 |
-| `full_attention` | prefill, 2048 tokens | 18.589 ms | **17.788 ms** | **1.04x** | 44 | 28 |
-| `full_attention` | traced decode, 1 token, batch 1 | 2.273 ms | **2.072 ms** | **1.10x** | 50 | 50 |
-| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.067 ms | **2.866 ms** | **1.07x** | 49 | 49 |
+| `linear_attention` | prefill, 2048 tokens | 150.966 ms | **25.681 ms** | **5.88x** | 801 | 66 |
+| `linear_attention` | traced decode, 1 token, batch 1 | 3.040 ms | **2.352 ms** | **1.29x** | 92 | 67 |
+| `linear_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 36.627 ms | **5.166 ms** | **7.09x** | 93 | 70 |
+| `full_attention` | prefill, 2048 tokens | 18.536 ms | **17.807 ms** | **1.04x** | 44 | 28 |
+| `full_attention` | traced decode, 1 token, batch 1 | 2.271 ms | **2.070 ms** | **1.10x** | 50 | 50 |
+| `full_attention` | traced decode, 1 token, batch 32 (advertised `max_batch`) | 3.065 ms | **2.869 ms** | **1.07x** | 49 | 49 |
 <!-- END GENERATED:before_after -->
 
 Every row is faster, and none is larger; the stage contract is the first of those, not the second.
@@ -69,10 +69,10 @@ the `Device Time` column of the committed `tt-perf-report` CSVs.
 <!-- GENERATED:batch32_shares -->
 | pass | bucket | batch 1 | batch 32 | growth |
 |---|---|---|---|---|
-| `linear_attention` | `batched_matmul` | 0.060 ms (2.5 %) | 1.257 ms (24.3 %) | 20.9x |
-| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.785 ms (15.2 %) | 14.5x |
+| `linear_attention` | `batched_matmul` | 0.060 ms (2.6 %) | 1.252 ms (24.2 %) | 20.9x |
+| `linear_attention` | `state_update` | 0.054 ms (2.3 %) | 0.788 ms (15.3 %) | 14.6x |
 | `linear_attention` | `elementwise` | 0.123 ms (5.2 %) | 0.239 ms (4.6 %) | 1.9x |
-| `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.947 ms (18.3 %) | 4.6x |
+| `linear_attention` | `layout` | 0.207 ms (8.8 %) | 0.946 ms (18.3 %) | 4.6x |
 | `full_attention` | `sdpa` | 0.104 ms (5.0 %) | 0.864 ms (30.1 %) | 8.3x |
 <!-- END GENERATED:batch32_shares -->
 
@@ -117,16 +117,16 @@ What is left after fusing, per pass. These are the `breakdown_ms` blocks of
 <!-- GENERATED:breakdown -->
 | bucket | `linear_attention` prefill | `linear_attention` decode b1 | `linear_attention` decode b32 | `full_attention` prefill | `full_attention` decode b1 | `full_attention` decode b32 |
 |---|---|---|---|---|---|---|
-| `matmul` (projections, MLP, gated-norm constants) | 14.473 ms | 1.885 ms | 1.907 ms | 13.467 ms | 1.807 ms | 1.806 ms |
-| `gated_delta_rule` | 2.774 ms | — | — | — | — | — |
-| `state_update` (the fused recurrent-state update, §3.21) | 0.746 ms | 0.054 ms | 0.785 ms | — | — | — |
-| `sdpa` | — | — | — | 1.277 ms | 0.104 ms | 0.864 ms |
-| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.257 ms | — | — | — |
-| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.769 ms | 0.207 ms | 0.947 ms | 1.067 ms | 0.044 ms | 0.056 ms |
-| `elementwise` | 2.560 ms | 0.123 ms | 0.239 ms | 1.019 ms | 0.046 ms | 0.045 ms |
-| `norm` | 0.375 ms | 0.028 ms | 0.031 ms | 0.541 ms | 0.026 ms | 0.029 ms |
-| `heads_and_cache` | — | — | — | 0.416 ms | 0.045 ms | 0.066 ms |
-| **total** | **25.697 ms** | **2.357 ms** | **5.165 ms** | **17.788 ms** | **2.072 ms** | **2.866 ms** |
+| `matmul` (projections, MLP, gated-norm constants) | 14.478 ms | 1.880 ms | 1.909 ms | 13.472 ms | 1.805 ms | 1.810 ms |
+| `gated_delta_rule` | 2.793 ms | — | — | — | — | — |
+| `state_update` (the fused recurrent-state update, §3.21) | 0.741 ms | 0.054 ms | 0.788 ms | — | — | — |
+| `sdpa` | — | — | — | 1.281 ms | 0.104 ms | 0.864 ms |
+| `batched_matmul` (the decode recurrence) | — | 0.060 ms | 1.252 ms | — | — | — |
+| `layout` (tilize/untilize/reshape/permute/concat/slice/shard) | 4.747 ms | 0.207 ms | 0.946 ms | 1.069 ms | 0.044 ms | 0.056 ms |
+| `elementwise` | 2.547 ms | 0.123 ms | 0.239 ms | 1.020 ms | 0.046 ms | 0.045 ms |
+| `norm` | 0.376 ms | 0.027 ms | 0.031 ms | 0.541 ms | 0.026 ms | 0.029 ms |
+| `heads_and_cache` | — | — | — | 0.424 ms | 0.045 ms | 0.066 ms |
+| **total** | **25.681 ms** | **2.352 ms** | **5.166 ms** | **17.807 ms** | **2.070 ms** | **2.869 ms** |
 
 Every op is classified: the `other` bucket is empty in all 12 measured passes.
 <!-- END GENERATED:breakdown -->
@@ -343,6 +343,14 @@ GQA head expansion. See [`work_log.md`](work_log.md) §6, which is the table of 
   accessor exists only on the subclass, because this stage's scope is `tt/fused_decoder.py` and
   adding the method to the base class is a stage-1 edit. A serving stage that inspects conv
   state mid-generation must call the accessor.
+
+* **Two decode configuration constants are measured at their ends, not across their range.**
+  `_RECURRENCE_READ_GRID` is keyed at 1536 head problems and the sweep measures 48 and 1536, so
+  every `max_batch` from 2 to 31 takes the small grid on the strength of the 48-head measurement;
+  `_GATED_NORM_GROUP_BATCH`'s crossing is measured at 1, 4, 8, 16 and 32. Both are bound to their
+  probe logs by `test_selected_constants_are_the_measured_best` and
+  `test_selected_grids_are_the_measured_best`, and both are small effects at the ends they were
+  measured at, but a `max_batch` between the measured points is an extrapolation.
 
 * **The decode SDPA still runs on one core per head** (the `sdpa` row of the breakdown table
   above, and the `sdpa` row of the growth table, which carries its share at both batches; the
