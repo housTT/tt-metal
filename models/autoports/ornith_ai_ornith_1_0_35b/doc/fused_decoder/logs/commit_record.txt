@@ -1,0 +1,25 @@
+repo    /home/ttuser/dev/ornith/tt-metal
+branch  agentic-research/hous/ornith-1.0-35B
+parent  5dcf2c45c64 (branch tip before this stage)
+
+Every commit here is local; nothing was pushed. Commits that record SHAs cannot contain their own, so
+the tip of the branch may be one or more such bookkeeping commits beyond the last line below.
+commit  d2ffe94a844c48fdb9dbe3db637824486efc1fe0 [autoports] Ornith-1.0-35B fused decoder (TTNN graph fusion, single Blackhole)
+files in the first commit 71 files changed, 78600 insertions(+), 5 deletions(-)
+
+This record was written by hand after the commit, outside the stage session, and the commit it names
+was made on the stage's behalf. The stage could not do either itself: this audit requires this file,
+this file requires the commit, and the commit failed the repo's prefer-expect-error pre-commit hook on
+tests/test_fused_decoder.py (pytest.raises instead of the expect_error fixture, exit 1, not
+self-fixing). Rounds 11-16 each reported this file missing without the commit ever being made; the
+session then degenerated into single-token output and was stopped. The hook violation is fixed in the
+commit above, in the same spelling the stage-1 tests use.
+
+Two changes in that commit did not come from the stage:
+  - tests/test_fused_decoder.py uses expect_error(ValueError, "allocated state batch") in place of
+    pytest.raises(ValueError, match="allocated state batch"), plus the fixture parameter. Same
+    exception type and same substring, so the assertion is unchanged; conftest.py's fixture wraps
+    pytest.raises and adds the [EXPECTED_ERROR] log markers CI triage matches on.
+  - pre-commit's black and trailing-whitespace hooks reformatted several probe and generator scripts
+    under doc/fused_decoder/, and doc/functional_decoder/audit_figures.py. Formatting only: no
+    measured log, no figure, and no model code was altered.

@@ -69,10 +69,6 @@ Independently of the dumps, watcher's inline instrumentation — NOC address/coo
 bounds, asserts, sanitizers — runs on every kernel launch throughout, and it is that
 instrumentation the fatal-class grep above is reading.
 
-Independently of the dumps, watcher's inline instrumentation — NOC address/coordinate checks, CB
-bounds, asserts, sanitizers — runs on every kernel launch throughout, and it is that
-instrumentation the fatal-class grep above is reading.
-
 ## Stack-usage summary
 
 Watcher only prints one for dumps where the firmware recorded a watermark, which is a property of

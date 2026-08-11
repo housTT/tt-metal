@@ -1502,8 +1502,10 @@ class FusedDecoder(LightweightModule):
         *not* a concatenated stream: at 4096 channels the split point is exactly the Q/K | V
         boundary, so ``_gdn_prefill`` consumes ``[q|k]`` and ``[v]`` directly and neither a concat
         nor a 4096-wide re-slice is needed. The SiLU is applied separately rather than through
-        ``Conv2dConfig(activation=...)`` — ``models/demos/blackhole/qwen36`` records that folding it
-        into this depthwise conv drops PCC to ~0.84.
+        ``Conv2dConfig(activation=...)``: folding it is faster but not correct on this depthwise
+        conv. Measured at Ornith's own shapes in ``doc/fused_decoder/logs/probe_conv1d_and_norm.txt``
+        (``CONV1DACT`` rows) and recorded in ``work_log.md`` §4.15;
+        ``models/demos/blackhole/qwen36/tt/gdn/tp.py:367`` reports the same for its conv.
         """
         rm = ttnn.DRAM_MEMORY_CONFIG
         channels = CONV1D_CHANNELS

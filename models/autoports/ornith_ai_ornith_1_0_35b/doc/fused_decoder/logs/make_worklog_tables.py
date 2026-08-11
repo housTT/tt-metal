@@ -84,6 +84,18 @@ def rows():
     # "shipped-fallback", not "4-tap": round 14 found the probe timing a generic FIR (ttnn.mac, all
     # four taps sliced) rather than the fallback that actually ships, which overstated the arm.
     (fir_ms,) = grab(conv, r"CONV1DTIME shipped-fallback FIR @8192ch\s+(?P<t>[\d.]+) ms", "t")
+    act_plain_pcc, act_plain_ms = grab(
+        conv,
+        r"CONV1DACT conv1d \+ separate silu \(shipped\)\s+pcc=(?P<p>[\d.]+)\s+(?P<t>[\d.]+) ms",
+        "p",
+        "t",
+    )
+    act_fold_pcc, act_fold_ms = grab(
+        conv,
+        r"CONV1DACT conv1d\(activation=silu\) folded\s+pcc=(?P<p>[\d.]+)\s+(?P<t>[\d.]+) ms",
+        "p",
+        "t",
+    )
     (rm_tail,) = grab(tail, r"CONVTAIL row-major tail \(shipped\)\s+best=\s*(?P<t>[\d.]+) ms", "t")
     (tile_tail,) = grab(tail, r"CONVTAIL tile tail\s+best=\s*(?P<t>[\d.]+) ms", "t")
     norm_text = conv.read_text(errors="replace")
@@ -126,6 +138,13 @@ def rows():
         (
             "§3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens",
             f"{conv1d_ms} ms vs {fir_ms} ms",
+            "`probe_conv1d_and_norm.txt`",
+        ),
+        (
+            "§4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, "
+            "one 4096-channel depthwise call over 2048 tokens",
+            f"PCC {act_plain_pcc} at {act_plain_ms} ms vs PCC {act_fold_pcc} at {act_fold_ms} ms — "
+            f"the folded form is faster and **fails the 0.995 bar**",
             "`probe_conv1d_and_norm.txt`",
         ),
         (

@@ -164,6 +164,10 @@ HISTORICAL = {
     # the finding was; the shipped figures are the current probe's, in §3.1 and §4.4.
     "3.326",
     "0.539",
+    # Round 19's P1: the shape of the truncated suite log it rejected. 70 PASSED and 93 collected are
+    # both live figures elsewhere, but the node-id count is only ever quoted to describe that defect,
+    # and it must not come back as a claim about a shipped run.
+    "71",
 }
 
 #: Constants and thresholds that are choices, not measurements.
@@ -178,7 +182,9 @@ ALLOWED = {
     "1.0.35",  # part of the model name
     "2.0",
     "20.0",  # the SOFTPLUS threshold in UnaryWithParam(SOFTPLUS, 1.0, 20.0)
-    "0.84",  # quoted from models/demos/blackhole/qwen36 - another port's measurement, not ours
+    # qwen36's own figure for the same rejected fold, quoted in §4.15 beside this stage's measurement
+    # of it (the CONV1DACT rows, which are sourced from probe_conv1d_and_norm.txt like everything else).
+    "0.84",
 }
 
 #: Integers that are architecture/config/shape constants or prose numbers rather than measured
@@ -423,11 +429,63 @@ def check_freshness() -> list:
     return problems
 
 
+def check_summary_provenance() -> list:
+    """``pcc_summary.txt`` must be re-derivable from the *committed* suite log, and that log complete.
+
+    Review round 19's P1: the committed ``pytest_full_suite.txt`` was a run that had been stopped
+    mid-test — 70 ``PASSED`` of 93 collected, no summary line — while ``pcc_summary.txt`` came from an
+    earlier, complete run whose log had been overwritten. Every figure in README §2 is generated from
+    the summary, so the tables were correct and yet nothing committed could reproduce them.
+
+    Neither existing gate could see it. The freshness gate compares mtimes, and both files were newer
+    than the sources. ``make_readme_tables.py --check`` regenerates the tables *from the summary*, so
+    it agrees with itself. What was missing is the link between the two: this re-runs
+    ``summarise_pcc.py``'s own extraction over the committed log and requires the result to equal the
+    committed summary, byte for byte, which fails if either file is from a different run.
+    """
+    log, summary = DOC / "logs/pytest_full_suite.txt", DOC / "logs/pcc_summary.txt"
+    if not log.is_file() or not summary.is_file():
+        return []  # the missing-artifact pass already reports these
+    body = log.read_text(errors="replace")
+    tail = [ln for ln in body.splitlines() if re.match(r"=+ .*(passed|failed)", ln)]
+    if not tail:
+        return [
+            "INCOMPLETE-SUITE-LOG  pytest_full_suite.txt has no pytest summary line: the run it "
+            "records did not finish, so no figure generated from it is backed by a completed suite"
+        ]
+    sys.path.insert(0, str(DOC / "logs"))
+    try:
+        import summarise_pcc
+    finally:
+        sys.path.pop(0)
+    lines, seen = [], set()
+    for raw in body.splitlines():
+        m = summarise_pcc.KEEP.search(raw)
+        if m:
+            lines.append(f"{m.group('test')}: {m.group('msg')}")
+            continue
+        m = summarise_pcc.DEVICE_METRIC.search(raw)
+        if m and m.group("msg") not in seen:
+            seen.add(m.group("msg"))
+            lines.append(f"conv1d_coverage: {m.group('msg')}")
+    expected = "\n".join(lines + [""] + tail) + "\n"
+    if expected != summary.read_text(errors="replace"):
+        have = set(summary.read_text(errors="replace").splitlines())
+        want = set(lines + tail)
+        return [
+            f"SUMMARY-PROVENANCE  pcc_summary.txt is not what summarise_pcc.py extracts from the "
+            f"committed pytest_full_suite.txt ({len(have - want)} summary line(s) absent from the "
+            f"log, {len(want - have)} log line(s) absent from the summary): they are different runs"
+        ]
+    return []
+
+
 def main() -> int:
     blobs = load(ARTIFACTS)
     missing = [p for p in ARTIFACTS if not p.is_file()]
     problems = [f"MISSING-ARTIFACT  {p}" for p in missing]
     problems += check_source_manifest()
+    problems += check_summary_provenance()
     problems += check_freshness()
     problems += check_readme_tables()
     problems += check_derived(blobs)
@@ -465,7 +523,8 @@ def main() -> int:
     print(
         f"checked {len(DOCS)} documents (including {len(SOURCES)} source files) against "
         f"{len(blobs)} artifacts, evaluated {len(DERIVED)} derived figures, re-generated the "
-        f"README's PCC tables, and asserted every artifact is newer than the code: "
+        f"README's PCC tables, re-derived pcc_summary.txt from the committed suite log, and "
+        f"asserted every artifact is newer than the code: "
         f"{len(problems)} problem(s)"
     )
     return 1 if problems else 0

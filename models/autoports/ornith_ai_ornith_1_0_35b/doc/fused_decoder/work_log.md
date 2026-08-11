@@ -465,6 +465,53 @@ corrections. The lesson is narrower than the ones in §7: a claim about how many
 composite dispatches has to be read off the op source, not inferred from the name or from another
 document.
 
+### 4.15 SiLU folded into `Conv1dConfig(activation=…)` — faster, and wrong
+
+The `$graph-fusing` catalogue lists "Conv2d + activation → `Conv2dConfig(activation=...)`" as an
+op-merging pattern, and it is expressible here: `Conv1dConfig` aliases `Conv2dConfig`, which carries
+an `activation` field, and the depthwise causal conv is followed by exactly one `ttnn.silu`. Until
+this round the fused decoder rejected it on a *citation* —
+`models/demos/blackhole/qwen36/tt/gdn/tp.py:367` notes that folding the activation into its
+Gated-DeltaNet conv "drops PCC to ~0.84". A comment in another model is not this stage's evidence, so
+the candidate is now measured at Ornith's own shapes by `probe_conv1d_and_norm.py`
+(`CONV1DACT` rows, tabulated in §4.12): the same input and weights through both arms, PCC against a
+float32 `silu(conv1d(x))` reference, and the wall time of each.
+
+The folded form is genuinely **faster** — it removes a full-width elementwise pass over a
+4096-channel, 2048-token activation — and its PCC is far below the 0.995 acceptance bar, in the same
+place qwen36 reports. So this is a rejection on *correctness*, not on latency, and it is the second
+candidate in this catalogue (with §4.1's `sparse_matmul fused_activation`) where a ttnn config field
+is accepted, produces a result, and does not compute what its name says. The SiLU therefore stays a
+separate op. The two arms are in one probe so the comparison is reproducible, and
+`_conv1d_halves`' docstring points at it rather than at qwen36.
+
+### 4.16 Hoisting the per-group sparsity mask — the same shape as the router hoist, two orders of magnitude smaller
+
+Round 19's review named the one rewrite in the shipped graph that is *structurally* the same
+redundancy the router hoist (§2 round 4) removed and that this stage did not take:
+`FusedMoE._routed_experts` rebuilds its `sparse_matmul` sparsity mask — `sum` over the group's token
+axis, `gtz`, `to_layout(ROW_MAJOR)` — inside **every** 32-token group, where the router above it now
+runs once per call. At the shipped `moe_group_tokens = 32` a 2048-token prefill therefore builds that
+mask once per group rather than once, and the hoisted spelling is exact: the whole-call mask is
+`gtz(sum(reshape(dense, [1, groups, 32, E]), dim=-2, keepdim=True))`, of which each group's mask is
+one row, so hoisting it replaces the per-group build with a per-group slice of a single
+`[1, groups, 1, E]` tensor.
+
+It is recorded here rather than landed, and the reason is its measured ceiling rather than a blocker.
+Read off the committed prefill captures by op code, the whole mask chain is a fraction of a percent of
+the prefill window — the `Reduce` and `UntilizeWithUnpadding` launches it contributes are individually
+among the smallest rows in the table, against MoE sparse matmuls that are §5.4's measured
+four-fifths — and in **decode** it costs nothing at all, because a decode step is a single 32-token
+group and the loop body runs once. So the candidate trades a fixed three-op-per-group build for a
+one-slice-per-group read, which is a real launch saving in prefill only, bounded above by a window
+share that §5.4's ranking shows is smaller than every item it lists.
+
+Two things follow, and both are stated rather than implied. First, this stage's claim is that no
+*material* graph fusing is left, not that the graph is provably minimal: this is a live example of the
+difference, and it is the natural first item for the optimized-decoder stage, which owns prefill
+launch count. Second, it is the only candidate of its kind found by nineteen review rounds — every
+other redundancy in the catalogue was either taken (§3) or rejected with a measurement (§4).
+
 ### 4.12 The probe measurements behind §3 and §4
 
 Every figure in this table moves a little on every evidence re-run, so none of it is written by hand:
@@ -477,18 +524,19 @@ made twenty of this file's inline probe figures stale, which is what prompted mo
 <!-- generated:worklog-probe-figures -->
 | Comparison | Measured | Artifact |
 | --- | --- | --- |
-| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.856008** — the activation is silently ignored | `probe_fused_ops.txt` |
-| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.6 µs vs 1959.2 µs | `probe_decode_micro.txt` |
-| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 102.7 µs vs 117.6 µs | `probe_router_and_reduce.txt` |
-| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.689 ms vs 2.483 ms | `probe_conv1d_and_norm.txt` |
-| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 256.87 ms vs 256.85 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
-| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.3 µs, width-sharded x8 30.2 µs, width-sharded x16 28.1 µs, width-sharded x32 44.3 µs, width-sharded x64 60.1 µs | `probe_conv1d_and_norm.txt` |
-| §3.3, §4.7 — decode head merge at `seq_len 1`: `permute + reshape` (shipped) vs `nlp_concat_heads` vs the flat untilize/reshape/tilize | 11.0 µs vs 52.9 µs vs 44.6 µs; all three bitwise-equal | `probe_decode_micro.txt` |
+| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.855807** — the activation is silently ignored | `probe_fused_ops.txt` |
+| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.8 µs vs 1959.4 µs | `probe_decode_micro.txt` |
+| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 109.9 µs vs 120.3 µs | `probe_router_and_reduce.txt` |
+| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.717 ms vs 2.484 ms | `probe_conv1d_and_norm.txt` |
+| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.376 ms vs PCC 0.825507 at 0.296 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
+| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 256.79 ms vs 256.92 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
+| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.5 µs, width-sharded x8 36.2 µs, width-sharded x16 39.4 µs, width-sharded x32 44.4 µs, width-sharded x64 45.6 µs | `probe_conv1d_and_norm.txt` |
+| §3.3, §4.7 — decode head merge at `seq_len 1`: `permute + reshape` (shipped) vs `nlp_concat_heads` vs the flat untilize/reshape/tilize | 11.1 µs vs 52.9 µs vs 44.6 µs; all three bitwise-equal | `probe_decode_micro.txt` |
 | §4.7 — the flat untilize/reshape/tilize spelling above `seq_len 1` (it does not transpose head↔token, so it is not an alternative there at all) | PCC 0.000659 at 128 and 0.000095 at 2048 against the other two | `probe_decode_micro.txt` |
-| §3.2 — explicit `core_grid` on the recurrent-state read | 61.2 µs → 14.4 µs | `probe_decode_micro.txt` |
+| §3.2 — explicit `core_grid` on the recurrent-state read | 61.0 µs → 14.3 µs | `probe_decode_micro.txt` |
 | §3.3 — delta-rule outer product: `transpose + matmul` vs `matmul(transpose_a=True)` | 21.3 µs → 17.9 µs | `probe_decode_micro.txt` |
 | §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.830 ms vs 1.856 ms | `ab_rope_mode.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.41 ms vs 243.33 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.59 ms vs 243.28 ms | `ab_rope_mode.txt` |
 <!-- /generated:worklog-probe-figures -->
 
 The MoE expert-group sweep and the functional-vs-fused headline are tabulated in
@@ -1228,8 +1276,12 @@ range over all moves when it is the two per-phase bounds, so it now names them a
 The eighteenth review verified the whole evidence chain independently — all four device times re-summed
 from the raw captures, the per-op-code decode diffs item-for-item, the corrected refusal arithmetic,
 the SLOW attribution, the PCC tables, the layout budgets, and the absence of any reshard or host
-fallback in every measured window (residual relayout is 0.13–2.28 % of window and *lower* than the
-baseline's). Its P1 was, once again, the previous round's fix going stale against the next run.
+fallback in every measured window — the residual relayout is a low single-digit percentage of each
+window and *lower* than the baseline's, with the per-run figures in the captures themselves and the
+op counts pinned by `test_no_layout_churn_in_measured_forward` (README §6). Its P1 was, once again,
+the previous round's fix going stale against the next run — and this clause was one too: it used to
+quote that percentage range by hand, and round 19's re-run made it unsourced, which is precisely
+what §4.12's rule about per-run figures in prose exists to prevent.
 
 | Finding | Fix |
 | --- | --- |
@@ -1245,6 +1297,50 @@ functional 1); and the full-context chunk-invariance bar of 0.999, which is ten 
 `EQUIV_BAR`, now carries its justification in the file — it compares two different chunkings of a
 262 143-token prefill, so the recurrent state is accumulated over 128 hand-offs in one arm and 256 in
 the other, which is a real reassociation rather than the same graph twice.
+
+### Round 19 — `more-work-needed`
+
+The nineteenth review was the first run against a *committed* stage rather than a working tree, and
+it found the thing every previous round had been structurally unable to see. Rounds 1–18 all checked
+whether the documents agreed with the artifacts. Round 19 checked whether the artifacts agreed with
+each other — and they did not.
+
+| Finding | Fix |
+| --- | --- |
+| **P1** — the committed `logs/pytest_full_suite.txt` was a run that had been **stopped mid-test**: 70 `PASSED` of 93 collected, 71 of 93 node ids, no pytest summary line, ending inside `test_full_context_prefill_and_decode[…262144-full_attention…]`. `logs/pcc_summary.txt` was from an *earlier, complete* run whose log had been overwritten — 27 of its lines have no counterpart in the committed log, including most of README §2.1's prefill ladder for **both** layer kinds, and 5 committed log lines are absent from the summary with different perf values, which is what proves they are two runs. So README §2 — the stage's entire correctness case — was correct and simultaneously unbacked: no committed artifact could reproduce a single cell of it. | the whole evidence chain was regenerated by `run_evidence.sh` from the current sources, in one uninterrupted pass with no source edit in flight. The suite now records **93 passed** with its summary line, and `pcc_summary.txt` is derived from *that* file. |
+| **P2** — `logs/source_manifest.txt` recorded a `tests/test_fused_decoder.py` hash that the shipped file did not have, so the stage's own audit reported `SOURCE-CHANGED` plus 20 `STALE-ARTIFACT` lines. The pre-manifest revision exists in no commit, so the disclosed "assertion unchanged" edit could not be checked from the repo at all. | the same re-run rewrites the manifest first, from the sources as shipped. The audit now exits 0. Note what the drift actually was: the committed log already carried `[EXPECTED_ERROR]` markers, so it was not the `expect_error` rewrite but a formatting pass that landed **while the suite was running** — the same hazard §5 records as wedging this device twice. |
+| **P2** — `Conv1dConfig(activation=…)` is a `$graph-fusing` op-merging pattern, it is expressible on this conv, and this stage rejected it by quoting *another port's* comment. A citation is not one of the three things a rejection may rest on. | measured here, at Ornith's own shapes — §4.15, with the figures in §4.12's generated table. The folded form is faster and fails the acceptance bar, so the rejection stands, but now on this stage's evidence. |
+
+The P1 also exposed a **gap in the gates themselves**, which is the more durable half of this round.
+The freshness gate compares mtimes, and both files were newer than the sources. `make_readme_tables.py
+--check` regenerates the tables *from the summary*, so it agrees with itself. Nothing anywhere
+asserted the link between the summary and the log it claims to come from. `audit_figures.py` gains
+`check_summary_provenance`, which re-runs `summarise_pcc.py`'s own extraction over the committed log
+and requires the result to equal the committed summary byte for byte, and which fails outright on a
+log with no pytest summary line. It is a verified control, not a guess: pointed at the truncated log
+this round rejected, it returns
+`INCOMPLETE-SUITE-LOG  pytest_full_suite.txt has no pytest summary line`; pointed at the completed
+run, it passes.
+
+Other items from the same review: `watcher/CLASSIFICATION.md` carried a paragraph duplicated verbatim
+(removed); the MoE's per-group sparsity-mask rebuild is a real unexhausted hoist of the same shape as
+the router hoist, and is now quantified and recorded in §4.16 and README §8 item 12 rather than left
+to the absolute reading of "no remaining fusing"; and the previous commit's message claimed no
+measured log was altered, when pre-commit's trailing-whitespace hook had in fact stripped trailing
+blanks from `watcher/watcher_log.txt` and the four `*_perf_report.txt` tables — whitespace only, the
+census still partitions exactly and the fatal-class grep is still clean, but the message was wrong and
+this one says what the hooks do.
+
+The review also found that the eight `tt-perf-report` machine-readable CSVs
+(`tracy/*/{prefill,decode}_perf_report{,_stacked}.csv`) were **never committed**: the repo's
+`.gitignore` excludes `*.csv`, the functional stage had force-added its own, and this stage had not.
+They are the machine-readable half of the goal's `tt-perf-report` requirement and the input
+`make_readme_perf.py` reads, so a fresh checkout could not regenerate §5 at all. Force-added here.
+
+Round 19's implementation read found **no new correctness bug**; it re-derived all four device times,
+the four op-row counts, the per-op-code decode diffs, the `SLOW` sums and attribution, the MoE shares,
+the `FILL`/`BinaryNg` splits, the census and both A/B sweeps from the raw captures and reproduced them
+exactly.
 
 ---
 

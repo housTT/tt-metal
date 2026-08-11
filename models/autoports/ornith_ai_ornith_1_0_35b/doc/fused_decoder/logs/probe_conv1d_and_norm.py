@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Two remaining candidates, measured at Ornith's real shapes.
+"""Three remaining candidates, measured at Ornith's real shapes.
 
 1. **``ttnn.conv1d`` for the depthwise causal conv.** ``models/demos/blackhole/qwen36`` drives its
    Gated-DeltaNet conv through ``ttnn.conv1d(groups=C)``; this checks whether Ornith's untensor-
@@ -10,6 +10,9 @@
 
 2. **Width-sharded RMSNorm for the residual-stream norms.** Decode normalises a single 32x2048
    tile, which the interleaved kernel runs on one core (20 us each, twice per step).
+
+3. **Folding the SiLU into ``Conv1dConfig(activation=...)``** — the $graph-fusing "conv + activation"
+   op-merging pattern. ``models/demos/blackhole/qwen36`` rejects it by comment; this measures it.
 
     python models/autoports/ornith_ai_ornith_1_0_35b/doc/fused_decoder/logs/probe_conv1d_and_norm.py
 """
@@ -256,6 +259,119 @@ def probe_conv1d_split_timing(mesh, seq_len=2048, channels=4096, iters=5):
         print(f"CONV1DTIME {name:24s} {per * 1e3:7.3f} ms per full 8192-channel conv over {seq_len} tokens", flush=True)
 
 
+def probe_conv1d_fused_activation(mesh, seq_len=2048, channels=4096, iters=5):
+    """Fold the SiLU into ``Conv1dConfig(activation=...)`` — the $graph-fusing "conv + activation" pattern.
+
+    The shipped path runs ``conv1d`` and then a separate ``ttnn.silu``. ``Conv2dConfig`` (which
+    ``Conv1dConfig`` aliases) carries an ``activation`` field, so the op-merging pattern is
+    *expressible*; ``models/demos/blackhole/qwen36/tt/gdn/tp.py:367`` records that folding it into
+    this depthwise conv "drops PCC to ~0.84". That is another model's note, not this stage's
+    measurement, so it is measured here at Ornith's own shapes: same input, same weights, PCC of the
+    folded output against ``silu(conv1d(x))`` computed on the same device, plus the latency of both
+    arms. A rejection then rests on this stage's own evidence.
+    """
+    gen = torch.Generator().manual_seed(11)
+    cc = ttnn.init_device_compute_kernel_config(
+        mesh.arch(),
+        math_fidelity=ttnn.MathFidelity.HiFi4,
+        math_approx_mode=False,
+        fp32_dest_acc_en=False,
+        packer_l1_acc=False,
+    )
+    w = torch.randn(channels, 1, KERNEL, generator=gen).to(torch.bfloat16)
+    x = torch.randn(1, seq_len + KERNEL - 1, channels, generator=gen).to(torch.bfloat16)
+    ref = torch.nn.functional.silu(
+        torch.nn.functional.conv1d(x.float().transpose(1, 2), w.float(), groups=channels).transpose(1, 2)
+    )
+
+    def build(activation):
+        cfg = ttnn.Conv1dConfig(
+            weights_dtype=ttnn.bfloat16,
+            shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+            # Conv2dConfig.activation is a UnaryWithParam, not a string.
+            **({} if activation is None else {"activation": ttnn.UnaryWithParam(activation)}),
+        )
+        wprep = ttnn.prepare_conv_weights(
+            weight_tensor=ttnn.from_torch(
+                w.reshape(channels, 1, 1, KERNEL), dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT
+            ),
+            weights_format="OIHW",
+            in_channels=channels,
+            out_channels=channels,
+            batch_size=1,
+            input_height=1,
+            input_width=seq_len + KERNEL - 1,
+            kernel_size=(1, KERNEL),
+            stride=(1, 1),
+            padding=(0, 0),
+            dilation=(1, 1),
+            has_bias=False,
+            groups=channels,
+            device=mesh,
+            input_dtype=ttnn.bfloat16,
+            conv_config=cfg,
+            compute_config=cc,
+            input_memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            input_layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        return cfg, wprep
+
+    x_rm = dev(mesh, x, layout=ttnn.ROW_MAJOR_LAYOUT)
+    x_rm = ttnn.reshape(x_rm, (1, seq_len + KERNEL - 1, 1, channels))
+
+    def run(cfg, wprep, fold):
+        out = ttnn.conv1d(
+            input_tensor=x_rm,
+            weight_tensor=wprep,
+            device=mesh,
+            in_channels=channels,
+            out_channels=channels,
+            batch_size=1,
+            input_length=seq_len + KERNEL - 1,
+            kernel_size=KERNEL,
+            stride=1,
+            padding=0,
+            dilation=1,
+            groups=channels,
+            dtype=ttnn.bfloat16,
+            conv_config=cfg,
+            compute_config=cc,
+            slice_config=ttnn.Conv2dL1FullSliceConfig,
+            return_output_dim=False,
+            return_weights_and_bias=False,
+        )
+        out = ttnn.sharded_to_interleaved(out, ttnn.DRAM_MEMORY_CONFIG)
+        out = ttnn.to_layout(
+            ttnn.reshape(out, (1, seq_len, channels)), ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
+        if fold:
+            return out
+        activated = ttnn.silu(out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        ttnn.deallocate(out)
+        return activated
+
+    for name, activation, fold in (
+        ("conv1d + separate silu (shipped)", None, False),
+        ("conv1d(activation=silu) folded", ttnn.UnaryOpType.SILU, True),
+    ):
+        try:
+            cfg, wprep = build(activation)
+            got = ttnn.to_torch(run(cfg, wprep, fold)).float().reshape(1, seq_len, channels)
+            ttnn.synchronize_device(mesh)
+            start = time.time()
+            for _ in range(iters):
+                ttnn.deallocate(run(cfg, wprep, fold))
+            ttnn.synchronize_device(mesh)
+            per = (time.time() - start) / iters
+            print(
+                f"CONV1DACT {name:34s} pcc={pcc(ref, got):.6f}  {per * 1e3:7.3f} ms per {channels}-channel call",
+                flush=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - this probe exists to record the failure mode
+            msg = str(exc).strip().splitlines()
+            print(f"CONV1DACT {name:34s} FAILED: {msg[0] if msg else repr(exc)}", flush=True)
+
+
 def probe_norm(mesh, batch=32):
     gen = torch.Generator().manual_seed(6)
     x = torch.randn(1, 1, batch, HIDDEN, generator=gen).to(torch.bfloat16)
@@ -332,6 +448,7 @@ def main():
             probe_conv1d(mesh, channels=ch)
             probe_conv1d(mesh, channels=ch, slices=8)
         probe_conv1d_split_timing(mesh)
+        probe_conv1d_fused_activation(mesh)
         probe_norm(mesh)
     finally:
         ttnn.close_mesh_device(mesh)
