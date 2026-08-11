@@ -197,8 +197,26 @@ class PrecisionPolicy:
     #: Force float32 destination accumulation on **every** projection.  The fused stage did this
     #: implicitly - it used one ``HiFi4 + fp32_dest_acc_en`` config for every matmul in the layer -
     #: so the baseline arm of the candidate table sets it, and the shipped policy does not: it costs
-    #: roughly half of matmul throughput and only the two float32-output roles need it.
+    #: roughly half of matmul throughput and only the roles below need it.
     fp32_dest_acc_all: bool = False
+
+    #: Roles that accumulate in float32 destination registers **at prefill only**.
+    #:
+    #: ``wqkv`` is here because of a full-context failure this stage found and traced, and the trace
+    #: is worth keeping: with float32 destination accumulation dropped everywhere except the two
+    #: float32-output roles, the 262143-token ``full_attention`` prefill tail came back at PCC
+    #: 0.972423 against stage 2's 0.998030 - and it was **not** a precision-policy effect.  Reverting
+    #: the weight dtypes and raising the fidelity did not fix it (HiFi4 everywhere is *worse*, 0.947617),
+    #: while the paged K/V cache PCC moved from stage 2's 0.999989 to 0.999924.  ``wqkv``'s reduction is
+    #: 160 K tiles deep and its output *is* what the cache stores, so accumulating it in bfloat16
+    #: destination registers costs the cache about 6x its error - invisible at 2049 keys, and amplified
+    #: by an attention over 262144 of them.  ``logs/probe_long_context_precision.log`` and
+    #: ``logs/probe_long_context_mlp.log`` are the attribution.
+    #:
+    #: Prefill only, because prefill is what fills the cache: a decode step writes one token's K/V into
+    #: a 262144-entry cache, so its accumulation precision cannot move the cache PCC, and decode is
+    #: where float32 destination accumulation costs the most relative to the work done.
+    prefill_fp32_acc_roles: tuple = ("wqkv",)
 
     _WEIGHT_FIELD = {
         "wqkv": "attn_weight",
@@ -239,13 +257,16 @@ class PrecisionPolicy:
                 return self.decode_fidelity
         return getattr(self, self._FIDELITY_FIELD[role])
 
-    def fp32_acc(self, role: str) -> bool:
+    def fp32_acc(self, role: str, decode: bool = False) -> bool:
         """Whether this role's matmul accumulates in float32 destination registers.
 
-        Only the two roles whose *output* is a float32 tensor the recurrence carries, unless
-        :attr:`fp32_dest_acc_all` restores the fused stage's blanket setting.
+        The two roles whose *output* is a float32 tensor the recurrence carries always do; the roles
+        in :attr:`prefill_fp32_acc_roles` do at prefill only; :attr:`fp32_dest_acc_all` restores the
+        fused stage's blanket setting for the baseline arm.
         """
-        return self.fp32_dest_acc_all or role in ("in_proj_qkv", "in_proj_ab")
+        if self.fp32_dest_acc_all or role in ("in_proj_qkv", "in_proj_ab"):
+            return True
+        return not decode and role in self.prefill_fp32_acc_roles
 
 
 #: The policy every construction uses unless the caller passes another one.
@@ -271,6 +292,7 @@ FUSED_BASELINE_POLICY = PrecisionPolicy(
     kv_cache=ttnn.bfloat16,
     decode_fidelity=None,
     fp32_dest_acc_all=True,
+    prefill_fp32_acc_roles=(),
 )
 
 #: BFP8 everywhere a block-float weight is legal - the conservative fallback, and the arm the
@@ -565,7 +587,7 @@ class OptimizedDecoder(FusedDecoder):
             role: _kernel_cfg(self.policy.fidelity(role), self.policy.fp32_acc(role)) for role in self.role_shapes
         }
         self.role_kernel_cfg_decode = {
-            role: _kernel_cfg(self.policy.fidelity(role, decode=True), self.policy.fp32_acc(role))
+            role: _kernel_cfg(self.policy.fidelity(role, decode=True), self.policy.fp32_acc(role, decode=True))
             for role in self.role_shapes
         }
         # Everything that is not a weight projection - the recurrence matmuls, the gated-norm
@@ -1548,6 +1570,7 @@ class OptimizedDecoder(FusedDecoder):
                 "fidelity": str(self.policy.fidelity(role)),
                 "fidelity_decode": str(self.policy.fidelity(role, decode=True)),
                 "fp32_dest_acc": self.policy.fp32_acc(role),
+                "fp32_dest_acc_decode": self.policy.fp32_acc(role, decode=True),
                 "weight_memory": "dram_width_sharded" if role in self.weight_mem_cfg else "dram_interleaved",
             }
             pc = self.decode_program_cfg.get(role)

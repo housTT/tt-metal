@@ -262,6 +262,29 @@ def real_weight_policy(rows: list) -> list:
     )
 
 
+def long_context_fp32acc(rows: list) -> list:
+    """The full-context verification of the float32-destination-accumulation fix."""
+    selected = [r for r in rows if r.get("sweep") == "long_context_precision"]
+    if not selected:
+        return ["_no rows: probe_long_context_fp32acc.log is not committed_"]
+    lines = [
+        "| arm | tail PCC | tail scale | decode PCC | decode scale | paged K PCC | paged V PCC | blocker |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        lines.append(
+            f"| {row['candidate']} | "
+            f"{_PCC(row['prefill_tail_pcc']) if row.get('prefill_tail_pcc') is not None else '—'} | "
+            f"{_PCC(row['prefill_tail_scale']) if row.get('prefill_tail_scale') is not None else '—'} | "
+            f"{_PCC(row['decode_pcc']) if row.get('decode_pcc') is not None else '—'} | "
+            f"{_PCC(row['decode_scale']) if row.get('decode_scale') is not None else '—'} | "
+            f"{_PCC(row['paged_k_cache_pcc']) if row.get('paged_k_cache_pcc') is not None else '—'} | "
+            f"{_PCC(row['paged_v_cache_pcc']) if row.get('paged_v_cache_pcc') is not None else '—'} | "
+            f"{(row.get('error') or '—')[:90]} |"
+        )
+    return lines
+
+
 def bfp4_gateup(rows: list) -> list:
     """Every legal program config for the one ``Bound=SLOW`` decode row that is material."""
     selected = [r for r in rows if r.get("sweep") == "bfp4_gateup"]
@@ -481,6 +504,7 @@ def build_blocks() -> dict:
         "projection_packing": projection_packing(optimized_rows),
         "slow_rows": slow_rows(summary),
         "bfp4_gateup": bfp4_gateup(optimized_rows),
+        "long_context_fp32acc": long_context_fp32acc(_probe_rows("probe_long_context_fp32acc.log")),
         "recurrence_advice": recurrence_advice(optimized_rows),
         "correctness": correctness(evidence),
     }

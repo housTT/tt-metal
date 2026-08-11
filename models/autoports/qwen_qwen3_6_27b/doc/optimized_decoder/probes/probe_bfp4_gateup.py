@@ -208,6 +208,8 @@ def run_shape(label, m, k, n, dt_name, results):
                 in0_block_w=block_w,
                 out_subblock_h=1,
                 out_subblock_w=subblock_w,
+                out_block_h=m_tiles,
+                out_block_w=per_core_n,
                 per_core_M=m_tiles,
                 per_core_N=per_core_n,
                 fuse_batch=True,
