@@ -1170,10 +1170,16 @@ def rope_half_traced() -> str:
         ("decode", "`full_attention` decode, batch 1"),
         ("decode_batch32", "`full_attention` decode, batch 32"),
     ):
-        shipped = _summary()["measurements"][f"fused/full_attention/{phase}"]["device_kernel_time_ms"]
-        report = DOC / "tracy" / "rejected" / "rotate_half_dedicated" / f"{phase}_perf_report.csv"
-        with report.open() as handle:
-            rejected = sum(float(row["Device Time"] or 0) for row in csv.DictReader(handle)) / 8 / 1000.0
+        # Both sides come from their raw reports.  Taking the shipped side from
+        # ``perf_summary.json`` instead read a value already rounded to three decimals, which moved
+        # the derived percentage in the second decimal - harmless here, but the caption calls those
+        # figures the unrounded ones, so they are now unrounded on both sides.
+        def _window(report):
+            with report.open() as handle:
+                return sum(float(row["Device Time"] or 0) for row in csv.DictReader(handle)) / 8 / 1000.0
+
+        shipped = _window(DOC / "tracy" / "fused" / "full_attention" / f"{phase}_perf_report.csv")
+        rejected = _window(DOC / "tracy" / "rejected" / "rotate_half_dedicated" / f"{phase}_perf_report.csv")
         # No bold: these are two profiler passes, not a repeated measurement, so there is no
         # spread to decide a win with.  The shipped column used to be bolded on both rows, and at
         # batch 1 that is the *larger* of the two numbers - the sign is in the difference column,
@@ -1187,7 +1193,8 @@ def rope_half_traced() -> str:
         "the decision is the advertised-batch row, where it is "
         f"{differences['decode_batch32']:+.2f} %. At batch 1 it is {differences['decode']:+.2f} %, "
         "i.e. the sign is against the shipped form by a fraction of a percent - the difference "
-        "column above is rounded to one decimal, so these two figures are the unrounded ones. "
+        "column above is rounded to one decimal, and both of these are computed from the two "
+        "reports' own window sums rather than from any rounded summary. "
         "The two runs differ only in this one op - the rejected one's provenance carries a "
         "different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative."
     )

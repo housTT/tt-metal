@@ -1021,10 +1021,13 @@ def test_generated_table_bolding_marks_a_measured_win():
     * the row is a pair whose two values appear together on one probe-log line, which carries
       both spreads - the ``rejected_*`` and fold tables.
 
-    What it does **not** cover, stated rather than implied: a table with no spread anywhere.  That
+    What it does **not** cover, stated rather than implied: a table that weighs candidates against
+    each other with no spread behind either of them.  That
     is five tables, from four sources - the three probes that print a best-of-N wall time
     (``probe_mlp_variants``, ``probe_output_paths`` which feeds two of the five, and
-    ``probe_chunk_gdr``) and §3.22's pair of single traced passes.  There
+    ``probe_chunk_gdr``) and §3.22's pair of single traced passes.  (The headline before/after and
+    breakdown tables have no spreads either, but they bold a *column* of measurements rather than a
+    winner among candidates, so there is no verdict in them to check.)  There
     the rule is inapplicable, so those generators bold no timing cell and label the shipped
     row instead; §3.22's row is the reason that convention exists, because the shipped column was
     bolded there on a row where it is the *larger* number.
@@ -1051,7 +1054,9 @@ def test_generated_table_bolding_marks_a_measured_win():
     # ``**14.251** (0.042)``, ``**112.5 us**``, ``0.038 (0.009)`` - a timing, optionally bolded,
     # optionally carrying its own spread.  ``GB/s`` cells are deliberately out of scope: there the
     # marked cell is the *worst* row, which is a different claim.
-    cell_rule = re.compile(r"(\*\*)?(\d+\.\d+)(?:\*\*)?(?: (?:us|ms))?(?:\*\*)? ?(?:\((\d+\.\d+)\))?")
+    # ``(?<![§\d.])`` keeps a section reference out of it: "§3.4" inside a label cell parsed
+    # as a timing of 3.4, which turned that row into a pair and made its label look like a value.
+    cell_rule = re.compile(r"(\*\*)?(?<![§\d.])(\d+\.\d+)(?:\*\*)?(?: (?:us|ms))?(?:\*\*)? ?(?:\((\d+\.\d+)\))?")
 
     def cells_of(row: str) -> list[tuple[bool, str, str | None]]:
         found = []

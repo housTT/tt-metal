@@ -750,7 +750,7 @@ profiled with each form, and **both runs are committed**:
 | `full_attention` decode, batch 1 | 2.067 ms | 2.070 ms (shipped) | -0.1 % |
 | `full_attention` decode, batch 32 | 2.911 ms | 2.869 ms (shipped) | +1.4 % |
 
-Device time per trace replay, summed over the signposted window of each committed report. One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and the decision is the advertised-batch row, where it is +1.44 %. At batch 1 it is -0.14 %, i.e. the sign is against the shipped form by a fraction of a percent - the difference column above is rounded to one decimal, so these two figures are the unrounded ones. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
+Device time per trace replay, summed over the signposted window of each committed report. One pass each, so no cell is bolded: a positive difference is the shipped form ahead, and the decision is the advertised-batch row, where it is +1.43 %. At batch 1 it is -0.14 %, i.e. the sign is against the shipped form by a fraction of a percent - the difference column above is rounded to one decimal, and both of these are computed from the two reports' own window sums rather than from any rounded summary. The two runs differ only in this one op - the rejected one's provenance carries a different `FUSED_BUILD` fingerprint, which is how it is identifiable as the alternative.
 <!-- END GENERATED:rope_half_traced -->
 
 The spelled-out form ships, on the advertised-batch row: at batch 1 the two traced passes differ by
@@ -1630,6 +1630,21 @@ is rounded to one), with the prose pointing at that column instead of restating 
 "four generated tables have no spread behind them" count is five, because `probe_output_paths.py`
 feeds two of them - corrected in the README limitation and in the gate's docstring.
 
+Round 27 was a bounded confirmation of the commit that closed round 26 and returned **clean-pass**,
+the third in a row, with the plain finding that the stage is ready to close. It verified both
+round-26 fixes against the raw reports, confirmed the fix commit touches only documents, the table
+generator and the doc-gate test - the diff over `tt/` is empty - re-derived all twelve device
+times, both op-count sets and the PCC minimum, and re-checked that the shipped fingerprint is on
+all forty-nine stamps that should carry it and on none of the three rejected-alternative artifacts.
+
+Its three precision notes are closed here rather than left standing:
+
+| note | what was done |
+|---|---|
+| §3.22's `+1.44 %` was derived with the shipped side read from `perf_summary.json`, which is already rounded to three decimals, while the caption calls those figures the unrounded ones | both sides are summed from their own committed report now, so the caption's figures are `+1.43 %` and `-0.14 %`, matching a re-derivation straight from the CSVs (`+1.4290`, `-0.1372`), and the sentence says where they come from |
+| "a table with no spread anywhere - that is five" undercounts if read literally: the headline before/after and breakdown tables have no spreads either | the docstring says what it means - a table that weighs *candidates* against each other with no spread behind either - and names the headline tables as the case where a bolded column is not a verdict |
+| the gate's cell pattern matched `3.4` out of a `§3.4` section reference, so a label cell could parse as a timing | the pattern excludes a number preceded by `§` or by another digit or dot |
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1659,6 +1674,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `781c0fc935a` | Qwen3.6-27B fused decoder: twenty-third-review fixes |
 | `951da5df4e5` | Qwen3.6-27B fused decoder: twenty-fourth-review fixes |
 | `e9a5feab92f` | Qwen3.6-27B fused decoder: twenty-fifth-review fixes |
+| `df5f36af552` | Qwen3.6-27B fused decoder: twenty-sixth-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -
