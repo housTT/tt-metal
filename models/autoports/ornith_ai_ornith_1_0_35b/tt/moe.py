@@ -213,7 +213,11 @@ class OrnithMoE:
         near the top-8/top-9 boundary swaps an expert rather than perturbing a value. Measured on
         real layer-0 weights at 512 tokens (``logs/router_precision_ab.txt``): bfloat16 logits
         agree with the HF top-8 set on 95.5 % of tokens (score-vector L1 error 1.15 %, MoE-block
-        PCC 0.999573); float32 logits agree on 99.8 % (0.19 %, 0.999816).
+        PCC 0.999573); float32 logits agree on 99.8 % (0.19 %, 0.999816). The shipped float32 path's
+        99.8 % is re-confirmed on the current tree through this method in
+        ``logs/router_setmatch_reconcile.txt`` (511/512, same 0.001913 score error, and 512/512 at a
+        slightly different input scale); the bfloat16 row describes a configuration this code cannot
+        produce and is kept only as the reason float32 was chosen.
 
         ``ttnn.scatter`` rejects a float32 TILE destination, so the kept weights are cast to
         bfloat16 for the scatter — that only affects the weight *values* (relative error ~0.4 %,

@@ -610,7 +610,8 @@ statement about the same noise floor.
 
 Two committed artifacts appear to disagree about how often the router picks HF's top-8 set:
 `router_precision_ab.txt` says 511/512 (99.8 %) for fp32 logits, while `probe_moe_vs_hf.txt` says
-491/512 (95.9 %) at the same `T` and seed. The answer is that they measure two different routers:
+491/512 (95.9 %) at the same `T` and the same seed value (the tensors differ: that probe draws several
+`T` values from one seeded generator, so its 512-token draw is not the first). The answer is that they measure two different routers:
 `probe_moe_vs_hf.py` is a **pre-implementation** probe from §3, run when `routing_weights` still
 computed logits in bfloat16 — its 94-96 % range is exactly what motivated the fp32 decision. The A/B
 then measured both precisions side by side, and the fp32 path shipped.
