@@ -1258,3 +1258,24 @@ also correct.  Both halves are checked:
 
 ### 9.2 Checkpoint commits
 
+Repo `tt-metal`, branch `agentic-research/hous/qwen3.6-27b-v2`, parent `a6a91a89da5` (the fused
+stage's last commit).  Local only; nothing pushed.
+
+| commit | subject |
+|---|---|
+| `8916f99e2b7` | Qwen3.6-27B optimized decoder: implementation, tests and probes |
+| `0f04f65c50a` | Qwen3.6-27B optimized decoder: sdpa_decode diagnosis artifacts and advice probes |
+| `684db2301f5` | Qwen3.6-27B optimized decoder: float32 destination accumulation for prefill wqkv |
+| `63aeb65dd30` | Qwen3.6-27B optimized decoder: evidence, documents and capability contract |
+
+The stage's changes are isolated: `git diff --stat a6a91a89da5..HEAD` touches only
+`models/autoports/qwen_qwen3_6_27b/**` and the one shared device kernel
+`ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/kernels/compute/sdpa_flash_decode.cpp`,
+whose diagnosis, correctness sweep and blast-radius run are `sdpa/AUTOFIX_SDPA.md`.  The three files
+that remain dirty in the worktree - `.agents/notes/gdn.md`,
+two files under `.agents/prompts/model_bringup_multigoal/`, plus the untracked
+`scripts/check_agent_prompt_lengths.py` - were already
+dirty when this stage started and are deliberately **not** in any of these commits.
+
+### 9.3 Stage review
+
