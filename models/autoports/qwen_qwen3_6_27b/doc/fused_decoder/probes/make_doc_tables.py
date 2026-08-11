@@ -165,7 +165,12 @@ def conv_table() -> str:
         }
         for key in names
     }
-    best = {dtype: min(names, key=lambda key: float(measured[key][dtype][0])) for dtype in ("fp32", "bf16")}
+    # Bold means one thing in every table here: a minimum that beats the runner-up by more than
+    # the two spreads together.  It used to mean "lowest median", which bolded a tie in the float32
+    # column - 14.251 (0.042) against 14.260 (0.039).
+    best = {
+        dtype: _distinguishable_min([measured[key][dtype] for key in names], list(names)) for dtype in ("fp32", "bf16")
+    }
     rows = ["| formulation | float32 median (stdev) ms | bfloat16 median (stdev) ms |", "|---|---|---|"]
     for key, label in names.items():
         cells = []
@@ -174,7 +179,28 @@ def conv_table() -> str:
             mark = "**" if best[dtype] == key else ""
             cells.append(f"{mark}{median}{mark} ({stdev})")
         rows.append(f"| {label} | " + " | ".join(cells) + " |")
+    rows.append("")
+    rows.append(
+        "A bolded median is a minimum outside the two spreads together; a column with no bold has "
+        "its two fastest rows inside each other's spread."
+    )
     return "\n".join(rows)
+
+
+def _distinguishable_min(measured: list[tuple[str, str]], labels: list) -> object | None:
+    """The label of the fastest row, or ``None`` when the two fastest are inside their spreads.
+
+    The same rule as :func:`_verdict`, for a sweep instead of a pair.  Two tables bolded a "best"
+    that was a tie with its runner-up until a stage review re-derived them from the logs.
+    """
+    order = sorted(range(len(measured)), key=lambda index: float(measured[index][0]))
+    if len(order) < 2:
+        return labels[order[0]] if order else None
+    best, runner = order[0], order[1]
+    gap = float(measured[runner][0]) - float(measured[best][0])
+    if gap <= float(measured[best][1]) + float(measured[runner][1]):
+        return None
+    return labels[best]
 
 
 def broadcast_table() -> str:
@@ -199,14 +225,39 @@ def broadcast_table() -> str:
 
 def norm_table() -> str:
     cores = ("16", "20", "32", "40", "80")
-    values = [_grep("probe_small_ops", rf"rms_norm sharded\s+{core}c ms=([\d.]+)") for core in cores]
-    interleaved = _grep("probe_small_ops", r"rms_norm interleaved\s+ms=([\d.]+)")
-    best = min(range(len(values)), key=lambda index: float(values[index]))
-    cells = [f"**{value}**" if index == best else value for index, value in enumerate(values)]
+    # The spreads are in the table because the two fastest columns are a tie, and the table bolded
+    # one of them as a win - against the prose three lines below it, and against the shipped
+    # constant, which is the other one.
+    measured = [
+        (
+            _grep("probe_small_ops", rf"rms_norm sharded\s+{core}c ms=([\d.]+)"),
+            _grep("probe_small_ops", rf"rms_norm sharded\s+{core}c ms=[\d.]+ stdev_ms=([\d.]+)"),
+        )
+        for core in cores
+    ]
+    interleaved = (
+        _grep("probe_small_ops", r"rms_norm interleaved\s+ms=([\d.]+)"),
+        _grep("probe_small_ops", r"rms_norm interleaved\s+ms=[\d.]+ stdev_ms=([\d.]+)"),
+    )
+    best = _distinguishable_min(measured + [interleaved], list(cores) + ["interleaved"])
+    cells = [
+        f"**{value}** ({spread})" if core == best else f"{value} ({spread})"
+        for core, (value, spread) in zip(cores, measured)
+    ]
+    tail = (
+        f"**{interleaved[0]}** ({interleaved[1]})" if best == "interleaved" else f"{interleaved[0]} ({interleaved[1]})"
+    )
     return (
         "| cores | " + " | ".join(cores) + " | interleaved |\n"
         "|---|---|---|---|---|---|---|\n"
-        "| ms | " + " | ".join(cells) + f" | {interleaved} |"
+        "| ms (stdev) | " + " | ".join(cells) + f" | {tail} |\n\n"
+        "Median and (stdev) over the sweep. A cell is bolded only when it beats the runner-up by "
+        "more than the two spreads together: "
+        + (
+            "no width here does, so the choice is made on the shipped fallback rule."
+            if best is None
+            else f"{best} does."
+        )
     )
 
 
@@ -302,11 +353,19 @@ def mlp_table() -> str:
     for key, label in names.items():
         prefill = _grep("probe_mlp_variants", rf"prefill-2048\s+{key}\s+best_ms=\s*([\d.]+)")
         decode = _grep("probe_mlp_variants", rf"decode-32\s+{key}\s+best_ms=\s*([\d.]+)")
-        rows.append(
-            f"| {label} | {'**' if key == 'fused_slice_act' else ''}{prefill} ms"
-            f"{'**' if key == 'fused_slice_act' else ''} | "
-            f"{'**' if key == 'split_act' else ''}{decode} ms{'**' if key == 'split_act' else ''} |"
-        )
+        shipped = " — **shipped**" if key == "fused_slice_act" else ""
+        rows.append(f"| {label}{shipped} | {prefill} ms | {decode} ms |")
+    rows.append("")
+    # No cell is bolded here on purpose: this probe reports a best-of-N wall time with no spread,
+    # so the tie rule every other table uses cannot be applied to it.  The decode column used to
+    # bold the *rejected* variant, which read as a measured win it cannot support.
+    rows.append(
+        "`probe_mlp_variants.py` reports best-of-N wall time and prints no spread, so no cell here "
+        "is marked a win - the shipped variant is labelled instead. The prefill column separates "
+        "the three by margins far larger than any spread this stage has measured on that shape; the "
+        "decode column does not, and §6 records the split variant as rejected on prefill. Re-running "
+        "this probe with median and stdev, as every other probe reports, is listed as a limitation."
+    )
     return "\n".join(rows)
 
 
@@ -325,8 +384,9 @@ def gdr_table() -> str:
             o_pcc, state_pcc, wall = re.search(
                 r"o_pcc=([\d.]+) state_pcc=([\d.]+) best_wall_ms=([\d.]+)", line
             ).groups()
-            bold = "**" if seq == "2048" else ""
-            rows.append(f"| {shape} | {chunk} | {seq} | {bold}{o_pcc}{bold} | {state_pcc} | {bold}{wall} ms{bold} |")
+            # The 2048 rows used to be bolded, which in a column of wall times reads as "fastest"
+            # when they are the slowest; this probe prints a best wall with no spread anyway.
+            rows.append(f"| {shape} | {chunk} | {seq} | {o_pcc} | {state_pcc} | {wall} ms |")
     return "\n".join(rows)
 
 
@@ -336,9 +396,10 @@ def epilogue_table() -> str:
     pcc = _grep("probe_output_paths", r"pcc\(token,head\)=([\d.]+)")
     return (
         "| path | 2048-token chunk |\n|---|---|\n"
-        f"| token-major output + group-reduction norm (§3.4) — **shipped** | **{token} ms** |\n"
+        f"| token-major output + group-reduction norm (§3.4) — **shipped** | {token} ms |\n"
         f"| `output_head_major=True` + per-head `ttnn.rms_norm` + z/result relayouts | {head} ms |\n"
-        f"\nPCC between the two outputs: {pcc}."
+        f"\nPCC between the two outputs: {pcc}. `probe_output_paths.py` reports a single wall time "
+        f"with no spread, so the shipped path is labelled rather than bolded as a measured win."
     )
 
 
@@ -350,7 +411,7 @@ def rope_table() -> str:
         wide = _grep("probe_output_paths", rf"rope_{tag}\(\d+ heads\).*permuted 256wide ms=\s*([\d.]+)")
         total_narrow += float(narrow)
         total_wide += float(wide)
-        rows.append(f"| {label} | {narrow} ms | **{wide} ms** |")
+        rows.append(f"| {label} | {narrow} ms | {wide} ms (shipped) |")
     saving = (total_narrow - total_wide) * 1000.0
     prefill = _summary()["measurements"]["fused/full_attention/prefill"]["device_kernel_time_ms"]
     rows.append("")
@@ -1012,22 +1073,34 @@ def addcmul_state() -> str:
     rows = ["| batch | multiply + add (was) | `addcmul` | `addcmul` in place | agreement |", "|---|---|---|---|---|"]
     for batch in ("1", "32"):
         match = re.search(
-            rf"addcmul batch=\s*{batch} shipped_us=\s*([\d.]+) \(\s*[\d.]+\) addcmul_us=\s*([\d.]+) "
-            rf"\(\s*[\d.]+\) in_place_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_in_place=([\d.]+) "
+            rf"addcmul batch=\s*{batch} shipped_us=\s*([\d.]+) \(\s*([\d.]+)\) addcmul_us=\s*([\d.]+) "
+            rf"\(\s*([\d.]+)\) in_place_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc_in_place=([\d.]+) "
             rf"pcc_shipped_vs_torch=([\d.]+) pcc_addcmul_vs_torch=([\d.]+) max_abs_diff=(\S+)",
             _probe("probe_addcmul_state"),
         )
         if not match:
             raise SystemExit(f"probe_addcmul_state.log has no batch {batch} row")
+        # Bold the distinguishable minimum of the three, not "the one that ships": ``addcmul`` and
+        # the in-place form are inside each other's spread, and the row's real result is that both
+        # beat the two-op form the layer used to run.
+        measured = [(match.group(i), match.group(i + 1)) for i in (1, 3, 5)]
+        best = _distinguishable_min(measured, ["two_op", "addcmul", "in_place"])
+        cells = [
+            f"**{value}** us" if label == best else f"{value} us"
+            for label, (value, _) in zip(["two_op", "addcmul", "in_place"], measured)
+        ]
         rows.append(
-            f"| {batch} | {match.group(1)} us | {match.group(2)} us | **{match.group(3)} us** | "
-            f"PCC {match.group(4)} in place, {match.group(6)} against torch, max abs diff {match.group(7)} |"
+            f"| {batch} | " + " | ".join(cells) + " | "
+            f"PCC {match.group(7)} in place, {match.group(9)} against torch, max abs diff {match.group(10)} |"
         )
     rows.append("")
     rows.append(
-        "Median over 15 repeats, state uploaded once outside the timed region. The in-place form "
-        "is what ships: one pass over the carried state instead of two, landing at the persistent "
-        "buffer's address, and bit-exact against both the two-op form and torch."
+        "Median and spread over 15 repeats, state uploaded once outside the timed region. A bolded "
+        "cell is a minimum outside the spreads; where none is bolded, the two `addcmul` forms are "
+        "inside each other's spread and both are decisively below the two-op form. The in-place "
+        "form is what ships, for a reason the timing does not carry: it lands at the persistent "
+        "buffer's address, which the traced decode needs. It is bit-exact against both the two-op "
+        "form and torch."
     )
     return "\n".join(rows)
 

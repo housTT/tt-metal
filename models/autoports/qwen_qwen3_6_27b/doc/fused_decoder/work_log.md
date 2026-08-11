@@ -108,9 +108,9 @@ compares against HF's `torch_chunk_gated_delta_rule` in float32
 | call shape | chunk | seq | output PCC | final-state PCC | best wall |
 |---|---|---|---|---|---|
 | flat rank-3 `[1, T, H*D]` | 32 | 64 | 0.999994 | 0.999995 | 0.37 ms |
-| flat rank-3 `[1, T, H*D]` | 32 | 2048 | **0.999994** | 0.999994 | **3.79 ms** |
+| flat rank-3 `[1, T, H*D]` | 32 | 2048 | 0.999994 | 0.999994 | 3.79 ms |
 | split rank-4 `[1, T, H, D]` | 64 | 64 | 0.999992 | 0.999992 | 0.55 ms |
-| split rank-4 `[1, T, H, D]` | 64 | 2048 | **0.903635** | 0.996086 | **6.97 ms** |
+| split rank-4 `[1, T, H, D]` | 64 | 2048 | 0.903635 | 0.996086 | 6.97 ms |
 <!-- END GENERATED:gdr_call_shapes -->
 
 The rank-4/chunk-64 row is the documented failure mode: at chunk 64 each per-chunk WY matrix is
@@ -161,8 +161,8 @@ Measured at the real prefill shapes (`probes/probe_output_paths.py`, `logs/probe
 <!-- GENERATED:rope_width -->
 | tensor | slice + 64-wide RoPE + slice + concat | permuted, one 256-wide RoPE |
 |---|---|---|
-| q, 24 heads | 0.444 ms | **0.365 ms** |
-| k, 4 heads | 0.120 ms | **0.112 ms** |
+| q, 24 heads | 0.444 ms | 0.365 ms (shipped) |
+| k, 4 heads | 0.120 ms | 0.112 ms (shipped) |
 
 so the whole permutation is worth **87 us of a 17.807 ms prefill, 0.5 %**.
 <!-- END GENERATED:rope_width -->
@@ -188,7 +188,9 @@ interleaved→shard→`rms_norm`→interleaved:
 <!-- GENERATED:norm_cores -->
 | cores | 16 | 20 | 32 | 40 | 80 | interleaved |
 |---|---|---|---|---|---|---|
-| ms | **0.038** | 0.039 | 0.045 | 0.050 | 0.072 | 0.100 |
+| ms (stdev) | 0.038 (0.009) | 0.039 (0.010) | 0.045 (0.009) | 0.050 (0.009) | 0.072 (0.020) | 0.100 (0.007) |
+
+Median and (stdev) over the sweep. A cell is bolded only when it beats the runner-up by more than the two spreads together: no width here does, so the choice is made on the shipped fallback rule.
 <!-- END GENERATED:norm_cores -->
 
 16 and 20 swap places between runs by about the run-to-run spread; from 32 upwards the
@@ -333,15 +335,18 @@ same-shape float32 operands. Every formulation of the FIR in the table below was
 |---|---|---|
 | all-TILE slices (what the functional layer does) | 15.957 (0.059) | 5.253 (0.032) |
 | untilize once, ROW_MAJOR shift, tilize per tap (TILE concat) | 15.725 (0.041) | 5.138 (0.037) |
-| ROW_MAJOR concat *and* shift, SiLU folded into the last add - **shipped** | **14.251** (0.042) | **4.341** (0.026) |
+| ROW_MAJOR concat *and* shift, SiLU folded into the last add - **shipped** | 14.251 (0.042) | **4.341** (0.026) |
 | untilize once, whole FIR in ROW_MAJOR, tilize once | 14.260 (0.039) | 7.424 (0.040) |
 | one pre-padded window per tap so every slice is tile-aligned | 18.062 (0.044) | 6.460 (0.047) |
 | scale on the TILE tensor first, then untilize per tap and shift-and-add in ROW_MAJOR | 17.379 (0.072) | 5.682 (0.031) |
+
+A bolded median is a minimum outside the two spreads together; a column with no bold has its two fastest rows inside each other's spread.
 <!-- END GENERATED:conv_formulations -->
 
-So the win is the dtype first - the generated table pairs every formulation with its float32 twin - and the
-layout second: building *and* shifting the window in ROW_MAJOR is the fastest row, by several
-times the run-to-run spread and bit-identically. The FIR now runs in bfloat16 while the carried conv **state** stays
+So the win is the dtype first - the generated table pairs every formulation with its float32 twin -
+and the layout second: at bfloat16, the dtype the FIR ships in, building *and* shifting the window
+in ROW_MAJOR is the fastest row outside the spreads, bit-identically. At float32 it is nominally
+first but inside its runner-up's spread, which is why the table bolds only the bfloat16 cell. The FIR now runs in bfloat16 while the carried conv **state** stays
 float32 and is taken from the float32 inputs — nothing downstream can use more than bfloat16
 anyway (the conv output feeds `chunk_gated_delta_rule`, whose contract casts q/k/v to bfloat16),
 and the checkpoint stores `conv1d.weight` in bfloat16 to begin with, so the bfloat16 taps are
@@ -367,13 +372,17 @@ separate `silu` dispatch. Measured at the real shape (`probes/probe_mlp_variants
 | variant | prefill 2048 | decode 32 |
 |---|---|---|
 | fused gate/up matmul + 2 slices + `silu` + `multiply` (functional) | 8.473 ms | 0.952 ms |
-| fused gate/up matmul + 2 slices + `multiply(act=SILU)` | **7.987 ms** | 0.932 ms |
-| split gate/up matmuls, `silu` on the gate matmul's `activation=` epilogue, `multiply` | 10.479 ms | **0.925 ms** |
+| fused gate/up matmul + 2 slices + `multiply(act=SILU)` — **shipped** | 7.987 ms | 0.932 ms |
+| split gate/up matmuls, `silu` on the gate matmul's `activation=` epilogue, `multiply` | 10.479 ms | 0.925 ms |
+
+`probe_mlp_variants.py` reports best-of-N wall time and prints no spread, so no cell here is marked a win - the shipped variant is labelled instead. The prefill column separates the three by margins far larger than any spread this stage has measured on that shape; the decode column does not, and §6 records the split variant as rejected on prefill. Re-running this probe with median and stdev, as every other probe reports, is listed as a limitation.
 <!-- END GENERATED:mlp_variants -->
 
 The split variant is the textbook "matmul + activation" merge and it removes both slices, but at
 prefill it is **the slowest of the three** in the table above — two `[hidden, intermediate]`
-matmuls lose more than the slices cost — and at decode the difference is inside run-to-run noise. Rejected on
+matmuls lose more than the slices cost. The decode column decides nothing either way: this probe
+reports a best-of-N wall time with no spread, and the three variants land within a hair of each
+other there, so no cell in it is marked a win. Rejected on the prefill
 measurement; the SiLU fold is kept.
 
 The same input-activation merge applies twice more, and both were taken: the attention output
@@ -474,10 +483,10 @@ Both whole paths were built and timed from the op call to the flat `[1, 1, T, va
 <!-- GENERATED:gdn_epilogue -->
 | path | 2048-token chunk |
 |---|---|
-| token-major output + group-reduction norm (§3.4) — **shipped** | **5.40 ms** |
+| token-major output + group-reduction norm (§3.4) — **shipped** | 5.40 ms |
 | `output_head_major=True` + per-head `ttnn.rms_norm` + z/result relayouts | 10.78 ms |
 
-PCC between the two outputs: 0.999994.
+PCC between the two outputs: 0.999994. `probe_output_paths.py` reports a single wall time with no spread, so the shipped path is labelled rather than bolded as a measured win.
 <!-- END GENERATED:gdn_epilogue -->
 
 The shipped path is 2x faster; rejected on measurement.
@@ -693,10 +702,10 @@ dispatches a single LLK ternary op here. Measured at the real shapes:
 <!-- GENERATED:addcmul_state -->
 | batch | multiply + add (was) | `addcmul` | `addcmul` in place | agreement |
 |---|---|---|---|---|
-| 1 | 84.8 us | 65.3 us | **57.7 us** | PCC 1.000000 in place, 1.000000 against torch, max abs diff 2.980e-08 |
-| 32 | 1276.7 us | 772.2 us | **770.1 us** | PCC 1.000000 in place, 1.000000 against torch, max abs diff 5.960e-08 |
+| 1 | 84.8 us | 65.3 us | 57.7 us | PCC 1.000000 in place, 1.000000 against torch, max abs diff 2.980e-08 |
+| 32 | 1276.7 us | 772.2 us | 770.1 us | PCC 1.000000 in place, 1.000000 against torch, max abs diff 5.960e-08 |
 
-Median over 15 repeats, state uploaded once outside the timed region. The in-place form is what ships: one pass over the carried state instead of two, landing at the persistent buffer's address, and bit-exact against both the two-op form and torch.
+Median and spread over 15 repeats, state uploaded once outside the timed region. A bolded cell is a minimum outside the spreads; where none is bolded, the two `addcmul` forms are inside each other's spread and both are decisively below the two-op form. The in-place form is what ships, for a reason the timing does not carry: it lands at the persistent buffer's address, which the traced decode needs. It is bit-exact against both the two-op form and torch.
 <!-- END GENERATED:addcmul_state -->
 
 Taken. Two consequences, both in the code's comments: `exp(g)` becomes its own tiny op again
@@ -1569,6 +1578,26 @@ dispatch); the verdict gate's skipped-claim count is capped and listed in its fa
 rather than computed and dropped; and the constant's docstring records the bimodality of the
 group arm across re-runs, which is the mechanism behind the threshold moving twice.
 
+Round 24 returned **more-work-needed** with one P2, and it is round 23's closure claim rather than
+a new class: round 23 said "every generator that bolds a measured cell routes through
+`_verdict()`", and three tables it never reached still bolded a tie - §3.3's core-count sweep
+(where the bolded cell is not even the shipped constant, and the prose three lines below it says
+the two are a tie), §3.7's float32 column, and §3.8's decode column, which bolded the **rejected**
+variant. Round 24 re-derived every perf row, op count, PCC figure and generated block and found no
+correctness, capability or performance defect and no unearned rejection.
+
+| finding | what was done |
+|---|---|
+| three generated tables bolded a cell their own log makes a tie, and the new bolding gate reached only 8 of the 34 blocks because its matcher required a ``us``/``ms`` suffix and a probe-log pair line | `_distinguishable_min()` gives the sweep the same rule `_verdict()` gives a pair, and §3.3, §3.7 and §3.21 use it (§3.3's table carries the spreads now, so the tie is checkable from the table). The gate reads in-cell spreads as well as log pairs, and checks each bolded cell **down its column** as well as across its row, which is the direction §3.7's bold lives in |
+| the gate's docstring claimed tables were covered "by construction" when three probes print a best-of-N wall time with no spread at all, so no tie rule can apply to them | those generators bold no timing cell now - they label the shipped row instead (§3.1, §3.2, §3.8, §3.13) - the docstring names the exclusion and the reason, and the README carries it as a limitation with the concrete fix: re-run those three probes with median and stdev, which needs the board |
+
+Two prose claims the regenerated tables no longer support were restated: §3.7's "the fastest row by
+several times the spread" is true at bfloat16, the dtype the FIR ships in, and a tie at float32;
+and §3.8's "at decode the difference is inside run-to-run noise" asserted a spread its probe does
+not print, so it now says the decode column decides nothing. §3.21's table stops bolding the
+in-place column as though it beat plain `addcmul` - they are inside each other's spread, and the
+in-place form ships for the trace-address reason its caption gives, not for the microseconds.
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1595,6 +1624,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `c36b7d6ac85` | Qwen3.6-27B fused decoder: twentieth-review fixes |
 | `782fb23fc88` | Qwen3.6-27B fused decoder: twenty-first-review fixes |
 | `c9a93716645` | Qwen3.6-27B fused decoder: twenty-second-review fixes |
+| `781c0fc935a` | Qwen3.6-27B fused decoder: twenty-third-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -

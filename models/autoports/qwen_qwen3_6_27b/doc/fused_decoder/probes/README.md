@@ -34,7 +34,7 @@ python models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/probes/<probe>.py
 | `probe_dense_recurrence.py` | should the recurrence's transient vectors be dense instead of one padded row per head? | yes, and it is shipped: bit-identical, and at the advertised batch the chain measures a little over half what it did (work_log.md §3.24) | `../logs/probe_dense_recurrence.log` |
 | `probe_group_attn_matmul.py` | does `ttnn.experimental.group_attn_matmul` fit the decode state read when it is mapped the way its contract wants? | no, and the blocker is quantified: every shape assertion passes at batch 32 and the op's circular buffers overflow L1 by 4x in float32 and 2x in bfloat16 (work_log.md §3.6) | `../logs/probe_group_attn_matmul.log` |
 | `probe_fir_dtype_compounding.py` | does a bfloat16 FIR's per-step error compound through the carried state? | **no** - eight steps move the carried state by 9e-6, nowhere near the observed failure, so this log is the negative result that rules compounding out (work_log.md §3.25) | `../logs/probe_fir_dtype_compounding.log` |
-| `probe_mlp_variants.py` | fused gate/up matmul or split, and where should the SiLU live? | the fused gate/up matmul with the SiLU folded into the multiply is the fastest of the three at prefill; splitting the matmul is a wash at decode (work_log.md §3.8) | `../logs/probe_mlp_variants.log` |
+| `probe_mlp_variants.py` | fused gate/up matmul or split, and where should the SiLU live? | the fused gate/up matmul with the SiLU folded into the multiply is the fastest of the three at prefill by a wide margin, and it ships; the decode column decides nothing, because this probe prints a best-of-N wall time with no spread (work_log.md §3.8) | `../logs/probe_mlp_variants.log` |
 
 Tooling:
 

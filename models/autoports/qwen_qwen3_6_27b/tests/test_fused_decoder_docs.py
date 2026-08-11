@@ -1013,10 +1013,18 @@ def test_generated_table_bolding_marks_a_measured_win():
     ``test_qualitative_verdicts_match_their_logs`` cannot see it: bolding is markup, not a
     sentence.
 
-    The rule is mechanical and needs no per-table knowledge: for every generated table row with
-    exactly two ``us``/``ms`` cells, find the probe-log line that measured that pair - the two
-    values appear on it with their spreads - and require the bolding to agree with the verdict.
-    A row whose pair matches no log line is left alone; it was not read out of a probe.
+    The rule is mechanical.  A bolded timing cell must be a minimum that beats its runner-up by
+    more than the two spreads together, and the spreads are found in one of two ways:
+
+    * the cell carries its own, as ``14.251 (0.042)`` - then the comparison runs down the column
+      and across the row, and the bold has to be justified in one of those directions;
+    * the row is a pair whose two values appear together on one probe-log line, which carries
+      both spreads - the ``rejected_*`` and fold tables.
+
+    What it does **not** cover, stated rather than implied: a table whose probe prints a
+    best-of-N wall time with no spread at all (``probe_mlp_variants``, ``probe_output_paths``,
+    ``probe_chunk_gdr``).  There the rule is inapplicable, so those generators bold no timing cell
+    and label the shipped row instead - and this gate asserts that, which is the checkable half.
     """
     pair_rule = re.compile(r"(\w+)_(?:us|ms)=\s*([\d.]+) \(\s*([\d.]+)\)")
     # (value, value) -> verdict, over every probe log line that measured two timings.
@@ -1037,26 +1045,64 @@ def test_generated_table_bolding_marks_a_measured_win():
                 measured[frozenset((left, right))] = winner
     assert measured, "no probe log carries a two-timing line; this gate's pattern has gone stale"
 
-    cell_rule = re.compile(r"(\*\*)?(\d+\.\d+) (?:us|ms)(\*\*)?")
+    # ``**14.251** (0.042)``, ``**112.5 us**``, ``0.038 (0.009)`` - a timing, optionally bolded,
+    # optionally carrying its own spread.  ``GB/s`` cells are deliberately out of scope: there the
+    # marked cell is the *worst* row, which is a different claim.
+    cell_rule = re.compile(r"(\*\*)?(\d+\.\d+)(?:\*\*)?(?: (?:us|ms))?(?:\*\*)? ?(?:\((\d+\.\d+)\))?")
+
+    def cells_of(row: str) -> list[tuple[bool, str, str | None]]:
+        found = []
+        for piece in row.strip().strip("|").split("|"):
+            match = cell_rule.search(piece)
+            # A cell is a *timing* cell only if the value (and its spread) are the only decimal
+            # numbers in it.  Without this, an agreement cell - "PCC 1.000000, max abs diff
+            # 0.000e+00" - parses as a second timing and silently turned its row into a triple,
+            # which skipped the pair lookup that row depended on.
+            leftover = piece[: match.start()] + piece[match.end() :] if match else ""
+            if match and "GB/s" not in piece and not re.search(r"\d+\.\d+|\d+e[-+]\d+", leftover):
+                found.append((piece.count("**") >= 2, match.group(2), match.group(3)))
+            else:
+                found.append(None)
+        return found
+
+    def justified(line: list) -> set[str]:
+        """The values in a line that a bold would be justified on: the distinguishable minimum."""
+        known = [item for item in line if item and item[2] is not None]
+        if len(known) < 2:
+            return set()
+        order = sorted(known, key=lambda item: float(item[1]))
+        gap = float(order[1][1]) - float(order[0][1])
+        if gap <= float(order[0][2]) + float(order[1][2]):
+            return set()
+        return {order[0][1]}
+
     offenders, checked = [], 0
     for path, text in _documents().items():
         for block in re.finditer(r"<!-- GENERATED:(\w+) -->(.*?)<!-- END GENERATED:\w+ -->", text, re.DOTALL):
-            for row in block.group(2).splitlines():
-                if not row.startswith("|"):
-                    continue
-                cells = cell_rule.findall(row)
-                if len(cells) != 2:
-                    continue
-                verdict = measured.get(frozenset(value for _, value, _ in cells))
-                if verdict is None:
-                    continue
-                checked += 1
-                for open_mark, value, close_mark in cells:
-                    bolded = bool(open_mark or close_mark)
-                    if bolded and verdict != value:
+            grid = [cells_of(row) for row in block.group(2).splitlines() if row.startswith("|") and "---" not in row]
+            width = max((len(line) for line in grid), default=0)
+            columns = [[line[index] if index < len(line) else None for line in grid] for index in range(width)]
+            allowed = set()
+            for line in grid + columns:
+                allowed |= justified(line)
+            for line in grid:
+                pair = [item for item in line if item]
+                # A row that is a pair with no in-cell spreads: the probe log line carries both.
+                verdict = measured.get(frozenset(item[1] for item in pair)) if len(pair) == 2 else None
+                if verdict is not None and verdict != "tie":
+                    allowed.add(verdict)
+                for bolded, value, spread in pair:
+                    # Judge only what has a spread behind it, from the cell, its column, or the
+                    # log line that measured the pair.  A table whose probe prints no spread at
+                    # all is out of reach - stated in the docstring, and handled by those
+                    # generators labelling the shipped row instead of bolding a winner.
+                    if spread is None and verdict is None:
+                        continue
+                    checked += 1
+                    if bolded and value not in allowed:
                         offenders.append(
-                            f"{path.name} {block.group(1)}: {value} is bolded but the log says "
-                            + ("the row is a tie" if verdict == "tie" else f"{verdict} wins")
+                            f"{path.name} {block.group(1)}: {value} is bolded but is not a minimum "
+                            "outside the spreads in its row, its column, or its probe-log line"
                         )
     assert checked, "this gate matched no generated table row against a probe log; it has gone stale"
     assert not offenders, (

@@ -344,6 +344,17 @@ GQA head expansion. See [`work_log.md`](work_log.md) §6, which is the table of 
   adding the method to the base class is a stage-1 edit. A serving stage that inspects conv
   state mid-generation must call the accessor.
 
+* **Three of the twenty probes report a best-of-N wall time with no spread.**
+  `probe_mlp_variants.py`, `probe_output_paths.py` and `probe_chunk_gdr.py` predate the
+  median-and-stdev convention every later probe follows, so the tie rule the rest of the evidence
+  uses cannot be applied to their tables: those tables bold no timing cell and label the shipped
+  row instead, and `test_generated_table_bolding_marks_a_measured_win` says so as an explicit
+  exclusion rather than covering them. The decisions resting on them are not close — the margins
+  are in [`work_log.md`](work_log.md) §3.1, §3.2, §3.8 and §3.13, and each is far outside any
+  spread this stage has measured on those shapes — but re-running the three with median and stdev is the
+  outstanding evidence-quality item, and it needs the board, which is why it is listed here rather
+  than done.
+
 * **Two decode configuration constants are measured at their ends, not across their range.**
   `_RECURRENCE_READ_GRID` is keyed at 1536 head problems and the sweep measures 48 and 1536, so
   every `max_batch` from 2 to 31 takes the small grid on the strength of the 48-head measurement;
