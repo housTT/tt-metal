@@ -1,6 +1,6 @@
 {
  "model_id": "Qwen/Qwen3.6-27B",
- "stage": "functional_decoder",
+ "stage": "optimized_decoder",
  "branch": "agentic-research/hous/qwen3.6-27b-v2",
  "scope": "one decoder layer per HF layer kind on a 1x1 Blackhole mesh (one chip of a p300c board)",
  "target_context": 262144,
@@ -303,5 +303,142 @@
   },
   "used_by_this_stage": "/dev/tenstorrent/2 (TT_VISIBLE_DEVICES=2), a chip of the intact board",
   "source": "/sys/class/tenstorrent/*/tt_card_type and tt_serial"
+ },
+ "optimized_decoder": {
+  "stage": "optimized_decoder",
+  "implementation": "models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py",
+  "supported_context": 262144,
+  "reduced_from_advertised": false,
+  "reduction_reason": null,
+  "note": "Stage 3 changes the precision policy, the math fidelity, the decode memory layout and the matmul program configs of stage 2's op graph. It inherits FusedDecoder's constructor, max_seq_len default, paged-KV geometry and per-user linear-attention state unchanged, so nothing that sizes the context moved: same block_size parameter, same max_num_blocks derivation from the padded context, same float32 conv/recurrent state, and the same 'any 1 <= seq_len <= max_seq_len, no divisibility requirement' public prefill API. The KV cache dtype default changed from bfloat16 to bfloat8_b, which makes the cache smaller at the same geometry, and bfloat16 remains selectable through cache_dtype.",
+  "precision_policy": {
+   "name": "opt-v1",
+   "weights": {
+    "wqkv": "DataType.BFLOAT8_B",
+    "wgate": "DataType.BFLOAT8_B",
+    "o_proj": "DataType.BFLOAT8_B",
+    "mlp_gate": "DataType.BFLOAT4_B",
+    "mlp_up": "DataType.BFLOAT4_B",
+    "mlp_down": "DataType.BFLOAT8_B",
+    "in_proj_qkv": "DataType.BFLOAT8_B",
+    "in_proj_z": "DataType.BFLOAT8_B",
+    "in_proj_ab": "DataType.FLOAT32",
+    "out_proj": "DataType.BFLOAT8_B"
+   },
+   "fidelity": {
+    "wqkv": "MathFidelity.LoFi",
+    "mlp_gate": "MathFidelity.LoFi",
+    "mlp_down": "MathFidelity.LoFi",
+    "in_proj_qkv": "MathFidelity.HiFi2",
+    "in_proj_z": "MathFidelity.LoFi",
+    "out_proj": "MathFidelity.LoFi"
+   },
+   "kv_cache": "DataType.BFLOAT8_B",
+   "float32_destination_accumulation_roles": [
+    "in_proj_qkv",
+    "in_proj_ab"
+   ],
+   "state_left_alone": "norms, the carried conv/recurrent state, chunk_gated_delta_rule and the recurrence matmuls keep stage 2's HiFi4 + float32-destination contract"
+  },
+  "decode_geometry": {
+   "l1_width_shard_cores": 32,
+   "note": "one width-shard core count for the whole decode path - residual stream, both RMS norms, every projection's activation and output, the attention epilogue and the MLP intermediate - so nothing is resharded between them. 32 is the largest value that divides the tile count of every activation width the layer carries; the legal set is computed from the real shapes by OptimizedDecoder._legal_stream_cores.",
+   "dram_sharded_decode_matmuls": true,
+   "split_gate_up_decode": true,
+   "split_gate_up_prefill": true,
+   "sdpa_cores_per_head_batch": 8,
+   "decode_reshard_ops": {
+    "linear_attention@batch1": 5,
+    "linear_attention@batch32": 4,
+    "full_attention@batch1": 8,
+    "full_attention@batch32": 8
+   }
+  },
+  "capacity": {
+   "method": "measured, not asserted: total DRAM bytes allocated across banks around a real from_state_dict at max_batch 32, for the fused and the optimized implementation in turn, after a warm-up build/release of both so one-time first-use allocations land on neither.",
+   "test": "models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_capacity_did_not_shrink",
+   "per_layer_kind": {
+    "full_attention": {
+     "delta": -941424640,
+     "fused": 1818935296,
+     "optimized": 877510656
+    },
+    "linear_attention": {
+     "delta": -447938560,
+     "fused": 1070219264,
+     "optimized": 622280704
+    }
+   },
+   "conclusion": "The optimized layer is strictly smaller than the fused one at every layer kind: block-float weights and a bfloat8_b KV cache remove far more than the split gate/up weight adds - and with both phases split the packed gate/up weight is not built at all. No capability reduction was made or needed, and the advertised context is unchanged."
+  },
+  "largest_context_tested": {
+   "prefill": 262143,
+   "decode_position": 262143,
+   "test": "models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py::test_full_advertised_context",
+   "command": "cd /home/ttuser/dev/qwen/tt-metal && source models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh && python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py -k test_full_advertised_context --long-context -v -s",
+   "logs": [
+    "doc/optimized_decoder/logs/long_context.log"
+   ],
+   "evidence_method": "identical to stages 1 and 2: a segmented HF reference for linear_attention, and for full_attention a K/V cache built from k_proj/v_proj + k_norm + RoPE, validated torch.equal against a genuine short reference prefill, with the real HF layer run over the last 256 queries.",
+   "results": {
+    "linear_attention": {
+     "prefill_tail_pcc": 0.996715,
+     "decode_pcc": 0.997126,
+     "prefill_tail_scale": 0.988131,
+     "decode_scale": 0.982905,
+     "conv_state_pcc": 0.999961,
+     "recurrent_state_pcc": 0.999852,
+     "paged_k_cache_pcc": null,
+     "paged_v_cache_pcc": null
+    },
+    "full_attention": {
+     "prefill_tail_pcc": 0.984588,
+     "decode_pcc": 0.985773,
+     "prefill_tail_scale": 0.997382,
+     "decode_scale": 0.997669,
+     "conv_state_pcc": null,
+     "recurrent_state_pcc": null,
+     "paged_k_cache_pcc": 0.99985,
+     "paged_v_cache_pcc": 0.999856
+    }
+   }
+  },
+  "non_aligned_length_coverage": "unchanged and re-run against the optimized graph: 1, 17, 128, 2048, 2049, 4096, 5000, 8191, 16385, 262143, the 735..768 pad-below-one-tile range, and the batch-4/16/32 prompts at 64 + 97*u. The optimized decode path adds no divisibility requirement of its own: its width-shard core count divides the *hidden* widths, which are model constants, not the sequence length.",
+  "acceptance": {
+   "pcc_bar": 0.995,
+   "synthetic_weight_stress_bar": 0.975,
+   "bar_note": "The real-checkpoint tests hold the 0.995 acceptance bar. The synthetic-weight cases, which exist for shape/length/paging/aliasing/batching/trace coverage rather than for precision, hold the looser stress bar, because the shipped policy's BFP4 MLP gate/up shows a measured discrepancy between the two: the block-float weight error is the same on both tensors (0.1123 real vs 0.1112 synthetic, relative) while the real layer's output norm is 2.62x / 1.89x the synthetic layer's for the same input, so the identical noise is a proportionally larger share of the stand-in's signal. doc/optimized_decoder/logs/probe_blockfloat_distribution.log has the arithmetic and test_synthetic_bar_is_justified_by_the_real_weight_evidence pins it.",
+   "records": 514,
+   "pcc_records": 480,
+   "scale_records": 4,
+   "min_pcc": 0.983746,
+   "min_pcc_record": {
+    "batch": 32,
+    "kind": "full_attention",
+    "metric": "optimized_batched_decode_pcc",
+    "user_id": 25,
+    "value": 0.9837455058494825,
+    "source_log": "models/autoports/qwen_qwen3_6_27b/doc/optimized_decoder/logs/suite_main.log"
+   },
+   "pcc_records_below_bar": 0,
+   "scale_range": [
+    0.982905,
+    0.997669
+   ],
+   "scale_tolerance": [
+    0.98,
+    1.02
+   ],
+   "real_weight_min_pcc": 0.998334,
+   "evidence": "doc/optimized_decoder/pcc_evidence.json"
+  },
+  "upstream_kernel_fix": {
+   "file": "ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/kernels/compute/sdpa_flash_decode.cpp",
+   "what": "The fused SFPU softmax correction addresses five destination-register tiles, and under float32 destination accumulation only four per half are addressable (the op's own host side sets dst_size = fp32_dest_acc_en ? 4 : 8). The fifth tile lands outside the live half and destroys a live flash statistic, which is why stage 1 found the cross-core tree reduction wrong at most positions and pinned max_cores_per_head_batch = 1. The same arithmetic unfused, under if constexpr (DST_ACCUM_MODE), never needs more than two tiles; the fused path is untouched for every other caller.",
+   "effect": "max_cores_per_head_batch > 1 is correct at every position: device/float32-golden scale 0.9929-1.0011 at 8 cores over stage 1's eight characterisation positions, against 0.9951-1.0168 at the pinned 1 core. The op goes 9774 us -> 2795 us at position 262143.",
+   "blast_radius": "device kernel, JIT-compiled, no C++ rebuild; the changed branch is reached only with fp32_dest_acc_en set. tests/ttnn/unit_tests/operations/sdpa/ decode files: 30 passed, 1 skipped, unchanged.",
+   "remaining_upstream_work": "the five-tile declaration in compute_common.hpp and the LLK SFPU header is the root cause and is deliberately left alone: fixing it there would change every caller of that helper. Recommended upstream follow-up, with the reproducer attached.",
+   "report": "doc/optimized_decoder/sdpa/AUTOFIX_SDPA.md"
+  }
  }
 }

@@ -103,9 +103,12 @@ LAYER_KINDS = [
 #: real-weight evidence for the shipped policy is 0.999411 / 0.997708 / 0.998741 (``linear_attention``
 #: prefill / decode / traced) and 0.999081 / 0.999253 / 0.998238 (``full_attention``) - all with room
 #: against 0.995.  This bar is therefore a *stress* bar, chosen from the measured synthetic minimum
-#: with margin (the measured minimum over the whole suite is 0.979436, on ``full_attention`` decode
-#: at batch 32), and its purpose is to catch a regression in the paths those cases cover, not to
-#: certify precision.  ``test_synthetic_bar_is_justified_by_the_real_weight_evidence`` pins the
+#: with margin - the measured minimum over the whole suite is **0.983746**, on ``full_attention``
+#: batched decode - and its purpose is to catch a regression in the paths those cases cover, not to
+#: certify precision.  The margin is deliberate rather than tight: these are deterministic values on
+#: this build, but a bar sitting a few ten-thousandths under the measured minimum would fail on any
+#: unrelated numerical change and teach a later stage to loosen it, which is exactly what this
+#: constant must not become.  ``test_synthetic_bar_is_justified_by_the_real_weight_evidence`` pins the
 #: relationship so this constant cannot quietly drift into a waiver.
 SYNTHETIC_PCC_BAR = 0.975
 

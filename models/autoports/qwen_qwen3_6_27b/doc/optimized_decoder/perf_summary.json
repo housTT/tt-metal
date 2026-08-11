@@ -1,0 +1,2307 @@
+{
+ "note": "Warmed measurements on one Blackhole chip (device 2 of a p300c board), from Tracy device-profiler runs with the measured window delimited by signposts. Device time is the sum of the 'Device Time' column of the tt-perf-report --csv output, in MICROSECONDS, divided by the replay count for decode. End-to-end wall time is parsed from the same run's Tracy log, so the accounting triple (roofline / device / end-to-end) is one run. Prefill is batch 1; decode is measured at batch 1 and at the advertised max_batch of 32, which is a different graph rather than a wider tensor. Decode is traced: capture once, then replay execute_trace 8x inside the window. Every arm was measured by the same script (probes/run_perf.sh) on the same machine against the same build, with only the --impl / --policy / --geometry arguments differing; the .provenance file next to each ops CSV carries that run's timestamp and the shipped-code fingerprint.",
+ "arms": {
+  "fused": "stage-2 tt/fused_decoder.py, re-measured here",
+  "optimized": "tt/optimized_decoder.py at the shipped policy and geometry",
+  "optimized-fused-baseline-fused-baseline": "the optimized code at the fused stage's policy and layout",
+  "optimized-opt-v1-fused-baseline": "the shipped precision policy on the fused stage's decode layout",
+  "optimized-fused-baseline-opt-v1": "the fused stage's precision policy on the shipped decode layout"
+ },
+ "prefill_tokens": 2048,
+ "decode_position": 2048,
+ "decode_batches": {
+  "prefill": 1,
+  "decode": 1,
+  "decode_batch32": 32
+ },
+ "decode_replays": 8,
+ "command": "doc/optimized_decoder/probes/run_perf.sh <layer_kind> <prefill|decode|decode_batch32> <impl> [policy] [geometry]",
+ "measurements": {
+  "fused/linear_attention/prefill": {
+   "arm": "fused",
+   "layer_kind": "linear_attention",
+   "phase": "prefill",
+   "ops_in_window": 66,
+   "ops_per_pass": 66,
+   "device_kernel_time_ms": 25.8296,
+   "op_to_op_gap_ms": 0.1834,
+   "wall_ms_per_pass": 28.572,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "single pass",
+   "breakdown_ms": {
+    "matmul": 14.477,
+    "layout": 4.8186,
+    "gated_delta_rule": 2.8399,
+    "elementwise": 2.5651,
+    "state_update": 0.7537,
+    "norm": 0.3752
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+     "instances": 1,
+     "device_time_us": 6112.3,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "109.0",
+     "dram_pct": "16.61895720873085",
+     "flops_pct": "79.2758122306585"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+     "instances": 1,
+     "device_time_us": 3305.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "15.985429946663196",
+     "flops_pct": "72.63183893496019"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 10240",
+     "instances": 1,
+     "device_time_us": 2239.2,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "SLOW",
+     "cores": "110.0",
+     "dram_pct": "18.291912304213792",
+     "flops_pct": "63.0670646448314"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+     "instances": 1,
+     "device_time_us": 1238.1,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "17.203536792316434",
+     "flops_pct": "68.43986664853156"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
+     "instances": 1,
+     "device_time_us": 1219.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "17.466764746644493",
+     "flops_pct": "69.48705167274264"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 128",
+     "instances": 1,
+     "device_time_us": 135.1,
+     "math_fidelity": "HiFi4 BF16 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "32.0",
+     "dram_pct": "35.61185680671274",
+     "flops_pct": "44.90068628111929"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 6144 x 64",
+     "instances": 1,
+     "device_time_us": 118.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "SLOW",
+     "cores": "64.0",
+     "dram_pct": "43.66866803469037",
+     "flops_pct": "15.372908439054916"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 64 x 6144",
+     "instances": 1,
+     "device_time_us": 108.9,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "SLOW",
+     "cores": "110.0",
+     "dram_pct": "46.997053505043915",
+     "flops_pct": "9.722218745285852"
+    }
+   ],
+   "config": null,
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/linear_attention/prefill_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/linear_attention/prefill_ops.csv.provenance",
+    "report_txt": "tracy/fused/linear_attention/prefill_perf_report.txt",
+    "report_csv": "tracy/fused/linear_attention/prefill_perf_report.csv",
+    "report_noadvice_txt": "tracy/fused/linear_attention/prefill_perf_report.noadvice.txt",
+    "console_log": "tracy/fused/linear_attention/prefill_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_linear_attention_prefill.log"
+   }
+  },
+  "fused/linear_attention/decode": {
+   "arm": "fused",
+   "layer_kind": "linear_attention",
+   "phase": "decode",
+   "ops_in_window": 536,
+   "ops_per_pass": 67,
+   "device_kernel_time_ms": 2.3518,
+   "op_to_op_gap_ms": 0.0518,
+   "wall_ms_per_pass": 2.418,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "536 ops over 8 replays = 67 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.8802,
+    "layout": 0.2065,
+    "elementwise": 0.123,
+    "batched_matmul": 0.0605,
+    "state_update": 0.054,
+    "norm": 0.0276
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "instances": 8,
+     "device_time_us": 6932.6,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "109.0",
+     "dram_pct": "80.76253824725373",
+     "flops_pct": "8.719011996369254"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 3455.1,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "81.95433593768242",
+     "flops_pct": "12.043968649566208"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 10240",
+     "instances": 8,
+     "device_time_us": 2096.1,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "DRAM",
+     "cores": "107.0",
+     "dram_pct": "79.54932249218848",
+     "flops_pct": "8.675720236653726"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 1245.2,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "80.41668014622626",
+     "flops_pct": "11.778618902296557"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 1192.1,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "96.0",
+     "dram_pct": "83.28899313117775",
+     "flops_pct": "10.1661051233844"
+    },
+    {
+     "op": "MatmulDeviceOperation b={48} x 32 x 128 x 128",
+     "instances": 24,
+     "device_time_us": 483.8,
+     "math_fidelity": "HiFi4 FP32 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "24.0",
+     "dram_pct": "48.42879663688912",
+     "flops_pct": "7.971818376442654"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 128",
+     "instances": 8,
+     "device_time_us": 120.3,
+     "math_fidelity": "HiFi4 BF16 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "4.0",
+     "dram_pct": "38.35507582279318",
+     "flops_pct": "50.22968800202096"
+    }
+   ],
+   "config": null,
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/linear_attention/decode_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/linear_attention/decode_ops.csv.provenance",
+    "report_txt": "tracy/fused/linear_attention/decode_perf_report.txt",
+    "report_csv": "tracy/fused/linear_attention/decode_perf_report.csv",
+    "report_noadvice_txt": "tracy/fused/linear_attention/decode_perf_report.noadvice.txt",
+    "console_log": "tracy/fused/linear_attention/decode_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_linear_attention_decode.log"
+   }
+  },
+  "fused/linear_attention/decode_batch32": {
+   "arm": "fused",
+   "layer_kind": "linear_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 560,
+   "ops_per_pass": 70,
+   "device_kernel_time_ms": 5.1692,
+   "op_to_op_gap_ms": 0.0511,
+   "wall_ms_per_pass": 5.241,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "560 ops over 8 replays = 70 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.9124,
+    "batched_matmul": 1.2547,
+    "layout": 0.9463,
+    "state_update": 0.7852,
+    "elementwise": 0.2392,
+    "norm": 0.0313
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation b={1536} x 32 x 128 x 128",
+     "instances": 24,
+     "device_time_us": 10037.9,
+     "math_fidelity": "HiFi4 FP32 x FP32 => FP32",
+     "bound": "DRAM",
+     "cores": "40.0",
+     "dram_pct": "68.03986710963454",
+     "flops_pct": "6.719986875025634"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "instances": 8,
+     "device_time_us": 6938.1,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "109.0",
+     "dram_pct": "80.80273662307256",
+     "flops_pct": "8.723351757459053"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 3494.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "81.79523690778878",
+     "flops_pct": "12.020587534872382"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 10240",
+     "instances": 8,
+     "device_time_us": 2092.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "DRAM",
+     "cores": "107.0",
+     "dram_pct": "79.25319108401601",
+     "flops_pct": "8.643423880505086"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 1268.9,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "77.96603790155132",
+     "flops_pct": "11.419673705685511"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 1193.9,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "96.0",
+     "dram_pct": "83.0918778705567",
+     "flops_pct": "10.142045588197789"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 64",
+     "instances": 8,
+     "device_time_us": 130.8,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "SLOW",
+     "cores": "2.0",
+     "dram_pct": "14.180062343377543",
+     "flops_pct": "55.63365455792568"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 128",
+     "instances": 8,
+     "device_time_us": 120.8,
+     "math_fidelity": "HiFi4 BF16 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "4.0",
+     "dram_pct": "38.36777954425013",
+     "flops_pct": "50.24632475612867"
+    }
+   ],
+   "config": null,
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/linear_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/linear_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/fused/linear_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/fused/linear_attention/decode_batch32_perf_report.csv",
+    "report_noadvice_txt": "tracy/fused/linear_attention/decode_batch32_perf_report.noadvice.txt",
+    "console_log": "tracy/fused/linear_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_linear_attention_decode_batch32.log"
+   }
+  },
+  "fused/full_attention/prefill": {
+   "arm": "fused",
+   "layer_kind": "full_attention",
+   "phase": "prefill",
+   "ops_in_window": 28,
+   "ops_per_pass": 28,
+   "device_kernel_time_ms": 17.7801,
+   "op_to_op_gap_ms": 0.0139,
+   "wall_ms_per_pass": 19.279,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "single pass",
+   "breakdown_ms": {
+    "matmul": 13.4676,
+    "sdpa": 1.2801,
+    "layout": 1.0575,
+    "elementwise": 1.0156,
+    "norm": 0.5412,
+    "heads_and_cache": 0.418
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 34816",
+     "instances": 1,
+     "device_time_us": 6107.0,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "109.0",
+     "dram_pct": "16.633420828127583",
+     "flops_pct": "79.34480664234569"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+     "instances": 1,
+     "device_time_us": 3305.8,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "15.983495724194677",
+     "flops_pct": "72.62305054858165"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
+     "instances": 1,
+     "device_time_us": 1598.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "16.90997186425284",
+     "flops_pct": "70.66956918271566"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+     "instances": 1,
+     "device_time_us": 1236.9,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "17.219949049673737",
+     "flops_pct": "68.50515861253265"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
+     "instances": 1,
+     "device_time_us": 1219.2,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "FLOP",
+     "cores": "110.0",
+     "dram_pct": "17.469228807102123",
+     "flops_pct": "69.49685430642025"
+    }
+   ],
+   "config": null,
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/full_attention/prefill_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/full_attention/prefill_ops.csv.provenance",
+    "report_txt": "tracy/fused/full_attention/prefill_perf_report.txt",
+    "report_csv": "tracy/fused/full_attention/prefill_perf_report.csv",
+    "report_noadvice_txt": "tracy/fused/full_attention/prefill_perf_report.noadvice.txt",
+    "console_log": "tracy/fused/full_attention/prefill_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_full_attention_prefill.log"
+   }
+  },
+  "fused/full_attention/decode": {
+   "arm": "fused",
+   "layer_kind": "full_attention",
+   "phase": "decode",
+   "ops_in_window": 400,
+   "ops_per_pass": 50,
+   "device_kernel_time_ms": 2.0677,
+   "op_to_op_gap_ms": 0.0536,
+   "wall_ms_per_pass": 2.134,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "400 ops over 8 replays = 50 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.8016,
+    "sdpa": 0.1051,
+    "elementwise": 0.0461,
+    "heads_and_cache": 0.0448,
+    "layout": 0.0439,
+    "norm": 0.0262
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "instances": 8,
+     "device_time_us": 6932.9,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "109.0",
+     "dram_pct": "80.98057215438352",
+     "flops_pct": "8.742550635608895"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 3431.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "82.08428832031431",
+     "flops_pct": "12.063066387403353"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 8192",
+     "instances": 8,
+     "device_time_us": 1618.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "86.0",
+     "dram_pct": "81.77236704282693",
+     "flops_pct": "11.155929909724566"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 1239.6,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "79.24306954681084",
+     "flops_pct": "11.606720336413535"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 1190.3,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "96.0",
+     "dram_pct": "83.5791186695986",
+     "flops_pct": "10.201517326265993"
+    }
+   ],
+   "config": null,
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/full_attention/decode_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/full_attention/decode_ops.csv.provenance",
+    "report_txt": "tracy/fused/full_attention/decode_perf_report.txt",
+    "report_csv": "tracy/fused/full_attention/decode_perf_report.csv",
+    "report_noadvice_txt": "tracy/fused/full_attention/decode_perf_report.noadvice.txt",
+    "console_log": "tracy/fused/full_attention/decode_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_full_attention_decode.log"
+   }
+  },
+  "fused/full_attention/decode_batch32": {
+   "arm": "fused",
+   "layer_kind": "full_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 392,
+   "ops_per_pass": 49,
+   "device_kernel_time_ms": 2.8618,
+   "op_to_op_gap_ms": 0.0718,
+   "wall_ms_per_pass": 2.95,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "392 ops over 8 replays = 49 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 1.803,
+    "sdpa": 0.863,
+    "heads_and_cache": 0.0658,
+    "layout": 0.0558,
+    "elementwise": 0.0451,
+    "norm": 0.029
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 34816",
+     "instances": 8,
+     "device_time_us": 6930.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "109.0",
+     "dram_pct": "80.94860492147092",
+     "flops_pct": "8.739099497329876"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 3449.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "82.10771584576729",
+     "flops_pct": "12.06650928494946"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 8192",
+     "instances": 8,
+     "device_time_us": 1617.8,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "86.0",
+     "dram_pct": "81.70011106997408",
+     "flops_pct": "11.146072269572322"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 1234.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "80.0",
+     "dram_pct": "80.57986799963692",
+     "flops_pct": "11.802521002349842"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 1191.4,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "DRAM",
+     "cores": "96.0",
+     "dram_pct": "83.06355677337432",
+     "flops_pct": "10.138588765869391"
+    }
+   ],
+   "config": null,
+   "artifacts": {
+    "ops_csv_gz": "tracy/fused/full_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/fused/full_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/fused/full_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/fused/full_attention/decode_batch32_perf_report.csv",
+    "report_noadvice_txt": "tracy/fused/full_attention/decode_batch32_perf_report.noadvice.txt",
+    "console_log": "tracy/fused/full_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_fused_full_attention_decode_batch32.log"
+   }
+  },
+  "optimized/linear_attention/prefill": {
+   "arm": "optimized",
+   "layer_kind": "linear_attention",
+   "phase": "prefill",
+   "ops_in_window": 65,
+   "ops_per_pass": 65,
+   "device_kernel_time_ms": 18.0184,
+   "op_to_op_gap_ms": 0.2326,
+   "wall_ms_per_pass": 19.82,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "single pass",
+   "breakdown_ms": {
+    "matmul": 7.4384,
+    "layout": 4.0832,
+    "gated_delta_rule": 2.7626,
+    "elementwise": 2.5878,
+    "state_update": 0.7634,
+    "norm": 0.3829
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 17408",
+     "instances": 2,
+     "device_time_us": 3012.7,
+     "math_fidelity": "LoFi BF16 x BFP4 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "17.741182811901535",
+     "flops_pct": "68.47739073133557"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 10240",
+     "instances": 1,
+     "device_time_us": 1787.7,
+     "math_fidelity": "HiFi2 BF16 x BFP8 => FP32",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "17.184273928066585",
+     "flops_pct": "67.88848959236181"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+     "instances": 1,
+     "device_time_us": 1260.7,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "28.103395213513586",
+     "flops_pct": "81.82534251847245"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+     "instances": 1,
+     "device_time_us": 515.1,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "29.419632371068776",
+     "flops_pct": "70.67779548605111"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
+     "instances": 1,
+     "device_time_us": 498.2,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "30.422720684768162",
+     "flops_pct": "73.08761726070429"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 128",
+     "instances": 1,
+     "device_time_us": 134.5,
+     "math_fidelity": "HiFi4 BF16 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "32.0",
+     "dram_pct": "35.77066579459813",
+     "flops_pct": "45.100918259540585"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 6144 x 64",
+     "instances": 1,
+     "device_time_us": 119.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "SLOW",
+     "cores": "64.0",
+     "dram_pct": "43.202058513926715",
+     "flops_pct": "15.208645461448347"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 64 x 6144",
+     "instances": 1,
+     "device_time_us": 109.7,
+     "math_fidelity": "HiFi4 BF16 x BF16 => BF16",
+     "bound": "SLOW",
+     "cores": "110.0",
+     "dram_pct": "46.65275588398771",
+     "flops_pct": "9.650994348525943"
+    }
+   ],
+   "config": {
+    "decode": {
+     "cores": 32,
+     "dram_sharded": true,
+     "gate_silu_fused": false,
+     "legal_cores": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+     ],
+     "norm_block_w": 5,
+     "norm_subblock_w": 1,
+     "rows": 32,
+     "sdpa": null,
+     "sharded_stream": true,
+     "split_gate_up": true
+    },
+    "kv_cache_dtype": null,
+    "layer_kind": "linear_attention",
+    "max_batch": 1,
+    "policy": "opt-v1",
+    "prefill": {
+     "split_gate_up": true
+    },
+    "roles": {
+     "in_proj_ab": {
+      "K": 5120,
+      "N": 128,
+      "fidelity": "MathFidelity.HiFi4",
+      "fidelity_decode": "MathFidelity.HiFi4",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": true,
+      "policy_dtype": "DataType.FLOAT32",
+      "weight_dtype": "DataType.FLOAT32",
+      "weight_memory": "dram_interleaved"
+     },
+     "in_proj_qkv": {
+      "K": 5120,
+      "N": 10240,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 10
+      },
+      "fidelity": "MathFidelity.HiFi2",
+      "fidelity_decode": "MathFidelity.HiFi2",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": true,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "in_proj_z": {
+      "K": 5120,
+      "N": 6144,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 6
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_down": {
+      "K": 17408,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 17,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 17,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_gate": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_up": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "out_proj": {
+      "K": 6144,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 6,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 6,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     }
+    },
+    "state_fidelity": "MathFidelity.HiFi4"
+   },
+   "artifacts": {
+    "ops_csv_gz": "tracy/optimized/linear_attention/prefill_ops.csv.gz",
+    "ops_csv_provenance": "tracy/optimized/linear_attention/prefill_ops.csv.provenance",
+    "report_txt": "tracy/optimized/linear_attention/prefill_perf_report.txt",
+    "report_csv": "tracy/optimized/linear_attention/prefill_perf_report.csv",
+    "report_noadvice_txt": "tracy/optimized/linear_attention/prefill_perf_report.noadvice.txt",
+    "console_log": "tracy/optimized/linear_attention/prefill_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_optimized_linear_attention_prefill.log"
+   }
+  },
+  "optimized/linear_attention/decode": {
+   "arm": "optimized",
+   "layer_kind": "linear_attention",
+   "phase": "decode",
+   "ops_in_window": 544,
+   "ops_per_pass": 68,
+   "device_kernel_time_ms": 1.3342,
+   "op_to_op_gap_ms": 0.051,
+   "wall_ms_per_pass": 1.391,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "544 ops over 8 replays = 68 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 0.8596,
+    "layout": 0.1961,
+    "elementwise": 0.1356,
+    "batched_matmul": 0.0599,
+    "state_update": 0.0553,
+    "norm": 0.0277
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 17408",
+     "instances": 16,
+     "device_time_us": 2566.7,
+     "math_fidelity": "LoFi BF16 x BFP4 => BF16",
+     "bound": "SLOW",
+     "cores": "12",
+     "dram_pct": "54.46467680370439",
+     "flops_pct": "53.79227338637471"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 1552.0,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "89.61601227278109",
+     "flops_pct": "44.25482087544745"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 10240",
+     "instances": 8,
+     "device_time_us": 1474.5,
+     "math_fidelity": "HiFi2 BF16 x BFP8 => FP32",
+     "bound": "SLOW",
+     "cores": "12",
+     "dram_pct": "55.67880290573753",
+     "flops_pct": "54.991410277271626"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 581.9,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "85.87242131156707",
+     "flops_pct": "42.406133981020766"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 581.7,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "80.59184637179284",
+     "flops_pct": "39.7984426527372"
+    },
+    {
+     "op": "MatmulDeviceOperation b={48} x 32 x 128 x 128",
+     "instances": 24,
+     "device_time_us": 479.6,
+     "math_fidelity": "HiFi4 FP32 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "24.0",
+     "dram_pct": "48.31454783748361",
+     "flops_pct": "7.9530119897092355"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 128",
+     "instances": 8,
+     "device_time_us": 119.7,
+     "math_fidelity": "HiFi4 BF16 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "4.0",
+     "dram_pct": "38.31955011577902",
+     "flops_pct": "50.18316364661055"
+    }
+   ],
+   "config": {
+    "decode": {
+     "cores": 32,
+     "dram_sharded": true,
+     "gate_silu_fused": false,
+     "legal_cores": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+     ],
+     "norm_block_w": 5,
+     "norm_subblock_w": 1,
+     "rows": 32,
+     "sdpa": null,
+     "sharded_stream": true,
+     "split_gate_up": true
+    },
+    "kv_cache_dtype": null,
+    "layer_kind": "linear_attention",
+    "max_batch": 1,
+    "policy": "opt-v1",
+    "prefill": {
+     "split_gate_up": true
+    },
+    "roles": {
+     "in_proj_ab": {
+      "K": 5120,
+      "N": 128,
+      "fidelity": "MathFidelity.HiFi4",
+      "fidelity_decode": "MathFidelity.HiFi4",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": true,
+      "policy_dtype": "DataType.FLOAT32",
+      "weight_dtype": "DataType.FLOAT32",
+      "weight_memory": "dram_interleaved"
+     },
+     "in_proj_qkv": {
+      "K": 5120,
+      "N": 10240,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 10
+      },
+      "fidelity": "MathFidelity.HiFi2",
+      "fidelity_decode": "MathFidelity.HiFi2",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": true,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "in_proj_z": {
+      "K": 5120,
+      "N": 6144,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 6
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_down": {
+      "K": 17408,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 17,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 17,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_gate": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_up": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "out_proj": {
+      "K": 6144,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 6,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 6,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     }
+    },
+    "state_fidelity": "MathFidelity.HiFi4"
+   },
+   "artifacts": {
+    "ops_csv_gz": "tracy/optimized/linear_attention/decode_ops.csv.gz",
+    "ops_csv_provenance": "tracy/optimized/linear_attention/decode_ops.csv.provenance",
+    "report_txt": "tracy/optimized/linear_attention/decode_perf_report.txt",
+    "report_csv": "tracy/optimized/linear_attention/decode_perf_report.csv",
+    "report_noadvice_txt": "tracy/optimized/linear_attention/decode_perf_report.noadvice.txt",
+    "console_log": "tracy/optimized/linear_attention/decode_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_optimized_linear_attention_decode.log"
+   }
+  },
+  "optimized/linear_attention/decode_batch32": {
+   "arm": "optimized",
+   "layer_kind": "linear_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 552,
+   "ops_per_pass": 69,
+   "device_kernel_time_ms": 4.1362,
+   "op_to_op_gap_ms": 0.0486,
+   "wall_ms_per_pass": 4.195,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "552 ops over 8 replays = 69 ops per replay, exact",
+   "breakdown_ms": {
+    "batched_matmul": 1.2522,
+    "layout": 0.9319,
+    "matmul": 0.8849,
+    "state_update": 0.786,
+    "elementwise": 0.2505,
+    "norm": 0.0306
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation b={1536} x 32 x 128 x 128",
+     "instances": 24,
+     "device_time_us": 10017.5,
+     "math_fidelity": "HiFi4 FP32 x FP32 => FP32",
+     "bound": "DRAM",
+     "cores": "40.0",
+     "dram_pct": "68.29275070339365",
+     "flops_pct": "6.744963032433941"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 17408",
+     "instances": 16,
+     "device_time_us": 2559.9,
+     "math_fidelity": "LoFi BF16 x BFP4 => BF16",
+     "bound": "SLOW",
+     "cores": "12",
+     "dram_pct": "54.44900410369332",
+     "flops_pct": "53.77679417648723"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 1552.3,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "89.90713865159951",
+     "flops_pct": "44.3985869884442"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 10240",
+     "instances": 8,
+     "device_time_us": 1472.0,
+     "math_fidelity": "HiFi2 BF16 x BFP8 => FP32",
+     "bound": "SLOW",
+     "cores": "12",
+     "dram_pct": "55.5284420584567",
+     "flops_pct": "54.84290573674735"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 610.1,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "80.03960292853233",
+     "flops_pct": "39.52572984125054"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 576.6,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "83.59979862027674",
+     "flops_pct": "41.283851170507035"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 64",
+     "instances": 8,
+     "device_time_us": 130.6,
+     "math_fidelity": "HiFi4 BF16 x BF16 => FP32",
+     "bound": "SLOW",
+     "cores": "2.0",
+     "dram_pct": "14.184397163120568",
+     "flops_pct": "55.65066166680253"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 128",
+     "instances": 8,
+     "device_time_us": 119.7,
+     "math_fidelity": "HiFi4 BF16 x FP32 => FP32",
+     "bound": "SLOW",
+     "cores": "4.0",
+     "dram_pct": "38.75802997858672",
+     "flops_pct": "50.75739551114283"
+    }
+   ],
+   "config": {
+    "decode": {
+     "cores": 32,
+     "dram_sharded": true,
+     "gate_silu_fused": false,
+     "legal_cores": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+     ],
+     "norm_block_w": 5,
+     "norm_subblock_w": 1,
+     "rows": 32,
+     "sdpa": null,
+     "sharded_stream": true,
+     "split_gate_up": true
+    },
+    "kv_cache_dtype": null,
+    "layer_kind": "linear_attention",
+    "max_batch": 32,
+    "policy": "opt-v1",
+    "prefill": {
+     "split_gate_up": true
+    },
+    "roles": {
+     "in_proj_ab": {
+      "K": 5120,
+      "N": 128,
+      "fidelity": "MathFidelity.HiFi4",
+      "fidelity_decode": "MathFidelity.HiFi4",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": true,
+      "policy_dtype": "DataType.FLOAT32",
+      "weight_dtype": "DataType.FLOAT32",
+      "weight_memory": "dram_interleaved"
+     },
+     "in_proj_qkv": {
+      "K": 5120,
+      "N": 10240,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 10
+      },
+      "fidelity": "MathFidelity.HiFi2",
+      "fidelity_decode": "MathFidelity.HiFi2",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": true,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "in_proj_z": {
+      "K": 5120,
+      "N": 6144,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 6
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_down": {
+      "K": 17408,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 17,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 17,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_gate": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_up": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "out_proj": {
+      "K": 6144,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 6,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 6,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     }
+    },
+    "state_fidelity": "MathFidelity.HiFi4"
+   },
+   "artifacts": {
+    "ops_csv_gz": "tracy/optimized/linear_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/optimized/linear_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/optimized/linear_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/optimized/linear_attention/decode_batch32_perf_report.csv",
+    "report_noadvice_txt": "tracy/optimized/linear_attention/decode_batch32_perf_report.noadvice.txt",
+    "console_log": "tracy/optimized/linear_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_optimized_linear_attention_decode_batch32.log"
+   }
+  },
+  "optimized/full_attention/prefill": {
+   "arm": "optimized",
+   "layer_kind": "full_attention",
+   "phase": "prefill",
+   "ops_in_window": 29,
+   "ops_per_pass": 29,
+   "device_kernel_time_ms": 9.4497,
+   "op_to_op_gap_ms": 0.0145,
+   "wall_ms_per_pass": 9.841,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "single pass",
+   "breakdown_ms": {
+    "matmul": 6.0687,
+    "elementwise": 1.0625,
+    "sdpa": 0.9862,
+    "norm": 0.5543,
+    "heads_and_cache": 0.4116,
+    "layout": 0.3663
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 17408",
+     "instances": 2,
+     "device_time_us": 3017.9,
+     "math_fidelity": "LoFi BF16 x BFP4 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "17.718518047080725",
+     "flops_pct": "68.38990930617223"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 17408 x 5120",
+     "instances": 1,
+     "device_time_us": 1261.8,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "28.0789848249977",
+     "flops_pct": "81.75426966815856"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 8192",
+     "instances": 1,
+     "device_time_us": 776.3,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "SLOW",
+     "cores": "64.0",
+     "dram_pct": "24.272311174492017",
+     "flops_pct": "62.53735568307122"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 5120 x 6144",
+     "instances": 1,
+     "device_time_us": 515.6,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "29.3914470175493",
+     "flops_pct": "70.61008292504336"
+    },
+    {
+     "op": "MatmulDeviceOperation 2048 x 6144 x 5120",
+     "instances": 1,
+     "device_time_us": 497.2,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "FLOP",
+     "cores": "64.0",
+     "dram_pct": "30.48311734286467",
+     "flops_pct": "73.23271433721241"
+    }
+   ],
+   "config": {
+    "decode": {
+     "cores": 32,
+     "dram_sharded": true,
+     "gate_silu_fused": false,
+     "legal_cores": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+     ],
+     "norm_block_w": 5,
+     "norm_subblock_w": 1,
+     "rows": 32,
+     "sdpa": {
+      "cores_per_head_batch": 8,
+      "exp_approx_mode": false,
+      "grid": [
+       8,
+       8
+      ],
+      "k_chunk_size": 512,
+      "q_chunk_size": 32
+     },
+     "sharded_stream": true,
+     "split_gate_up": true
+    },
+    "kv_cache_dtype": "DataType.BFLOAT8_B",
+    "layer_kind": "full_attention",
+    "max_batch": 1,
+    "policy": "opt-v1",
+    "prefill": {
+     "split_gate_up": true
+    },
+    "roles": {
+     "mlp_down": {
+      "K": 17408,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 17,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 17,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_gate": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_up": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "o_proj": {
+      "K": 6144,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 6,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 6,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "wgate": {
+      "K": 5120,
+      "N": 6144,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 6
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "wqkv": {
+      "K": 5120,
+      "N": 8192,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 8
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     }
+    },
+    "state_fidelity": "MathFidelity.HiFi4"
+   },
+   "artifacts": {
+    "ops_csv_gz": "tracy/optimized/full_attention/prefill_ops.csv.gz",
+    "ops_csv_provenance": "tracy/optimized/full_attention/prefill_ops.csv.provenance",
+    "report_txt": "tracy/optimized/full_attention/prefill_perf_report.txt",
+    "report_csv": "tracy/optimized/full_attention/prefill_perf_report.csv",
+    "report_noadvice_txt": "tracy/optimized/full_attention/prefill_perf_report.noadvice.txt",
+    "console_log": "tracy/optimized/full_attention/prefill_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_optimized_full_attention_prefill.log"
+   }
+  },
+  "optimized/full_attention/decode": {
+   "arm": "optimized",
+   "layer_kind": "full_attention",
+   "phase": "decode",
+   "ops_in_window": 384,
+   "ops_per_pass": 48,
+   "device_kernel_time_ms": 0.9504,
+   "op_to_op_gap_ms": 0.0513,
+   "wall_ms_per_pass": 1.007,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "384 ops over 8 replays = 48 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 0.7523,
+    "elementwise": 0.0635,
+    "sdpa": 0.0504,
+    "heads_and_cache": 0.029,
+    "layout": 0.0284,
+    "norm": 0.0268
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 17408",
+     "instances": 16,
+     "device_time_us": 2568.3,
+     "math_fidelity": "LoFi BF16 x BFP4 => BF16",
+     "bound": "SLOW",
+     "cores": "12",
+     "dram_pct": "54.096384044549964",
+     "flops_pct": "53.42852745140737"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 1550.7,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "89.75647986305538",
+     "flops_pct": "44.32418758669401"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 8192",
+     "instances": 8,
+     "device_time_us": 753.8,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "86.71535937334603",
+     "flops_pct": "42.82239969054125"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 576.3,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "85.79208266424632",
+     "flops_pct": "42.366460574936454"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 569.6,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "86.20496127511504",
+     "flops_pct": "42.5703512469704"
+    }
+   ],
+   "config": {
+    "decode": {
+     "cores": 32,
+     "dram_sharded": true,
+     "gate_silu_fused": false,
+     "legal_cores": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+     ],
+     "norm_block_w": 5,
+     "norm_subblock_w": 1,
+     "rows": 32,
+     "sdpa": {
+      "cores_per_head_batch": 8,
+      "exp_approx_mode": false,
+      "grid": [
+       8,
+       8
+      ],
+      "k_chunk_size": 512,
+      "q_chunk_size": 32
+     },
+     "sharded_stream": true,
+     "split_gate_up": true
+    },
+    "kv_cache_dtype": "DataType.BFLOAT8_B",
+    "layer_kind": "full_attention",
+    "max_batch": 1,
+    "policy": "opt-v1",
+    "prefill": {
+     "split_gate_up": true
+    },
+    "roles": {
+     "mlp_down": {
+      "K": 17408,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 17,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 17,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_gate": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_up": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "o_proj": {
+      "K": 6144,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 6,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 6,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "wgate": {
+      "K": 5120,
+      "N": 6144,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 6
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "wqkv": {
+      "K": 5120,
+      "N": 8192,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 8
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     }
+    },
+    "state_fidelity": "MathFidelity.HiFi4"
+   },
+   "artifacts": {
+    "ops_csv_gz": "tracy/optimized/full_attention/decode_ops.csv.gz",
+    "ops_csv_provenance": "tracy/optimized/full_attention/decode_ops.csv.provenance",
+    "report_txt": "tracy/optimized/full_attention/decode_perf_report.txt",
+    "report_csv": "tracy/optimized/full_attention/decode_perf_report.csv",
+    "report_noadvice_txt": "tracy/optimized/full_attention/decode_perf_report.noadvice.txt",
+    "console_log": "tracy/optimized/full_attention/decode_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_optimized_full_attention_decode.log"
+   }
+  },
+  "optimized/full_attention/decode_batch32": {
+   "arm": "optimized",
+   "layer_kind": "full_attention",
+   "phase": "decode_batch32",
+   "ops_in_window": 376,
+   "ops_per_pass": 47,
+   "device_kernel_time_ms": 1.4151,
+   "op_to_op_gap_ms": 0.069,
+   "wall_ms_per_pass": 1.491,
+   "peak_dram_gbs_implied": 512.0,
+   "periodicity_check": "376 ops over 8 replays = 47 ops per replay, exact",
+   "breakdown_ms": {
+    "matmul": 0.7548,
+    "sdpa": 0.487,
+    "elementwise": 0.0623,
+    "layout": 0.0417,
+    "heads_and_cache": 0.0402,
+    "norm": 0.0291
+   },
+   "dominant_matmul_rows": [
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 17408",
+     "instances": 16,
+     "device_time_us": 2562.6,
+     "math_fidelity": "LoFi BF16 x BFP4 => BF16",
+     "bound": "SLOW",
+     "cores": "12",
+     "dram_pct": "54.24269618107488",
+     "flops_pct": "53.57303326525914"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 17408 x 5120",
+     "instances": 8,
+     "device_time_us": 1551.1,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "90.1217119397808",
+     "flops_pct": "44.50454910606459"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 8192",
+     "instances": 8,
+     "device_time_us": 754.4,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "86.63374189659366",
+     "flops_pct": "42.78209476374995"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 6144 x 5120",
+     "instances": 8,
+     "device_time_us": 599.6,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "81.87196844517882",
+     "flops_pct": "40.43060170132287"
+    },
+    {
+     "op": "MatmulDeviceOperation 32 x 5120 x 6144",
+     "instances": 8,
+     "device_time_us": 570.6,
+     "math_fidelity": "LoFi BF16 x BFP8 => BF16",
+     "bound": "DRAM",
+     "cores": "12",
+     "dram_pct": "86.24973678669193",
+     "flops_pct": "42.59246261071206"
+    }
+   ],
+   "config": {
+    "decode": {
+     "cores": 32,
+     "dram_sharded": true,
+     "gate_silu_fused": false,
+     "legal_cores": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+     ],
+     "norm_block_w": 5,
+     "norm_subblock_w": 1,
+     "rows": 32,
+     "sdpa": {
+      "cores_per_head_batch": 8,
+      "exp_approx_mode": false,
+      "grid": [
+       8,
+       8
+      ],
+      "k_chunk_size": 512,
+      "q_chunk_size": 32
+     },
+     "sharded_stream": true,
+     "split_gate_up": true
+    },
+    "kv_cache_dtype": "DataType.BFLOAT8_B",
+    "layer_kind": "full_attention",
+    "max_batch": 32,
+    "policy": "opt-v1",
+    "prefill": {
+     "split_gate_up": true
+    },
+    "roles": {
+     "mlp_down": {
+      "K": 17408,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 17,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 17,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_gate": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "mlp_up": {
+      "K": 5120,
+      "N": 17408,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 17
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT4_B",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "o_proj": {
+      "K": 6144,
+      "N": 5120,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 6,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 6,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 5
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "wgate": {
+      "K": 5120,
+      "N": 6144,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 6
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": false,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     },
+     "wqkv": {
+      "K": 5120,
+      "N": 8192,
+      "decode_program_config": {
+       "class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+       "cores": 32,
+       "in0_block_w": 5,
+       "input_memory": "l1_width_sharded",
+       "input_shard_k_tiles": 5,
+       "output_memory": "l1_width_sharded",
+       "per_core_M": 1,
+       "per_core_N": 8
+      },
+      "fidelity": "MathFidelity.LoFi",
+      "fidelity_decode": "MathFidelity.LoFi",
+      "fp32_dest_acc": true,
+      "fp32_dest_acc_decode": false,
+      "policy_dtype": "DataType.BFLOAT8_B",
+      "weight_dtype": "DataType.BFLOAT8_B",
+      "weight_memory": "dram_width_sharded"
+     }
+    },
+    "state_fidelity": "MathFidelity.HiFi4"
+   },
+   "artifacts": {
+    "ops_csv_gz": "tracy/optimized/full_attention/decode_batch32_ops.csv.gz",
+    "ops_csv_provenance": "tracy/optimized/full_attention/decode_batch32_ops.csv.provenance",
+    "report_txt": "tracy/optimized/full_attention/decode_batch32_perf_report.txt",
+    "report_csv": "tracy/optimized/full_attention/decode_batch32_perf_report.csv",
+    "report_noadvice_txt": "tracy/optimized/full_attention/decode_batch32_perf_report.noadvice.txt",
+    "console_log": "tracy/optimized/full_attention/decode_batch32_perf_report.console.log",
+    "tracy_run_log": "logs/tracy_optimized_full_attention_decode_batch32.log"
+   }
+  }
+ },
+ "speedup": {
+  "linear_attention/prefill": {
+   "device_ms_before": 25.8296,
+   "device_ms_after": 18.0184,
+   "speedup_x": 1.434,
+   "reduction_pct": 30.24,
+   "ops_before": 66,
+   "ops_after": 65,
+   "wall_ms_before": 28.572,
+   "wall_ms_after": 19.82
+  },
+  "linear_attention/decode": {
+   "device_ms_before": 2.3518,
+   "device_ms_after": 1.3342,
+   "speedup_x": 1.763,
+   "reduction_pct": 43.27,
+   "ops_before": 67,
+   "ops_after": 68,
+   "wall_ms_before": 2.418,
+   "wall_ms_after": 1.391
+  },
+  "linear_attention/decode_batch32": {
+   "device_ms_before": 5.1692,
+   "device_ms_after": 4.1362,
+   "speedup_x": 1.25,
+   "reduction_pct": 19.98,
+   "ops_before": 70,
+   "ops_after": 69,
+   "wall_ms_before": 5.241,
+   "wall_ms_after": 4.195
+  },
+  "full_attention/prefill": {
+   "device_ms_before": 17.7801,
+   "device_ms_after": 9.4497,
+   "speedup_x": 1.882,
+   "reduction_pct": 46.85,
+   "ops_before": 28,
+   "ops_after": 29,
+   "wall_ms_before": 19.279,
+   "wall_ms_after": 9.841
+  },
+  "full_attention/decode": {
+   "device_ms_before": 2.0677,
+   "device_ms_after": 0.9504,
+   "speedup_x": 2.176,
+   "reduction_pct": 54.04,
+   "ops_before": 50,
+   "ops_after": 48,
+   "wall_ms_before": 2.134,
+   "wall_ms_after": 1.007
+  },
+  "full_attention/decode_batch32": {
+   "device_ms_before": 2.8618,
+   "device_ms_after": 1.4151,
+   "speedup_x": 2.022,
+   "reduction_pct": 50.55,
+   "ops_before": 49,
+   "ops_after": 47,
+   "wall_ms_before": 2.95,
+   "wall_ms_after": 1.491
+  }
+ },
+ "accounting": {
+  "linear_attention/decode": {
+   "weight_bytes": 320143360,
+   "per_role_weight_bytes": {
+    "in_proj_ab": 2621440,
+    "in_proj_qkv": 55705600,
+    "in_proj_z": 33423360,
+    "mlp_down": 94699520,
+    "mlp_gate": 50135040,
+    "mlp_up": 50135040,
+    "out_proj": 33423360
+   },
+   "kv_cache_bytes": 0,
+   "carried_state_bytes": 9764864,
+   "total_bytes_per_step": 329908224,
+   "peak_dram_gbs_implied_by_report": 512.0,
+   "roofline_ms_per_step_estimate": 0.6444,
+   "decode_ms_per_step_device": 1.3342,
+   "decode_ms_per_step_e2e": 1.391,
+   "op_to_op_gap_ms": 0.051,
+   "roofline_fraction_achieved": 0.483
+  },
+  "linear_attention/decode_batch32": {
+   "weight_bytes": 320143360,
+   "per_role_weight_bytes": {
+    "in_proj_ab": 2621440,
+    "in_proj_qkv": 55705600,
+    "in_proj_z": 33423360,
+    "mlp_down": 94699520,
+    "mlp_gate": 50135040,
+    "mlp_up": 50135040,
+    "out_proj": 33423360
+   },
+   "kv_cache_bytes": 0,
+   "carried_state_bytes": 312475648,
+   "total_bytes_per_step": 632619008,
+   "peak_dram_gbs_implied_by_report": 512.0,
+   "roofline_ms_per_step_estimate": 1.2356,
+   "decode_ms_per_step_device": 4.1362,
+   "decode_ms_per_step_e2e": 4.195,
+   "op_to_op_gap_ms": 0.0486,
+   "roofline_fraction_achieved": 0.299
+  },
+  "full_attention/decode": {
+   "weight_bytes": 306380800,
+   "per_role_weight_bytes": {
+    "mlp_down": 94699520,
+    "mlp_gate": 50135040,
+    "mlp_up": 50135040,
+    "o_proj": 33423360,
+    "wgate": 33423360,
+    "wqkv": 44564480
+   },
+   "kv_cache_bytes": 5570560,
+   "carried_state_bytes": 0,
+   "total_bytes_per_step": 311951360,
+   "peak_dram_gbs_implied_by_report": 512.0,
+   "roofline_ms_per_step_estimate": 0.6093,
+   "decode_ms_per_step_device": 0.9504,
+   "decode_ms_per_step_e2e": 1.007,
+   "op_to_op_gap_ms": 0.0513,
+   "roofline_fraction_achieved": 0.641
+  },
+  "full_attention/decode_batch32": {
+   "weight_bytes": 306380800,
+   "per_role_weight_bytes": {
+    "mlp_down": 94699520,
+    "mlp_gate": 50135040,
+    "mlp_up": 50135040,
+    "o_proj": 33423360,
+    "wgate": 33423360,
+    "wqkv": 44564480
+   },
+   "kv_cache_bytes": 178257920,
+   "carried_state_bytes": 0,
+   "total_bytes_per_step": 484638720,
+   "peak_dram_gbs_implied_by_report": 512.0,
+   "roofline_ms_per_step_estimate": 0.9466,
+   "decode_ms_per_step_device": 1.4151,
+   "decode_ms_per_step_e2e": 1.491,
+   "op_to_op_gap_ms": 0.069,
+   "roofline_fraction_achieved": 0.669
+  }
+ }
+}
