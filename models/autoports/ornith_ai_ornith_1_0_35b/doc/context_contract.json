@@ -59,14 +59,17 @@
       "max_prefill_batch": 32,
       "max_decode_batch": 32,
       "test": "test_batched_prefill_decode_pcc[32]",
-      "note": "Disjoint per-user page-table block spans. Decode batch is bounded by the one-user-per-core paged_update_cache shard: a row-wise core range set of exactly `batch` cores, so any batch up to the 110-core grid is legal. ttnn.transformer.chunk_gated_delta_rule caps one prefill launch at floor(compute_cores / num_value_heads) = 3 users on an 11x10 Blackhole grid (chunk_gdn_phased_program_factory.cpp: BH <= ncores); FunctionalDecoder._chunk_delta_rule splits the batch across launches and concatenates outputs and final states, which is exact because the recurrence factorises over the batch axis.",
+      "note": "Disjoint per-user page-table block spans. Decode batch is bounded by the one-user-per-core paged_update_cache shard: a row-wise core range set of exactly `batch` cores, so any batch up to the 110-core grid is legal. The fused decoder keeps that bound: where a dedicated op it uses is stricter (nlp_create_qkv_heads_decode at 32 users, paged_fused_update_cache at 2*batch cores) it falls back to the functional spelling instead of narrowing the contract - see fused_decoder.decode_batch_bound. ttnn.transformer.chunk_gated_delta_rule caps one prefill launch at floor(compute_cores / num_value_heads) = 3 users on an 11x10 Blackhole grid (chunk_gdn_phased_program_factory.cpp: BH <= ncores); FunctionalDecoder._chunk_delta_rule splits the batch across launches and concatenates outputs and final states, which is exact because the recurrence factorises over the batch axis.",
       "tested_batches": [
         1,
         4,
         13,
-        32
+        32,
+        40,
+        56
       ],
-      "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (PCC 0.999895 - 0.999975). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid."
+      "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (functional stage: PCC 0.999895 - 0.999975; the fused stage's own range is in doc/fused_decoder/README.md §2.4, generated from its run). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid.",
+      "tested_batches_note": "1/4/13/32 are the functional stage's; 40 and 56 are added by the fused stage to cover the two fallbacks its dedicated decode ops need (nlp_create_qkv_heads_decode above 32 users, paged_fused_update_cache above 2*batch cores)."
     }
   },
   "capacity_evidence": {
@@ -90,6 +93,45 @@
       "worst_case_layer_total_note": "2.12 GiB for a full_attention layer at the full 262144 context including its paged KV cache; 7% of the measured 31.75 GiB, so no DRAM-driven reduction is required. A linear_attention layer is smaller (no KV cache; 2 MiB recurrent + 48 KiB conv state per batch row)."
     }
   },
+  "fused_decoder": {
+    "stage": "fused-decoder",
+    "implementation": "tt/fused_decoder.py",
+    "tests": "tests/test_fused_decoder.py",
+    "capability_change": "none at runtime; two construction-time validations added",
+    "context_length": 262144,
+    "capability_note": "The fused decoder is a correctness-preserving graph transform of the functional decoder: same public prefill/decode contract, same paged KV cache geometry and dtype, same DeltaNet state shapes and dtype, same supported context. Every capability row under 'tested' is re-asserted by the identically named test in tests/test_fused_decoder.py, plus test_fused_matches_functional, which compares the two implementations directly on device.",
+    "decode_batch_bound": {
+      "max_decode_batch": 32,
+      "unchanged_vs_functional": true,
+      "note": "full_attention decode splits the packed QKV with ttnn.experimental.nlp_create_qkv_heads_decode, whose device op asserts batch <= 32 (nlp_create_qkv_heads_decode_device_operation.cpp). That is a limit on the *op*, not on the layer: FusedDecoder._decode_qkv_heads falls back to the functional decoder's generic slice/reshape/permute split above it, so the supported decode batch is identical to the functional decoder's. tests/test_fused_decoder.py::test_decode_batch_above_head_split_limit runs batches 40 and 56 against HuggingFace goldens: 40 still fits the 2*batch <= 110 cores paged_fused_update_cache needs, and 56 does not, so it exercises that second fallback as well. linear_attention decode uses neither op.",
+      "tested_batches_above_the_op_limit": [
+        40,
+        56
+      ],
+      "max_decode_batch_meaning": "the largest batch the dedicated nlp_create_qkv_heads_decode op accepts, NOT a cap on the layer: above it the fused decoder falls back to the functional split and the supported batch is unchanged."
+    },
+    "footprint_change": "Byte-neutral on device. The weight packings are concatenations of exactly the same weights (q/k/v and the output gate into one attention in-projection; in_proj_qkv/z/a/b into one gated-DeltaNet in-projection; the routed experts' gate and up into one tensor; the shared expert's gate and up plus its sigmoid router column into one tensor), so every packed width is the sum of the unpacked ones and no tensor grows. The shared expert's router is the only single-column member: the fused packing pads the combined width out to a tile multiple so the slice offsets stay tile-aligned, and the functional decoder already stores that same column tile-padded on its own (tt/moe.py uploads shared_router as [1, 1, dim, 1] in TILE_LAYOUT, which occupies dim x 32 x 2 B). Both spellings therefore hold dim x 1056 x 2 B for the shared expert, and the per-layer totals under capacity_evidence are unchanged by this stage. Note that capacity_evidence.moe_shared_and_router_weights states its formula without that padded column, so recomputing the fused packing from the formula alone appears to differ by dim x 32 x 2 B; that is an omission in the formula, not a footprint change. The conclusion is unchanged either way: 2.12 GiB against a measured 31.75 GiB, so no capability reduction is required. Exact widths are tabulated in doc/fused_decoder/README.md.",
+    "internal_shape_policy_delta": {
+      "moe_tokens_per_sparse_matmul_call": 32,
+      "moe_tokens_per_sparse_matmul_call_reason": "One sparsity entry covers one 32-token group, so a call's down-projection mask is the union of the experts chosen by all its tokens. At 256 tokens per call that union is essentially all 256 experts and the down projection skips nothing; at 32 it is the same union the gate/up projections already had. Measured in doc/fused_decoder/logs/ab_moe_group_tokens.txt. This also makes the transient expert-activation footprint 8x smaller, so it relaxes rather than tightens the memory bound.",
+      "rope_table_width": "rope_dim (64), unchanged. The fused decoder can also build a head_dim-wide (256) table for a single-op full-width rotate-half; that mode is exact (tests/test_fused_decoder.py::test_rope_mode_equivalence) but measured slower and 4x larger, so it is not the default."
+    },
+    "construction_validation_delta": {
+      "note": "The fused decoder rejects two constructor argument combinations the functional decoder accepts. Neither narrows a supported configuration - the shipped defaults satisfy both, and every 'tested' capability row is re-asserted - but they are argument-domain narrowings and are recorded rather than left implicit.",
+      "checks": [
+        {
+          "check": "prefill_chunk % page_block_size == 0",
+          "why": "_attention_prefill computes blk0 = chunk_start_idx // page_block_size and lets paged_fill_cache fill from offset 0 of the sliced page table, so a chunk boundary that is not a page boundary would write the chunk at the wrong offset within its block. The functional decoder validates only prefill_chunk % PREFILL_ALIGN and would silently mis-place the write.",
+          "shipped_defaults_ok": "prefill_chunk 2048, page_block_size 64"
+        },
+        {
+          "check": "the RoPE rotated width is 32 or a multiple of 64",
+          "why": "ttnn.experimental.rotary_embedding_hf requires rotate_half's midpoint to land on a tile boundary (rotary_embedding_hf_device_operation.cpp). The functional decoder's hand-rolled rotation has no such constraint. Raising here turns a raw TT_FATAL into an explanation.",
+          "shipped_defaults_ok": "rope_dim 64 in 'partial' mode; head_dim 256 in 'full' mode"
+        }
+      ]
+    }
+  },
   "internal_shape_policy": {
     "public_prefill_seq_len": "any 1 <= seq_len <= supported_context - start_pos; no divisibility requirement",
     "internal_prefill_chunk_tokens": 2048,
@@ -100,6 +142,6 @@
     "moe_sparsity_group_tokens": 32,
     "moe_tokens_per_sparse_matmul_call": 256,
     "padding_policy": "Each internal prefill block is zero-padded up to the physical alignment. For full_attention the padded key/value rows are exact zeros at absolute positions beyond the logical end and are excluded from every real query by causality. For linear_attention the padded steps are neutralised by zeroing beta (kills the delta write) and g (kills the decay), making each padded step an exact identity on the recurrent state, and the conv history is taken from the real tail at the logical length. Outputs are sliced back to the logical length.",
-    "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk \u2014 one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
+    "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk — one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
   }
 }

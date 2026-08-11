@@ -1,0 +1,31 @@
+kind              phase       ops  iters  device ms/iter  time column
+linear_attention  prefill    1041      1         256.332  Device Time
+linear_attention  decode     2880     32           1.987  Device Time
+full_attention    prefill    1014      1         242.383  Device Time
+full_attention    decode     2368     32           1.813  Device Time
+
+Where the device time goes (top op codes per window):
+  linear_attention/prefill:
+     53.4%    136.802 ms/iter    64 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024
+     28.5%     73.073 ms/iter    64 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048
+      6.7%     17.151 ms/iter   197 launches/iter  UnaryDeviceOperation
+      3.1%      7.956 ms/iter   136 launches/iter  BinaryNgDeviceOperation
+      9.8%     25.107 ms/iter   333 launches/iter  [group] Unary + BinaryNg elementwise
+  linear_attention/decode:
+     18.5%      0.367 ms/iter     1 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024
+     17.3%      0.344 ms/iter     1 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048
+     14.2%      0.283 ms/iter     8 launches/iter  UnaryDeviceOperation
+     10.0%      0.200 ms/iter    17 launches/iter  BinaryNgDeviceOperation
+     24.3%      0.482 ms/iter    25 launches/iter  [group] Unary + BinaryNg elementwise
+  full_attention/prefill:
+     53.2%    128.929 ms/iter    64 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024
+     28.6%     69.350 ms/iter    64 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048
+      7.0%     16.897 ms/iter   193 launches/iter  UnaryDeviceOperation
+      3.2%      7.855 ms/iter   134 launches/iter  BinaryNgDeviceOperation
+     10.2%     24.751 ms/iter   327 launches/iter  [group] Unary + BinaryNg elementwise
+  full_attention/decode:
+     20.3%      0.368 ms/iter     1 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024
+     19.0%      0.344 ms/iter     1 launches/iter  SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048
+     14.8%      0.269 ms/iter     4 launches/iter  UnaryDeviceOperation
+      7.7%      0.140 ms/iter     8 launches/iter  BinaryNgDeviceOperation
+     22.5%      0.409 ms/iter    12 launches/iter  [group] Unary + BinaryNg elementwise

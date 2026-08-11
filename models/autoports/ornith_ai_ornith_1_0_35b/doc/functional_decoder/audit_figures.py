@@ -321,7 +321,30 @@ CONTRACT_COMPUTED = {
     "49152",  # DeltaNet conv state, batch 1: 3 x 8192 x 2 B
     "2276982784",  # sum of the six components a full_attention layer needs at full context
     "34091302912",  # 31.75 GiB, the measured allocatable DRAM
+    # The fused packing is byte-neutral on device, so it contributes no new figures here. An earlier
+    # revision of the contract claimed a +131072 B per-layer delta and quoted two changed totals; that
+    # was wrong. `moe_shared_and_router_weights`' formula below omits the shared router's tile padding
+    # (tt/moe.py stores it as [1, 1, dim, 1] in TILE_LAYOUT, i.e. dim x 32 x 2 B), and recomputing the
+    # fused packing from the formula alone made an omission look like growth. The formula is left as
+    # the functional stage measured it; the contract now records the omission instead of a delta.
 }
+
+
+#: Width the shared expert's packed gate+up+router occupies in either spelling, in bf16 columns.
+#: Read from the model config rather than written here, so the check below compares two independent
+#: things: round 16 found the first version comparing a constant against the identical literal.
+def shared_expert_packed_columns():
+    """``2 * moe_intermediate + one padded tile``, from the model config the decoders actually use."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from ornith_ai_ornith_1_0_35b.reference import hf_reference as R  # noqa: PLC0415
+
+    # 32 is the tile width, a hardware constant; the intermediate size is the model's, read from the
+    # checkpoint config. Neither is a figure this stage chose, which is the point of the check.
+    # It is the *shared* expert's intermediate size that sizes this packing, not the routed experts'
+    # - they happen to be equal here, which round 17 flagged as making the check pass by coincidence.
+    return 2 * int(R.load_text_config().shared_expert_intermediate_size) + 32
 
 
 def check_contract(contract: Path) -> list:
@@ -370,6 +393,24 @@ def check_contract(contract: Path) -> list:
     expect("worst_case_layer_total", f["worst_case_layer_total"], total)
     if f["worst_case_layer_total"] >= cap["measured_allocatable_dram_bytes"]:
         problems.append((contract.name, "worst_case_layer_total exceeds measured allocatable DRAM"))
+
+    # The fusing stage packs the shared expert's gate, up and router into one tensor. That is only
+    # byte-neutral if the packed width equals the unpacked widths plus the router's tile padding, so
+    # assert the arithmetic rather than the prose: a future packing that actually grew the layer would
+    # have to change this number, and `footprint_change` claims byte-neutrality on device.
+    prose = data.get("fused_decoder", {}).get("footprint_change", "")
+    if prose:
+        # README §3.1 tabulates this width; the contract's byte-neutrality claim depends on it.
+        want_cols = shared_expert_packed_columns()
+        if str(want_cols) not in prose:
+            problems.append(
+                (contract.name, f"footprint_change does not quote the packed shared-expert width {want_cols}")
+            )
+        if "Byte-neutral on device" not in prose:
+            problems.append((contract.name, "footprint_change no longer claims device byte-neutrality"))
+        for stale in ("131072", "7471104", "2277113856"):
+            if stale in prose:
+                problems.append((contract.name, f"footprint_change quotes {stale}, a delta this stage does not have"))
     return problems
 
 
