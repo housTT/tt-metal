@@ -15,7 +15,7 @@ context.
 * Bringup narrative, probes, bugs found, hardware incident, review rounds: [`work_log.md`](work_log.md)
 * Figure audit — asserts every measured number quoted in these docs exists in a committed artifact,
   and recomputes the ones that are derived rather than measured:
-  [`audit_figures.py`](audit_figures.py) (currently 0 problems: 5 documents against 24 artifacts, with
+  [`audit_figures.py`](audit_figures.py) (currently 0 problems: 5 documents against 25 artifacts, with
   decimals, integers and labelled figures such as `N passed` grepped, 16 derived ratios re-evaluated
   from their declared operands, and `context_contract.json`'s byte figures recomputed from the formulas
   it states)
@@ -325,7 +325,12 @@ stage deliberately uses for accuracy.
    tokens; score-vector L1 relative error `0.001913`). The residual disagreements are 8th-vs-9th-place flips
    carrying the smallest of the eight weights. Evidence and the bf16-vs-fp32 A/B that motivated the
    float32 logit path: [`logs/router_precision_ab.txt`](logs/router_precision_ab.txt),
-   [`logs/router_precision_ab_probe.py`](logs/router_precision_ab_probe.py).
+   [`logs/router_precision_ab_probe.py`](logs/router_precision_ab_probe.py). The figure is confirmed
+   through the shipped `routing_weights` on the current tree, read both from the dense score vector and
+   from its eight largest entries, in
+   [`logs/router_setmatch_reconcile.txt`](logs/router_setmatch_reconcile.txt) — the 95.9 % in
+   `logs/probe_moe_vs_hf.txt` is the **pre-implementation** bf16-logit router, not this one (work log
+   §18).
 3. **`chunk_gated_delta_rule` serves at most `floor(cores / num_value_heads) = 3` users per
    launch** on an 11×10 grid (`chunk_gdn_phased_program_factory.cpp: BH <= ncores`).
    `_chunk_delta_rule` splits larger batches; at batch 32 that is 11 launches per prefill block.

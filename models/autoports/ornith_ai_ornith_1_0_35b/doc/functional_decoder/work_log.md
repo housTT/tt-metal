@@ -577,7 +577,15 @@ Committing the stage ran the repo's `pre-commit` hooks, which changed three thin
   full suite, all four Tracy captures and the watcher subset, in that order, with every summary
   regenerated and every affected figure in README §2/§5/§6/§7, `tracy/PROVENANCE.md`,
   `watcher/CLASSIFICATION.md` and §7 of this log rewritten from the new artifacts. All measurement
-  artifacts now postdate every source file.
+  artifacts for the stage's *measured results* — the suite, the four Tracy captures and the watcher
+  subset — now postdate every source file. Three committed logs deliberately do not, and are named here
+  rather than covered by a blanket claim: `logs/dram_capacity_probe.txt` measures allocatable device
+  DRAM, which no model source can affect; and `logs/probe_gated_delta_rule_op.txt` and
+  `logs/probe_moe_vs_hf.txt` are **pre-implementation** probes (§3) whose whole purpose is to record
+  what was measured *before* the layer was written — re-running them against the finished tree would
+  destroy what they document. `logs/router_precision_ab.txt` is the fourth: it predates the last
+  substantive edit to `tt/moe.py`, and because README §7 item 2 quotes its headline figure as a live
+  claim, it was re-derived on the current tree rather than argued about (see below).
 * **The `prefer-expect-error` hook rejected `pytest.raises`** in the fallback audit's positive
   controls. Switched to the repo's `expect_error` fixture, which is the right thing independently: it
   brackets the expected failures with `[EXPECTED_ERROR BEGIN/END]` lines so CI log triage does not read
@@ -598,6 +606,31 @@ rows and 1.4 % / 12.2 % / 1.3 % / 10.3 % of their windows; the MoE shares are un
 `full_attention` prefill's profiler cost moved from 0.07 % faster to 0.02 % faster, which is the same
 statement about the same noise floor.
 
+### Reconciling the two router set-agreement figures
+
+Two committed artifacts appear to disagree about how often the router picks HF's top-8 set:
+`router_precision_ab.txt` says 511/512 (99.8 %) for fp32 logits, while `probe_moe_vs_hf.txt` says
+491/512 (95.9 %) at the same `T` and seed. The answer is that they measure two different routers:
+`probe_moe_vs_hf.py` is a **pre-implementation** probe from §3, run when `routing_weights` still
+computed logits in bfloat16 — its 94-96 % range is exactly what motivated the fp32 decision. The A/B
+then measured both precisions side by side, and the fp32 path shipped.
+
+Because that is an inference about history rather than a measurement, it was checked on the current
+tree. [`logs/router_setmatch_reconcile_probe.py`](logs/router_setmatch_reconcile_probe.py) calls the
+shipped `OrnithMoE.routing_weights` and reports the selected set **both** ways the two probes read it —
+from the bf16 dense score vector via `nonzero`, and from its eight largest entries — at both probes'
+input scales ([`logs/router_setmatch_reconcile.txt`](logs/router_setmatch_reconcile.txt)):
+
+```
+scale=0.5  setmatch_by_nonzero=511/512 (99.8%)  setmatch_by_topk=511/512 (99.8%)  score_L1_relerr=0.001913
+scale=0.6  setmatch_by_nonzero=512/512 (100.0%) setmatch_by_topk=512/512 (100.0%) score_L1_relerr=0.001505
+```
+
+So the shipped path reproduces the A/B's fp32 row exactly, including its `0.001913` score error, and
+the two extraction methods agree — no row loses one of its eight weights to a bf16 zero
+(`rows_with_fewer_than_8_nonzero=0`, and the HF weight mass sitting on entries the device zeroed is
+2.09e-4 at the worse scale). README §7 item 2's 99.8 % describes the code that ships.
+
 The audit earned its keep here: pointed at the new artifacts it reported 56 problems — every stale
 wall clock, every derived ratio whose operands had moved, and one `HISTORICAL` entry that had become
 inert because the new measurement produced the value it was exempting. That is exactly the drift the
@@ -614,8 +647,10 @@ commit  7f467566666c1262154e1d35a33d9c7faa6b6ff8
 parent  e85bf5dbc38 (branch tip before this stage)
 ```
 
-A second, one-file commit follows it — `489f4456474` — adding this section and the generated
-`logs/commit_record.txt` it quotes, so the SHA is a sourced figure like every other number here.
+A second commit follows it — `489f4456474`, 4 files changed, 25 insertions(+), 1 deletion(-) — adding
+this section, the generated [`logs/commit_record.txt`](logs/commit_record.txt) it quotes, and the audit
+registration and count updates that go with it, so the SHA is a sourced figure like every other number
+here. A third, `510c124bd63`, records that second SHA.
 
 Stage-owned files only, all under `models/autoports/`: the implementation, the reference, the tests
 and the whole `doc/` evidence tree including the generators. Nothing outside `models/autoports/` was
