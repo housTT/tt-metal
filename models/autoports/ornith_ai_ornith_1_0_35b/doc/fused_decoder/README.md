@@ -518,8 +518,10 @@ What the remaining rows say about where the next stage should look:
       expert-activation width, the same lever as the zero-fill above.
     * 47.290 µs with **no** folded activation, immediately before the next
       `sparse_matmul`'s zero-fill — the router-score multiply this stage moved ahead of the down
-      projection (§3.2). It is a genuinely separate op, and §4.13 records why no fusion for it is
-      expressible in ttnn today rather than claiming it is already fused.
+      projection (§3.2). It is a genuinely separate op, and §4.13 / §4.17 record why: the one
+      ttnn op that fuses it into the reduction (`deepseek_moe_fast_reduce_nc_fused`) wants the
+      gather-by-expert dispatch layout and an L1-resident activation - the same blocker §4.10
+      records - rather than there being no op.
   The aggregate is nonetheless **smaller than the baseline's**: 199.1 µs against
   327.8 µs per replay, because that placement moved the
   multiply from the `hidden_size`-wide residual stream to the `moe_intermediate`-wide expert
@@ -587,8 +589,11 @@ immediately:
 | `full_attention` | 3 | 3 | 6 | prefill: 2 RoPE-table `to_layout` tilizes + one MoE group mask per MoE call. decode: 3 `sharded_to_interleaved` off `nlp_create_qkv_heads_decode` + 2 height-shards for the fused cache update + 1 MoE group mask |
 <!-- /generated:layout-budget -->
 
-**Nothing in that budget scales with the sequence**, which is why both lengths are shown: the two
-prefill columns being equal *is* the property under test. It used to scale — the MoE group mask was
+**That budget is constant per internal prefill chunk**, not per token: `prefill_forward` loops over
+`chunk_size`-token blocks and each block dispatches the same fixed set, so a 3000-token prefill pays
+it twice. Both budgeted lengths are one chunk, so the two prefill columns being equal pins
+*expert-group-count* independence — 8 groups at 256 tokens against 64 at 2048 — which is exactly the
+regression round 22 caught. It used to scale — the MoE group mask was
 rebuilt once per 32-token expert group, so the count reached 75 at 2048 tokens — until `work_log.md`
 §4.16 hoisted it to one per MoE call. Review round 22 caught that the budget had not followed the
 code and was tolerating dozens of extra relayouts at exactly the length every §5 figure comes from;

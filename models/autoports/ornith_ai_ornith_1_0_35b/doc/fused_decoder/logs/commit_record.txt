@@ -7,9 +7,10 @@ models/autoports/ornith_ai_ornith_1_0_35b/ is touched, and the one unrelated dir
 worktree (.agents/fast-models-fast-feedback.md) is left untracked and is in none of them.
 
 This file duplicates work_log.md section 8 deliberately, so that the commit record survives in the
-logs directory next to the artifacts it describes. Review round 22 found the two had diverged - this
-file still described a two-commit stage after three more commits had landed - so if they ever
-disagree again, work_log.md section 8 is the one to trust and this file is the stale one.
+logs directory next to the artifacts it describes. Round 22 found the two diverged with this file
+stale; round 23 found them diverged the other way, with section 8 stale. The tie-break rule that
+named one of them authoritative is what let each go stale in turn, so it is withdrawn: both are
+updated in the same commit, and `git log` is the authority over either.
 
   d2ffe94a844  the stage's first commit: tt/fused_decoder.py, tests/test_fused_decoder.py, the
                context_contract.json fused_decoder section and the whole doc/fused_decoder/ tree.
@@ -33,13 +34,20 @@ disagree again, work_log.md section 8 is the one to trust and this file is the s
                work_log.md section 8 rewritten with every SHA - but NOT this file, which is the
                defect round 22 found.
 
-  <tip>        round 22's fixes: the dead per-group ttnn.slice removed from FusedMoE.forward (64
+  ac3b0e2ec25  round 22's fixes: the dead per-group ttnn.slice removed from FusedMoE.forward (64
                device ops per 2048-token prefill that nothing read), test_no_layout_churn_in_
                measured_forward's budgets tightened from `11 + groups` (75 at seq 2048) to the
                sequence-independent shipped counts and asserted exactly rather than as an upper
                bound, README section 6's itemisation corrected to "one MoE group mask per MoE call",
                and this file rewritten. The chain is regenerated once more, so THIS is the commit
                whose evidence every figure in README sections 2 and 5 comes from.
+
+  <tip>        round 23's fixes: work_log section 4.17 - the deepseek_moe_fast_reduce_nc_fused
+               assessment section 4.13 had missed entirely while claiming no such fusion was
+               expressible - plus the two corrected categorical claims, the layout budget's scaling
+               claim restated as per-chunk rather than per-sequence, and this table. Documentation
+               only: no source file changed, so ac3b0e2ec25's evidence still describes the shipped
+               code and logs/source_manifest.txt still matches it.
 
 A commit cannot contain its own SHA, so the tip is written as <tip> above; `git log --oneline -6`
 enumerates all of them.

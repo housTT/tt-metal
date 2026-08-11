@@ -440,7 +440,7 @@ aggregate is smaller than the functional decoder's, because moving the multiply 
 tensor it runs on. README §5.4 carries both figures. The remaining cost is again proportional to the
 `num_experts`-wide width, so it has the same single lever as everything else in this section.
 
-Both are therefore **unreachable by graph fusing**, for these reasons:
+Both are therefore **not reachable by graph fusing at this decoder's expert layout (§4.17)**, for these reasons:
 
 1. **The fill is inside the op.** No sequence of ttnn calls this layer can make changes what
    `sparse_matmul` does with its own output buffer.
@@ -518,6 +518,46 @@ candidate in this catalogue (with §4.1's `sparse_matmul fused_activation`) wher
 is accepted, produces a result, and does not compute what its name says. The SiLU therefore stays a
 separate op. The two arms are in one probe so the comparison is reproducible, and
 `_conv1d_halves`' docstring points at it rather than at qwen36.
+
+### 4.17 `deepseek_moe_fast_reduce_nc_fused` — the fold §4.13 called impossible, and the exact reason it is not available here
+
+Review round 23 found the sharpest omission in this catalogue: `ttnn.experimental.
+deepseek_moe_fast_reduce_nc_fused` exists, it is a sibling of the
+`deepseek_moe_fast_reduce_nc` this stage **did** adopt (§3.1), and it fuses exactly the pair §4.13
+enumerated as unreachable — "permute + tilize + mul(activation, expert_scores) +
+deepseek_moe_fast_reduce_nc into a single kernel launch", applying the per-expert score inside the
+reduce loop with a broadcast MAC and eliminating the scaled-activation tensor entirely. §4.13 listed
+four places the score multiply could be folded and concluded "none is expressible"; it never
+considered folding it **into** the reduction, which is the one that has an op. That claim was
+categorical, and a reader could falsify it with one `grep`. It is withdrawn.
+
+The op is genuinely unavailable to this decoder, and the reason is an exact contract mismatch rather
+than a first error:
+
+* **Layout.** Its `input_tensor` is `[experts_k, 1, tokens, hidden_size]` and its
+  `expert_indices_tensor` / `expert_mapping_tensor` follow the `all_to_all_dispatch` convention —
+  i.e. the *gather-by-expert* dispatch layout, where `experts_k` is the top-k slice actually routed
+  to this device. Ornith's single-device MoE uses the all-experts-with-a-sparsity-mask pattern, so
+  its reduction input is `[1, num_experts, tokens, hidden]` with the full expert axis dense. This is
+  the **same blocker §4.10 records** for `moe_compute`, `moe_gpt` and `unified_routed_expert_ffn`:
+  adopting it means changing the routing algorithm to expert-major gathering, not rewriting the op
+  graph — and that is a multi-device change, out of scope for a correctness-preserving graph
+  transform.
+* **Residency.** The contract also requires that activation in **L1**. Dense over the whole expert
+  axis at Ornith's shapes that tensor is tens of megabytes, which is orders of magnitude past a
+  Blackhole core's L1 — so even setting the layout aside, the dense form cannot satisfy it.
+
+So the conclusion §4.13 reached is right and its reasoning was wrong: the multiply is not unreachable
+because no op fuses it, but because the op that fuses it wants the layout §4.10 already rejects.
+Both §4.13 and README §5.4 now say that instead of "not expressible". The same argument covers
+`ttnn.experimental.topk_router_gpt`, which round 23 also noted is unassessed by name: it is
+bfloat16-only, so §4.2's measured bfloat16-router accuracy rejection applies to it by class.
+
+The lesson is the one §4.14 and §4.8 already teach in different keys, and this is the third form of
+it: a *negative* claim ("no op does this") is a claim about the op tree, and it has to be checked
+against the op tree, not against the four spellings that happened to come to mind. `$graph-fusing`
+Step 1 says to sweep `ttnn/cpp/ttnn/operations/**`; this stage swept it for the ops it went on to
+adopt and did not re-sweep when it wrote an impossibility claim.
 
 ### 4.16 Hoisting the per-group MoE mask and score operand — landed after three rounds of deferring it
 
@@ -909,7 +949,7 @@ requirement**.
 | --- | --- |
 | P2 — round 7's `SLOW`-attribution table reported *gross* removals, so its columns did not sum to the row-count change (8 + 7 = 15 ≠ 12), and its ranking reversed once the rows each rewrite *added* were counted: by net device time the router hoist wins in both windows, not the packings. | the table is now removed − added for both rewrites, in launches and microseconds. It asserts that the net launch change equals the row-count change, and its two net figures sum to the absolute `SLOW`-time fall reported immediately below — the same quantity computed a different way, so the two blocks in one section can no longer disagree. |
 | P2 — the same cell said the removed router ran "once per 32-token expert group". The *before* side is the functional decoder, whose group size is 256 (`context_contract.json`), and the geometry printed in the same cell (`256 x 2048 x 256`) says so. | corrected to per-256-token-group, which is what the baseline measured. |
-| P2 — **the third-largest item in the traced decode window was never assessed.** `tt-perf-report` groups by op code, so it appeared as an undifferentiated `UnaryDeviceOperation` total that §5.4 described as unattributable. The raw capture's `ATTRIBUTES` column attributes most of it in decode to `UnaryOpType::FILL` — `sparse_matmul` zero-initialising its 256-wide output — which is a double-digit percentage of each decode window, **larger than `SliceDeviceOperation`**, which §5.4 discusses at length. Against "all graph-fusing patterns exhausted or assessed", that is a gap. | `tracy/summarise_fill.py` now splits the aggregate from the raw capture, README §5.4 names it with its measured shares, and §4.13 assesses it: unreachable by graph fusing — it is inside the op, its width is the op's contract, the call count is already minimal, and removing it means expert-major gathering (§4.10, §8 item 1). It is not a regression in aggregate; round 9 sharpened the per-call half of that claim. |
+| P2 — **the third-largest item in the traced decode window was never assessed.** `tt-perf-report` groups by op code, so it appeared as an undifferentiated `UnaryDeviceOperation` total that §5.4 described as unattributable. The raw capture's `ATTRIBUTES` column attributes most of it in decode to `UnaryOpType::FILL` — `sparse_matmul` zero-initialising its 256-wide output — which is a double-digit percentage of each decode window, **larger than `SliceDeviceOperation`**, which §5.4 discusses at length. Against "all graph-fusing patterns exhausted or assessed", that is a gap. | `tracy/summarise_fill.py` now splits the aggregate from the raw capture, README §5.4 names it with its measured shares, and §4.13 assesses it: not reachable by graph fusing at this decoder's expert layout (§4.17) — it is inside the op, its width is the op's contract, the call count is already minimal, and removing it means expert-major gathering (§4.10, §8 item 1). It is not a regression in aggregate; round 9 sharpened the per-call half of that claim. |
 | P2 — round 7's record claimed the constant it had just computed was "the last of its kind". Three qualitative claims were still hardcoded inside generated blocks: "fell over 20 %", the *identity* of the largest decode `SLOW` group, and the majority/not-majority qualifiers in §8 item 1. | all three are computed — the fall from the four windows, the largest group by selection (asserting both layer kinds agree), the qualifiers from the shares — and the closure claim is withdrawn rather than restated. |
 
 Non-blocking items also fixed: the guard behind "0 `SLOW`-flagged `SparseMatmul` rows in any capture,
@@ -1457,7 +1497,7 @@ Repo `/home/ttuser/dev/ornith/tt-metal`, branch `agentic-research/hous/ornith-1.
 is **local**; nothing was pushed, and nothing outside
 `models/autoports/ornith_ai_ornith_1_0_35b/` is touched. The one unrelated dirty path in the
 worktree, `.agents/fast-models-fast-feedback.md`, is deliberately left untracked and is in none of
-these commits. `git log --oneline -5` shows all of them.
+these commits. `git log --oneline -7` shows all of them.
 
 | Commit | What it carries |
 | --- | --- |
@@ -1465,11 +1505,14 @@ these commits. `git log --oneline -5` shows all of them.
 | `e1934c3963f` | the evidence chain regenerated end to end in one `run_evidence.sh` pass, plus §4.15's conv-activation measurement, `audit_figures.py`'s `check_summary_provenance` gate and the eight force-added `tt-perf-report` CSVs. Superseded for figures by the two commits below. |
 | `c52108710c8` | the first version of this table. |
 | `fa28762b2d7` | round 20's fixes: the `GATEFOLD` probe arm, §4.8 rewritten, §4.16's "only candidate" claim withdrawn — with the whole chain regenerated again. |
-| `<this commit>` | round 21's fixes: the two §4.16 hoists **landed** in `tt/fused_decoder.py`, the `GATEFOLD` probe extended to both dtype pairings and the decode shape, §4.8 rewritten around the mixed-dtype mechanism, and the chain regenerated once more. **This is the commit whose evidence the documents describe** — every figure in README §2 and §5 comes from its `run_evidence.sh` pass. |
+| `719ec393afa` | round 21's fixes: the two §4.16 hoists landed, the `GATEFOLD` probe extended to both dtype pairings and the decode shape, §4.8 rewritten around the mixed-dtype mechanism. |
+| `ac3b0e2ec25` | round 22's fixes: the dead per-group `ttnn.slice` removed, the layout budget tightened to the shipped counts and asserted exactly, `logs/commit_record.txt` rewritten. **Every figure in README §2 and §5 comes from this commit's `run_evidence.sh` pass.** |
+| `<this commit>` | round 23's fixes: §4.17 (the `deepseek_moe_fast_reduce_nc_fused` assessment §4.13 had missed), the two categorical "not expressible" claims corrected, the layout budget's scaling claim restated as per-chunk, and this table. Documentation only — no source file changed, so the evidence above still describes the shipped code (`logs/source_manifest.txt` hashes match). |
 
-A commit cannot contain its own SHA, so the bookkeeping commit that carries this table names the row
-above it as `<this commit>` and is itself the tip of the branch; `logs/commit_record.txt` is written
-after it and names it explicitly.
+A commit cannot contain its own SHA, so the tip is written `<this commit>`. `logs/commit_record.txt`
+carries the same table; round 23 found the two had drifted apart in *both* directions across rounds
+21-22, so the rule is now that whichever was written last is right and they must be updated together
+in the same commit - which is what this commit does.
 
 Two things about the regenerating commits are worth stating rather than leaving to be discovered:
 
