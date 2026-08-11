@@ -262,6 +262,43 @@ def real_weight_policy(rows: list) -> list:
     )
 
 
+def bfp4_gateup(rows: list) -> list:
+    """Every legal program config for the one ``Bound=SLOW`` decode row that is material."""
+    selected = [r for r in rows if r.get("sweep") == "bfp4_gateup"]
+    if not selected:
+        return ["_no rows: probe_bfp4_gateup.log is not committed_"]
+    lines = [
+        "| shape | dtype | candidate | cores | in0_block_w | per_core_N | median | PCC vs float32 | blocker |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        lines.append(
+            f"| {row['shape']} `{row['M']}x{row['K']}x{row['N']}` | {row['dtype']} | {row['candidate']} | "
+            f"{row.get('cores', '—')} | {row.get('in0_block_w', '—')} | {row.get('per_core_N', '—')} | "
+            f"{_US(row['median_us']) if row.get('median_us') else '—'} | "
+            f"{_PCC(row['pcc']) if row.get('pcc') is not None else '—'} | {row.get('error') or '—'} |"
+        )
+    return lines
+
+
+def recurrence_advice(rows: list) -> list:
+    """Every remaining piece of report advice on the recurrence rows, tried and measured."""
+    selected = [r for r in rows if r.get("sweep") == "recurrence_advice"]
+    if not selected:
+        return ["_no rows: probe_recurrence_advice.log is not committed_"]
+    lines = [
+        "| head problems | candidate | median | PCC vs float32 | blocker |",
+        "|---|---|---|---|---|",
+    ]
+    for row in selected:
+        lines.append(
+            f"| {row['head_problems']} (batch {row['batch']}) | {row['candidate']} | "
+            f"{_US(row['median_us']) if row.get('median_us') else '—'} | "
+            f"{_PCC(row['pcc']) if row.get('pcc') is not None else '—'} | {row.get('error') or '—'} |"
+        )
+    return lines
+
+
 def slow_rows(summary: dict) -> list:
     """Every ``Bound=SLOW`` op group in the committed optimized reports.
 
@@ -427,6 +464,8 @@ def build_blocks() -> dict:
     optimized_rows += _probe_rows("probe_optimized_isolation.log")
     optimized_rows += _probe_rows("probe_real_weight_policy.log")
     optimized_rows += _probe_rows("probe_projection_packing.log")
+    optimized_rows += _probe_rows("probe_bfp4_gateup.log")
+    optimized_rows += _probe_rows("probe_recurrence_advice.log")
     return {
         "before_after": before_after(summary),
         "breakdown": breakdown(summary),
@@ -441,6 +480,8 @@ def build_blocks() -> dict:
         "real_weight_policy": real_weight_policy(optimized_rows),
         "projection_packing": projection_packing(optimized_rows),
         "slow_rows": slow_rows(summary),
+        "bfp4_gateup": bfp4_gateup(optimized_rows),
+        "recurrence_advice": recurrence_advice(optimized_rows),
         "correctness": correctness(evidence),
     }
 

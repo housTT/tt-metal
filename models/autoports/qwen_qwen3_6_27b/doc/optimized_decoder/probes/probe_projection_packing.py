@@ -101,9 +101,20 @@ def prefill_pc(k: int, n: int, rows: int, fp32: bool):
     budget = 2 if fp32 else 4
     sw = _largest_divisor_at_most(out_block_w, budget)
     sh = _largest_divisor_at_most(out_block_h, max(1, budget // sw))
+    # L1-aware ``in0_block_w``, the same bound the model uses: a float32 output block plus a BFP8
+    # weight block puts 8 over L1 for the 10240-wide ``in_proj_qkv``, and a flat cap of 8 here made
+    # that pair unmeasurable rather than slow.
+    weight_bytes = 1088
+    out_bytes = 4096 if fp32 else 2048
+    block_w = 1
+    for candidate in [d for d in range(1, min(k_tiles, 8) + 1) if k_tiles % d == 0]:
+        l1 = 2 * candidate * out_block_h * 2048 + 2 * candidate * out_block_w * weight_bytes
+        l1 += out_block_h * out_block_w * out_bytes
+        if l1 <= 1_100_000:
+            block_w = candidate
     return ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
         compute_with_storage_grid_size=ttnn.CoreCoord(x, y),
-        in0_block_w=_largest_divisor_at_most(k_tiles, 8),
+        in0_block_w=block_w,
         out_subblock_h=sh,
         out_subblock_w=sw,
         out_block_h=out_block_h,

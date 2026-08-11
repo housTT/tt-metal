@@ -938,9 +938,12 @@ class OptimizedDecoder(FusedDecoder):
         up_w = get("mlp.up_proj.weight")
         install("mlp_gate", gate_w.t())
         install("mlp_up", up_w.t())
-        install("mlp_gate_up", torch.cat([gate_w, up_w], dim=0).t())
-        if "mlp_gate_up" not in self.role_shapes and "mlp_gate_up" in self.w:
-            # Both phases split, so the packed weight the inherited loader built is dead.
+        if "mlp_gate_up" in self.role_shapes:
+            install("mlp_gate_up", torch.cat([gate_w, up_w], dim=0).t())
+        elif "mlp_gate_up" in self.w:
+            # Both phases run the split form, so the packed weight the inherited loader built is
+            # dead: free it rather than hold a second copy of the MLP's first projection - about
+            # 89 MB per layer at BFP4 - that nothing reads.  The concatenation is not even built.
             ttnn.deallocate(self.w.pop("mlp_gate_up"))
         install("mlp_down", get("mlp.down_proj.weight").t())
 
@@ -1021,19 +1024,25 @@ class OptimizedDecoder(FusedDecoder):
         return normed
 
     def _mlp(self, x):
-        """SwiGLU MLP.
+        """SwiGLU MLP, split into two ``[hidden, intermediate]`` matmuls in **both** phases.
 
-        Prefill keeps the fused stage's packed ``gate_up`` matmul plus two slices unless
-        :attr:`DecodeGeometry.split_gate_up_prefill` is set: at 2048 rows the packed form is
-        measurably faster (fused ``work_log.md`` section 3.8, re-measured here at the new dtype and
-        fidelity in section 3.3).
+        This reverses the fused stage's choice, and the reversal is measured rather than assumed
+        (``work_log.md`` section 3.3, OPT-010).  Stage 2 found the packed
+        ``[hidden, 2 * intermediate]`` matmul 51 % faster at 2048 rows with a DRAM-interleaved
+        bfloat16 weight and ``ttnn.linear``'s heuristic; at this stage's BFP4 weights, DRAM
+        width-sharded layout and explicit program configs the split form wins at prefill
+        (19.415 vs 19.634 ms and 9.908 vs 10.151 ms) and at decode it is the only legal form at the
+        winning 32-core shard grid - the packed output is twice as wide, so its ``per_core_N``
+        doubles and the circular buffers clash with the resident sharded activations.  At 16 cores,
+        where both allocate, the split form still wins by 2-3 %.
 
-        Decode runs the two halves as separate DRAM-sharded matmuls.  That is not a preference:
-        the packed decode form's output is ``2 * intermediate_size`` wide, so at the shared shard
-        grid its ``per_core_N`` is twice as large, which halves the ``in0_block_w`` that fits L1 -
-        and it needs two slices of a width-sharded 34816-wide tensor that the split form does not
-        need at all.  The SiLU rides the gate matmul's own epilogue instead of the multiply.  Both
-        forms are measured in ``work_log.md`` section 3.3.
+        Splitting both phases also means the packed weight is never built, which makes the layer
+        about 89 MB smaller per layer at BFP4.
+
+        The SiLU stays on the multiply that consumes the gate, not on the gate matmul's own
+        epilogue: fusing it there measured 3.5 % / 4.7 % *slower*
+        (:attr:`DecodeGeometry.fuse_gate_silu`).  Both packed forms remain runnable, because the
+        candidate table needs an arm that runs.
         """
         decode = self._decoding
         split = self.decode_geometry.split_gate_up_prefill if not decode else self.decode_geometry.split_gate_up_decode

@@ -79,7 +79,19 @@ CATEGORIES = (
         "layout",
         lambda code: any(
             token in code
-            for token in ("Tilize", "Untilize", "Reshape", "Permute", "Transpose", "Concat", "Slice", "Sharded")
+            # ``Reshard`` is a sharded->sharded move, which this stage introduces where a shard grid
+            # has to change; it belongs with the other layout movement rather than in ``other``.
+            for token in (
+                "Tilize",
+                "Untilize",
+                "Reshape",
+                "Permute",
+                "Transpose",
+                "Concat",
+                "Slice",
+                "Sharded",
+                "Reshard",
+            )
         ),
     ),
     (
