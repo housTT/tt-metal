@@ -710,18 +710,29 @@ def input_fold_table() -> str:
         "decay": "`exp(g)` into the recurrent-state multiply",
         "beta": "`sigmoid(b)` into the `delta` multiply",
     }
+    wins = measured = 0
     for name, label in labels.items():
         for batch in ("1", "32"):
             match = re.search(
-                rf"fold {name}\s+batch=\s*{batch} split_us=\s*([\d.]+) \(\s*[\d.]+\) "
-                rf"folded_us=\s*([\d.]+) \(\s*[\d.]+\) pcc=([\d.]+) max_abs_diff=(\S+)",
+                rf"fold {name}\s+batch=\s*{batch} split_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+                rf"folded_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc=([\d.]+) max_abs_diff=(\S+)",
                 _probe("probe_gdn_input_folds"),
             )
             if not match:
                 raise SystemExit(f"probe_gdn_input_folds.log has no {name} row at batch {batch}")
+            split, split_spread, folded, folded_spread = (match.group(i) for i in (1, 2, 3, 4))
+            # The folded column was bolded on every row, which reads as four measured wins; three
+            # of them are ties.  The folds are still taken - a fold removes a dispatch at no
+            # precision cost and never measures slower - but the table says which is which.
+            verdict = _verdict(split, split_spread, folded, folded_spread, "split", "folded")
+            mark_split = "**" if verdict == "split wins" else ""
+            mark_folded = "**" if verdict == "folded wins" else ""
+            wins += verdict == "folded wins"
+            measured += 1
             rows.append(
-                f"| {label} | {batch} | {match.group(1)} us | **{match.group(2)} us** | "
-                f"PCC {match.group(3)}, max abs diff {match.group(4)} |"
+                f"| {label} | {batch} | {mark_split}{split} us{mark_split} | "
+                f"{mark_folded}{folded} us{mark_folded} | "
+                f"PCC {match.group(5)}, max abs diff {match.group(6)} |"
             )
     match = re.search(
         r"rank3 seq=(\d+) rank4_first_us=\s*([\d.]+) \(\s*([\d.]+)\) rank3_first_us=\s*([\d.]+) "
@@ -745,8 +756,11 @@ def input_fold_table() -> str:
     )
     rows.append("")
     rows.append(
-        "Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact "
-        "and both were taken. Moving the rank change ahead of the slices removes two float32 "
+        f"Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact and "
+        f"both were taken; on time, {wins} of the {measured} rows is a win outside the spreads and "
+        f"the rest are ties, so what a fold buys for certain is a dispatch, not microseconds. A "
+        f"bolded cell is a win outside the two "
+        f"spreads together. Moving the rank change ahead of the slices removes two float32 "
         f"reshapes and adds one, and {outcome}."
     )
     return "\n".join(rows)
@@ -841,36 +855,45 @@ def rejected_decode_variants() -> str:
     rows = ["| variant | batch | shipped | alternative | agreement |", "|---|---|---|---|---|"]
     for batch in ("1", "32"):
         match = re.search(
-            rf"decode_conv batch=\s*{batch} float32_us=\s*([\d.]+) \(\s*[\d.]+\) "
-            rf"bfloat16_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_float32_vs_torch=([\d.]+) "
+            rf"decode_conv batch=\s*{batch} float32_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+            rf"bfloat16_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc_float32_vs_torch=([\d.]+) "
             rf"pcc_bfloat16_vs_torch=([\d.]+) pcc_between=([\d.]+)",
             _probe("probe_decode_conv_dtype"),
         )
         if not match:
             raise SystemExit(f"probe_decode_conv_dtype.log has no batch {batch} row")
         # Which cell is bolded is derived: a stage review found this table bolding a "winner"
-        # its own log contradicted at one of the two batches.
-        shipped_us, alternative_us = float(match.group(1)), float(match.group(2))
-        faster = "**" if shipped_us <= alternative_us else ""
-        other = "**" if alternative_us < shipped_us else ""
+        # its own log contradicted at one of the two batches.  The rule is the spread rule, not
+        # "whichever median is lower", so a tied row carries no bold at all.
+        shipped_us, shipped_spread, alternative_us, alternative_spread = (match.group(i) for i in (1, 2, 3, 4))
+        verdict = _verdict(shipped_us, shipped_spread, alternative_us, alternative_spread, "float32", "bfloat16")
+        faster = "**" if verdict == "float32 wins" else ""
+        other = "**" if verdict == "bfloat16 wins" else ""
         rows.append(
             f"| decode causal-conv FIR in bfloat16 instead of float32 | {batch} | "
-            f"{faster}{match.group(1)} us{faster} (float32) | "
-            f"{other}{match.group(2)} us{other} (bfloat16) | "
-            f"PCC {match.group(5)} between them, {match.group(4)} against torch |"
+            f"{faster}{shipped_us} us{faster} (float32) | "
+            f"{other}{alternative_us} us{other} (bfloat16) | "
+            f"PCC {match.group(7)} between them, {match.group(6)} against torch |"
         )
     for batch in ("1", "32"):
         match = re.search(
-            rf"decode_heads batch=\s*{batch} expand_then_norm_us=\s*([\d.]+) \(\s*[\d.]+\) "
-            rf"norm_then_expand_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+)",
+            rf"decode_heads batch=\s*{batch} expand_then_norm_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+            rf"norm_then_expand_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc_between=([\d.]+)",
             _probe("probe_gdn_decode_heads"),
         )
         if not match:
             raise SystemExit(f"probe_gdn_decode_heads.log has no batch {batch} row")
+        shipped, shipped_spread, other, other_spread = (match.group(i) for i in (1, 2, 3, 4))
+        # Derived, not hard-coded: this row was bolded at batch 1 for four rounds, where the two
+        # are inside their combined spread and the caption below says a bold means a win.
+        verdict = _verdict(shipped, shipped_spread, other, other_spread, "shipped", "reordered")
+        mark_shipped = "**" if verdict == "shipped wins" else ""
+        mark_other = "**" if verdict == "reordered wins" else ""
         rows.append(
             f"| Q/K L2 norm before the GQA expansion instead of after | {batch} | "
-            f"**{match.group(1)} us** (expand, then norm) | {match.group(2)} us (norm, then expand) | "
-            f"PCC {match.group(3)} between them |"
+            f"{mark_shipped}{shipped} us{mark_shipped} (expand, then norm) | "
+            f"{mark_other}{other} us{mark_other} (norm, then expand) | "
+            f"PCC {match.group(5)} between them |"
         )
     rows.append("")
     rows.append(
@@ -886,34 +909,45 @@ def rejected_shared_work() -> str:
     rows = ["| candidate | shape | shipped | merged | agreement |", "|---|---|---|---|---|"]
     for batch in ("1", "32"):
         match = re.search(
-            rf"decode_qk batch=\s*{batch} separate_us=\s*([\d.]+) \(\s*[\d.]+\) "
-            rf"merged_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_q=([\d.]+) pcc_k=([\d.]+)",
+            rf"decode_qk batch=\s*{batch} separate_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+            rf"merged_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc_q=([\d.]+) pcc_k=([\d.]+)",
             _probe("probe_decode_qk_pair"),
         )
         if not match:
             raise SystemExit(f"probe_decode_qk_pair.log has no batch {batch} row")
+        separate, separate_spread, merged, merged_spread = (match.group(i) for i in (1, 2, 3, 4))
+        verdict = _verdict(separate, separate_spread, merged, merged_spread, "shipped", "merged")
+        mark_shipped = "**" if verdict == "shipped wins" else ""
+        mark_merged = "**" if verdict == "merged wins" else ""
         rows.append(
             f"| decode Q and K through one norm/scale/rank-change chain | batch {batch} | "
-            f"**{match.group(1)} us** (separate) | {match.group(2)} us (merged) | "
-            f"PCC {match.group(3)} / {match.group(4)} |"
+            f"{mark_shipped}{separate} us{mark_shipped} (separate) | "
+            f"{mark_merged}{merged} us{mark_merged} (merged) | "
+            f"PCC {match.group(5)} / {match.group(6)} |"
         )
     match = re.search(
-        r"prefill_qkv seq=(\d+) packed_ms=\s*([\d.]+) \(\s*[\d.]+\) split_ms=\s*([\d.]+) \(\s*[\d.]+\) "
+        r"prefill_qkv seq=(\d+) packed_ms=\s*([\d.]+) \(\s*([\d.]+)\) split_ms=\s*([\d.]+) \(\s*([\d.]+)\) "
         r"pcc_q=([\d.]+)",
         _probe("probe_prefill_qkv_split"),
     )
     if not match:
         raise SystemExit("probe_prefill_qkv_split.log has no measurement")
+    packed, packed_spread, split, split_spread = (match.group(i) for i in (2, 3, 4, 5))
+    verdict = _verdict(packed, packed_spread, split, split_spread, "shipped", "split")
+    mark_shipped = "**" if verdict == "shipped wins" else ""
+    mark_split = "**" if verdict == "split wins" else ""
     rows.append(
         f"| prefill `in_proj_qkv` as three projections and three FIRs instead of one and three slices | "
-        f"{match.group(1)} tokens | **{match.group(2)} ms** (packed) | {match.group(3)} ms (split) | "
-        f"PCC {match.group(4)} |"
+        f"{match.group(1)} tokens | {mark_shipped}{packed} ms{mark_shipped} (packed) | "
+        f"{mark_split}{split} ms{mark_split} (split) | "
+        f"PCC {match.group(6)} |"
     )
     rows.append("")
     rows.append(
         "Median over 25 repeats (9 for the prefill row). Both merges are the same arithmetic as what "
         "ships and both measure slower: cutting a wide TILE tensor apart, or concatenating one, costs "
-        "more than the shared work it enables - the same result §6.2 found for `wqkv`/`wgate`."
+        "more than the shared work it enables - the same result §6.2 found for `wqkv`/`wgate`. A "
+        "bolded cell is a win outside the two spreads together; a row with no bold is a tie."
     )
     return "\n".join(rows)
 

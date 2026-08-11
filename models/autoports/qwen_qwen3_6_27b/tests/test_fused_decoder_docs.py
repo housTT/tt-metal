@@ -574,7 +574,10 @@ def test_every_run_was_made_against_the_shipped_build():
     fingerprint = _fingerprint()
     stale = []
     probes = sorted(path.stem for path in (DOC / "probes").glob("probe_*.py"))
-    for name in ("suite_main", "long_context", "watcher_run", *probes):
+    # ``doc_gate`` is in this list because a stage review found it stale by one round: it is the
+    # only run log neither this gate nor ``test_run_log_counts_match_the_prose`` covered, and it
+    # is the log that proves the document gates themselves pass on the shipped tree.
+    for name in ("suite_main", "long_context", "watcher_run", "doc_gate", *probes):
         text = (DOC / "logs" / f"{name}.log").read_text(errors="replace")
         stamps = re.findall(r"FUSED_BUILD tt/fused_decoder\.py code-sha256=([0-9a-f]{64})", text)
         if not stamps:
@@ -926,8 +929,9 @@ def test_qualitative_verdicts_match_their_logs():
     The rule is the stage's own, the one every generated caption uses: a gap wider than the two
     spreads together is a win, anything narrower is a tie.  Its scope is deliberately narrow - a
     sentence that names a batch, in a section that cites exactly one probe log with a row at that
-    batch.  A section citing several logs is ambiguous and is skipped rather than guessed at, which
-    the ``ambiguous`` count below makes visible instead of silent.
+    batch.  A section citing several logs is ambiguous and is skipped rather than guessed at; the
+    skipped claims are counted, capped and listed in the failure message, and the *tables* in those
+    same sections are covered by ``test_generated_table_bolding_marks_a_measured_win``.
     """
     two_form = re.compile(
         r"^(\w+) batch=\s*(\d+) (\w+)_us=\s*([\d.]+) \(\s*([\d.]+)\) (\w+)_us=\s*([\d.]+) \(\s*([\d.]+)\)",
@@ -956,7 +960,7 @@ def test_qualitative_verdicts_match_their_logs():
     #
     # A "section" is a markdown heading's span, or - in the sources - a whole ``#:`` comment block,
     # which is how the shipped constants carry their justification.
-    offenders, ambiguous, checked = [], 0, 0
+    offenders, ambiguous, checked = [], [], 0
     for path, text in scanned.items():
         splitter = r"\n(?=#{2,4} )" if path.suffix == ".md" else r"\n(?=[^#\n])"
         for section in re.split(splitter, text):
@@ -972,7 +976,7 @@ def test_qualitative_verdicts_match_their_logs():
             if not claims:
                 continue
             if len(cited) != 1:
-                ambiguous += len(claims)
+                ambiguous.extend(f"{path.name}: {sentence.strip()!r}" for sentence, _, _ in claims)
                 continue
             rows = verdicts[cited[0]]
             for sentence, batch, says_tie in claims:
@@ -987,8 +991,100 @@ def test_qualitative_verdicts_match_their_logs():
                     )
     assert checked, "this gate matched no verdict claim at all; its patterns have gone stale"
     assert not offenders, (
-        "these sentences call a measured comparison a tie or a win against the log they cite; "
-        f"state what the log states, or point at the generated caption that derives it: {offenders}"
+        f"these sentences call a measured comparison a tie or a win against the log they cite; "
+        f"state what the log states, or point at the generated caption that derives it: {offenders}. "
+        f"({checked} claims checked, {len(ambiguous)} skipped as ambiguous)"
+    )
+    # The residue is bounded rather than open-ended: a section citing several logs is skipped
+    # here, and ``test_generated_table_bolding_marks_a_measured_win`` covers the *tables* in those
+    # same sections by matching each row against the log line that measured it.
+    assert len(ambiguous) <= 20, (
+        "more sentences now make a verdict claim this gate cannot attribute to a single log "
+        f"({len(ambiguous)}): {sorted(ambiguous)}"
+    )
+
+
+def test_generated_table_bolding_marks_a_measured_win():
+    """A bolded cell in a generated table is a win outside the two spreads, never a tied row.
+
+    Every table here bolds "the faster of the pair", and four of the generators decided that by
+    comparing medians while their caption promised the spread rule - so a tied row read as a
+    measured win, in §6's Q/K-norm-order table for four rounds.
+    ``test_qualitative_verdicts_match_their_logs`` cannot see it: bolding is markup, not a
+    sentence.
+
+    The rule is mechanical and needs no per-table knowledge: for every generated table row with
+    exactly two ``us``/``ms`` cells, find the probe-log line that measured that pair - the two
+    values appear on it with their spreads - and require the bolding to agree with the verdict.
+    A row whose pair matches no log line is left alone; it was not read out of a probe.
+    """
+    pair_rule = re.compile(r"(\w+)_(?:us|ms)=\s*([\d.]+) \(\s*([\d.]+)\)")
+    # (value, value) -> verdict, over every probe log line that measured two timings.
+    measured: dict[frozenset, str] = {}
+    for path in sorted((DOC / "logs").glob("probe_*.log")):
+        for line in path.read_text(errors="replace").splitlines():
+            found = pair_rule.findall(line)
+            if len(found) != 2:
+                continue
+            (left_name, left, left_spread), (right_name, right, right_spread) = found
+            if left == right:
+                continue
+            gap = abs(float(left) - float(right))
+            if gap <= float(left_spread) + float(right_spread):
+                measured[frozenset((left, right))] = "tie"
+            else:
+                winner = left if float(left) < float(right) else right
+                measured[frozenset((left, right))] = winner
+    assert measured, "no probe log carries a two-timing line; this gate's pattern has gone stale"
+
+    cell_rule = re.compile(r"(\*\*)?(\d+\.\d+) (?:us|ms)(\*\*)?")
+    offenders, checked = [], 0
+    for path, text in _documents().items():
+        for block in re.finditer(r"<!-- GENERATED:(\w+) -->(.*?)<!-- END GENERATED:\w+ -->", text, re.DOTALL):
+            for row in block.group(2).splitlines():
+                if not row.startswith("|"):
+                    continue
+                cells = cell_rule.findall(row)
+                if len(cells) != 2:
+                    continue
+                verdict = measured.get(frozenset(value for _, value, _ in cells))
+                if verdict is None:
+                    continue
+                checked += 1
+                for open_mark, value, close_mark in cells:
+                    bolded = bool(open_mark or close_mark)
+                    if bolded and verdict != value:
+                        offenders.append(
+                            f"{path.name} {block.group(1)}: {value} is bolded but the log says "
+                            + ("the row is a tie" if verdict == "tie" else f"{verdict} wins")
+                        )
+    assert checked, "this gate matched no generated table row against a probe log; it has gone stale"
+    assert not offenders, (
+        "these generated tables bold a cell their probe log does not make a winner - derive the "
+        f"bolding from the medians and spreads: {offenders}"
+    )
+
+
+def test_doc_gate_log_is_of_the_shipped_gates():
+    """The committed ``doc_gate.log`` is a passing run of *this* file, not of an earlier one.
+
+    ``suite_main``/``long_context``/``watcher_run`` are bound to the prose by
+    ``test_run_log_counts_match_the_prose`` and to the source by the build stamp.  ``doc_gate.log``
+    was bound by neither, and a stage review found it a round stale - a 43-test run committed
+    beside a 44-test gate, so the stage's newest gate had no committed passing artifact.
+    """
+    log = (DOC / "logs" / "doc_gate.log").read_text(errors="replace")
+    # The pytest summary banner, not just any line containing "passed": the log's tail is nanobind
+    # teardown noise, so anchoring on the last line silently accepted a failing run.
+    summary = re.search(r"^=+ (.*\b(?:passed|failed)\b.*?) =+$", log, re.MULTILINE)
+    assert summary, "logs/doc_gate.log has no pytest summary banner"
+    assert "failed" not in summary.group(1), f"logs/doc_gate.log records a failing run: {summary.group(1)!r}"
+    shipped = set(re.findall(r"^def (test_\w+)\(", Path(__file__).read_text(), re.MULTILINE))
+    ran = set(re.findall(r"::(test_\w+)", log))
+    missing = sorted(shipped - ran)
+    assert not missing, (
+        "logs/doc_gate.log is a run of an earlier version of this file - it never ran "
+        f"{missing}; re-run the gate and commit the log"
     )
 
 

@@ -225,6 +225,15 @@ _GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
 #: drift from it silently.  Their outputs agree to PCC 0.99999 or better at every batch measured,
 #: and ``test_batched_users`` covers 4, 16 and 32, i.e. both sides of the boundary and the
 #: boundary itself.
+#:
+#: One measurement property is worth carrying forward, because it is what made the threshold move
+#: twice: across the committed re-runs of this probe the *group* arm is bimodal at batches 4, 8
+#: and 16 - two clusters, the slower one about a tenth above the faster - while the reshape arm is
+#: stable across the same re-runs.  A stage review
+#: re-derived the crossing under every committed version of the log and got 32 each time, because
+#: the criterion is one-sided (the group form must beat the reshape form by more than its own
+#: spread).  A future stage that re-measures should read the crossing off the log the same way
+#: rather than off one run's medians.
 _GATED_NORM_GROUP_BATCH = 32
 
 #: The *decode* causal-conv FIR stays float32, and this constant is why it is not a knob.

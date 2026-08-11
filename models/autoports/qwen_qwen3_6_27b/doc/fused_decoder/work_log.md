@@ -630,13 +630,13 @@ then multiplied the delta residual by it. Both unaries ride on their consumer's
 <!-- GENERATED:input_folds -->
 | fold | batch | separate unary | folded into the binary | agreement |
 |---|---|---|---|---|
-| `exp(g)` into the recurrent-state multiply | 1 | 69.4 us | **58.4 us** | PCC 1.000000, max abs diff 0.000e+00 |
-| `exp(g)` into the recurrent-state multiply | 32 | 598.7 us | **580.5 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| `exp(g)` into the recurrent-state multiply | 1 | 69.4 us | 58.4 us | PCC 1.000000, max abs diff 0.000e+00 |
+| `exp(g)` into the recurrent-state multiply | 32 | 598.7 us | 580.5 us | PCC 1.000000, max abs diff 0.000e+00 |
 | `sigmoid(b)` into the `delta` multiply | 1 | 80.9 us | **69.6 us** | PCC 1.000000, max abs diff 0.000e+00 |
-| `sigmoid(b)` into the `delta` multiply | 32 | 427.7 us | **420.4 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| `sigmoid(b)` into the `delta` multiply | 32 | 427.7 us | 420.4 us | PCC 1.000000, max abs diff 0.000e+00 |
 | rank-3 before the slices instead of after (not taken) | 2048 rows | 262.2 us (shipped) | 259.1 us | PCC 1.000000, max abs diff 0.000e+00 |
 
-Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact and both were taken. Moving the rank change ahead of the slices removes two float32 reshapes and adds one, and measures as a tie, so the shipped order stands.
+Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact and both were taken; on time, 1 of the 4 rows is a win outside the spreads and the rest are ties, so what a fold buys for certain is a dispatch, not microseconds. A bolded cell is a win outside the two spreads together. Moving the rank change ahead of the slices removes two float32 reshapes and adds one, and measures as a tie, so the shipped order stands.
 <!-- END GENERATED:input_folds -->
 
 Both are bit-exact (maximum absolute difference 0.0), and both were taken: two dispatches fewer
@@ -1013,7 +1013,7 @@ Recorded here so "no remaining fusing" is a claim with evidence behind it, not a
 | decode Q and K through one norm/scale/rank-change chain | batch 32 | **509.0 us** (separate) | 527.4 us (merged) | PCC 1.000000 / 1.000000 |
 | prefill `in_proj_qkv` as three projections and three FIRs instead of one and three slices | 2048 tokens | **6.931 ms** (packed) | 7.229 ms (split) | PCC 1.000000 |
 
-Median over 25 repeats (9 for the prefill row). Both merges are the same arithmetic as what ships and both measure slower: cutting a wide TILE tensor apart, or concatenating one, costs more than the shared work it enables - the same result §6.2 found for `wqkv`/`wgate`.
+Median over 25 repeats (9 for the prefill row). Both merges are the same arithmetic as what ships and both measure slower: cutting a wide TILE tensor apart, or concatenating one, costs more than the shared work it enables - the same result §6.2 found for `wqkv`/`wgate`. A bolded cell is a win outside the two spreads together; a row with no bold is a tie.
 <!-- END GENERATED:rejected_shared_work -->
 
 <!-- GENERATED:rejected_decode_variants -->
@@ -1021,7 +1021,7 @@ Median over 25 repeats (9 for the prefill row). Both merges are the same arithme
 |---|---|---|---|---|
 | decode causal-conv FIR in bfloat16 instead of float32 | 1 | **112.5 us** (float32) | 137.2 us (bfloat16) | PCC 0.999990 between them, 0.999990 against torch |
 | decode causal-conv FIR in bfloat16 instead of float32 | 32 | 212.6 us (float32) | **140.8 us** (bfloat16) | PCC 0.999989 between them, 0.999989 against torch |
-| Q/K L2 norm before the GQA expansion instead of after | 1 | **114.3 us** (expand, then norm) | 137.2 us (norm, then expand) | PCC 1.000000 between them |
+| Q/K L2 norm before the GQA expansion instead of after | 1 | 114.3 us (expand, then norm) | 137.2 us (norm, then expand) | PCC 1.000000 between them |
 | Q/K L2 norm before the GQA expansion instead of after | 32 | **291.2 us** (expand, then norm) | 338.1 us (norm, then expand) | PCC 1.000000 between them |
 
 Median microseconds over 25 repeats. Both alternatives are the same arithmetic as what ships. The bolded cell in each row is the faster of the pair as measured, and a row with no bold is one where the two are inside their combined spread.
@@ -1218,7 +1218,7 @@ about evidence rather than the graph:
 
 | finding | what was done |
 |---|---|
-| `_GATED_NORM_GROUP_BATCH = 32` was chosen from a threshold no committed artifact measured - the round-4 fix had added the *mechanism* for picking between the two gated-norm forms without a probe behind the number | `probes/probe_gated_norm_batch.py` was written and run, and its log is committed and generated into §3.17. It backs the threshold: the reshape form wins at batch 1 and the group form from batch 16 up, and they agree at PCC 0.999994 |
+| `_GATED_NORM_GROUP_BATCH = 32` was chosen from a threshold no committed artifact measured - the round-4 fix had added the *mechanism* for picking between the two gated-norm forms without a probe behind the number | `probes/probe_gated_norm_batch.py` was written and run, and its log is committed and generated into §3.17. It backs the threshold, and the two forms agree at PCC 0.999994. (Round 5 read the crossing off that log as "the group form from batch 16 up"; the committed log puts it between 16 and 32, which §3.17's caption derives - the misreading is what made round 10 move the constant to 16, and round 16 moved it back) |
 | `test_prose_perf_figures_match_the_summary` was vacuous: it accepted any figure appearing *as a substring anywhere* in the corpus, so a stale figure passed as long as some unrelated number contained its digits | rewritten around `_allowed_figures()`, which derives the allowed set by value from `perf_summary.json` (device time, gap, breakdown, top ops), the stage-1 summary, and every number the probe logs actually printed. Generated blocks are excluded from the scan and covered by `::test_generated_blocks_are_current` instead. It immediately found the ten remaining hand-transcribed figures, all now either generated or reworded to quote the table |
 
 Its concerns were taken too: two skill patterns the earlier rounds had not assessed are now
@@ -1322,8 +1322,10 @@ Its concerns were taken as work rather than noted:
   `::test_selected_grids_are_the_measured_best` rejected the old constant against the new log,
   which is what that gate is for.
 * `_GATED_NORM_GROUP_BATCH` was pinned at the advertised batch rather than the measured crossing,
-  so any `max_batch` in 17..31 took the slower form. The probe puts the crossing between 8 and 16;
-  the threshold is **16** now, and `test_batched_users[16-*]` covers the boundary.
+  so any `max_batch` in 17..31 took the slower form. Round 10 read the crossing off the probe as
+  "between 8 and 16" and moved the threshold to **16**; that reading is wrong against the
+  committed log, which puts it between 16 and 32, so round 16 moved the constant back to 32 and
+  bound it to the log. `test_batched_users[16-*]` still covers the boundary.
 * the `in_proj_qkv`/`in_proj_z` pair - the largest shared-LHS pair with no dtype objection, both
   weights bfloat16 - had no row of its own. Measured: the packed form is about 44 % slower at
   prefill and a tie at decode (§6, same generated table as §6.2).
@@ -1550,6 +1552,23 @@ misclassified a row fails there too - and requires the two to agree. It is scope
 citing exactly one probe log with a row at that batch; a section citing several is skipped rather
 than guessed at.
 
+Round 23 returned **more-work-needed** with two P2s, both of them holes in round 22's own fix. It
+re-derived every perf row, every op count, the PCC minimum and all 34 generated blocks, and found
+no correctness, capability or performance defect, no unearned rejection and no stale figure.
+
+| finding | what was done |
+|---|---|
+| round 22 gated *sentences* but not table **markup**: four generators still bolded "the faster of the pair" by comparing medians while their caption promised the spread rule, so §6's Q/K-norm-order row read as a measured win at batch 1 where the two are inside their combined spread - contradicting §6's own prose thirty lines above it | every generator that bolds a measured cell routes through `_verdict()` now (`rejected_decode_variants`, `rejected_shared_work`, `input_folds`), so a tied row carries no bold, and `::test_generated_table_bolding_marks_a_measured_win` re-derives it from the log for **every** generated table row that names two timings - no per-table knowledge, so a table added later is covered by construction |
+| `logs/doc_gate.log` was a round stale - a 43-test run committed beside a 44-test gate - and it was the one run log bound by neither the prose-count gate nor the build-stamp gate, so the stage's newest gate had no committed passing artifact | the log is regenerated and committed, `doc_gate` is in the build-stamp list, and `::test_doc_gate_log_is_of_the_shipped_gates` asserts the committed log ran every `def test_` this file defines |
+
+Its other concerns were taken as work rather than noted: §8's round-5 and round-10 rows read the
+gated-norm crossing off the log as 16 and are annotated with what the log says and how the
+misreading propagated; the probe index no longer calls the two input folds "cheaper" (one of the
+four rows is a win outside the spreads, the rest are ties, so what a fold buys for certain is a
+dispatch); the verdict gate's skipped-claim count is capped and listed in its failure message
+rather than computed and dropped; and the constant's docstring records the bimodality of the
+group arm across re-runs, which is the mechanism behind the threshold moving twice.
+
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
 | SHA | what |
@@ -1575,6 +1594,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `a3d205bf519` | Qwen3.6-27B fused decoder: nineteenth-review fixes |
 | `c36b7d6ac85` | Qwen3.6-27B fused decoder: twentieth-review fixes |
 | `782fb23fc88` | Qwen3.6-27B fused decoder: twenty-first-review fixes |
+| `c9a93716645` | Qwen3.6-27B fused decoder: twenty-second-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -
