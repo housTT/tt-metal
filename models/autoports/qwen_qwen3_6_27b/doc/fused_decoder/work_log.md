@@ -542,13 +542,14 @@ review correctly refused. Measured at the real decode shapes, median over 25 rep
 | reshape + `ttnn.rms_norm` (us) | 73.0 (23.1) | 99.2 (19.3) | 91.5 (3.1) | 150.1 (0.8) | 238.5 (0.7) |
 | group reduction (us) | 145.4 (4.8) | 146.6 (16.6) | 146.0 (25.8) | 166.1 (2.9) | 150.1 (19.1) |
 
-Median and (stdev) in microseconds over 25 repeats. Lowest PCC between the two forms' outputs, over all batches measured: 0.999993. The group form first becomes distinguishably faster at batch 32, which is where the shipped threshold sits.
+Median and (stdev) in microseconds over 25 repeats. Lowest PCC between the two forms' outputs, over all batches measured: 0.999993. The group form first becomes distinguishably faster at batch 32, which is where the shipped threshold sits. Per batch, by the same rule: batch 1 reshape wins, batch 4 reshape wins, batch 8 reshape wins, batch 16 reshape wins, batch 32 group wins.
 <!-- END GENERATED:gated_norm_batches -->
 
 The group form is two skinny constant matmuls and barely moves with the row count; the reshape
 form's two tile relayouts grow with it. The table above puts the crossing between **16 and 32** -
-at 16 the two are inside the group form's own spread, a tie the caption derives rather than
-asserts - so the threshold is the batch at which the group form first wins outright, which
+the reshape form wins every batch up to and including 16, and the group form wins at 32 - and the
+per-batch verdicts in the caption are derived from the medians and their spreads rather than
+asserted here. The threshold is that crossing, which
 the generated caption derives from the log and `::test_selected_constants_are_the_measured_best`
 binds to it. The layer picks by
 `max_batch` (`_GATED_NORM_GROUP_BATCH`) rather than committing to one, and
@@ -789,10 +790,10 @@ matmul reads in that shape, and they can be dense.
 <!-- GENERATED:dense_recurrence -->
 | batch | one padded row per head | dense `[1, batch, heads, dim]` | agreement |
 |---|---|---|---|
-| 1 | 100.0 us | **101.9 us** | PCC 1.000000, max abs diff 0.000e+00 |
+| 1 | 100.0 us | 101.9 us | PCC 1.000000, max abs diff 0.000e+00 |
 | 32 | 741.0 us | **408.6 us** | PCC 1.000000, max abs diff 0.000e+00 |
 
-Median over 25 repeats over the `subtract` / `sigmoid`-multiply chain and the rank changes each form needs. Bit-identical. At batch 1 the two are inside each other's spread; at the advertised batch the dense form is far ahead, because a one-row-per-head TILE tensor carries 31 padding rows for every real one.
+Median over 25 repeats over the `subtract` / `sigmoid`-multiply chain and the rank changes each form needs. Bit-identical. At batch 1 a tie; at batch 32 dense wins - at the advertised batch the dense form is far ahead, because a one-row-per-head TILE tensor carries 31 padding rows for every real one. A bolded cell is a win outside the combined spread; a row with none is a tie.
 <!-- END GENERATED:dense_recurrence -->
 
 Taken: the state read's per-head-row result is turned dense once, the subtract and the gated
@@ -1329,8 +1330,10 @@ Its concerns were taken as work rather than noted:
 * a sixth causal-conv formulation, "scale on the TILE tensor first, then untilize per tap and
   shift-and-add in ROW_MAJOR", is the one ordering that moves the per-tap tilize off the critical
   path. Measured and rejected: slower than the shipped form in both dtypes, bit-identical output.
-* the Q/K-pair rejection is restated as decisive at batch 32 and a tie at batch 1, which is what
-  its log says; §8's round-7 row no longer transcribes a figure of the current artifact; and the
+* the Q/K-pair rejection is restated against its log rather than asserted. Round 10 wrote that as
+  "a tie at batch 1", which round 22 found the log denies - the shipped separate form leads at
+  both batches, narrowly at 1 and decisively at 32, which is why §6's generated table bolds it in
+  both rows; §8's round-7 row no longer transcribes a figure of the current artifact; and the
   `conv_state` divergence is described as being about the packed buffer only, which is the only
   buffer the functional layer writes during decode.
 
@@ -1511,7 +1514,7 @@ and re-derived every published figure.
 | finding | what was done |
 |---|---|
 | the probe index still gave §3.25's *retracted* mechanism ("the error compounds") in two rows, and §8's round-20 row claimed the index had been corrected | both rows restated from §3.25 - faster from batch 4 up, rejected on the committed failing run, pass/fail tracks the size of the carried state, compounding ruled out by a committed negative result - and the round-20 row now says where the propagation actually stopped |
-| `_GATED_NORM_GROUP_BATCH`'s prose said "at 16 the reshape form is still ahead by several times the spread"; after round 17 re-ran that probe with the shipped core grids the log shows a **tie** inside the group form's spread | both places restated: the two forms tie at 16, the group form wins outright at 32, and which batch that is comes from the generated caption rather than from a sentence |
+| `_GATED_NORM_GROUP_BATCH`'s prose stated the batch-16 comparison in words rather than from the table | restated in both places - but **wrongly**, as a tie the log denies; round 22 found and fixed that, and the per-batch verdicts are generated now |
 | the recurrence-grid docstring described "best-of-20 wall time", "roughly 3x slower than any explicit grid" and a "flat region … within run-to-run spread", none of which the current sweep shows - and it contradicted its own next paragraph, which is why the grid is keyed by regime | rewritten to say what the sweep shows and to point at §3.6's derived caption; the caption's own "several times slower than any explicit grid" literal is gone too |
 
 Two structural gaps it named are closed rather than noted. Probe logs now carry the `FUSED_BUILD`
@@ -1520,6 +1523,32 @@ artifact class with no tie to the source - and `::test_every_run_was_made_agains
 checks all twenty of them. And the two configuration constants that are measured at their ends
 rather than across their range are stated as a limitation in the README, where a later stage will
 read it.
+
+Round 22 returned **more-work-needed** with one P2, and it is the previous round's own fix: round
+21 restated `_GATED_NORM_GROUP_BATCH`'s justification as "the two forms tie at 16", which the log
+it cites denies - §3.17's table has the reshape form ahead there by several times the two spreads
+put together, which is the same rule every other verdict in this document uses. The
+shipped constant was never wrong (32 is the crossing either way, and
+`::test_selected_constants_are_the_measured_best` derives it), but the sentence a later stage
+would read to decide whether to move that threshold was, and it is the same false-tie reading
+that made round 16 ship the slower form for `max_batch` 16..31. Round 22 re-derived every
+published figure and found no correctness, capability or performance defect, no unearned
+rejection and no stale artifact.
+
+| finding | what was done |
+|---|---|
+| the batch-16 gated-norm comparison was called a tie in the constant's docstring, in §3.17 and in §8's round-21 row, against a log whose gap there is several times the two spreads put together | all three restated from the log, and the per-batch verdict is **generated** now: §3.17's caption names the winner of every batch it measured, derived from the medians and their spreads, so the sentence has nothing left to assert |
+| the same rule caught two more: the probe index called the decode Q/K pair "a tie at batch 1" and §8's round-10 bullet said the same "which is what its log says", where the shipped separate form actually leads at both batches; and §3.24's generated table bolded the dense cell at batch 1, where the row is a tie and the *rows* form is nominally ahead | the index and the bullet say what the log says; the dense-recurrence generator bolds a cell only when the gap is outside the combined spread, and its caption states each batch's verdict |
+
+The gap under all three is that no gate could see a *verdict*. `test_prose_perf_figures_match_the_summary`
+binds figures carrying a unit and `test_no_unbound_comparatives_in_the_documents` binds ratios
+written in words; a claim that two medians tie carries neither.
+`::test_qualitative_verdicts_match_their_logs` closes it: for every sentence in the documents or
+the shipped sources that names a batch and calls the comparison a tie or a win, it re-derives the
+verdict from the raw probe log - independently of `make_doc_tables.py`, so a generator that
+misclassified a row fails there too - and requires the two to agree. It is scoped to sections
+citing exactly one probe log with a row at that batch; a section citing several is skipped rather
+than guessed at.
 
 Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never pushed):
 
@@ -1545,6 +1574,7 @@ Checkpoint commits on `agentic-research/hous/qwen3.6-27b-v2` (local only; never 
 | `6fb4a7b8f49` | Qwen3.6-27B fused decoder: eighteenth-review fixes |
 | `a3d205bf519` | Qwen3.6-27B fused decoder: nineteenth-review fixes |
 | `c36b7d6ac85` | Qwen3.6-27B fused decoder: twentieth-review fixes |
+| `782fb23fc88` | Qwen3.6-27B fused decoder: twenty-first-review fixes |
 
 Unrelated dirty state in the worktree - `.agents/notes/gdn.md`, two
 `.agents/prompts/model_bringup_multigoal/*.txt` and `scripts/check_agent_prompt_lengths.py` -

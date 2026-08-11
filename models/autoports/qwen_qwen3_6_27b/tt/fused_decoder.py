@@ -216,9 +216,10 @@ _GROUP_EXPAND_GRID = {"prefill": None, "decode": (2, 8)}
 #: reshape form's two tile relayouts grow with it.  Measured at the real decode shapes over five
 #: batch sizes by ``doc/fused_decoder/probes/probe_gated_norm_batch.py``; the table is
 #: ``work_log.md`` section 3.17, generated from that probe's log so the two cannot drift.  The
-#: two forms cross between **16 and 32**: at 16 they are inside the group form's own spread - a
-#: tie - and at 32 the group form wins outright.  Which batch that is, is derived from the log by
-#: the generated caption in §3.17 rather than asserted here.  The threshold has been at
+#: two forms cross between **16 and 32**: the reshape form wins every measured batch up to and
+#: including 16, and the group form wins at 32.  Which batch that is, and which form wins each
+#: one, are derived from the log by the caption in §3.17 rather than asserted here, because round
+#: 21 wrote a verdict into this comment that its own log denied.  The threshold has been at
 #: 32, then 16, and is 32 again - each move followed the measurement of the day, and
 #: ``test_selected_constants_are_the_measured_best`` now binds it to the probe log so it cannot
 #: drift from it silently.  Their outputs agree to PCC 0.99999 or better at every batch measured,

@@ -533,12 +533,33 @@ def gated_norm_batches() -> str:
         (row[0] for row in rows if float(row[2]) + float(row[5]) < float(row[1])),
         None,
     )
+    # Which form wins each batch, derived the same way every other table here derives a verdict:
+    # a gap wider than the two spreads together is a win, anything narrower is a tie.  Round 21
+    # asserted a tie at 16 that this row set denies, so the per-batch verdict is generated too.
+    verdicts = ", ".join(
+        f"batch {batch} {_verdict(r, rs, g, gs, 'reshape', 'group')}" for batch, r, g, _, rs, gs in rows
+    )
     return (
         header + "\n" + "|---" * (len(batches) + 1) + "|\n" + reshape + "\n" + group + "\n\n"
         f"Median and (stdev) in microseconds over 25 repeats. Lowest PCC between the two forms' "
         f"outputs, over all batches measured: {worst:.6f}. The group form first becomes "
-        f"distinguishably faster at batch {crossing}, which is where the shipped threshold sits."
+        f"distinguishably faster at batch {crossing}, which is where the shipped threshold sits. "
+        f"Per batch, by the same rule: {verdicts}."
     )
+
+
+def _verdict(left: str, left_spread: str, right: str, right_spread: str, left_name: str, right_name: str) -> str:
+    """Which of two measured medians wins, or ``tie`` when the gap is inside the two spreads.
+
+    This is the one rule the whole stage uses for "is this difference real", and it is here so a
+    caption states it rather than a sentence asserting it - the class of defect rounds 17 and 21
+    both landed in.  ``tests/test_fused_decoder_docs.py::test_qualitative_verdicts_match_their_logs``
+    applies the same rule to the prose.
+    """
+    gap = abs(float(left) - float(right))
+    if gap <= float(left_spread) + float(right_spread):
+        return "tie"
+    return f"{left_name} wins" if float(left) < float(right) else f"{right_name} wins"
 
 
 def before_breakdown() -> str:
@@ -703,22 +724,30 @@ def input_fold_table() -> str:
                 f"PCC {match.group(3)}, max abs diff {match.group(4)} |"
             )
     match = re.search(
-        r"rank3 seq=(\d+) rank4_first_us=\s*([\d.]+) \(\s*[\d.]+\) rank3_first_us=\s*([\d.]+) "
-        r"\(\s*[\d.]+\) pcc_beta=([\d.]+) pcc_g=([\d.]+) max_abs_diff=(\S+)",
+        r"rank3 seq=(\d+) rank4_first_us=\s*([\d.]+) \(\s*([\d.]+)\) rank3_first_us=\s*([\d.]+) "
+        r"\(\s*([\d.]+)\) pcc_beta=([\d.]+) pcc_g=([\d.]+) max_abs_diff=(\S+)",
         _probe("probe_gdn_input_folds"),
     )
     if not match:
         raise SystemExit("probe_gdn_input_folds.log has no rank3 row")
     rows.append(
         f"| rank-3 before the slices instead of after (not taken) | {match.group(1)} rows | "
-        f"{match.group(2)} us (shipped) | {match.group(3)} us | "
-        f"PCC {match.group(4)}, max abs diff {match.group(6)} |"
+        f"{match.group(2)} us (shipped) | {match.group(4)} us | "
+        f"PCC {match.group(6)}, max abs diff {match.group(8)} |"
+    )
+    # The rank-3 verdict is derived like every other one here, not asserted: the sentence used to
+    # say "measures as a tie" whatever the row said.
+    rank3 = _verdict(match.group(2), match.group(3), match.group(4), match.group(5), "shipped", "rank-3 first")
+    outcome = (
+        "measures as a tie, so the shipped order stands"
+        if rank3 == "tie"
+        else f"measures as a win for the {rank3.rsplit(' ', 1)[0]} order"
     )
     rows.append("")
     rows.append(
         "Median microseconds over 25 repeats (9 for the rank-3 row). Both folds are bit-exact "
         "and both were taken. Moving the rank change ahead of the slices removes two float32 "
-        "reshapes and adds one, and measures as a tie, so the shipped order stands."
+        f"reshapes and adds one, and {outcome}."
     )
     return "\n".join(rows)
 
@@ -1082,24 +1111,33 @@ def conv_tap_addcmul() -> str:
 def dense_recurrence() -> str:
     """The recurrence's transient chain in per-head rows or dense, at both regimes."""
     rows = ["| batch | one padded row per head | dense `[1, batch, heads, dim]` | agreement |", "|---|---|---|---|"]
+    verdicts = {}
     for batch in ("1", "32"):
         match = re.search(
-            rf"dense_recurrence batch=\s*{batch} rows_us=\s*([\d.]+) \(\s*[\d.]+\) "
-            rf"dense_us=\s*([\d.]+) \(\s*[\d.]+\) pcc_between=([\d.]+) max_abs_diff=(\S+)",
+            rf"dense_recurrence batch=\s*{batch} rows_us=\s*([\d.]+) \(\s*([\d.]+)\) "
+            rf"dense_us=\s*([\d.]+) \(\s*([\d.]+)\) pcc_between=([\d.]+) max_abs_diff=(\S+)",
             _probe("probe_dense_recurrence"),
         )
         if not match:
             raise SystemExit(f"probe_dense_recurrence.log has no batch {batch} row")
+        rows_us, rows_spread, dense_us, dense_spread = (match.group(i) for i in (1, 2, 3, 4))
+        # Bold the winner, and neither when the row is a tie: the caption used to bold the dense
+        # cell at batch 1, where the two are inside each other's spread and the *rows* form is
+        # nominally ahead.
+        verdicts[batch] = _verdict(rows_us, rows_spread, dense_us, dense_spread, "rows", "dense")
+        mark_rows = "**" if verdicts[batch] == "rows wins" else ""
+        mark_dense = "**" if verdicts[batch] == "dense wins" else ""
         rows.append(
-            f"| {batch} | {match.group(1)} us | **{match.group(2)} us** | "
-            f"PCC {match.group(3)}, max abs diff {match.group(4)} |"
+            f"| {batch} | {mark_rows}{rows_us} us{mark_rows} | {mark_dense}{dense_us} us{mark_dense} | "
+            f"PCC {match.group(5)}, max abs diff {match.group(6)} |"
         )
     rows.append("")
     rows.append(
         "Median over 25 repeats over the `subtract` / `sigmoid`-multiply chain and the rank changes "
-        "each form needs. Bit-identical. At batch 1 the two are inside each other's spread; at the "
-        "advertised batch the dense form is far ahead, because a one-row-per-head TILE tensor "
-        "carries 31 padding rows for every real one."
+        f"each form needs. Bit-identical. At batch 1 a {verdicts['1']}; at batch 32 {verdicts['32']} - "
+        "at the advertised batch the dense form is far ahead, because a one-row-per-head TILE tensor "
+        "carries 31 padding rows for every real one. A bolded cell is a win outside the combined "
+        "spread; a row with none is a tie."
     )
     return "\n".join(rows)
 

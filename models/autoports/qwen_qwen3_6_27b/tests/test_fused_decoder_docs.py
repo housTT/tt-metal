@@ -913,6 +913,85 @@ def test_selected_constants_are_the_measured_best():
     )
 
 
+def test_qualitative_verdicts_match_their_logs():
+    """A sentence calling a measured comparison a tie or a win agrees with the log it cites.
+
+    ``test_prose_perf_figures_match_the_summary`` binds figures that carry a unit and
+    ``test_no_unbound_comparatives_in_the_documents`` binds ratios written in words.  Neither can
+    see the third shape: a *verdict* - "a tie", "wins outright" - about a pair of measured medians.
+    That is the one figure shape with no gate, and round 21 restated a true sentence into a false
+    one inside it, saying the two gated-norm forms tie at batch 16 where the log has them 16 us
+    apart with 3.7 us of combined spread.
+
+    The rule is the stage's own, the one every generated caption uses: a gap wider than the two
+    spreads together is a win, anything narrower is a tie.  Its scope is deliberately narrow - a
+    sentence that names a batch, in a section that cites exactly one probe log with a row at that
+    batch.  A section citing several logs is ambiguous and is skipped rather than guessed at, which
+    the ``ambiguous`` count below makes visible instead of silent.
+    """
+    two_form = re.compile(
+        r"^(\w+) batch=\s*(\d+) (\w+)_us=\s*([\d.]+) \(\s*([\d.]+)\) (\w+)_us=\s*([\d.]+) \(\s*([\d.]+)\)",
+        re.MULTILINE,
+    )
+    # probe log stem -> {batch: "tie" | "<name> wins"}
+    verdicts: dict[str, dict[int, str]] = {}
+    for path in sorted((DOC / "logs").glob("probe_*.log")):
+        rows = {}
+        for match in two_form.finditer(path.read_text(errors="replace")):
+            _, batch, left_name, left, left_spread, right_name, right, right_spread = match.groups()
+            gap = abs(float(left) - float(right))
+            if gap <= float(left_spread) + float(right_spread):
+                rows[int(batch)] = "tie"
+            else:
+                rows[int(batch)] = f"{left_name} wins" if float(left) < float(right) else f"{right_name} wins"
+        if rows:
+            verdicts[path.stem] = rows
+
+    scanned = dict(_documents())
+    scanned.update({path: path.read_text() for path in SOURCES})
+    # Generated blocks are *not* stripped here, unlike the figure gates.  A caption that states a
+    # verdict is exactly the thing being bound, and this test re-derives the verdict from the raw
+    # log without going through ``make_doc_tables``, so a generator that classified a row wrongly
+    # would fail here rather than agree with itself.
+    #
+    # A "section" is a markdown heading's span, or - in the sources - a whole ``#:`` comment block,
+    # which is how the shipped constants carry their justification.
+    offenders, ambiguous, checked = [], 0, 0
+    for path, text in scanned.items():
+        splitter = r"\n(?=#{2,4} )" if path.suffix == ".md" else r"\n(?=[^#\n])"
+        for section in re.split(splitter, text):
+            cited = sorted({name for name in verdicts if name in section})
+            claims = [
+                (match.group(0), int(match.group(1) or match.group(2)), "tie" in match.group(0))
+                for match in re.finditer(
+                    r"(?:at|batch)\s+(?:batch\s+)?(\d+)[^.;|]*?\b(?:tie|ties|wins)\b"
+                    r"|\b(?:tie|ties|wins)\b[^.;|]*?(?:at|batch)\s+(?:batch\s+)?(\d+)",
+                    section,
+                )
+            ]
+            if not claims:
+                continue
+            if len(cited) != 1:
+                ambiguous += len(claims)
+                continue
+            rows = verdicts[cited[0]]
+            for sentence, batch, says_tie in claims:
+                if batch not in rows:
+                    continue
+                checked += 1
+                measured_tie = rows[batch] == "tie"
+                if says_tie != measured_tie:
+                    offenders.append(
+                        f"{path.name}: {sentence.strip()!r} - {cited[0]}.log at batch {batch} "
+                        f"measures {rows[batch]}"
+                    )
+    assert checked, "this gate matched no verdict claim at all; its patterns have gone stale"
+    assert not offenders, (
+        "these sentences call a measured comparison a tie or a win against the log they cite; "
+        f"state what the log states, or point at the generated caption that derives it: {offenders}"
+    )
+
+
 def test_probe_readme_covers_every_probe():
     """``probes/README.md`` has a row for every probe, a log for every row, and states its own counts.
 
