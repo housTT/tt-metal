@@ -548,24 +548,78 @@ void kernel_main() {
                     // Combine child with existing local/accumulated data
                     // Move child's L to cb_prev_sum_2 for correction
                     move_block<true>(cb_l_in, cb_prev_sum_2, Sq_chunk_t);
-                    // Fused Softmax Correction
-                    // * Fused Correction is a fused operation that performs the following steps:
+                    // Softmax Correction:
                     // * 1. CUR_MAX = max(PREV_MAX, WORKER_MAX)
                     // * 2. EXP_MAX_DIFF_2 = exp((WORKER_MAX - CUR_MAX)*scale)
                     // * 3. PREV_SUM_2 *= EXP_MAX_DIFF_2
                     // * 4. EXP_MAX_DIFF = exp((PREV_MAX - CUR_MAX)*scale)
                     // * 5. PREV_SUM *= EXP_MAX_DIFF
                     // * 6. CUR_SUM = PREV_SUM_2 + PREV_SUM
-                    correction_block<scale_fp32, vector_mode>(
-                        cb_m_in,        // cb child max
-                        cb_prev_sum_2,  // cb child sum
-                        cb_cur_max,
-                        cb_prev_max,
-                        cb_cur_sum,
-                        cb_prev_sum,
-                        cb_exp_max_diff,
-                        cb_exp_max_diff_2,
-                        Sq_chunk_t);
+                    if constexpr (DST_ACCUM_MODE) {
+                        // #DST-BOUNDS: the fused SFPU correction
+                        // (ckernel_sfpu_sdpa.h: calculate_fused_max_sub_exp_add_tile) addresses FIVE
+                        // DEST tiles - prev_max, worker_max, cur_max, prev_sum, worker_sum at
+                        // dst_reg[0/32/64/96/128].  Under fp32 destination accumulation only FOUR
+                        // DEST tiles per half are addressable (the host side of this op says so
+                        // itself: sdpa_decode_program_factory.cpp `dst_size = fp32_dest_acc_en ? 4 :
+                        // 8`), so tile 4 lands outside the live half.  Which live value it destroys
+                        // depends on which DEST half is currently active, and that alternates with
+                        // the number of tile_regs_acquire/release pairs the core has already run -
+                        // i.e. with the parity of the reducer's own k-chunk count.  Measured on
+                        // Blackhole with 24 q / 4 kv heads, head_dim 256, k_chunk 512 and
+                        // max_cores_per_head_batch=2: every position whose *root* core owns an odd
+                        // number of k chunks came back with the child's contribution missing from
+                        // the numerator and a garbage denominator (device/float32-golden scale 14.9
+                        // to 22.5 at positions 1023 / 1535 / 3071), while even counts were exact.
+                        // With fp32_dest_acc_en off - five tiles fit in a half - the same sweep is
+                        // 1.006 to 1.012 everywhere.  See
+                        // models/autoports/qwen_qwen3_6_27b/doc/optimized_decoder/sdpa/AUTOFIX_SDPA.md.
+                        //
+                        // Same arithmetic, unfused, so no step ever needs more than 2 DEST tiles.
+                        // Only reached when fp32 dest accumulation is on, so the fused fast path is
+                        // untouched for every other caller.
+                        reconfig_data_format(cb_prev_max, cb_m_in);
+                        pack_reconfig_data_format(cb_cur_max);
+                        // CUR_MAX = max(PREV_MAX, WORKER_MAX)
+                        max_block<vector_mode>(cb_prev_max, cb_m_in, cb_cur_max, Sq_chunk_t);
+
+                        // EXP_MAX_DIFF = exp((PREV_MAX - CUR_MAX)*scale)
+                        reconfig_data_format(cb_prev_max, cb_cur_max);
+                        pack_reconfig_data_format(cb_exp_max_diff);
+                        sub_exp_block<scale_fp32>(cb_prev_max, cb_cur_max, cb_exp_max_diff, Sq_chunk_t);
+
+                        // EXP_MAX_DIFF_2 = exp((WORKER_MAX - CUR_MAX)*scale)
+                        reconfig_data_format(cb_m_in, cb_cur_max);
+                        pack_reconfig_data_format(cb_exp_max_diff_2);
+                        sub_exp_block<scale_fp32>(cb_m_in, cb_cur_max, cb_exp_max_diff_2, Sq_chunk_t);
+
+                        // PREV_SUM *= EXP_MAX_DIFF ; PREV_SUM_2 *= EXP_MAX_DIFF_2
+                        reconfig_data_format(cb_prev_sum, cb_exp_max_diff);
+                        pack_reconfig_data_format(cb_prev_sum);
+                        mul_block_inplace(cb_prev_sum, cb_exp_max_diff, Sq_chunk_t);
+                        reconfig_data_format(cb_prev_sum_2, cb_exp_max_diff_2);
+                        pack_reconfig_data_format(cb_prev_sum_2);
+                        mul_block_inplace(cb_prev_sum_2, cb_exp_max_diff_2, Sq_chunk_t);
+
+                        // CUR_SUM = PREV_SUM + PREV_SUM_2.  add_block_inplace<true> pops
+                        // cb_prev_sum_2 and move_block<true> pops cb_prev_sum, which reproduces the
+                        // fused block's postcondition (both sum inputs consumed, cur_sum produced).
+                        add_block_inplace<true>(cb_prev_sum, cb_prev_sum_2, Sq_chunk_t);
+                        reconfig_data_format(cb_prev_sum, cb_prev_sum);
+                        pack_reconfig_data_format(cb_cur_sum);
+                        move_block<true>(cb_prev_sum, cb_cur_sum, Sq_chunk_t);
+                    } else {
+                        correction_block<scale_fp32, vector_mode>(
+                            cb_m_in,        // cb child max
+                            cb_prev_sum_2,  // cb child sum
+                            cb_cur_max,
+                            cb_prev_max,
+                            cb_cur_sum,
+                            cb_prev_sum,
+                            cb_exp_max_diff,
+                            cb_exp_max_diff_2,
+                            Sq_chunk_t);
+                    }
 
                     // OUT_ACC_2 <- CHILD_OUT
                     move_block<true>(cb_out_o, cb_out_accumulate_im_2, out_chunk_tiles);

@@ -34,8 +34,23 @@ def pytest_addoption(parser):
         "--impl",
         action="store",
         default="fused",
-        choices=("fused", "functional"),
-        help="decoder implementation the fused-stage perf runs measure (before/after pair)",
+        choices=("fused", "functional", "optimized"),
+        help="decoder implementation a perf run measures (the before/after pair of a stage)",
+    )
+    parser.addoption(
+        "--policy",
+        action="store",
+        default="opt-v1",
+        help=(
+            "named precision policy for the optimized-stage perf runs; "
+            "see tests/test_optimized_decoder_perf.py POLICIES"
+        ),
+    )
+    parser.addoption(
+        "--geometry",
+        action="store",
+        default="opt-v1",
+        help="named decode geometry for the optimized-stage perf runs (see POLICIES' sibling GEOMETRIES)",
     )
     parser.addoption(
         "--perf-batch",

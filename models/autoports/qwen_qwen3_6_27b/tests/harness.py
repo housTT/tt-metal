@@ -161,13 +161,18 @@ def build_layer(
     seed: int = 0,
     cache_dtype=None,
     decoder_cls=FunctionalDecoder,
+    **decoder_kwargs,
 ) -> LayerUnderTest:
     """Build one decoder layer under test.
 
     ``cache_dtype=None`` leaves the decoder's own default (bfloat16); passing a dtype pins it,
     which is what ``test_bfloat8_kv_cache`` does.  ``decoder_cls`` selects the implementation:
-    :class:`FunctionalDecoder` or :class:`FusedDecoder`, which share a constructor and a
-    forward contract, so every test in this suite runs against either.
+    :class:`FunctionalDecoder`, :class:`FusedDecoder` or :class:`OptimizedDecoder`, which share a
+    constructor and a forward contract, so every test in this suite runs against any of them.
+
+    ``**decoder_kwargs`` are forwarded verbatim to ``decoder_cls.from_state_dict``.  The optimized
+    stage uses it to pass ``policy=``/``decode_geometry=``/``prefill_geometry=``; the earlier two
+    implementations take no extra keywords, so passing none leaves their behaviour untouched.
     """
     config = ref.load_text_config()
     if real_weights:
@@ -185,6 +190,7 @@ def build_layer(
         max_seq_len=max_seq_len,
         block_size=block_size,
         **({} if cache_dtype is None else {"cache_dtype": cache_dtype}),
+        **decoder_kwargs,
     )
 
     page_table_torch = None
