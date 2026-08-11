@@ -614,6 +614,9 @@ commit  7f467566666c1262154e1d35a33d9c7faa6b6ff8
 parent  e85bf5dbc38 (branch tip before this stage)
 ```
 
+A second, one-file commit follows it — `489f4456474` — adding this section and the generated
+`logs/commit_record.txt` it quotes, so the SHA is a sourced figure like every other number here.
+
 Stage-owned files only, all under `models/autoports/`: the implementation, the reference, the tests
 and the whole `doc/` evidence tree including the generators. Nothing outside `models/autoports/` was
 touched, `__pycache__` is excluded, and the `*.csv` perf reports needed `git add -f` because the repo
