@@ -559,22 +559,22 @@ made twenty of this file's inline probe figures stale, which is what prompted mo
 <!-- generated:worklog-probe-figures -->
 | Comparison | Measured | Artifact |
 | --- | --- | --- |
-| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.855977** — the activation is silently ignored | `probe_fused_ops.txt` |
-| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.5 µs vs 1958.2 µs | `probe_decode_micro.txt` |
-| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 102.7 µs vs 119.2 µs | `probe_router_and_reduce.txt` |
-| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.692 ms vs 2.491 ms | `probe_conv1d_and_norm.txt` |
+| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.856092** — the activation is silently ignored | `probe_fused_ops.txt` |
+| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.8 µs vs 1958.0 µs | `probe_decode_micro.txt` |
+| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 104.3 µs vs 124.4 µs | `probe_router_and_reduce.txt` |
+| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.699 ms vs 2.480 ms | `probe_conv1d_and_norm.txt` |
 | §4.8 — DeltaNet output gate, SiLU separate (shipped) vs folded into the multiply, at the **real** `float32 x bfloat16` operand pairing, prefill shape | separate PCC 0.999996, 0 non-finite; folded **111 non-finite values** at the smallest magnitude tested | `probe_fused_ops.txt` |
 | §4.8 — the same fold with **matched** `bfloat16 x bfloat16` operands, i.e. what a naive op-level probe writes, and why it passes | separate PCC 0.999994 vs folded PCC 0.999994, both 0 non-finite | `probe_fused_ops.txt` |
-| §4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair with per-group slices (shipped), 2048-token prefill | 3.006 ms vs 1.495 ms per MoE call | `probe_router_and_reduce.txt` |
-| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.393 ms vs PCC 0.825507 at 0.288 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
-| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 257.09 ms vs 257.15 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
-| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.4 µs, width-sharded x8 35.9 µs, width-sharded x16 38.8 µs, width-sharded x32 43.7 µs, width-sharded x64 60.3 µs | `probe_conv1d_and_norm.txt` |
+| §4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair with per-group slices (shipped), 2048-token prefill | 2.962 ms vs 1.497 ms per MoE call | `probe_router_and_reduce.txt` |
+| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.373 ms vs PCC 0.825507 at 0.285 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
+| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 257.11 ms vs 257.14 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
+| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.6 µs, width-sharded x8 35.9 µs, width-sharded x16 28.3 µs, width-sharded x32 38.4 µs, width-sharded x64 46.1 µs | `probe_conv1d_and_norm.txt` |
 | §3.3, §4.7 — decode head merge at `seq_len 1`: `permute + reshape` (shipped) vs `nlp_concat_heads` vs the flat untilize/reshape/tilize | 11.1 µs vs 52.9 µs vs 44.6 µs; all three bitwise-equal | `probe_decode_micro.txt` |
 | §4.7 — the flat untilize/reshape/tilize spelling above `seq_len 1` (it does not transpose head↔token, so it is not an alternative there at all) | PCC 0.000659 at 128 and 0.000095 at 2048 against the other two | `probe_decode_micro.txt` |
 | §3.2 — explicit `core_grid` on the recurrent-state read | 61.0 µs → 14.4 µs | `probe_decode_micro.txt` |
 | §3.3 — delta-rule outer product: `transpose + matmul` vs `matmul(transpose_a=True)` | 21.3 µs → 17.9 µs | `probe_decode_micro.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.829 ms vs 1.856 ms | `ab_rope_mode.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.65 ms vs 243.50 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.830 ms vs 1.855 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.67 ms vs 243.58 ms | `ab_rope_mode.txt` |
 <!-- /generated:worklog-probe-figures -->
 
 The MoE expert-group sweep and the functional-vs-fused headline are tabulated in
@@ -1362,7 +1362,7 @@ run, it passes.
 
 Other items from the same review: `watcher/CLASSIFICATION.md` carried a paragraph duplicated verbatim
 (removed); the MoE's per-group sparsity-mask rebuild is a real unexhausted hoist of the same shape as
-the router hoist, and is now quantified and recorded in §4.16 and README §8 item 12 rather than left
+the router hoist, and is now quantified and recorded in §4.16 and README §8's limitation list rather than left
 to the absolute reading of "no remaining fusing"; and the previous commit's message claimed no
 measured log was altered, when pre-commit's trailing-whitespace hook had in fact stripped trailing
 blanks from `watcher/watcher_log.txt` and the four `*_perf_report.txt` tables — whitespace only, the
@@ -1392,7 +1392,7 @@ than its evidence.
 | Finding | Fix |
 | --- | --- |
 | **P2** — §4.8 rejected the DeltaNet output-gate SiLU fold on `models/demos/blackhole/qwen36`'s source comment, which is exactly the objection round 19 raised against §4.15 and which §4.15 itself calls unacceptable — left standing in the sibling section. Worse, `_gdn_out`'s comment claimed the rejection was "confirmed by the A/B in doc/fused_decoder", and **no such A/B existed**: the only `SILU` probe in the tree is `[1, 1, 64, 512]` random data, i.e. precisely the small-input case the citation says *hides* the failure. | measured, both halves, and the result changed what §4.8 says. `probe_fused_ops.py` gains a `GATEFOLD` arm at the gate's own shape with a `|z|` sweep and non-finite counting; it says **take the merge** (PCC 0.999996, zero non-finite, ~a third faster). Landing it on that evidence takes the real-weight suite to essentially zero fused-vs-functional agreement, and reverting the one line restores it. §4.8 is rewritten around both halves, and the false "confirmed by" claim is gone. |
-| **P2** — §4.16 said the per-group sparsity-mask rebuild was "the only candidate of its kind"; `_routed_experts` rebuilds the down projection's score operand (`ttnn.permute`) per group the same way, and by device time it is the **larger** of the two. A section that exists to bound what is left cannot enumerate only the cheaper half. | §4.16 and README §8 item 12 now name both, the "only candidate" claim is withdrawn, and the scoping claim is narrowed to one that holds: every redundancy in the catalogue is taken, rejected with a measurement, or named here with its cost. |
+| **P2** — §4.16 said the per-group sparsity-mask rebuild was "the only candidate of its kind"; `_routed_experts` rebuilds the down projection's score operand (`ttnn.permute`) per group the same way, and by device time it is the **larger** of the two. A section that exists to bound what is left cannot enumerate only the cheaper half. | §4.16 and README §8's limitation list now name both, the "only candidate" claim is withdrawn, and the scoping claim is narrowed to one that holds: every redundancy in the catalogue is taken, rejected with a measurement, or named here with its cost. |
 
 §4.8 is the one worth carrying forward. It is the only rejection in the catalogue that an op-level
 A/B gets **wrong**, and this stage had to build that A/B, watch it pass, and then be refuted by the
@@ -1429,6 +1429,26 @@ where `ab_moe_group_tokens.txt` measures wall time and asserts no PCC; `ab_moe_g
 `ab_rope_mode.txt` carry no timestamps, so they cannot be tied to a pipeline pass by inspection the
 way every other artifact can; and §5's two device wedges were killed without `tt-triage` capture.
 
+### Round 22 — `more-work-needed`
+
+The twenty-second review verified round 21's three fixes landed, re-derived every load-bearing figure
+from the raw captures exactly, and confirmed the hoist's borrowed-tensor ownership is correct. Its
+findings were all **consequences of that hoist that I did not follow through**, and one of them is a
+real defect in the shipped graph.
+
+| Finding | Fix |
+| --- | --- |
+| **P1** — the §4.16 hoist made the layout-op counts sequence-independent (12 / 3 at both 256 and 2048 tokens), but `test_no_layout_churn_in_measured_forward` still budgeted `11 + groups` — **75 and 66 at seq 2048** — asserted with `<=`. The gate meant to pin "no unnecessary relayout" was tolerating 63 extra ops per prefill at exactly the length every §5 figure comes from, and README §6's itemisation still said "one MoE group mask per 32-token expert group (8 at 256, 64 at 2048)" next to the cell printing 12. | budgets are now the shipped counts, sequence-independent, and asserted **exactly** rather than as an upper bound; the itemisation says "per MoE call"; and the generator asserts the two prefill columns are equal, so the prose cannot drift from the measurement again without failing. |
+| **P2** — the hoisted call site still built `ttnn.slice(dense, …)` per group and passed it as `dense_routing`, which at the shipped 32-token group **nothing reads**: all three of its readers are behind `mask_owned`, `scores_owned` or `groups > 1`, and the hoist supplies the first two. 64 dispatched-and-freed device ops per 2048-token prefill, and the `MASKHOIST` probe's hoisted arm did not pay it — so the arm that justified the rewrite was not the arm that shipped. | the slice is now built only when `span > TILE`, i.e. only when the `groups > 1` branch will read it. This is the third time this stage has been caught measuring an arm the layer does not ship (§4.14, round 20's `GATEFOLD`), which is why §4.12's rule is that a probe arm must be the shipped spelling. |
+| **P2** — round 21's commit-record fix landed in §8 only; `logs/commit_record.txt` was untouched since `c52108710c8` and still described a two-commit stage whose tip was the bookkeeping commit, with `e1934c3963f`'s superseded headline figures. | rewritten from `git log`, with every SHA, what each carries, and which commit's evidence the documents describe. It now also says explicitly that §8 is the authority if the two ever disagree, and defers per-run line counts to `census_summary.txt` so it cannot go stale against them. |
+| **P2** — §8 claimed "the watcher log still has exactly 51 324 lines"; this run's log is 52 401. The figure audit passed it only because 51 324 still appeared in the *stale* `commit_record.txt` — the substring-sourcing weakness the audit documents about itself. | the claim no longer quotes a count and points at `census_summary.txt`. Two dangling "README §8 item 12" cross-references, left over from removing that limitation when the hoist landed, are also fixed. |
+
+The reviewer's remaining concern is recorded rather than closed: `_routed_experts`' `groups > 1`
+branch still has no PCC coverage, because no delivered test parameterises `moe_group_tokens` and
+`ab_moe_group_tokens.txt` asserts wall time only. The hoist put new code on that branch. It is
+arithmetically the same slicing the per-group spelling did, and the reviewer independently read it and
+agreed, but "read and agreed" is below this stage's own bar and it stays on the list.
+
 ---
 
 ## 8. Commit record
@@ -1460,6 +1480,7 @@ Two things about the regenerating commits are worth stating rather than leaving 
 * `pre-commit`'s trailing-whitespace hook rewrites six measured artifacts
   (`watcher/watcher_log.txt`, `watcher/census_summary.txt` and the four `*_perf_report.txt` tables)
   and `black` reformats the probe scripts. Whitespace and formatting only — `git diff -w` is empty
-  for all six, the watcher log still has exactly 51 324 lines — and the normalised bytes are what is
+  for all six, and the watcher log's line count is unchanged by them (`watcher/census_summary.txt`
+  carries the per-run total) — and the normalised bytes are what is
   committed, so the worktree and the commit agree. `d2ffe94a844`'s message claimed no measured log
   was altered when this same hook had altered them; round 19 caught that, and this is the correction.

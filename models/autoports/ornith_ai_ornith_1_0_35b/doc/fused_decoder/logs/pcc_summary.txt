@@ -35,7 +35,7 @@ conv1d_coverage: layer 0 batch 1: ttnn.conv1d accepted 1/1 prefill block lengths
 test_prefill_continuation: fused prefill continuation layer=0 PCC=0.999979
 test_unaligned_max_context: fused unaligned max_context=5000 layer=0 prefill+decode ok, tail std=0.5372
 test_determinism_repeated_inputs: fused determinism layer=0: 3/3 runs bit-identical for prefill and decode
-test_repeated_run_stress: fused stress layer=0 (linear_attention): 12 prefill+4-step-decode cycles over lengths [96, 130, 257], repeats bit-identical, DRAM allocated 217016064 -> 217016064 bytes (growth 0)
+test_repeated_run_stress: fused stress layer=0 (linear_attention): 12 prefill+4-step-decode cycles over lengths [96, 130, 257], repeats bit-identical, DRAM allocated 216966912 -> 216966912 bytes (growth 0)
 test_forward_with_poisoned_free_pool: fused poisoned-pool layer=0 seq_len=1 prefill PCC=0.999996 decode PCC=0.999997
 test_no_host_fallback_in_forward: fused fallback audit layer=0: both guards verified to fire; prefill+decode clean for ttnn ['from_torch', 'to_torch', 'as_tensor', 'from_device', 'to_device'] and all torch ops
 test_batched_paged_fill_is_one_launch_per_cache: fused batched paged_fill_cache batch=4: fused 2 launches, functional 8
@@ -48,8 +48,8 @@ test_synthetic_weights_pcc: fused SYNTHETIC WEIGHTS layer=0 (linear_attention) p
 test_full_context_prefill_and_decode: fused full-context layer=0 (linear_attention) seq_len=262143 prefill+decode completed, tail std=0.5310
 test_full_context_chunk_size_invariance: fused chunk-size invariance layer=0 (linear_attention) seq_len=262144 tail(128) PCC(chunk 2048 vs 1024)=1.000000
 test_long_context_pcc: fused long-context PCC layer=0 seq_len=8000 prefill=0.999970 decode=0.999991
-test_perf_prefill: FUSED PERF prefill layer=0 (linear_attention) seq_len=2048 wall=257.80 ms  tok/s=7944.2
-test_perf_decode_traced: FUSED PERF decode(traced) layer=0 (linear_attention) iters=32 wall/iter=2.063 ms  steps/s=484.7
+test_perf_prefill: FUSED PERF prefill layer=0 (linear_attention) seq_len=2048 wall=257.56 ms  tok/s=7951.6
+test_perf_decode_traced: FUSED PERF decode(traced) layer=0 (linear_attention) iters=32 wall/iter=2.065 ms  steps/s=484.2
 test_fused_path_is_used: fused-op dispatch layer=3 (full_attention) prefill={'experimental.nlp_create_qkv_heads': 1, 'experimental.rotary_embedding_hf': 2, 'experimental.paged_fill_cache': 2, 'experimental.nlp_concat_heads': 1, 'sparse_matmul': 16, 'experimental.deepseek_moe_fast_reduce_nc': 8}
 test_fused_path_is_used: fused-op dispatch layer=3 (full_attention) prefill+decode={'experimental.nlp_create_qkv_heads': 1, 'experimental.rotary_embedding_hf': 4, 'experimental.paged_fill_cache': 2, 'experimental.nlp_concat_heads': 1, 'sparse_matmul': 18, 'experimental.deepseek_moe_fast_reduce_nc': 9, 'experimental.nlp_create_qkv_heads_decode': 1, 'experimental.paged_fused_update_cache': 1}
 test_fused_path_is_used: replaced-op check: ttnn.experimental.fast_reduce_nc fused decode 0, functional decode 1
@@ -88,7 +88,7 @@ test_batch_smaller_than_allocated_state: batch 1 on a batch-8 allocation: prefil
 test_prefill_continuation: fused prefill continuation layer=3 PCC=0.999971
 test_unaligned_max_context: fused unaligned max_context=5000 layer=3 prefill+decode ok, tail std=0.5010
 test_determinism_repeated_inputs: fused determinism layer=3: 3/3 runs bit-identical for prefill and decode
-test_repeated_run_stress: fused stress layer=3 (full_attention): 12 prefill+4-step-decode cycles over lengths [96, 130, 257], repeats bit-identical, DRAM allocated 212651072 -> 212651072 bytes (growth 0)
+test_repeated_run_stress: fused stress layer=3 (full_attention): 12 prefill+4-step-decode cycles over lengths [96, 130, 257], repeats bit-identical, DRAM allocated 212601920 -> 212601920 bytes (growth 0)
 test_forward_with_poisoned_free_pool: fused poisoned-pool layer=3 seq_len=1 prefill PCC=0.999909 decode PCC=0.999882
 test_no_host_fallback_in_forward: fused fallback audit layer=3: both guards verified to fire; prefill+decode clean for ttnn ['from_torch', 'to_torch', 'as_tensor', 'from_device', 'to_device'] and all torch ops
 test_lazy_allocation_is_the_only_host_call: fused lazy-allocation audit layer=3: first prefill made 1 host call(s) ['from_torch']; the second prefill and the decode made none
@@ -100,8 +100,8 @@ test_synthetic_weights_pcc: fused SYNTHETIC WEIGHTS layer=3 (full_attention) pre
 test_full_context_prefill_and_decode: fused full-context layer=3 (full_attention) seq_len=262143 prefill+decode completed, tail std=0.5037
 test_full_context_chunk_size_invariance: fused chunk-size invariance layer=3 (full_attention) seq_len=262144 tail(128) PCC(chunk 2048 vs 1024)=1.000000
 test_long_context_pcc: fused long-context PCC layer=3 seq_len=8000 prefill=0.999982 decode=0.999944
-test_perf_prefill: FUSED PERF prefill layer=3 (full_attention) seq_len=2048 wall=243.64 ms  tok/s=8405.8
-test_perf_decode_traced: FUSED PERF decode(traced) layer=3 (full_attention) iters=32 wall/iter=1.830 ms  steps/s=546.5
+test_perf_prefill: FUSED PERF prefill layer=3 (full_attention) seq_len=2048 wall=243.97 ms  tok/s=8394.4
+test_perf_decode_traced: FUSED PERF decode(traced) layer=3 (full_attention) iters=32 wall/iter=1.830 ms  steps/s=546.3
 test_no_layout_churn_in_measured_forward: layout ops layer=0 (linear_attention) seq_len=2048 prefill=12 {'to_layout': 10, 'sharded_to_interleaved': 2} decode=1 {'to_layout': 1}
 test_fused_matches_functional: fused-vs-functional layer=0 (linear_attention) seq_len=130 prefill PCC=0.999995 decode PCC=0.999993
 test_rope_matches_hf: fused rope vs HF mode=partial seq_len=4096 start=0 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
@@ -150,4 +150,4 @@ test_prefill_pcc: fused prefill layer=3 (full_attention) seq_len=2049 PCC=0.9999
 test_prefill_pcc: fused prefill layer=0 (linear_attention) seq_len=3000 PCC=0.999973
 test_prefill_pcc: fused prefill layer=3 (full_attention) seq_len=3000 PCC=0.999980
 
-================== 93 passed, 2 warnings in 543.02s (0:09:03) ==================
+================== 93 passed, 2 warnings in 550.51s (0:09:10) ==================

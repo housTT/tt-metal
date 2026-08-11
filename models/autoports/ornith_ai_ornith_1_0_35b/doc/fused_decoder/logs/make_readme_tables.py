@@ -484,11 +484,11 @@ def layout_budget(cap):
             "prefill: 4 conv ROW_MAJOR conversions (3 state buffers + the QKV stream) + 2 "
             "`sharded_to_interleaved` for the two `ttnn.conv1d` halves + 2 `to_layout` calls on their output "
             "that dispatch nothing (conv1d already returns TILE) + 3 conv-history row "
-            "writebacks + **one MoE group mask per 32-token expert group** (8 at 256 tokens, 64 at 2048). "
+            "writebacks + **one MoE group mask per MoE call** (not per expert group — work_log §4.16). "
             "decode: the MoE group mask only"
         ),
         "full_attention": (
-            "prefill: 2 RoPE-table `to_layout` tilizes + one MoE group mask per expert group. decode: 3 "
+            "prefill: 2 RoPE-table `to_layout` tilizes + one MoE group mask per MoE call. decode: 3 "
             "`sharded_to_interleaved` off `nlp_create_qkv_heads_decode` + 2 height-shards for the fused "
             "cache update + 1 MoE group mask"
         ),
@@ -497,6 +497,14 @@ def layout_budget(cap):
     for kind in ("linear_attention", "full_attention"):
         at256, at2048 = rows[(kind, 256)], rows[(kind, 2048)]
         assert at256[1] == at2048[1], f"{kind} decode budget differs by sequence length, which it must not"
+        # Round 22: the itemisation above said the MoE term scaled with the sequence while the
+        # measured counts did not, and nothing compared the two. Since §4.16 hoisted that mask to one
+        # per call, NO term scales - so assert that directly, and the prose cannot drift from it
+        # again without failing here.
+        assert at256[0] == at2048[0], (
+            f"{kind} prefill layout ops differ between seq 256 and 2048 ({at256[0]} vs {at2048[0]}): "
+            "the itemisation in this generator says no term scales with the sequence"
+        )
         body.append(f"| `{kind}` | {at256[0]} | {at2048[0]} | {at256[1]} | {what[kind]} |")
     return "\n".join(body)
 

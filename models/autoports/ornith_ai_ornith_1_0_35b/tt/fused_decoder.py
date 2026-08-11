@@ -796,12 +796,18 @@ class FusedMoE:
             for start in range(0, tokens, self.group_tokens):
                 span = min(self.group_tokens, tokens - start)
                 chunk = ttnn.slice(x, [0, 0, start, 0], [1, 1, start + span, self.cfg.dim])
-                scores = ttnn.slice(dense, [0, 0, start, 0], [1, 1, start + span, E])
+                # `_routed_experts` reads `dense_routing` only to build what it was not given, and
+                # for the whole-call mask on its `groups > 1` branch. With both kwargs supplied that
+                # leaves exactly one reader — the `span > TILE` branch — so slicing it at the shipped
+                # 32-token group would dispatch a device op nothing reads. Round 22 found 64 of them
+                # per 2048-token prefill.
+                scores = ttnn.slice(dense, [0, 0, start, 0], [1, 1, start + span, E]) if span > TILE else None
                 group_mask = ttnn.slice(all_masks, [0, start // TILE, 0, 0], [1, (start + span) // TILE, 1, E])
                 group_scores = ttnn.slice(all_scores, [0, 0, start, 0], [1, E, start + span, 1])
                 part = self._routed_experts(chunk, scores, span, group_mask=group_mask, scores=group_scores)
                 ttnn.deallocate(chunk)
-                ttnn.deallocate(scores)
+                if scores is not None:
+                    ttnn.deallocate(scores)
                 ttnn.deallocate(group_mask)
                 ttnn.deallocate(group_scores)
                 parts.append(part)

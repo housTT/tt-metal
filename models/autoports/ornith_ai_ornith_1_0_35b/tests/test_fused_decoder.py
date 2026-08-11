@@ -451,26 +451,28 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                               Conv1dConfig aliases Conv2dConfig whose output_layout already
     #                               defaults to TILE and the layer passes no override
     #                             + 3 conv-history row writebacks
-    #                             + one MoE group-mask ROW_MAJOR conversion per expert group
+    #                             + ONE MoE group-mask ROW_MAJOR conversion per MoE *call*
     #                  + sharded_to_interleaved: 2, one per ttnn.conv1d half
     #   linear decode  = to_layout: the MoE group mask only (the conv output's head-major relayout is
     #                    a reshape + permute, which needs no layout conversion at all)
-    #   full  prefill  = to_layout: 2 RoPE tables + one MoE group mask per expert group
+    #   full  prefill  = to_layout: 2 RoPE tables + one MoE group mask per MoE call
     #   full  decode   = sharded_to_interleaved: 3 off nlp_create_qkv_heads_decode
     #                  + to_memory_config: 2 height-shards for the fused paged-cache update
     #                  + to_layout: 1 MoE group mask
-    # Only the MoE term scales with the sequence, so both lengths are budgeted: at the shipped
-    # 32-token group that is 8 groups at 256 and 64 at 2048 — and 2048 is the length every
-    # performance number comes from.
+    # NOTHING here scales with the sequence. It used to: the MoE mask was rebuilt per 32-token expert
+    # group, so the budget was `11 + groups` and reached 75 at seq 2048. work_log §4.16 hoisted that
+    # to one per MoE call, and review round 22 caught that the budget had not followed - it was
+    # tolerating 63 extra relayouts per prefill at the very length every §5 figure comes from. The
+    # counts are now sequence-independent and asserted EXACTLY, which is what makes this a gate.
+    # Both lengths are still budgeted, because "does not scale with the sequence" is the property
+    # under test.
     with monkeypatch.context() as ctx:
         recorder = _OpRecorder(ctx, names)
         decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
-        # Derived from the decoder under test rather than assuming the default group size.
-        groups = -(-seq_len // decoder.moe.group_tokens)
         budgets = {
-            (LINEAR_LAYER, "prefill"): 11 + groups,
+            (LINEAR_LAYER, "prefill"): 12,
             (LINEAR_LAYER, "decode"): 1,
-            (FULL_LAYER, "prefill"): 2 + groups,
+            (FULL_LAYER, "prefill"): 3,
             (FULL_LAYER, "decode"): 6,
         }
         x = to_device(mesh_device, make_activations(1, seq_len, seed=93))
@@ -489,8 +491,11 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
         f"layout ops layer={layer_idx} ({LAYER_IDS[layer_idx]}) seq_len={seq_len} "
         f"prefill={prefill_total} {prefill_detail} decode={decode_total} {decode_detail}"
     )
-    assert prefill_total <= budgets[(layer_idx, "prefill")], f"prefill layout ops {prefill_detail}"
-    assert decode_total <= budgets[(layer_idx, "decode")], f"decode layout ops {decode_detail}"
+    # Exact, not `<=`: the counts are sequence-independent and itemised above, so an upper bound
+    # would let a regression hide under the slack (round 22) and would also let a future *removal*
+    # pass while the itemisation went stale.
+    assert prefill_total == budgets[(layer_idx, "prefill")], f"prefill layout ops {prefill_detail}"
+    assert decode_total == budgets[(layer_idx, "decode")], f"decode layout ops {decode_detail}"
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])

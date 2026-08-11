@@ -2,52 +2,52 @@ Percentages quoted in README.md that are computed from measured figures rather t
 off a run, each shown with the arithmetic and the operands it was computed from. Written by
 logs/make_readme_perf.py; this file is what sources those figures for audit_figures.py.
 
-linear_attention prefill device kernel time: 24.0 % = 100 * (1 - 256.574 / 337.759)
-linear_attention prefill wall clock: 23.7 % = 100 * (1 - 258.16 / 338.19)
-linear_attention decode device kernel time: 21.6 % = 100 * (1 - 1.986 / 2.533)
-linear_attention decode wall clock: 20.9 % = 100 * (1 - 2.067 / 2.614)
-full_attention prefill device kernel time: 23.3 % = 100 * (1 - 242.555 / 316.373)
-full_attention prefill wall clock: 23.1 % = 100 * (1 - 243.43 / 316.62)
-full_attention decode device kernel time: 22.5 % = 100 * (1 - 1.814 / 2.340)
-full_attention decode wall clock: 23.5 % = 100 * (1 - 1.830 / 2.391)
+linear_attention prefill device kernel time: 24.0 % = 100 * (1 - 256.701 / 337.759)
+linear_attention prefill wall clock: 23.8 % = 100 * (1 - 257.59 / 338.15)
+linear_attention decode device kernel time: 21.6 % = 100 * (1 - 1.985 / 2.533)
+linear_attention decode wall clock: 21.0 % = 100 * (1 - 2.065 / 2.613)
+full_attention prefill device kernel time: 23.3 % = 100 * (1 - 242.650 / 316.373)
+full_attention prefill wall clock: 23.1 % = 100 * (1 - 243.40 / 316.57)
+full_attention decode device kernel time: 22.5 % = 100 * (1 - 1.813 / 2.340)
+full_attention decode wall clock: 23.5 % = 100 * (1 - 1.830 / 2.392)
 smallest device-time fall across the four windows, %: 21.6 = the four perf_summary rows
 linear_attention decode op-count fall per replay: 26 = linear_attention/decode_perf_report.csv, both stages
 full_attention decode op-count fall per replay: 33 = full_attention/decode_perf_report.csv, both stages
-fused linear prefill SLOW time, us: 4472 = sum of the rows slow_ops_summary.txt prints
+fused linear prefill SLOW time, us: 4466 = sum of the rows slow_ops_summary.txt prints
 functional linear prefill SLOW time, us: 4877 = sum of the rows the functional summary prints
-fall in linear prefill SLOW time: 8.3 % = 100 * (1 - 4472 / 4877)
-linear prefill window, for comparison with the SLOW-time fall: 24.0 % = 100 * (1 - 256.574 / 337.759)
-MoE share of linear_attention prefill device time: 81.8 % = 53.3 + 28.5  (recomputed from the 3-decimal ms/iter column: 81.8162)
-MoE share of linear_attention decode device time: 35.8 % = 18.5 + 17.3  (recomputed from the 3-decimal ms/iter column: 35.8006)
-MoE share of full_attention prefill device time: 81.7 % = 53.1 + 28.6  (recomputed from the 3-decimal ms/iter column: 81.7373)
-MoE share of full_attention decode device time: 39.3 % = 20.3 + 19.0  (recomputed from the 3-decimal ms/iter column: 39.2503)
-packed-projection FLOP utilisation range, %: 22.9-23.5 = the prefill SLOW rows whose packed output width is one of ('12352', '9216', '1056')
+fall in linear prefill SLOW time: 8.4 % = 100 * (1 - 4466 / 4877)
+linear prefill window, for comparison with the SLOW-time fall: 24.0 % = 100 * (1 - 256.701 / 337.759)
+MoE share of linear_attention prefill device time: 81.9 % = 53.3 + 28.5  (recomputed from the 3-decimal ms/iter column: 81.8516)
+MoE share of linear_attention decode device time: 35.8 % = 18.5 + 17.3  (recomputed from the 3-decimal ms/iter column: 35.8186)
+MoE share of full_attention prefill device time: 81.8 % = 53.2 + 28.6  (recomputed from the 3-decimal ms/iter column: 81.7503)
+MoE share of full_attention decode device time: 39.2 % = 20.3 + 18.9  (recomputed from the 3-decimal ms/iter column: 39.2168)
+packed-projection FLOP utilisation range, %: 22.9-23.6 = the prefill SLOW rows whose packed output width is one of ('12352', '9216', '1056')
 linear_attention prefill SLOW rows removed, net: 12 = the two summaries' row counts
-linear_attention prefill SLOW time removed by the router hoist, net us: 244 = eliminated minus added
-linear_attention prefill SLOW time removed by the shared-LHS packings, net us: 164 = eliminated minus added
+linear_attention prefill SLOW time removed by the router hoist, net us: 245 = eliminated minus added
+linear_attention prefill SLOW time removed by the shared-LHS packings, net us: 167 = eliminated minus added
 full_attention prefill SLOW rows removed, net: 11 = the two summaries' row counts
-full_attention prefill SLOW time removed by the router hoist, net us: 241 = eliminated minus added
-full_attention prefill SLOW time removed by the shared-LHS packings, net us: 187 = eliminated minus added
-linear prefill SLOW time change in geometries present both before and after, us: -3 = neither rewrite removed these rows; they are the same op, timed twice
-linear_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024, us/step: 367.4 = 11757.3 us summed over 32 replays / 32
-full_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024, us/step: 368.2 = 11782.6 us summed over 32 replays / 32
-linear_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048, us/step: 344.0 = 11007.4 us summed over 32 replays / 32
-full_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048, us/step: 343.7 = 10999.2 us summed over 32 replays / 32
-linear_attention decode, UnaryDeviceOperation, us/step: 282.7 = 9045.4 us summed over 32 replays / 32
-full_attention decode, UnaryDeviceOperation, us/step: 269.6 = 8628.6 us summed over 32 replays / 32
-linear_attention decode, BinaryNgDeviceOperation, us/step: 199.2 = 6375.2 us summed over 32 replays / 32
-full_attention decode, BinaryNgDeviceOperation, us/step: 139.1 = 4452.2 us summed over 32 replays / 32
-linear_attention decode, MatmulDeviceOperation 32 x 2048 x 12352, us/step: 128.4 = 4110.0 us summed over 32 replays / 32
+full_attention prefill SLOW time removed by the router hoist, net us: 240 = eliminated minus added
+full_attention prefill SLOW time removed by the shared-LHS packings, net us: 188 = eliminated minus added
+linear prefill SLOW time change in geometries present both before and after, us: -1 = neither rewrite removed these rows; they are the same op, timed twice
+linear_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024, us/step: 367.0 = 11744.4 us summed over 32 replays / 32
+full_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024, us/step: 368.0 = 11775.9 us summed over 32 replays / 32
+linear_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048, us/step: 344.0 = 11008.6 us summed over 32 replays / 32
+full_attention decode, SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048, us/step: 343.4 = 10989.4 us summed over 32 replays / 32
+linear_attention decode, UnaryDeviceOperation, us/step: 282.4 = 9038.0 us summed over 32 replays / 32
+full_attention decode, UnaryDeviceOperation, us/step: 269.6 = 8627.7 us summed over 32 replays / 32
+linear_attention decode, BinaryNgDeviceOperation, us/step: 199.1 = 6370.5 us summed over 32 replays / 32
+full_attention decode, BinaryNgDeviceOperation, us/step: 139.3 = 4458.0 us summed over 32 replays / 32
+linear_attention decode, MatmulDeviceOperation 32 x 2048 x 12352, us/step: 128.4 = 4108.2 us summed over 32 replays / 32
 full_attention decode, MatmulDeviceOperation 32 x 2048 x 12352, us/step: 0.0 = 0.0 us summed over 32 replays / 32
-linear_attention decode, SliceDeviceOperation, us/step: 114.7 = 3672.0 us summed over 32 replays / 32
-full_attention decode, SliceDeviceOperation, us/step: 109.4 = 3501.2 us summed over 32 replays / 32
-dense Matmul* movement per traced decode step, us, both kinds: -114.1 to -90.7 = the two decode_perf_report.csv sets, fused minus functional
-Slice movement per traced decode step, us, both kinds: +92.3 to +105.5 = the two decode_perf_report.csv sets, fused minus functional
+linear_attention decode, SliceDeviceOperation, us/step: 114.7 = 3669.3 us summed over 32 replays / 32
+full_attention decode, SliceDeviceOperation, us/step: 109.4 = 3500.1 us summed over 32 replays / 32
+dense Matmul* movement per traced decode step, us, both kinds: -114.0 to -90.5 = the two decode_perf_report.csv sets, fused minus functional
+Slice movement per traced decode step, us, both kinds: +92.2 to +105.4 = the two decode_perf_report.csv sets, fused minus functional
 SliceDeviceOperation per traced decode step, us: 109-115 = summed over the decode_perf_report.csv rows, divided by the replay count
 SliceDeviceOperation share of the traced decode window, %: 5.8-6.0 = the row above over the profiler's device ms/iter
 linear decode FILL sub-total, fused vs functional, %: +0.6 = the two fill_summary.txt FILL lines
-recurrent-state matmul SLOW time after, us: 1410 = 1 group
+recurrent-state matmul SLOW time after, us: 1412 = 1 group
 recurrent-state matmul SLOW time before, us: 2746 = 3 groups in the functional summary
-traced decode fall, both kinds and both measures, %: 20.9-23.5 = the §5.2 table
-linear prefill saving attributable to graph fusing alone, ms: 32 = 338.19 - 306.10 (moe_group_tokens=256)
-linear prefill saving in total, ms: 80 = 338.19 - 258.16
+traced decode fall, both kinds and both measures, %: 21.0-23.5 = the §5.2 table
+linear prefill saving attributable to graph fusing alone, ms: 32 = 338.15 - 306.25 (moe_group_tokens=256)
+linear prefill saving in total, ms: 81 = 338.15 - 257.59
