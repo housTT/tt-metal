@@ -114,7 +114,7 @@ Result: **{passed} passed, {deselected} deselected** in {seconds} s. Selected te
 ```
 
 That is both layer kinds through paged prefill at 2049, paged decode, trace capture and replay
-at batch 1 *and* batch 4, six repeated prefill+decode cycles, the BFP8 KV-cache path, the two
+at every batch the selected list below carries, six repeated prefill+decode cycles, the BFP8 KV-cache path, the two
 alternate page block sizes through prefill *and* decode, and the advertised-`max_batch` branch
 (batched users, the merged-unary graph check and the post-decode conv-state check at batch 32).
 The selected tests are listed below, read from the run log rather than described. Run log:

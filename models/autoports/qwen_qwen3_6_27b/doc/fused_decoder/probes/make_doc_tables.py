@@ -1152,36 +1152,58 @@ def group_attn_matmul() -> str:
 
 
 def rejected_bf16_fir() -> str:
-    """The bfloat16 decode FIR's *failure*, from its own committed run, and why it compounds."""
+    """The bfloat16 decode FIR's failure, and what the artifacts say separates pass from fail."""
     run = (DOC / "logs" / "rejected_bf16_decode_fir.log").read_text(errors="replace")
-    failures = re.findall(r"AssertionError: ([^\n]*PCC ([\d.]+)[^\n]*)", run)
+    records = [json.loads(blob) for blob in re.findall(r"PCCEVIDENCE (\{[^}]*\})", run)]
     summary = re.findall(r"=+ (\d+) failed, (\d+) passed[^=]*=+", run)
-    if not failures or not summary:
-        raise SystemExit("rejected_bf16_decode_fir.log records no failure")
-    rows = ["| what | value |", "|---|---|"]
-    rows.append(f"| run | **{summary[-1][0]} failed**, {summary[-1][1]} passed |")
-    worst = min(float(value) for _, value in failures)
-    rows.append(f"| lowest PCC against HF | **{worst:.6f}** against a bar of 0.995 |")
-    rows.append(f"| first failure | `{failures[0][0][:110]}` |")
-
+    if not summary:
+        raise SystemExit("rejected_bf16_decode_fir.log records no pytest summary")
+    failures = [
+        record
+        for record in records
+        if record["metric"] == "fused_batched_traced_decode_pcc"
+        and record.get("kind") == "linear_attention"
+        and record["value"] < 0.995
+    ]
+    steps = sorted(
+        (
+            record
+            for record in records
+            if record["metric"] == "fused_decode_pcc" and record.get("kind") == "linear_attention"
+        ),
+        key=lambda record: record["step"],
+    )
+    rows = ["| case | PCC against HF |", "|---|---|"]
+    rows.append(f"| the run | **{summary[-1][0]} failed**, {summary[-1][1]} passed |")
+    for record in failures:
+        rows.append(
+            f"| batched traced decode, batch {record['batch']}, user {record['user_id']} "
+            f"(the 64-token prefill), replay {record['replay']} | **{record['value']:.6f}** |"
+        )
+    if steps:
+        rows.append(
+            f"| unbatched decode after a {steps[0]['prefill_len']}-token prefill, steps "
+            + "/".join(str(record["step"]) for record in steps)
+            + " | "
+            + " / ".join(f"{record['value']:.6f}" for record in steps)
+            + " |"
+        )
     compounding = _probe("probe_fir_dtype_compounding")
-    per_step = {}
     for match in re.finditer(r"fir_compounding dtype=(\w+) steps=(\d+) (.*)", compounding):
         values = [float(value) for value in re.findall(r"s\d+=([\d.]+)", match.group(3))]
-        per_step[match.group(1)] = values
-    if per_step:
-        for dtype, values in per_step.items():
-            rows.append(
-                f"| carried state PCC after 1 / {len(values)} steps, {dtype} FIR | "
-                f"{values[0]:.6f} / {values[-1]:.6f} |"
-            )
+        rows.append(
+            f"| synthetic carried state after 1 / {len(values)} steps, {match.group(1)} FIR | "
+            f"{values[0]:.6f} / {values[-1]:.6f} |"
+        )
     rows.append("")
     rows.append(
-        "The per-step probe is the mechanism and the run is the verdict: one step of the bfloat16 "
-        "FIR is accurate to five or six decimals, and the state it feeds carries that error "
-        "forward, monotonically. The suite is what sees the end of that - a batched traced decode "
-        "well below the bar - which is why this rewrite is rejected on correctness rather than on "
-        "the per-step figure."
+        "Read the rows together. The failures are at the **shortest** prefill in the batch, at the "
+        "first replay the test checks; the same build's *unbatched* decode after a 2049-token "
+        "prefill holds four steps with no downward trend. So what separates pass from fail here is "
+        "the size of the carried state, not the number of steps - and the synthetic per-step probe, "
+        "written to show compounding, does not reproduce the failure at all. That negative result "
+        "is why this table states the pattern rather than a mechanism: the rejection rests on the "
+        "committed failing run, and the *why* is left as the open question it is."
     )
     return "\n".join(rows)
 

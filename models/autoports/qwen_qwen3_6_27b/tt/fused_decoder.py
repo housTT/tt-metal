@@ -223,12 +223,13 @@ _GATED_NORM_GROUP_BATCH = 32
 #:
 #: ``doc/fused_decoder/probes/probe_decode_conv_dtype.py`` measures the bfloat16 form as clearly
 #: faster from batch 4 up (the table is ``work_log.md`` §3.25) - and it was built, shipped behind
-#: this threshold, and **reverted**, because the suite caught what the probe cannot see: the decode
-#: FIR's output feeds the *recurrent state*, whose error compounds across steps, and batched traced
-#: decode fell to PCC 0.98 against HF - below the 0.995 bar.  The prefill FIR can be bfloat16
-#: because its output feeds ``chunk_gated_delta_rule``, which casts to bfloat16 anyway and
-#: accumulates the state in-kernel at higher precision.  The one-token FIR has no such kernel
-#: behind it.
+#: this threshold, and **reverted**, because the suite caught what that probe cannot see: batched
+#: traced decode fell below the 0.995 PCC bar against HF for the shortest-prefill user in the
+#: batch.  That run is committed (``doc/fused_decoder/logs/rejected_bf16_decode_fir.log``) and
+#: §3.25 reads it: the failures track the *size of the carried state* rather than the number of
+#: steps - a per-step compounding probe does not reproduce them - so the mechanism is recorded as
+#: open rather than guessed.  The prefill FIR is unaffected: its output feeds
+#: ``chunk_gated_delta_rule``, which casts to bfloat16 anyway and accumulates the state in kernel.
 _DECODE_CONV_BF16_BATCH = None
 
 #: Epsilon of the GatedDeltaNet Q/K L2 norm, matching HF's ``l2norm(x, dim=-1, eps=1e-6)`` and

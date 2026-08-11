@@ -1,18 +1,21 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Why the bfloat16 decode FIR fails even though it is faster: the error compounds.
+"""Does the bfloat16 decode FIR's per-step error compound through the carried state?  It does not.
 
 §3.25 measured the bfloat16 decode causal-conv FIR as clearly faster from batch 4 up, built it,
 and reverted it because ``test_traced_decode_batched`` fell to PCC 0.98 against HF.  That failure
 is the decisive evidence for a *rejection*, and a stage review pointed out it lived only in prose:
 ``probe_decode_conv_dtype.py`` shows the FIR itself at PCC 0.99999 per step, which looks harmless.
 
-The gap between "0.99999 per step" and "0.98 after a few steps" is the point.  The decode FIR's
-output does not leave the layer - it feeds the recurrent state, and the state carries forward.  So
-this probe runs the recurrence the way decode does, N steps deep, with each FIR dtype, against a
-float64 torch reference, and reports the PCC of the *state* at every step.  The prefill FIR is
-bfloat16 for the same arithmetic and does not have this problem because its output feeds
-``chunk_gated_delta_rule``, which casts to bfloat16 anyway and accumulates the state in kernel.
+The obvious hypothesis was compounding: the decode FIR's output does not leave the layer, it feeds
+the recurrent state, and the state carries forward.  This probe runs the recurrence the way decode
+does, N steps deep, with each FIR dtype, against a float64 torch reference, and reports the PCC of
+the *state* at every step.
+
+The answer is **no**, which is why the probe is committed as a negative result: eight steps move
+the state by about 9e-6, nowhere near the observed failure.  §3.25 therefore records the mechanism
+as open, and states the pattern the failing run does show - the failures are the shortest-prefill
+user in the batch, not the deepest step.
 
 Model-free: synthetic tensors at the real shapes.
 
