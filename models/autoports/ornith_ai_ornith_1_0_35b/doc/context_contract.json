@@ -143,5 +143,54 @@
     "moe_tokens_per_sparse_matmul_call": 256,
     "padding_policy": "Each internal prefill block is zero-padded up to the physical alignment. For full_attention the padded key/value rows are exact zeros at absolute positions beyond the logical end and are excluded from every real query by causality. For linear_attention the padded steps are neutralised by zeroing beta (kills the delta write) and g (kills the decay), making each padded step an exact identity on the recurrent state, and the conv history is taken from the real tail at the logical length. Outputs are sliced back to the logical length.",
     "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk — one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
+  },
+  "optimized_decoder": {
+    "stage": "optimized-decoder",
+    "implementation": "tt/optimized_decoder.py",
+    "tests": "tests/test_optimized_decoder.py",
+    "capability_change": "none; the advertised context, batch bound, non-aligned support and public contract are unchanged, and the per-layer device footprint falls by 63%",
+    "context_length": 262144,
+    "capability_note": "The optimized decoder changes performance only. It keeps the fused decoder's public prefill/decode signature, its paged KV cache geometry (num_blocks x n_kv_heads x page_block_size x head_dim), its DeltaNet state shapes, its 128-token internal physical alignment, its 2048-token internal chunk and its support for ANY logical seq_len in [1, max_context - start_pos]. Every capability row under 'tested' is re-asserted by the identically named test in tests/test_optimized_decoder.py, plus test_optimized_matches_fused, which compares the optimized and fused implementations directly on device, and test_optimized_beats_fused_traced_decode, which gates the performance claim.",
+    "dtype_policy_delta": {
+      "kv_cache": "bfloat16 -> bfloat8_b. Prefill fill tensors are explicitly cast to the cache dtype before paged_fill_cache; decode paged_update_cache inputs stay bfloat16, which is what that op accepts. OptimizedDecoder.allocate_kv_cache still takes an explicit dtype, so a caller that wants the old cache gets it.",
+      "routed_expert_weights": "bfloat16 -> bfloat4_b (gate/up and down), math fidelity HiFi4 -> LoFi",
+      "dense_projection_weights": "bfloat16 -> bfloat8_b (packed attention in-projection, o_proj, packed DeltaNet in-projection, out_proj, shared-expert packed gate|up|router and its down projection), math fidelity HiFi4 -> HiFi2",
+      "router_weight": "bfloat16 with HiFi4 and float32 accumulation, UNCHANGED. Expert selection is a discrete decision, so a rounding change here swaps an expert rather than perturbing a value.",
+      "expert_activations": "routed sparse_matmul output dtype bfloat16 -> bfloat8_b",
+      "norms_rope_conv_state": "unchanged: norm gains and RoPE tables bfloat16, DeltaNet recurrent state, gates and router logits float32"
+    },
+    "footprint_change": {
+      "direction": "reduction",
+      "worst_case_layer_total_bytes": 839267328,
+      "worst_case_layer_total_note": "0.78 GiB for a full_attention layer at the full 262144 context including its paged KV cache, against 2.12 GiB for the fused decoder: 63% less. Every term falls because of the dtype policy and nothing grows. Block-float sizes count the shared exponent: bfloat8_b is 1.0625 B/element and bfloat4_b is 0.5625 B/element (one exponent byte per 16 data).",
+      "per_term_bytes": {
+        "paged_kv_cache_k": 142606336,
+        "paged_kv_cache_v": 142606336,
+        "paged_kv_cache_note": "4096 blocks x 2 kv heads x 64 tokens x 256 head_dim x 1.0625 B (bfloat8_b); was 268435456 each at bfloat16",
+        "rope_cos_sin_tables": 67633152,
+        "rope_note": "unchanged; 2 tables x 264192 rows x rope_dim 64 x 2 B",
+        "moe_routed_expert_weights": 452984832,
+        "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 0.5625 B (bfloat4_b); was 1610612736 at bfloat16",
+        "moe_shared_and_router_weights": 4460544,
+        "moe_shared_and_router_note": "shared_in (2048 x 1056) and shared_down (512 x 2048) at 1.0625 B plus the 256-wide router at 2 B; was 7340032",
+        "full_attention_projection_weights": 28976128,
+        "linear_attention_projection_weights": 35873024,
+        "deltanet_recurrent_state_batch1": 2097152,
+        "deltanet_conv_state_batch1": 49152
+      },
+      "dram_headroom": "839267328 B against the measured 34091302912 B allocatable DRAM: 40x, up from 15x. No capability reduction is required by this stage and none is taken."
+    },
+    "internal_shape_policy_delta": {
+      "moe_tokens_per_sparse_matmul_call": 32,
+      "moe_tokens_per_sparse_matmul_call_reason": "unchanged from the fused decoder",
+      "moe_routing_sparsity_rows": "The routed-expert sparsity mask is now reduced over the group's REAL rows only, not over the whole 32-row tile. A decode step for batch b < 32 pads the group with zeros, whose router logits are exactly zero, so topk still returns a full expert set for each padding row and the old whole-tile reduction unioned them in: 16 active experts at batch 1 where the model asks for 8. The padded rows' expert outputs were already exactly zero, so this changes which experts run and never the result (tests/test_optimized_decoder.py::test_padded_rows_do_not_route).",
+      "decode_activation_layout": "The two residual RMSNorms and, on full_attention layers, the Q/K head-dim norms run width-sharded in L1 on a LayerNormShardedMultiCoreProgramConfig during decode, and return to DRAM interleaved for their consumers. Routed-expert intermediates (the packed gate/up output, the SwiGLU product, the scored activation and the down output) live in L1 instead of DRAM. Neither changes any public shape.",
+      "decode_program_configs": "Every dense decode projection runs under an explicit MatmulMultiCoreReuseMultiCast1DProgramConfig tuned per role, and the two routed sparse matmuls under a geometry chosen from the call's active-expert bound. Prefill keeps ttnn's 2D heuristic; the two phases are selected explicitly rather than by activation shape, because a 128-token prefill block and a batch-4 decode step have the same tile height."
+    },
+    "named_limitations": [
+      "ttnn.topk is single-core on the 256-wide routing dim (48 us/step). Its multi-core path needs a power-of-two width >= 8192; padding the logits with -inf to 8192 is correct but measured ~3x slower than the single-core 256 call (doc/optimized_decoder/logs/probe_decode_micro.txt).",
+      "ttnn.sparse_matmul nnz is left inferred at runtime because pinning it REPRODUCIBLY WEDGED THE DEVICE at this model's shapes. After the padded-row routing mask the batch-1 decode sparsity holds exactly num_experts_per_tok non-zeros, so the exact-count invariant nnz requires is satisfiable; doc/optimized_decoder/logs/probe_sparse_matmul.py --nnz --active 8 passes nnz=8 against a sparsity tensor with exactly 8 non-zeros and the first candidate hung inside SparseMatmulDeviceOperation, despite the op's own comment that the sender validates count_nonzero(sparsity) against nnz on device and fails loudly instead of deadlocking (tt-metal #45943). tt-triage evidence: doc/optimized_decoder/triage/; one tt-smi -r recovered the card and the 1x1 mesh smoke passed. work_log.md 4.8 has the incident and recovery table. This is worth reporting upstream: the documented on-device validation does not fire here.",
+      "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig loses to an explicit 1D mcast_in0 config on every dense decode role here, even measured without its activation-reshard cost, because the op pins its compute grid to the 8 DRAM banks."
+    ]
   }
 }

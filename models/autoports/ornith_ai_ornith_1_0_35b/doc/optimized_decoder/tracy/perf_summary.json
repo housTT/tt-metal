@@ -1,0 +1,46 @@
+{
+  "linear_attention": {
+    "workload": {
+      "profile": "single_user_decode",
+      "prompt_len": 128,
+      "gen_len": 1,
+      "batch": 1
+    },
+    "bytes_per_token": 64892928,
+    "state_or_kv_bytes_per_token": 10485760,
+    "dram_peak_gbps": 512.0,
+    "roofline_ms_per_token_estimate": 0.1267,
+    "decode_ms_per_token_device": 0.952,
+    "decode_ms_per_token_e2e": 1.099,
+    "roofline_fraction_of_device": 0.1331,
+    "dispatch_and_host_ms": 0.147,
+    "named_limitations": [
+      "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops once per active expert at a single tile of M, so the two routed projections reach roughly 5 % of the FLOP roofline and ~40 GB/s of weight bandwidth even after the geometry sweep; they are 31 % of the window.",
+      "The routed-expert intermediates are num_experts wide where only num_experts_per_tok slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the score multiply and the expert reduction each touch 32x the useful width. Moving them to L1 removed the DRAM cost; the remaining ~230 us/step is L1 and launch bound and needs an expert-major gather to remove, which is a routing-algorithm change rather than an op-config one.",
+      "ttnn.topk is single-core on the 256-wide routing dim (48 us/step); its multi-core path needs a power-of-two width >= 8192 and padding to it measured ~3x slower.",
+      "About 90 device ops per decode step at a ~1 us op-to-op gap accounts for most of the difference between device time and end-to-end."
+    ]
+  },
+  "full_attention": {
+    "workload": {
+      "profile": "single_user_decode",
+      "prompt_len": 128,
+      "gen_len": 1,
+      "batch": 1
+    },
+    "bytes_per_token": 47722496,
+    "state_or_kv_bytes_per_token": 139264,
+    "dram_peak_gbps": 512.0,
+    "roofline_ms_per_token_estimate": 0.0932,
+    "decode_ms_per_token_device": 0.8347,
+    "decode_ms_per_token_e2e": 0.917,
+    "roofline_fraction_of_device": 0.1117,
+    "dispatch_and_host_ms": 0.0823,
+    "named_limitations": [
+      "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops once per active expert at a single tile of M, so the two routed projections reach roughly 5 % of the FLOP roofline and ~40 GB/s of weight bandwidth even after the geometry sweep; they are 31 % of the window.",
+      "The routed-expert intermediates are num_experts wide where only num_experts_per_tok slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the score multiply and the expert reduction each touch 32x the useful width. Moving them to L1 removed the DRAM cost; the remaining ~230 us/step is L1 and launch bound and needs an expert-major gather to remove, which is a routing-algorithm change rather than an op-config one.",
+      "ttnn.topk is single-core on the 256-wide routing dim (48 us/step); its multi-core path needs a power-of-two width >= 8192 and padding to it measured ~3x slower.",
+      "About 90 device ops per decode step at a ~1 us op-to-op gap accounts for most of the difference between device time and end-to-end."
+    ]
+  }
+}

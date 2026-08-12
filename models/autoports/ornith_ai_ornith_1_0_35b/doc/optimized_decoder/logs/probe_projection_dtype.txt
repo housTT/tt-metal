@@ -1,0 +1,65 @@
+# OPT-007: BFP4 vs BFP8 dense projection weights, real-weight HF-golden PCC ladder.
+# Command: python doc/optimized_decoder/logs/probe_projection_dtype.py
+# Same prefill lengths and the same four decode steps the delivered suite uses, both arms in one
+# process on one device, real ornith-ai/Ornith-1.0-35B weights, bar = 0.995.
+
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=1 pcc=0.999994 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=7 pcc=0.999993 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=32 pcc=0.999972 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=64 pcc=0.999977 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=128 pcc=0.999961 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=129 pcc=0.999959 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=250 pcc=0.999946 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=2048 pcc=0.999921 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=2049 pcc=0.999927 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) prefill seq_len=3000 pcc=0.999920 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) decode step=0 pcc=0.999987 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) decode step=1 pcc=0.999982 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) decode step=2 pcc=0.999940 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=0 (linear_attention) decode step=3 pcc=0.999988 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=1 pcc=0.999967 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=7 pcc=0.999958 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=32 pcc=0.999252 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=64 pcc=0.999379 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=128 pcc=0.998485 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=129 pcc=0.998617 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=250 pcc=0.998087 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=2048 pcc=0.997728 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=2049 pcc=0.997795 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) prefill seq_len=3000 pcc=0.997556 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) decode step=0 pcc=0.999695 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) decode step=1 pcc=0.999130 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) decode step=2 pcc=0.997422 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=0 (linear_attention) decode step=3 pcc=0.999604 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=1 pcc=0.999903 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=7 pcc=0.999907 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=32 pcc=0.999926 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=64 pcc=0.999923 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=128 pcc=0.999931 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=129 pcc=0.999927 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=250 pcc=0.999935 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=2048 pcc=0.999948 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=2049 pcc=0.999947 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) prefill seq_len=3000 pcc=0.999951 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) decode step=0 pcc=0.999907 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) decode step=1 pcc=0.999926 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) decode step=2 pcc=0.999883 bar=0.995 PASS
+PROJDTYPE bfloat8_b layer=3 (full_attention) decode step=3 pcc=0.999900 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=1 pcc=0.996775 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=7 pcc=0.996507 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=32 pcc=0.997381 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=64 pcc=0.997320 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=128 pcc=0.997755 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=129 pcc=0.997858 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=250 pcc=0.998103 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=2048 pcc=0.998869 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=2049 pcc=0.998857 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) prefill seq_len=3000 pcc=0.998965 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) decode step=0 pcc=0.998197 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) decode step=1 pcc=0.998179 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) decode step=2 pcc=0.998059 bar=0.995 PASS
+PROJDTYPE bfloat4_b layer=3 (full_attention) decode step=3 pcc=0.998176 bar=0.995 PASS
+
+# worst case per arm:
+#   bfloat8_b full_attention  0.999883 (decode step=2)     linear_attention 0.999920 (prefill 3000)
+#   bfloat4_b full_attention  0.996507 (prefill seq_len=7) linear_attention 0.997422 (decode step=2)

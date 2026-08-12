@@ -1,0 +1,22 @@
+# Which decode RMSNorms take the width-sharded multi-core path.
+#
+# OptimizedDecoder.NORM_SHARD_MIN_WIDTH is the narrowest activation that shards. 1024 restricts it
+# to the two 2048-wide residual norms; 0 also shards the 256-wide Q/K head-dim norms, which are only
+# ~5 us each interleaved and land on 4 cores at one tile per core.
+#
+# Two runs each, traced warmed decode, 32 replays, real Ornith-1.0-35B weights, one process per row:
+#   python doc/optimized_decoder/logs/bench.py --impl optimized --policy optimized \
+#       --layers 3,0 --phase decode --iters 32
+#
+tag=minwidth1024-run1 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.857 ms steps/s=1167.5
+tag=minwidth1024-run1 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.091 ms steps/s=916.7
+tag=minwidth1024-run2 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.858 ms steps/s=1166.2
+tag=minwidth1024-run2 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.091 ms steps/s=916.8
+tag=minwidth0-run1    layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.855 ms steps/s=1170.1
+tag=minwidth0-run1    layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.091 ms steps/s=916.7
+tag=minwidth0-run2    layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.855 ms steps/s=1170.0
+tag=minwidth0-run2    layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.091 ms steps/s=916.8
+#
+# Kept: 0. The narrow Q/K norms are a wash on linear_attention (which has none) and reproducibly
+# 2-3 us better on full_attention, so the simpler contract - every decode-shaped norm shards - is
+# also the faster one. The constant stays in the code because it is the knob this A/B varied.

@@ -1,0 +1,83 @@
+# Explicit 2D program configs for the dense PREFILL projections vs ttnn's heuristic.
+# Command: python doc/optimized_decoder/logs/probe_prefill_matmul.py
+# Weight bfloat8_b / HiFi2 — the shipped projection policy — at the real 2048-token shapes.
+
+# grid 11x10 weight=bfloat8_b fidelity=HiFi2 (the shipped projection policy)
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=heuristic us=528.5
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=11x10 in0_block_w=2 per_core_M=7 per_core_N=27 sub=1x3 us=533.7
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=11x10 in0_block_w=4 per_core_M=7 per_core_N=27 sub=1x3 us=493.3
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=11x10 in0_block_w=8 per_core_M=7 per_core_N=27 sub=1x3 us=471.9
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=11x10 in0_block_w=16 per_core_M=7 per_core_N=27 sub=1x3 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x8 in0_block_w=2 per_core_M=8 per_core_N=36 sub=1x6 us=671.3
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x8 in0_block_w=4 per_core_M=8 per_core_N=36 sub=1x6 us=643.3
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x8 in0_block_w=8 per_core_M=8 per_core_N=36 sub=1x6 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x8 in0_block_w=16 per_core_M=8 per_core_N=36 sub=1x6 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x10 in0_block_w=2 per_core_M=7 per_core_N=36 sub=1x6 us=610.1
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x10 in0_block_w=4 per_core_M=7 per_core_N=36 sub=1x6 us=586.4
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x10 in0_block_w=8 per_core_M=7 per_core_N=36 sub=1x6 us=561.9
+PREFILLMM role=attn_in m=2048 k=2048 n=9216 family=2d grid=8x10 in0_block_w=16 per_core_M=7 per_core_N=36 sub=1x6 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=heuristic us=260.3
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=2 per_core_M=7 per_core_N=6 sub=1x6 us=206.0
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=4 per_core_M=7 per_core_N=6 sub=1x6 us=197.3
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=8 per_core_M=7 per_core_N=6 sub=1x6 us=191.8
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=16 per_core_M=7 per_core_N=6 sub=1x6 us=178.8
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=2 per_core_M=8 per_core_N=8 sub=1x8 us=279.4
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=4 per_core_M=8 per_core_N=8 sub=1x8 us=267.1
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=8 per_core_M=8 per_core_N=8 sub=1x8 us=261.7
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=16 per_core_M=8 per_core_N=8 sub=1x8 us=258.6
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=2 per_core_M=7 per_core_N=8 sub=1x8 us=255.5
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=4 per_core_M=7 per_core_N=8 sub=1x8 us=241.6
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=8 per_core_M=7 per_core_N=8 sub=1x8 us=232.3
+PREFILLMM role=o_proj m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=16 per_core_M=7 per_core_N=8 sub=1x8 us=224.9
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=heuristic us=695.3
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=11x10 in0_block_w=2 per_core_M=7 per_core_N=36 sub=1x6 us=667.8
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=11x10 in0_block_w=4 per_core_M=7 per_core_N=36 sub=1x6 us=634.1
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=11x10 in0_block_w=8 per_core_M=7 per_core_N=36 sub=1x6 us=607.0
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=11x10 in0_block_w=16 per_core_M=7 per_core_N=36 sub=1x6 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x8 in0_block_w=2 per_core_M=8 per_core_N=49 sub=1x7 us=900.7
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x8 in0_block_w=4 per_core_M=8 per_core_N=49 sub=1x7 us=864.4
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x8 in0_block_w=8 per_core_M=8 per_core_N=49 sub=1x7 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x8 in0_block_w=16 per_core_M=8 per_core_N=49 sub=1x7 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x10 in0_block_w=2 per_core_M=7 per_core_N=49 sub=1x7 us=824.1
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x10 in0_block_w=4 per_core_M=7 per_core_N=49 sub=1x7 us=795.8
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x10 in0_block_w=8 per_core_M=7 per_core_N=49 sub=1x7 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=gdn_in m=2048 k=2048 n=12352 family=2d grid=8x10 in0_block_w=16 per_core_M=7 per_core_N=49 sub=1x7 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=heuristic us=257.6
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=2 per_core_M=7 per_core_N=6 sub=1x6 us=206.5
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=4 per_core_M=7 per_core_N=6 sub=1x6 us=196.2
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=8 per_core_M=7 per_core_N=6 sub=1x6 us=188.1
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=11x10 in0_block_w=16 per_core_M=7 per_core_N=6 sub=1x6 us=181.0
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=2 per_core_M=8 per_core_N=8 sub=1x8 us=286.1
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=4 per_core_M=8 per_core_N=8 sub=1x8 us=271.2
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=8 per_core_M=8 per_core_N=8 sub=1x8 us=260.9
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x8 in0_block_w=16 per_core_M=8 per_core_N=8 sub=1x8 us=249.9
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=2 per_core_M=7 per_core_N=8 sub=1x8 us=258.5
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=4 per_core_M=7 per_core_N=8 sub=1x8 us=245.7
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=8 per_core_M=7 per_core_N=8 sub=1x8 us=235.6
+PREFILLMM role=gdn_out m=2048 k=4096 n=2048 family=2d grid=8x10 in0_block_w=16 per_core_M=7 per_core_N=8 sub=1x8 us=226.8
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=heuristic us=111.9
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=11x10 in0_block_w=2 per_core_M=7 per_core_N=3 sub=1x3 us=89.4
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=11x10 in0_block_w=4 per_core_M=7 per_core_N=3 sub=1x3 us=85.8
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=11x10 in0_block_w=8 per_core_M=7 per_core_N=3 sub=1x3 us=67.1
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=11x10 in0_block_w=16 per_core_M=7 per_core_N=3 sub=1x3 us=64.9
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x8 in0_block_w=2 per_core_M=8 per_core_N=5 sub=1x5 us=102.8
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x8 in0_block_w=4 per_core_M=8 per_core_N=5 sub=1x5 us=99.5
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x8 in0_block_w=8 per_core_M=8 per_core_N=5 sub=1x5 us=91.8
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x8 in0_block_w=16 per_core_M=8 per_core_N=5 sub=1x5 us=89.1
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x10 in0_block_w=2 per_core_M=7 per_core_N=5 sub=1x5 us=95.7
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x10 in0_block_w=4 per_core_M=7 per_core_N=5 sub=1x5 us=89.1
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x10 in0_block_w=8 per_core_M=7 per_core_N=5 sub=1x5 us=84.6
+PREFILLMM role=shared_in m=2048 k=2048 n=1056 family=2d grid=8x10 in0_block_w=16 per_core_M=7 per_core_N=5 sub=1x5 us=80.3
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=heuristic us=73.4
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=11x10 in0_block_w=2 per_core_M=7 per_core_N=6 sub=1x6 us=61.6
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=11x10 in0_block_w=4 per_core_M=7 per_core_N=6 sub=1x6 us=59.4
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=11x10 in0_block_w=8 per_core_M=7 per_core_N=6 sub=1x6 us=56.1
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=11x10 in0_block_w=16 per_core_M=7 per_core_N=6 sub=1x6 us=52.6
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x8 in0_block_w=2 per_core_M=8 per_core_N=8 sub=1x8 us=70.7
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x8 in0_block_w=4 per_core_M=8 per_core_N=8 sub=1x8 us=70.0
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x8 in0_block_w=8 per_core_M=8 per_core_N=8 sub=1x8 us=64.9
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x8 in0_block_w=16 per_core_M=8 per_core_N=8 sub=1x8 us=57.1
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x10 in0_block_w=2 per_core_M=7 per_core_N=8 sub=1x8 us=67.6
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x10 in0_block_w=4 per_core_M=7 per_core_N=8 sub=1x8 us=65.8
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x10 in0_block_w=8 per_core_M=7 per_core_N=8 sub=1x8 us=61.1
+PREFILLMM role=shared_down m=2048 k=512 n=2048 family=2d grid=8x10 in0_block_w=16 per_core_M=7 per_core_N=8 sub=1x8 us=55.6

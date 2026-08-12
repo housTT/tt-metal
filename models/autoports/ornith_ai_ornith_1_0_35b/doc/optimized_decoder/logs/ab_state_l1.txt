@@ -1,0 +1,27 @@
+# The three float32 recurrent-state matmuls of a `linear_attention` decode step: operand placement
+# and program config. `tt-perf-report` flags all three SLOW with "place input 0 in L1" and
+# "in0_block_w=1 is small"; review round 1 found they had never been swept, and round 2 found the
+# in0_block_w item closed with an incorrect API claim.
+#
+# Same harness, real weights, one process per row:
+#   python doc/optimized_decoder/logs/bench.py --impl optimized --policy optimized \
+#       --layers 0 --phase decode --iters 32
+#
+tag=dram-operands+core_grid (before)        layer=0 (linear_attention) decode(traced) wall/iter=1.093 ms
+tag=l1-operands+core_grid                   layer=0 (linear_attention) decode(traced) wall/iter=1.074 ms
+tag=l1-operands+repeat_interleave-l1         layer=0 (linear_attention) decode(traced) wall/iter=1.071 ms
+tag=l1-operands+explicit-program-config      layer=0 (linear_attention) decode(traced) wall/iter=1.067 ms
+tag=+shared-expert-swiglu-in-l1 (shipped)    layer=0 (linear_attention) decode(traced) wall/iter=1.069 ms
+#
+# Op-level detail is in probe_decode_micro.txt (`STATE` rows), which sweeps 5 fidelity/accumulate
+# combinations x 5 core grids for both roles, and then the explicit
+# MatmulMultiCoreReuseProgramConfig arm at in0_block_w 1/2/4:
+#   read  : core_grid 14.7 us -> progcfg in0_block_w=2 13.9 us   (1 -> 14.6, 4 -> 14.8)
+#   outer : core_grid 20.4 us -> progcfg in0_block_w=1 12.6 us   (2 and 4 rejected by the op: with
+#           transpose_a the tiled K is 1 tile, so 1 is the only legal value)
+# Fidelity: HiFi2 14.6 / LoFi 14.7 against HiFi4+fp32acc 14.9 on the read role, i.e. <=0.3 us for the
+# float32 state that is the model's exact carry between steps. Rejected on that.
+#
+# The last row is 2 us above the row before it, which is inside the run-to-run spread of this
+# harness (+-3 us on repeated runs of the same build); the shared-expert change is kept because its
+# own advice row is what it closes and because it also moves prefill 96.48 -> 96.32 ms.

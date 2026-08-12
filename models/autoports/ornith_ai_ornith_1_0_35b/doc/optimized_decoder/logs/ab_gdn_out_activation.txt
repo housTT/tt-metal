@@ -1,0 +1,18 @@
+# Output dtype of the gated-DeltaNet output gate, i.e. the activation the `gdn_out` projection reads.
+#
+# chunk_gated_delta_rule returns float32, so `merged * silu(z)` defaults to a float32 activation and
+# the projection runs as `HiFi2 FP32 x BFP8 => FP32` (222 us prefill / 29 us decode in
+# tracy/linear_attention/*_perf_report.csv) where the identically shaped `o_proj` runs
+# `BF16 x BFP8 => BF16` at 169 / 25 us. Naming bfloat16 on the multiply costs no extra op.
+#
+# Same harness, real weights, one process per row:
+#   python doc/optimized_decoder/logs/bench.py --impl optimized --policy optimized \
+#       --layers 0 --phase both --pcc --iters 32
+#
+tag=fp32-activation (before) layer=0 (linear_attention) prefill seq_len=2048 wall=102.42 ms pcc=0.994419
+tag=fp32-activation (before) layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.075 ms
+tag=bf16-activation (kept)   layer=0 (linear_attention) prefill seq_len=2048 wall=102.30 ms pcc=0.994385
+tag=bf16-activation (kept)   layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.071 ms
+#
+# Kept. The full delivered PCC ladder is the acceptance evidence, not this screen; the screen input's
+# absolute value is dominated by DeltaNet state accumulation (the fused decoder scores 0.994650 on it).
