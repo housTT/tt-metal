@@ -29,24 +29,31 @@ FAIL test_decode_pcc                        decode step 0           PCC 0.334269
 # Rejected: the decode call deliberately passes no compute_kernel_config, and the call site says so.
 # With both candidates reverted the same 16 cases pass.
 
-# --- candidate C: q_chunk_size = 0, k_chunk_size = 0 (probe: 55.6-56.8 us vs 62.0 at the shipped
-#     32/page_block, i.e. ~9% faster in isolation, measured on all four grids) ---------------------
-# Raised by review round 7, which observed the candidate measured everywhere and dispositioned nowhere,
-# and inferred from its `pcc_vs_default` fingerprint that it would collapse like candidate A. It does
-# NOT. Measured rather than inferred, on the shipped code with only this config changed:
+# --- candidate C: q_chunk_size = 0, k_chunk_size = 0 (probe: 55.4-56.7 us vs 61.0-62.4 at the shipped
+#     32/page_block, i.e. ~8% faster in isolation, measured on all four grids) ---------------------------
+# Raised by review round 7, which observed the candidate measured everywhere and dispositioned nowhere, and
+# inferred from its `pcc_vs_default` fingerprint that it would collapse like candidate A. It does NOT.
+# Measured rather than inferred, on the shipped code with only this config changed:
 #
 #   PASS  the whole delivered suite, 109 passed / 0 failed
-#   PASS  every case of the selection candidates A and B fail: 16 passed / 0 failed, worst PCC 0.999865
-#         (decode_pcc, traced_decode, batched ragged positions, above_head_split, batch-32 prefill+decode)
+#   PASS  every case candidates A and B fail: 16 passed / 0 failed, worst PCC 0.999865
 #
-# So the correctness argument that rejects A and B does not apply here. What rejects it is that the win
-# does not exist at the layer:
+# So the correctness argument that rejects A and B does not reject this. Round 8 then asked the two questions
+# that actually settle it, and both were measured:
 #
-#   shipped  (8,8) q32 k=page_block   full_attention traced decode  0.849 ms   (ab_fused_vs_optimized.txt)
-#   q0 k0                             full_attention traced decode  0.848 ms   (same harness, same weights)
+# 1. Is there a variant that keeps the invariant? NO. `probe_decode_micro.txt` now sweeps `q_chunk=0` with
+#    `k_chunk=page_block` as well, and it measures identically to the shipped `q_chunk=32` arm (61.1 vs 61.0
+#    at 8x8; 60.1 vs 60.1 at 8x4). The isolation win is entirely k-chunk-side. There is no way to take it
+#    while keeping k_chunk pinned to the page block.
+# 2. Is the layer-level gap real, or inside the spread? REAL, and small. `ab_decode_harness.txt` times both
+#    arms with three repeats per arm in one process: shipped 0.869/0.869 ms, candidate 0.867-0.868 ms, with
+#    repeats agreeing to 0.001. So the candidate is reproducibly ~1-2 us faster, a fraction of a percent of a decode step
+#    - NOT "inside the spread", which is what this file claimed before round 8 and which the measured spread
+#    (repeats agreeing to the last printed digit) does not support.
 #
-# One microsecond, inside the run-to-run spread, because SdpaDecode is ~2% of the decode window and a 5 us
-# op-level difference has nowhere to go. Set against that: k_chunk_size=0 hands the chunk choice to the op,
-# and candidate A is the proof that a chunk larger than page_block_size is silently wrong at this model's
-# paged geometry. Keeping the chunk pinned to page_block_size in code costs nothing measurable and keeps the
-# invariant checkable from outside the op. Rejected on "no layer-level gain", not on correctness.
+# Rejected anyway, on the trade rather than on a tie: ~0.2% of decode in exchange for replacing a checkable
+# invariant with trust in the op's internal chunk choice, where candidate A is the proof that an oversized
+# k-chunk at this paged geometry is SILENTLY WRONG rather than an error. k_chunk=0 passed every context this
+# suite covers; those contexts are a subset, the failure mode is a wrong answer rather than a crash, and the
+# 109-case pass therefore bounds the risk without eliminating it. Pinning k_chunk to page_block_size keeps
+# the invariant verifiable from outside the op, and it costs a fraction of a percent of one window.

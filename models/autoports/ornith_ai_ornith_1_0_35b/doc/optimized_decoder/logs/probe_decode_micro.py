@@ -204,12 +204,20 @@ def section_sdpa(mesh, grid, gen):
     cur_pos = ttnn.from_torch(
         torch.tensor([ctx - 8], dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=mesh
     )
-    ckc = ttnn.init_device_compute_kernel_config(
+    # The shipped decode call passes **NO** compute_kernel_config, deliberately: the prefill SDPA's
+    # HiFi2 + fp32-dest-accumulate config collapses decode PCC on a BFP8 paged cache
+    # (`ab_sdpa_decode_contract.txt`, candidate B). Review round 8 found this probe passing exactly that
+    # config to every arm INCLUDING the `default(None)` reference, so every conclusion drawn from these rows
+    # — "the op default is an order of magnitude slower", the grid ranking, the chunk ranking — was measured
+    # under a configuration the layer does not build. The sweep runs at the shipped contract now, and the
+    # rejected config is kept as one extra labelled arm so its cost stays visible rather than implicit.
+    prefill_ckc = ttnn.init_device_compute_kernel_config(
         mesh.arch(), math_fidelity=ttnn.MathFidelity.HiFi2, math_approx_mode=False, fp32_dest_acc_en=True
     )
 
-    def make(cfg):
+    def make(cfg, ckc=None):
         def call():
+            kwargs = {} if ckc is None else {"compute_kernel_config": ckc}
             return ttnn.transformer.paged_scaled_dot_product_attention_decode(
                 q,
                 k_cache,
@@ -219,7 +227,7 @@ def section_sdpa(mesh, grid, gen):
                 is_causal=True,
                 scale=head_dim**-0.5,
                 program_config=cfg,
-                compute_kernel_config=ckc,
+                **kwargs,
             )
 
         return call
@@ -229,7 +237,10 @@ def section_sdpa(mesh, grid, gen):
     for gx, gy in ((8, 8), (11, 10), (8, 4), (4, 8)):
         if gx > grid.x or gy > grid.y:
             continue
-        for qc, kc in ((32, 64), (32, 128), (32, 32), (0, 0)):
+        # (0, 64) is the separable variant review round 8 asked for: it takes the auto q-chunk while KEEPING
+        # k_chunk pinned to the page block, which is the invariant candidate A proves must hold. It is the
+        # only arm that separates "the q chunk is what wins" from "the k chunk is what wins".
+        for qc, kc in ((32, 64), (32, 128), (32, 32), (0, 0), (0, 64)):
             candidates.append(
                 (
                     f"grid={gx}x{gy} q_chunk={qc} k_chunk={kc}",
@@ -247,6 +258,18 @@ def section_sdpa(mesh, grid, gen):
             print(f"SDPA cfg={name} us={timeit(mesh, make(cfg))} pcc_vs_default={pcc(base, got):.6f}", flush=True)
         except Exception as exc:  # noqa: BLE001 - illegal configs are data
             print(f"SDPA cfg={name} FAILED {str(exc).splitlines()[0][:110]}", flush=True)
+    # One extra arm: the shipped program config under the REJECTED prefill compute-kernel config, so the
+    # cost of the thing `ab_sdpa_decode_contract.txt` candidate B rejects on correctness is also on record as
+    # a time. Its `pcc_vs_default` is against the no-ckc reference, so a low value here is the isolated
+    # op disagreeing with the shipped contract - which is the point.
+    shipped = next((cfg for nm, cfg in candidates if nm.startswith("grid=8x8 q_chunk=32 k_chunk=64")), None)
+    if shipped is not None:
+        got = ttnn.to_torch(make(shipped, prefill_ckc)()).float()
+        print(
+            f"SDPA cfg=grid=8x8 q_chunk=32 k_chunk=64 ckc=prefill-HiFi2-fp32acc "
+            f"us={timeit(mesh, make(shipped, prefill_ckc))} pcc_vs_default={pcc(base, got):.6f}",
+            flush=True,
+        )
 
 
 def section_state(mesh, grid, gen):

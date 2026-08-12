@@ -238,9 +238,14 @@ def main():
         if prefill_csv.is_file() or prefill_csv.with_suffix(".csv.gz").is_file():
             _, sparse_prefill = op_device_time(prefill_csv, "SparseMatmul", 1)
             _, dense_prefill = op_device_time(prefill_csv, "MatmulDeviceOperation", 1)
+            # SDPA too: README §9 item 7 names the prefill SDPA config as the one program config in this
+            # stage with no swept artifact behind it, and the honesty of that admission depends on saying how
+            # big the op is.
+            _, sdpa_prefill = op_device_time(prefill_csv, "SDPA", 1)
             prefill_shares = {
                 "sparse_matmul_share": round(sparse_prefill, 4),
                 "dense_matmul_share": round(dense_prefill, 4),
+                "sdpa_share": round(sdpa_prefill, 4),
             }
         out[kind] = {
             "prefill_window_composition": prefill_shares,

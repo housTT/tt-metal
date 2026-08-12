@@ -51,6 +51,23 @@ KINDS = [("linear_attention", "linear_attention"), ("full_attention", "full_atte
 #: cannot drift silently — which is the class of bug that put a decode `in0_block_w` on a prefill row.
 SPARSE_MIN_CORES_MIRROR = 8
 
+#: Model shapes the routed matmuls produce, mirroring ``tt/optimized_decoder._sparse_n_tiles``: gate/up is
+#: ``2 * moe_intermediate`` wide and down is ``dim`` wide, in tiles. ``audit_figures`` compares these against
+#: the implementation.
+SPARSE_N_TILES_MIRROR = {"gate_up": 2 * 512 // 32, "down": 2048 // 32}
+
+
+def _sparse_n_tiles_mirror(role: str) -> int:
+    return SPARSE_N_TILES_MIRROR[role]
+
+
+def _largest_divisor_at_most(value: int, cap: int) -> int:
+    """Largest divisor of ``value`` no greater than ``cap`` — the layer's own reduction, mirrored."""
+    for candidate in range(min(cap, value), 0, -1):
+        if value % candidate == 0:
+            return candidate
+    return 1
+
 
 def read(path: Path) -> str:
     """Text of ``path``, or of ``path.gz`` — the big logs are committed gzipped (500 KB repo limit)."""
@@ -781,22 +798,46 @@ def block_decode_search():
             and r.get("out") == shipped_out
         ]
         winner = min(pool) if pool else None
-        spread = max(
-            (
-                float(r.get("spread") or 0)
-                for r in rows
-                if r["us"] is not None and r.get("role") == role and r.get("family") == "mcast1d"
-            ),
-            default=0.0,
+        # Per-row spread, matching block_sparse_search: the maximum over the whole role sweep was up to
+        # 6 us on some roles, which let a genuine sub-microsecond gap read as "inside the spread".
+        winner_spread = (
+            max(
+                (
+                    float(r.get("spread") or 0)
+                    for r in rows
+                    if r["us"] is not None
+                    and r.get("role") == role
+                    and r.get("family") == "mcast1d"
+                    and r.get("out") == shipped_out
+                    and r["us"] == winner
+                ),
+                default=0.0,
+            )
+            if winner is not None
+            else 0.0
         )
+        mine_spread = (
+            max(
+                (float(r.get("spread") or 0) for r in candidates if r["us"] == mine),
+                default=0.0,
+            )
+            if mine is not None
+            else 0.0
+        )
+        spread = max(winner_spread, mine_spread)
         if mine is None or winner is None:
             verdict = "—"
         elif mine <= winner + 1e-9:
             verdict = "**the measured winner**"
         elif mine - winner <= spread:
-            verdict = f"+{mine - winner:.1f} µs, inside the ±{spread:.1f} µs spread of this role's sweep"
+            verdict = f"+{mine - winner:.1f} µs against {winner:.1f}, inside the ±{spread:.1f} µs row spread"
         else:
-            verdict = f"**+{mine - winner:.1f} µs** against {winner:.1f}, beyond the ±{spread:.1f} µs spread"
+            # Name the share of a decode step too: at these shapes a "beyond the spread" gap can still be a
+            # few hundredths of a percent, and the reader should not have to divide to find that out.
+            share = f", {100 * (mine - winner) / max(mine, 1e-9):.2f} % of this op"
+            verdict = (
+                f"**+{mine - winner:.1f} µs** against {winner:.1f}, beyond the ±{spread:.1f} µs row " f"spread{share}"
+            )
         cells = [f"{heuristic:.1f} µs" if heuristic else "—", f"{sharded:.1f}" if sharded else "—"]
         lines.append(f"| `{role}` | 32×{k}×{n} | {cells[0]} | {cells[1]} | {shipped_cell} | {verdict} |")
     lost = [
@@ -810,7 +851,11 @@ def block_decode_search():
     lines.append(
         f"The DRAM-sharded family loses to the shipped 1D `mcast_in0` config on **{len(lost)} of "
         f"{len(DECODE_ROLES)}** roles, measured without its activation-reshard cost, which it would also "
-        "have to pay."
+        "have to pay. The last column compares each shipped row against every 1D candidate for that role at "
+        "the shipped output placement, using that row's own measured spread rather than the sweep's widest — "
+        "review round 8 pointed out the looser rule could hide a real sub-microsecond gap. Where a row is "
+        "behind, the gap and the alternative are named: none of them is worth a core-count special case at "
+        "these shapes, and the ladder is flat enough there that the neighbouring targets sit between the two."
     )
     return "\n".join(lines)
 
@@ -890,10 +935,13 @@ def block_sparse_search():
             winner = min(pool, key=lambda r: r["us"])
             cores = max(8, min(32, max(1, active // K_PER_ROLE[role])))
             gx, gy = shipped_grid(cores)
-            # Which phase's cap applies is decided by the realised core count, mirroring
-            # `OptimizedMoE._sparse_cfg`: the minimum core count is the narrow (decode) geometry, anything
-            # above it is the wide one. `check_mirrored_constants` compares this rule against the source.
-            phase = "narrow" if cores <= SPARSE_MIN_CORES_MIRROR else "wide"
+            # Which phase's cap applies is decided by the **realised** core count, mirroring
+            # `OptimizedMoE._sparse_cfg`: the target reduces to a divisor of `Nt` first, and only then does
+            # the count select the cap. Round 8 found this reading the *target* — the same defect round 7
+            # had just fixed in the layer — which happens to agree at the probe's four active points and
+            # diverges at 24, 40, 48, 72 and 96, i.e. it would silently mis-key any point added later.
+            realised = _largest_divisor_at_most(_sparse_n_tiles_mirror(role), max(1, cores))
+            phase = "narrow" if realised <= SPARSE_MIN_CORES_MIRROR else "wide"
             mine = min(
                 (
                     r
@@ -1059,6 +1107,7 @@ def block_prefill_composition():
         parts.append(
             f"`{kind}` is **{comp['sparse_matmul_share']:.1%}** routed-expert `sparse_matmul` and "
             f"**{comp['dense_matmul_share']:.2%}** dense `Matmul`"
+            + (f", **{comp['sdpa_share']:.2%}** `SDPA`" if comp.get("sdpa_share") else "")
         )
     if not parts:
         return "**no prefill composition recorded**"
@@ -1121,7 +1170,12 @@ def block_advice():
                         continue
                     key = next((k for k in actions if k in item), item[:48])
                     counts.setdefault(key, {})[(kind, phase)] = counts.setdefault(key, {}).get((kind, phase), 0) + 1
-                    rows.setdefault(key, set()).add(f"{row['OP Code'][:44]} ({phase[:2]})")
+                    code = (row["OP Code"] or "").strip()
+                    # Ellipsis on truncation: round 8 found the bare 44-character cut printing shapes that
+                    # do not exist (`… x 128 x 12` for `… x 128 x 128`), which a reader cannot match back to
+                    # the committed report.
+                    shown = code if len(code) <= 44 else code[:43] + "…"
+                    rows.setdefault(key, set()).add(f"{shown} ({phase[:2]})")
     keys = sorted(counts, key=lambda k: (-max(counts[k].values()), k))
     header = " | ".join(f"`{kind.split('_')[0]}` {phase}" for kind, phase, _ in windows)
     lines = [

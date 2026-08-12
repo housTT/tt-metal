@@ -410,16 +410,28 @@ config to the decode op drops it to 0.33. Both failures are invisible to a stand
 reference is the same op on the same page table. The shipped config keeps `k_chunk_size` pinned to
 `page_block_size` and passes no compute-kernel config. `SdpaDecode` is 17 µs/step, 2 % of the window.
 
-Review round 7 raised a **third** candidate — `q_chunk_size = 0, k_chunk_size = 0`, which the probe
-measures ~9 % faster in isolation on all four grids, and which OPT-002 names as the usual first paged
-decode candidate. It was measured rather than argued, and the result corrects the review's own
-inference: it is **correct** at the layer (the whole 109-case suite passes, and every case candidates A
-and B fail passes with worst PCC 0.999865), so the correctness argument that rejects those two does not
-apply. What rejects it is that the win does not survive the layer — 0.848 against the shipped 0.849 ms,
-inside the spread, because a 5 µs op-level difference has nowhere to go in a window where `SdpaDecode`
-is 2 %. Against that, `k_chunk_size = 0` hands the chunk choice to the op, and candidate A is the proof
-that a chunk larger than `page_block_size` is silently wrong at this paged geometry. Rejected on **no
-layer-level gain**, with both arms in `ab_sdpa_decode_contract.txt`.
+Review round 7 raised a **third** candidate — `q_chunk_size = 0, k_chunk_size = 0`, ~8 % faster in
+isolation on all four grids, which OPT-002 names as the usual first paged decode candidate. It was measured
+rather than argued, and the result corrected the review's own inference: it is **correct** at the layer (the
+whole 109-case suite passes, and every case candidates A and B fail passes with worst PCC 0.999865), so the
+correctness argument that rejects those two does not reject this.
+
+Round 8 then asked the two questions that settle it, and both are now measured rather than asserted:
+
+* **Is there a variant that keeps the page-block invariant?** No. The probe now sweeps `q_chunk=0` with
+  `k_chunk=page_block` too, and it measures *identically* to the shipped `q_chunk=32` arm. The isolation win
+  is entirely k-chunk-side, so there is no safe way to take it.
+* **Is the layer-level gap real or noise?** Real and small. `ab_decode_harness.txt` times both arms with
+  three repeats each: the candidate is reproducibly a microsecond or two faster, a fraction of a percent of a
+  decode step, against repeats that agree to the last digit the harness prints. My earlier "inside the
+  spread" wording was wrong, and measuring the spread is what showed it was wrong.
+
+Rejected on the **trade**, therefore, not on a tie: a fraction of a percent of one window in exchange for
+replacing a
+checkable invariant with trust in the op's internal chunk choice, where candidate A is the proof that an
+oversized k-chunk here is *silently wrong* rather than an error. The 109-case pass bounds that risk without
+eliminating it — those contexts are a subset and the failure mode is a wrong answer, not a crash. Both arms
+and the reasoning are in `ab_sdpa_decode_contract.txt`.
 
 ### 4.6 BFP4 dense projection weights — measured, decision recorded in §5 of the README
 
@@ -598,14 +610,17 @@ README §5.4's generated table prints every one of them. What they are:
 | --- | --- | --- | --- | --- |
 | 8 active — **the tuned batch-1 decode target** | gate/up | column | +19 µs worse | column wins by ~12 % |
 | 8 active | down | column | +19 µs worse | column wins by ~12 % |
-| ~162 active — a 32-token prefill group | gate/up | column | +9 µs worse | column wins |
-| ~162 active | down | column | −1.4 µs | row wins by 0.4 % |
-| 32 and 64 active — decode batch 4 and 8, **not tuned** (README §9 item 5) | 3 of 4 rows | column | −4.5 to −8.0 µs | row wins by 1.5–2.9 % |
+| ~162 active — a 32-token prefill group | gate/up | column | slower | **column wins** |
+| ~162 active | down | column | slower | **column wins** |
+| 32 and 64 active — decode batch 4 and 8, **not tuned** (README §9 item 5) | 3 of 4 rows | column | faster | row wins by 1.5–4 % |
 
-Rejected, and the arithmetic is the reason rather than the effort. At the tuned decode point the shipped
-orientation wins decisively on both roles. The only tuned point where it loses is `down` at a prefill
-group, by 1.4 µs of a pair of calls that between them are most of that group's device time — about
-**0.1 % of a prefill window**. Taking the row form where it wins
+Rejected, and the arithmetic is the reason rather than the effort. **The shipped orientation wins at every
+tuned point**: decisively at batch-1 decode on both roles, and on both roles of a prefill group too. Review
+round 8 found this paragraph and the table above claiming it lost the prefill `down` row — the sign was
+inverted, and README §5.4's generated table had it right the whole time, which is the argument for
+generating tables. Where the row form wins is three of the four rows at 32 and 64 active experts, i.e.
+decode batch 4 and 8, which are supported for correctness and explicitly not tuned. Taking the row form
+where it wins
 cannot be done with a rule: the preference is not monotonic in the active count or the core count, and it
 *reverses for `down` at a fixed 8-core geometry* between 8 and 32 active experts, so it would need an
 orientation table keyed on (role, active count) fitted to eight measured points. That trade — over-fitting
@@ -1045,11 +1060,74 @@ wrong.** Round 7 observed it measured on all four grids and dispositioned nowher
 `pcc_vs_default` fingerprint that it would collapse like the `k_chunk 128` candidate. It does not: with only
 that config changed, the **whole 109-case suite passes**, and every case candidates A and B fail passes with
 worst PCC 0.999865. So the correctness argument that rejects those two does not apply here. What rejects it
-is the layer: 0.848 ms against the shipped 0.849, inside the spread, because a 5 µs op-level difference has
-nowhere to go in a window where `SdpaDecode` is 2 %. Recorded as candidate C in
+is the layer, where the isolation win almost entirely disappears because `SdpaDecode` is 2 % of the window —
+§4.5 has the measured pair, and round 8 corrected the "inside the spread" framing this sentence used. Recorded as candidate C in
 `ab_sdpa_decode_contract.txt` with both arms, rejected on *no layer-level gain* rather than on correctness —
 and `k_chunk_size` stays pinned to `page_block_size` because candidate A is the proof that exceeding the
 page block is silently wrong, and delegating the choice to the op makes that invariant uncheckable.
+
+**Round 8** returned `more-work-needed` with six items. Two were substantive measurement problems, two were
+defects inside earlier rounds' fixes, and one corrected a claim I had made without measuring it.
+
+* **P1 — every SDPA row the decode program-config decision rests on was measured under a compute-kernel
+  config the layer deliberately does not use: the exact HiFi2 + fp32-dest-accumulate config recorded two
+  sections above as collapsing decode PCC.** The probe passed it to *every* arm, including the
+  `default(None)` reference, so "the op default is an order of magnitude slower", the grid ranking and the
+  chunk ranking were all measured against something the layer never builds. This is the same class as round
+  7's P1 — a table reporting a configuration that is not shipped — one artifact over. The sweep runs at the
+  shipped contract now (no compute-kernel config), the rejected config is kept as one extra labelled arm so
+  its cost stays visible, and §3.8's conclusions are restated from the corrected rows. The direction survives
+  — the op default is still more than an order of magnitude slower — but the numbers moved, and the rejected
+  config turns out to be *slower* as well as wrong.
+* **P1 — the §4.14 orientation figures had the `down` sign inverted at the prefill point**, and the
+  rejection argument in that section rested on the inverted value ("the only tuned point where it loses").
+  The artifact has the shipped column orientation winning **both** prefill rows; README §5.4's *generated*
+  table said so all along, and the prose beside it disagreed. That is the strongest argument yet for
+  generating tables: the round-5 replacement text for a claim the artifact contradicted itself contradicted
+  the artifact, in a way `audit_figures.py` cannot see by construction — it checks whether a figure exists,
+  not whether it supports the sentence around it.
+* **P2 — `make_readme.block_sparse_search` still keyed the phase off the *target* core count**, which is the
+  defect round 7 fixed in the layer, re-introduced in round 7's own generator fix. It agrees with the layer
+  at the four active points the probe measures and diverges at 24, 40, 48, 72 and 96 — so it was correct
+  today and would have silently mis-keyed any point added later. The generator now mirrors the layer's
+  `Nt` reduction, and `check_mirrored_constants` actually reads `make_readme.py` instead of only claiming to.
+* **P2 — `check_freshness` was inert in every passing tree.** Round 5's fix made the sha256 manifest
+  authoritative by returning early whenever it matched, which is the passing case — so the mtime pass never
+  ran, and round 7's "removed from the exempt set so the freshness rule applies" bought nothing. The two
+  checks catch different things: the manifest proves the artifacts came from these bytes, but a sweep that
+  dies part-way leaves a *matching* manifest beside artifacts from the previous revision, and only mtime
+  ordering sees that. The pass runs unconditionally now, skips the uniform-timestamp signature of a
+  `git archive` extraction, and downgrades a newer-source-with-matching-hash to an advisory **note** rather
+  than a failure. Verified in all three states. The exempt set is also now defined mechanically — exempt iff
+  no phase of `run_evidence.sh` writes the file — and a new check enforces that, because the previous
+  rationale described two files it did not exempt.
+* **P2 — the SDPA candidate's rejection rested on a spread nothing measured**, and the separable variant its
+  own rationale pointed at had never been tried. Both are now measured, and both matter: `q_chunk=0` with
+  `k_chunk` still pinned to the page block measures **identically** to the shipped arm, so the isolation win
+  is entirely k-chunk-side and there is no safe way to take it; and at the layer, with three repeats per arm,
+  the candidate is reproducibly a microsecond or two faster rather than tied. My "inside the spread" wording
+  was simply wrong, and measuring the spread is what showed it. The rejection now rests on the trade — a
+  fraction of a percent of one window against replacing a checkable invariant with trust in an op's internal
+  chunk choice, where the failure mode is a silently wrong answer — which is a defensible reason where "it's
+  a tie" was not.
+* **P2 — the traced-decode figure differs ~2 % between harnesses, and round 8's explanation was wrong.**
+  The review attributed it to the 88 MB trace region two A/B harnesses reserve.
+  [`logs/ab_decode_harness.txt`](logs/ab_decode_harness.txt) measures that directly and rules it out: the
+  same harness reports the same figure with the region reserved and with it zero. What is left is the
+  multi-build process — those harnesses build several decoders in one device session to compare arms back to
+  back. README §5.1 now says which harness each number belongs to and why the difference does not affect any
+  A/B (every arm in a file shares its harness).
+
+Round 8's smaller concerns closed in the same pass: the advice table truncated op codes without an ellipsis,
+printing shapes that do not exist; the two search tables used different spread rules, and the looser one
+(widest spread over a whole role sweep) could hide a real sub-microsecond gap — both are per-row now, which
+immediately surfaced `gdn_in` sitting 0.5 µs behind another target, recorded with the alternative named and
+not taken — the generated table states the gap as a share of that op, and it is under one percent of one op
+of a decode step; the "two largest ops in both windows" claim, where the routed `down` is
+actually third on `linear_attention`; the unswept **prefill** SDPA config, now a named limitation with its
+measured share of the window rather than an omission; and the benign log noise a reader meets in the
+artifacts (`nanobind` teardown leak lines, `tt-perf-report`'s "Unclassified operation" warnings for this
+model's dedicated ops, and the `conv1d` capability probe's `TT_FATAL` bursts), now disclosed in README §1.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

@@ -116,6 +116,15 @@ echo "=== 4c/9  whole-layer A/B for the routed gate/up in0_block_w cap ==="
   python "$LOGS/ab_gate_up_in0_block_w.py"
 } 2>&1 | grep -aE "^GATEUPIBW|^#" > "$LOGS/ab_gate_up_in0_block_w.txt"
 
+echo "=== 4d/9  layer-level spread, and what a reserved trace region does ==="
+# Round 8 pointed out that several rejections lean on a layer-level spread nothing measured, and that two
+# A/B harnesses report ~2 % slower than the headline for the same configuration. Both are measured here.
+{
+  echo "# Layer-level run-to-run spread, and what reserving a trace region does to the traced-decode number."
+  echo "# Command: python doc/optimized_decoder/logs/ab_decode_harness.py"
+  python "$LOGS/ab_decode_harness.py"
+} 2>&1 | grep -aE "^HARNESS|^#" > "$LOGS/ab_decode_harness.txt"
+
 echo "=== 5/9  OPT-007: BFP4 vs BFP8 projections on the real-weight PCC ladder ==="
 {
   echo "# OPT-007: BFP4 vs BFP8 dense projection weights, real-weight HF-golden PCC ladder."

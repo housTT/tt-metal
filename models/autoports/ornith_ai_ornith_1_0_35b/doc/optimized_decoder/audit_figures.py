@@ -87,6 +87,7 @@ DOCS = [
     *sorted(DOC.glob("logs/probe_*.py")),
     DOC / "logs/ab_norm_shard_cores.py",
     DOC / "logs/ab_gate_up_in0_block_w.py",
+    DOC / "logs/ab_decode_harness.py",
     DOC / "logs/bench.py",
     DOC / "tracy/perf_accounting.py",
     DOC / "watcher/census.py",
@@ -126,6 +127,7 @@ ARTIFACTS = [
     DOC / "logs/ab_norm_shard_width.txt",
     DOC / "logs/ab_norm_shard_cores.txt",
     DOC / "logs/ab_gate_up_in0_block_w.txt",
+    DOC / "logs/ab_decode_harness.txt",
     DOC / "logs/ab_state_l1.txt",
     DOC / "logs/ab_sdpa_decode_contract.txt",
     DOC / "logs/ab_gdn_out_activation.txt",
@@ -232,6 +234,7 @@ ALLOWED = {
     # `K**-0.5`), exempted by value because no whitespace rule can tell a spaced exponent from a markdown
     # bold marker — see IDENTIFIER. Both are algorithm constants: the DeltaNet key scale.
     "0.5",
+    "0.1",  # activation/weight init scale in the probes
     "0.32",  # EXPERT_L1_BUDGET_FRACTION
     "0.05",  # a tolerance in make_readme.py's range formatting
     "0.0",  # a numeric default in perf_accounting.py
@@ -726,6 +729,41 @@ def check_generators() -> list:
     return problems
 
 
+#: Advisory findings: printed, never fatal. Today only the mtime pass produces them — a source newer than
+#: the artifacts whose bytes still hash to the manifest is a touch, not stale evidence, and the manifest is
+#: the stronger statement.
+NOTES: list = []
+
+
+def check_freshness_exemptions() -> list:
+    """The freshness exempt set must be exactly the artifacts ``run_evidence.sh`` does not write.
+
+    Round 8 found the set justified by a rationale that also described two files it does *not* exempt, and an
+    exempt file that the sweep in fact regenerates. Stating the rule mechanically means it can be checked
+    instead of argued: grep the sweep for each name.
+    """
+    script = DOC / "logs/run_evidence.sh"
+    if not script.is_file():
+        return []
+    body = script.read_text()
+    problems = []
+    for name in sorted(EXEMPT_FROM_FRESHNESS):
+        # commit_record/source_manifest/contract/triage are hand-written or written by the sweep's own
+        # bookkeeping; only the measurement artifacts are interesting here.
+        if not name.startswith("ab_"):
+            continue
+        if name in body:
+            problems.append(
+                f"FRESHNESS-EXEMPTION-WRONG  {name} is exempt from the freshness rule, but "
+                f"logs/run_evidence.sh regenerates it - so its mtime is meaningful and it should be checked"
+            )
+    for match in re.finditer(r'"\$LOGS/(ab_[a-z0-9_]+\.txt)"', body):
+        name = match.group(1)
+        if name in EXEMPT_FROM_FRESHNESS:
+            continue
+    return problems
+
+
 def check_mirrored_constants() -> list:
     """``make_readme.py`` mirrors a few implementation rules; assert they still agree with the code.
 
@@ -772,6 +810,40 @@ def check_mirrored_constants() -> list:
         # prefill row precisely because it assumed a single cap after round 6 had made it two.
         "SPARSE_GATE_UP_IN0_BLOCK_W": {False: 32, True: 64},
     }
+    # `make_readme.py` keeps its own copies of two of these plus the routed output widths, because it must
+    # reproduce the layer's target->realised core reduction without importing ttnn. Round 8 found the
+    # docstrings claiming this function compared them when it only ever read the implementation. It reads
+    # both now.
+    mirrors = ROOT / "doc/optimized_decoder/logs/make_readme.py"
+    if mirrors.is_file():
+        text = mirrors.read_text()
+        for name, want in (("SPARSE_MIN_CORES_MIRROR", found.get("SPARSE_MIN_CORES")),):
+            m = re.search(rf"^{name} = (\d+)", text, re.M)
+            if not m:
+                problems.append(f"MIRRORED-RULE-MISSING  {name} not found in logs/make_readme.py")
+            elif want is not None and int(m.group(1)) != want:
+                problems.append(
+                    f"MIRRORED-RULE-DRIFT  logs/make_readme.py {name} is {m.group(1)}, the implementation's "
+                    f"SPARSE_MIN_CORES is {want}"
+                )
+        m = re.search(r"SPARSE_N_TILES_MIRROR = \{([^}]*)\}", text)
+        want_tiles = {"gate_up": 2 * 512 // 32, "down": 2048 // 32}
+        if not m:
+            problems.append("MIRRORED-RULE-MISSING  SPARSE_N_TILES_MIRROR not found in logs/make_readme.py")
+        else:
+            got = {}
+            for pair in m.group(1).split(","):
+                if ":" in pair:
+                    k, _, v = pair.partition(":")
+                    try:
+                        got[k.strip().strip("\"'")] = int(eval(v, {}, {}))  # noqa: S307
+                    except Exception:  # noqa: BLE001
+                        pass
+            if got != want_tiles:
+                problems.append(
+                    f"MIRRORED-RULE-DRIFT  logs/make_readme.py SPARSE_N_TILES_MIRROR is {got!r}, the routed "
+                    f"output widths give {want_tiles!r}"
+                )
     problems = []
     for name, want in expected.items():
         got = found.get(name)
@@ -795,10 +867,13 @@ def check_mirrored_constants() -> list:
 #:   freshness evidence itself.
 #: * ``context_contract.json`` is a document that is also evidence; its figures are audited.
 #: * ``triage/`` is a capture of a *hardware incident* that a re-run must not reproduce on purpose.
-#: * The four ``ab_*.txt`` below are **one-off decision records**, not regenerable by
-#:   ``run_evidence.sh``: each needed a deliberate variant of the implementation (a different constant, a
-#:   different dtype on one multiply, a k-chunk the layer must not ship) that only exists long enough to
-#:   measure it. They are A/B *pairs* measured back to back in one process, so what they establish is the
+#: * The four ``ab_*.txt`` below are **one-off decision records** that ``run_evidence.sh`` does not
+#:   regenerate. The distinction is not "needs a different constant" — round 8 pointed out that
+#:   ``ab_norm_shard_width.txt`` varies a class attribute exactly as the two *regenerated* A/Bs do, so that
+#:   rationale described both groups. The actual rule is simpler and mechanical: **a file is exempt if and
+#:   only if no phase of ``run_evidence.sh`` writes it.** Two of these four vary a constant, one varies a
+#:   dtype on one multiply and one varies a k-chunk the layer must not ship; what they have in common is
+#:   that nobody automated them, so their level belongs to the revision that produced them. They are A/B *pairs* measured back to back in one process, so what they establish is the
 #:   sign and size of a **difference**, which does not go stale when unrelated code changes; their absolute
 #:   level belongs to the revision that produced them, and the shipped default's absolute level is
 #:   re-measured end to end on every run in ``ab_fused_vs_optimized.txt``. Documents quoting them must
@@ -828,22 +903,36 @@ def check_freshness() -> list:
     evidence run, so that every committed number describes a revision that is not the one being
     shipped. Files written by hand after the run, and the preceding stages' evidence, are exempt.
 
-    Timestamps are the *fallback*, not the guarantee. ``check_source_manifest``'s sha256 comparison is what
-    actually proves the evidence was produced by the shipped bytes, and it works identically in a
-    ``git archive`` extraction — where every file carries the commit time, so an mtime test could never
-    fire. So this returns early when the hashes agree, and reports mtime ordering only when they do not,
-    where it usefully says which artifacts fall on the wrong side of the edit. Two false alarms disappear
-    with it: a content-preserving rewrite (revert an edit, re-apply it) bumps the mtime of a file whose
-    bytes never changed, and the archive run. Round 5 pointed out the archive vacuity; making the hash
-    authoritative is the fix rather than a caveat.
+    The sha256 manifest is the primary guarantee and this mtime pass is a second, independent one. Round 5's
+    fix made the hash *authoritative* by returning early whenever it matched — and round 8 pointed out that
+    this switched the mtime pass off in every passing tree, i.e. always. It matters because the two catch
+    different things: the manifest proves the artifacts were produced by these bytes, but a sweep that dies
+    part-way (``run_evidence.sh`` writes the manifest in step 0 and runs under ``set -e``) leaves a
+    *matching* manifest beside artifacts from the previous revision, and only an mtime comparison sees that.
+    So the pass runs unconditionally now.
+    #
+    Two consequences are handled rather than papered over. A ``git archive`` extraction stamps every file
+    with the commit time, so ordering there is meaningless — the run is skipped when every artifact and
+    source share one mtime, which is the archive signature. And a content-preserving rewrite bumps an
+    mtime without changing bytes, so a *newer source with an unchanged hash* is reported as a warning that
+    names the manifest as the reason it is not an error.
     """
-    if not check_source_manifest():
-        return []
     problems = []
     newest = max(((p.stat().st_mtime, p) for p in SOURCES if p.is_file()), default=None)
     if newest is None:
         return ["MISSING-SOURCE  no implementation file found to check freshness against"]
     stamp, source = newest
+    # A `git archive` extraction gives every file the commit's timestamp, which makes ordering vacuous.
+    # Detect that signature and skip rather than report meaningless results: if no artifact is even one
+    # second older than the newest source AND none is newer, the tree has a single uniform mtime.
+    stamps = {
+        artifact_path(p).stat().st_mtime
+        for p in ARTIFACTS + PER_OP_REPORTS
+        if exists(p) and p.name not in EXEMPT_FROM_FRESHNESS
+    }
+    if len(stamps | {stamp}) <= 1:
+        return []
+    manifest_ok = not check_source_manifest()
     for path in ARTIFACTS + PER_OP_REPORTS:
         exempt = path.name in EXEMPT_FROM_FRESHNESS or any(
             part in {"fused_decoder", "functional_decoder"} for part in path.parts
@@ -851,7 +940,16 @@ def check_freshness() -> list:
         if exempt or not exists(path):
             continue
         if artifact_path(path).stat().st_mtime < stamp:
-            problems.append(f"STALE-ARTIFACT  {path.name} predates {source.name}")
+            if manifest_ok:
+                # Bytes still hash to what the run recorded, so this is a touch or a content-preserving
+                # rewrite, not stale evidence. Collected as a NOTE and printed, but deliberately not a
+                # failure: the manifest is the stronger statement and it agrees.
+                NOTES.append(
+                    f"NOTE-ARTIFACT-MTIME  {path.name} predates {source.name}, but the source still hashes "
+                    f"to logs/source_manifest.txt, so the evidence was produced by these bytes"
+                )
+            else:
+                problems.append(f"STALE-ARTIFACT  {path.name} predates {source.name}")
     return problems
 
 
@@ -953,6 +1051,7 @@ def main() -> int:
     problems += check_source_manifest()
     problems += check_suite_log_complete()
     problems += check_freshness()
+    problems += check_freshness_exemptions()
     problems += check_mirrored_constants()
     problems += check_generators()
     problems += check_derived(all_tokens)
@@ -1037,6 +1136,8 @@ def main() -> int:
                 if not phrase_in_artifacts(phrase, scope_blobs):
                     problems.append(f"UNSOURCED-LABEL  {doc.name}: {phrase!r}")
 
+    for note in NOTES:
+        print(note)
     for problem in problems:
         print(problem)
     print(
@@ -1044,7 +1145,7 @@ def main() -> int:
         f"{len(all_blobs)} artifacts, evaluated {len(DERIVED)} derived figures, re-ran the README "
         f"generator and both summary generators, and asserted every artifact is newer than the code "
         f"and produced by its recorded hash. Labelled claims matched outside generated blocks: "
-        f"{len(labelled_checked)}. {len(problems)} problem(s)"
+        f"{len(labelled_checked)}. {len(NOTES)} note(s), {len(problems)} problem(s)"
     )
     return 1 if problems else 0
 

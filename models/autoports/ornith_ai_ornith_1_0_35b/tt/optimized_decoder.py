@@ -550,8 +550,9 @@ def _sparse_matmul_config(
     #
     # * batch-1 decode, 8 active experts, both roles: the column wins by ~19 us, i.e. ~12 %. This is the
     #   geometry the stage tunes for and the margin is decisive.
-    # * a 32-token prefill group (~162 active): the column wins by ~9 us on gate/up and loses by ~1.4 us
-    #   on down. Net ~0.1 % of a prefill window.
+    # * a 32-token prefill group (~162 active): the column wins **both** roles. Review round 8 caught this
+    #   comment, and work_log §4.14, stating the `down` row with the sign inverted — the artifact has the
+    #   column ahead there too, and README §5.4's generated table said so all along.
     # * decode batch 4 and 8 (32 and 64 active), which are supported for correctness but explicitly not
     #   tuned (README §9 item 5): the row form wins by 1.5-3 % on three of four rows.
     #
@@ -924,7 +925,7 @@ def _prepare_conv1d_weights(mesh_device, host_weights, config, prefill_chunk, ba
     a length that passes the probe here and then fails in a forward raises rather than falling back.
     It is not a theoretical gap: the dominant refusal class is a pressure-dependent per-bank L1
     allocation failure, and this probe runs at ``allocate_state`` time when the large prefill
-    activations are not yet resident. README §9 item 7 records it.
+    activations are not yet resident. README §9 item 8 records it.
     """
     channels = CONV1D_CHANNELS
     kernel = config.linear_conv_kernel_dim
