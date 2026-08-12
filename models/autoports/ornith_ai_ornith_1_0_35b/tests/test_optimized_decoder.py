@@ -823,7 +823,14 @@ def test_decode_pcc(mesh_device, layer_idx, prefill_len):
 # batch > 1
 # --------------------------------------------------------------------------------------
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
-@pytest.mark.parametrize("batch", [4, 32])
+#: 5 and 8 are not extra copies of 4: the four token-mixer roles are called on ``[batch, 1, dim]``, so
+#: ``per_core_M == batch`` and **every** batch from 1 to 8 builds a distinct tuned decode config. 5 is where
+#: `o_proj`'s ``in0_block_w`` drops from 16 to 8 (``DECODE_MATMUL_IN0_TILE_BUDGET // 5 == 12``), and 8 is the
+#: top of the band before `_ProjectionConfigs.get` returns None. Review round 10 declined this coverage on the
+#: claim that ``per_core_M`` is ``ceil(batch / 32)`` - true only of the three MoE roles, whose activation is
+#: reshaped to ``[1, 1, padded_tokens, dim]`` - and round 11 caught that, so batches 5 and 8 were shipped
+#: config classes that nothing had ever built.
+@pytest.mark.parametrize("batch", [4, 5, 8, 32])
 def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch):
     """Batched prefill + batched decode with per-user current positions."""
     source = default_weight_source()
@@ -1814,8 +1821,13 @@ def _sparse_gate_up_block_w(moe, *, batch: int) -> int:
     return _largest_divisor_at_most(moe.cfg.dim // 32, cap)
 
 
+#: The tuned dense decode configs are keyed on ``per_core_M``, which equals the batch for the four token-mixer
+#: roles, so batch 1 alone asserts one of the eight shipped classes. 5 is the class where `o_proj`'s inner block
+#: narrows; both are checked here, and the assertions below are written against the rule rather than against
+#: batch-1 literals. Added in review round 11, which found batches 5-8 built by no test and no probe.
+@pytest.mark.parametrize("decode_batch", [1, 5])
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
-def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypatch):
+def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_batch, monkeypatch):
     """Every dense decode projection must run under its tuned program config, not ttnn's heuristic.
 
     The tuned configs are the whole content of the dense-matmul optimization: without them the
@@ -1826,9 +1838,11 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
     experts' sparse matmuls carry a program config and put their intermediates in L1.
     """
     source = default_weight_source()
-    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, batch=decode_batch)
     ttnn.deallocate(
-        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 128, seed=95)), page_table=page_table)
+        decoder.prefill_forward(
+            to_device(mesh_device, make_activations(decode_batch, 128, seed=95)), page_table=page_table
+        )
     )
 
     linear_calls: list = []
@@ -1845,10 +1859,10 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
 
     monkeypatch.setattr(ttnn, "linear", spy_linear)
     monkeypatch.setattr(ttnn, "sparse_matmul", spy_sparse)
-    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128]))
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128] * decode_batch))
     ttnn.deallocate(
         decoder.decode_forward(
-            to_device(mesh_device, make_activations(1, 1, seed=96)),
+            to_device(mesh_device, make_activations(decode_batch, 1, seed=96)),
             current_pos=current_pos,
             rot_idxs=rot_idxs,
             page_table=page_table,
@@ -1933,8 +1947,12 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
     # margin several times the measured spread. Asserted per phase, in both this test and the prefill one,
     # because review round 7 pointed out that nothing stopped the two values collapsing back into one —
     # setting the table to a single cap passed the whole suite unchanged.
+    #
+    # Keyed on the batch under test, not on 1: at batch 5 the active-expert bound is larger, so the realised
+    # core count crosses SPARSE_MIN_CORES and the wide-phase cap applies. Review round 11 found this test
+    # asserting batch-1 literals, which is why it had never been run at any other batch.
     expected_ibw = [
-        _sparse_gate_up_block_w(decoder.moe, batch=1),
+        _sparse_gate_up_block_w(decoder.moe, batch=decode_batch),
         decoder.moe.down_in0_block_w,
     ]
     for (cfg, mem), want_ibw in zip(sparse_calls, expected_ibw):
@@ -1945,8 +1963,9 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
         )
         assert cfg.in0_block_w == want_ibw, (
             f"routed decode sparse matmul has in0_block_w={cfg.in0_block_w}, expected {want_ibw} — a "
-            f"batch-1 decode step realises the minimum core count, where the narrower inner block is the "
-            f"measured winner (README §5.4's generated table, work_log §4.15)"
+            f"decode step at batch {decode_batch} realises {_sparse_cores('gate_up', decoder.moe._active_expert_bound(decode_batch))} "
+            f"target cores, and the cap follows the realised count (README §5.4's generated table, "
+            f"work_log §4.15)"
         )
     logger.info(
         "decode sparse matmuls: "

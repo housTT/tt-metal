@@ -8,12 +8,13 @@ artifact contradicted and by an A/B that varies a different knob. An isolated no
 either way: each sharded norm also pays a ``to_memory_config`` in and a ``sharded_to_interleaved`` out.
 This measures the layer, which is what the ship decision rests on.
 
-What it finds is that the layer barely moves at all across 4/8/16/32 — a few microseconds, with 8
-marginally best on both kinds — while the isolated rows predict a much larger swing. The conversions are
-the obvious suspect but they do not explain the *sign* at 4 cores (fewer shards should be cheaper on both
-terms), so the honest statement is that the op-level ladder does not transfer to the layer here and the
-layer measurement is the one that decides. Not investigated further: every arm is within a few
-microseconds of every other, so nothing measurable is at stake.
+What it finds is that the layer barely moves at all across 4/8/16/32, while the isolated rows predict a much
+larger swing. Every arm lands inside the run-to-run band the layer harness itself shows (README §5.1), so this
+artifact does **not** rank them — review round 11 caught this docstring, the layer's own comment and work_log
+§4.13 all reading a ranking out of it and putting 8 first, which on ``linear_attention`` is the reverse of the
+recorded numbers. The conversions are the obvious suspect for why the op ladder does not transfer, and they are
+not measured here. What the file supports is one statement: the knob does not matter at the layer, so 8 ships
+because it is the shard count the rest of the stage's norm evidence was taken at, not because it is fastest.
 
     python models/autoports/ornith_ai_ornith_1_0_35b/doc/optimized_decoder/logs/ab_norm_shard_cores.py
 

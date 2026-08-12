@@ -252,6 +252,23 @@ def section_sdpa(mesh, grid, gen):
                     ),
                 )
             )
+    # `max_cores_per_head_batch` is the field that actually decides flash-decode's parallelism at batch 1, and
+    # nothing had swept it: it defaults to 16, so with num_kv_heads=2 and B=1 the factory activates
+    # 16 * 1 * 2 = 32 cores — half of the shipped 8x8 grid, and the mechanical reason the 8x4 and 8x8 arms tie.
+    # Review round 11 found the stage calling this config "swept" with one of its four fields defaulted.
+    for mcphb in (8, 32, 64):
+        candidates.append(
+            (
+                f"grid=8x8 q_chunk=32 k_chunk=64 max_cores_per_head_batch={mcphb}",
+                ttnn.SDPAProgramConfig(
+                    compute_with_storage_grid_size=ttnn.CoreCoord(8, 8),
+                    q_chunk_size=32,
+                    k_chunk_size=64,
+                    exp_approx_mode=False,
+                    max_cores_per_head_batch=mcphb,
+                ),
+            )
+        )
     for name, cfg in candidates:
         try:
             got = ttnn.to_torch(make(cfg)()).float()

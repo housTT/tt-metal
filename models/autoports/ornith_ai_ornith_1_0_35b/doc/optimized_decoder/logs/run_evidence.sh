@@ -206,8 +206,8 @@ tree=$(mktemp -d)
 git archive HEAD | tar -x -C "$tree"
 ( cd "$tree" \
   && python "$LOGS/make_readme.py" --check \
-  && python "$ART/tracy/perf_accounting.py" > /dev/null \
-  && python "$ART/watcher/census.py" > /dev/null \
+  && python "$ART/tracy/perf_accounting.py" --check \
+  && python "$ART/watcher/census.py" --check \
   && python "$ART/audit_figures.py" )
 rm -rf "$tree"
 echo "committed-tree reproduction OK"

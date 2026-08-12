@@ -49,13 +49,19 @@ LEGEND_PREFIXES = (
 
 def classify(line: str) -> str:
     if re.match(r"^Device \d", line):
-        return "per-core status dump header"
+        # One line per core per dump, carrying that core's status string - not one header per dump. Review
+        # round 11 pointed out the old label ("per-core status dump header") read as the latter.
+        return "per-core status row"
     if line.startswith("k_ids:"):
         return "kernel-id continuation"
     if line.startswith("k_id["):
         return "kernel id -> source map"
-    if re.match(r"^(At [0-9.]+s|Dump #)", line):
+    if re.match(r"^Dump #", line):
         return "dump banner"
+    if re.match(r"^At [0-9.]+s", line):
+        # A per-dump *timestamp* line, several per dump; bucketed with the banners before round 11, which
+        # made the banner count read as a dump count. They are separated so `dump banner` is the dump count.
+        return "dump timestamp"
     if "Stack usage summary" in line:
         return "stack usage summary"
     if "highest stack usage" in line:
@@ -91,6 +97,11 @@ def main():
         # so a log can legitimately contain none. Say so rather than crashing on min([]) — silence
         # here would read as "no overflow" when it actually means "not measured".
         out.append("stack headroom: not reported in this log (no 'bytes free' lines)")
+
+    # A labelled dump count, because the `dump banner` bucket counts two lines per dump (an opening and a
+    # completion) and README §8 needs the denominator for "a watermark in 1 of N dumps". Round 11 found that
+    # sentence quoting a detail-line count as a dump count.
+    out.append(f"dumps: {sum(1 for line in lines if re.match(r'^Dump #[0-9]+ at', line))}")
 
     fatal = [line for line in lines if FATAL.search(line)]
     out.append(f"fatal-class matches: {len(fatal)}")

@@ -326,6 +326,19 @@ def block_decode_breakdown():
                 launches = hit[0][3]
         lines.append(f"| `{name}` | {cells[0]} | {cells[1]} | {launches} |")
     totals = {k: sum(r[2] for r in v) for k, v in per_kind.items()}
+    # The listed rows are the top 16 by max-across-kinds, so each column hides a different remainder - and on
+    # `full_attention` the hidden set contained its second and third largest attention-side ops while smaller
+    # rows were kept, because the ranking is shared between the two columns. Review round 11 found the table
+    # printing an all-codes total over a truncated body with no threshold disclosed; §7's gap table already
+    # did this correctly. The remainder is a row of its own now, so the column sums reconcile.
+    listed = {kind: sum(r[2] for r in rows if r[1] in set(names)) for kind, rows in per_kind.items()}
+    hidden_counts = {kind: sum(1 for r in rows if r[1] not in set(names)) for kind, rows in per_kind.items()}
+    lines.append(
+        f"| *the other {hidden_counts['linear_attention']} / {hidden_counts['full_attention']} op codes "
+        f"(`linear` / `full`), each outside the top 16 by the larger of its two per-step costs* | "
+        f"{totals['linear_attention'] - listed['linear_attention']:.1f} | "
+        f"{totals['full_attention'] - listed['full_attention']:.1f} | |"
+    )
     lines.append(
         f"| **total device time** | **{totals['linear_attention']:.1f}** | " f"**{totals['full_attention']:.1f}** | |"
     )
@@ -390,9 +403,23 @@ def probe_rows(path: Path, prefix: str) -> list[dict]:
     return out
 
 
-def best(rows, **where) -> float | None:
-    """Fastest ``us`` among ``rows`` matching every ``key=value`` in ``where``; ``None`` if none ran."""
-    times = [r["us"] for r in rows if r["us"] is not None and all(str(r.get(k)) == str(v) for k, v in where.items())]
+def best(rows, *, absent=(), **where) -> float | None:
+    """Fastest ``us`` among ``rows`` matching every ``key=value`` in ``where``; ``None`` if none ran.
+
+    ``where`` matches a *subset* of each row's fields, so a row carrying extra labelled fields still matches -
+    which is how a probe arm added later can silently become the answer to an earlier question. ``absent``
+    names fields the row must NOT carry, so "the shipped arm" means the one with no extra knob on it. The
+    under-constrained-lookup defect rounds 5-10 kept finding in `block_sparse_search` was this shape; the
+    round-11 `max_cores_per_head_batch` arms are faster than the shipped row, so without ``absent`` they
+    would have become it.
+    """
+    times = [
+        r["us"]
+        for r in rows
+        if r["us"] is not None
+        and all(str(r.get(k)) == str(v) for k, v in where.items())
+        and not any(r.get(k) is not None for k in absent)
+    ]
     return min(times) if times else None
 
 
@@ -928,20 +955,7 @@ def block_sparse_search():
     #: before round 6 and false after it, because round 6's whole point was to make the gate/up cap depend
     #: on the realised core count too. The table then reported the *decode* cap on the prefill row and
     #: understated shipped prefill sparse performance by ~10 % on the largest op in that window.
-    shipped_ibw: dict = {}
-    # Matched without the trailing colon: the prefill line carries `layer=N (kind):` between the marker and
-    # the configs, so a marker ending in ":" silently matched nothing and every wide-geometry row rendered
-    # "no probe row at the shipped geometry".
-    for phase, marker in (("narrow", "decode sparse matmuls"), ("wide", "prefill sparse matmuls")):
-        for line in read(LOGS / "pytest_full_suite.txt").splitlines():
-            if marker not in line:
-                continue
-            found = re.findall(r"in0_block_w=(\d+)", line[line.index(marker) :])
-            if len(found) >= 2:
-                shipped_ibw[(phase, "gate_up")] = found[0]
-                shipped_ibw[(phase, "down")] = found[1]
-                break
-
+    shipped_ibw = _shipped_sparse_ibw()
     lines = [
         "| active experts | role | fused rule | best measured | shipped | shipped vs winner |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -1050,15 +1064,24 @@ def block_op_knobs():
         (r["us"] for r in norm if r["us"] is not None and r.get("spelling") == "width-sharded" and "8(" in r["cores"]),
         default=None,
     )
-    sdpa_default = best(sdpa, cfg="default(None)")
+    #: `absent`: the sweep also contains arms carrying `ckc=` and `max_cores_per_head_batch=`, which satisfy
+    #: the same subset of keys and are faster, so the plain arms have to say what they do not carry.
+    PLAIN = ("ckc", "max_cores_per_head_batch")
+    sdpa_default = best(sdpa, cfg="default(None)", absent=PLAIN)
     # `probe_rows` splits on the FIRST "=", so the grid arrives as cfg="grid=8x8", not as a `grid` key.
     # The k-chunk rows are pinned to the shipped grid so the chunk is the only axis, and the grid rows are
     # pinned to the shipped chunk pair for the same reason. Both must track the layer: round 9 took 8x4 on the
     # sweep's advice and these pins had to move, then the suite sent the grid back to 8x8 on a capability bound
     # and they had to move back. A generated table can go stale against the code exactly like prose can.
-    shipped_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="64")
-    faster_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="128")
-    faster_grid_sdpa = best(sdpa, cfg="grid=8x4", k_chunk="64")
+    shipped_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="64", absent=PLAIN)
+    faster_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="128", absent=PLAIN)
+    faster_grid_sdpa = best(sdpa, cfg="grid=8x4", k_chunk="64", absent=PLAIN)
+    # `max_cores_per_head_batch` decides how many cores flash-decode actually activates (default 16, so
+    # 16 * B * num_kv_heads = 32 of the 64-core grid at batch 1). Round 11 pointed out the stage called this
+    # config swept with that field defaulted; these rows are the sweep.
+    mcphb_default = shipped_sdpa
+    mcphb_low = best(sdpa, max_cores_per_head_batch="8")
+    mcphb_high = best(sdpa, max_cores_per_head_batch="64")
     topk_native = best(topk, width="256")
     topk_padded = best(topk, width="8192")
     packed = min((r["us"] for r in split if r["us"] is not None and "packed" in str(r.get("spelling"))), default=None)
@@ -1086,6 +1109,20 @@ def block_op_knobs():
             f"op default {cell(sdpa_default)}",
             f"**explicit config {cell(shipped_sdpa)}**",
             "taken; the default is more than an order of magnitude slower",
+        ),
+        (
+            "paged flash decode, `max_cores_per_head_batch`",
+            f"8 → {cell(mcphb_low)}; 64 → {cell(mcphb_high)}",
+            f"**default 16, {cell(mcphb_default)}**",
+            "kept; the field caps flash-decode's active cores at `16 * batch * kv_heads` = 32 of the grid's 64 "
+            "at batch 1, so it — not the grid — is what sets SDPA's parallelism here. Raising it frees no time "
+            "(the op is not core-bound at this geometry), halving it costs "
+            + (
+                f"{mcphb_low - mcphb_default:.1f} µs"
+                if None not in (mcphb_low, mcphb_default)
+                else "tens of microseconds"
+            )
+            + ". Swept in round 11 because the stage had called this config swept with this field defaulted",
         ),
         (
             "paged flash decode, grid",
@@ -1275,14 +1312,25 @@ def block_watcher_result():
             f"**{fatal.group(1)} matches**."
         )
     stack = re.search(r"minimum stack headroom:\s*(\d+) bytes free over (\d+) detail", census)
+    summaries = re.search(r"^\s*(\d+)\s+stack usage summary\s*$", census, re.M)
+    dumps = re.search(r"^dumps: (\d+)$", census, re.M)
     if stack:
+        # The census counts *detail lines* - one per RISC processor of the core that recorded a watermark -
+        # not dumps, and the generator used to re-render that count as "dump(s)". Review round 11 caught it:
+        # the evidence is one summary inside one dump, five processors, so the tightest figure is a single
+        # sample rather than the floor of five. Firmware only emits a summary where it recorded a watermark,
+        # so the breadth is not this stage's choice, but the sentence has to say which is which.
         text += (
-            f" Watcher recorded a stack watermark on {stack.group(2)} dump(s); the tightest leaves "
-            f"{stack.group(1)} bytes free."
+            f" Watcher recorded a stack watermark in {summaries.group(1) if summaries else '?'} of its "
+            f"{dumps.group(1) if dumps else '?'} dumps, across {stack.group(2)} RISC processors of the one "
+            f"core that reported; the tightest leaves {stack.group(1)} bytes free, which is that single "
+            f"sample rather than a measured floor across the run."
         )
     return (
-        text
-        + "\n\nArtifacts: [`watcher/watcher_log.txt`](watcher/watcher_log.txt), [`watcher/census_summary.txt`](watcher/census_summary.txt), console log [`logs/watcher_pytest.txt`](logs/watcher_pytest.txt)."
+        text + "\n\nArtifacts: [`watcher/watcher_log.txt.gz`](watcher/watcher_log.txt.gz), "
+        "[`watcher/census_summary.txt`](watcher/census_summary.txt), console log "
+        "[`logs/watcher_pytest.txt.gz`](logs/watcher_pytest.txt.gz) — the two large ones are committed gzipped, "
+        "which round 11 found these links ignoring."
     )
 
 
@@ -1542,6 +1590,163 @@ def block_composite_chains() -> str:
     return "\n".join(rows)
 
 
+def _harness_runs(path, pattern: str) -> dict:
+    """``{key: [ms, ...]}`` from a layer-level A/B artifact, in file order."""
+    runs: dict = {}
+    for match in re.finditer(pattern, read(LOGS / path)):
+        *key, ms = match.groups()
+        runs.setdefault(tuple(key), []).append(float(ms))
+    return runs
+
+
+#: The active-expert counts work_log §4.14's orientation ladder tabulates, with what each one is. Every other
+#: field of the comparison — core count, `in0_block_w`, `per_core_N`, output block and subblock — is derived
+#: from the shipped rule below rather than typed, because hardcoding them is how the first draft of this table
+#: compared rows the layer does not build (three of six were wrong by hundreds of microseconds).
+ORIENTATION_POINTS = [
+    (8, "the tuned batch-1 decode target"),
+    (162, "a 32-token prefill group"),
+    (64, "decode batch 8, **not tuned**"),
+]
+
+
+def _shipped_sparse_ibw() -> dict:
+    """``{(phase, role): in0_block_w}``, read out of the suite log's record of the configs the layer built.
+
+    Factored out of `block_sparse_search` in round 11 so the orientation ladder uses the same map rather than a
+    second copy of the derivation — two copies of a mirrored rule is how the mirror drifts.
+    """
+    shipped_ibw: dict = {}
+    # Matched without the trailing colon: the prefill line carries `layer=N (kind):` between the marker and
+    # the configs, so a marker ending in ":" silently matched nothing and every wide-geometry row rendered
+    # "no probe row at the shipped geometry".
+    for phase, marker in (("narrow", "decode sparse matmuls"), ("wide", "prefill sparse matmuls")):
+        for line in read(LOGS / "pytest_full_suite.txt").splitlines():
+            if marker not in line:
+                continue
+            found = re.findall(r"in0_block_w=(\d+)", line[line.index(marker) :])
+            if len(found) >= 2:
+                shipped_ibw[(phase, "gate_up")] = found[0]
+                shipped_ibw[(phase, "down")] = found[1]
+                break
+
+    return shipped_ibw
+
+
+def block_orientation_ladder() -> str:
+    """work_log §4.14's op-level orientation table, generated from `probe_sparse_matmul.txt`.
+
+    Transcribing this has been wrong with the sign inverted (rounds 8 and 9) and stale against a fresh sweep
+    three times. The comparison is mechanical — same active count, role, `in0_block_w` and output block, the two
+    grid rectangles of one core count — so it is generated, and the verdict is computed from the two times and
+    their spreads. Every field is derived from the layer's rule, including the ones that are easy to get wrong.
+    """
+    rows = [r for r in probe_rows(LOGS / "probe_sparse_matmul.txt", "SPARSE") if r["us"] is not None]
+    shipped_ibw = _shipped_sparse_ibw()
+    lines = ["| point | role | shipped (column) | other (row) | verdict |", "| --- | --- | --- | --- | --- |"]
+    for active, note in ORIENTATION_POINTS:
+        for role in ("gate_up", "down"):
+            n_tiles = SPARSE_N_TILES_MIRROR[role]
+            target = min(32, max(SPARSE_MIN_CORES_MIRROR, active // {"gate_up": 2, "down": 4}[role]))
+            cores = _largest_divisor_at_most(n_tiles, max(1, target))
+            per_core_n = n_tiles // cores
+            sub_w = _largest_divisor_at_most(per_core_n, 8)
+            phase = "narrow" if cores <= SPARSE_MIN_CORES_MIRROR else "wide"
+            ibw = shipped_ibw.get((phase, role))
+            found = {}
+            for r in rows:
+                if (
+                    r.get("active") == str(active)
+                    and r.get("role") == role
+                    and r.get("in0_block_w") == str(ibw)
+                    and r.get("per_core_N") == str(per_core_n)
+                    and r.get("out_block_w") == str(per_core_n)
+                    and r.get("sub_w") == str(sub_w)
+                    and r.get("mem") == "L1"
+                ):
+                    shape = str(r.get("cores")).split("(")[-1].rstrip(")")
+                    cx, _, cy = shape.partition("x")
+                    if cx.isdigit() and cy.isdigit() and int(cx) * int(cy) == cores:
+                        found["column" if int(cy) >= int(cx) else "row"] = (r["us"], float(r.get("spread") or 0))
+            label = f"{active} active" + (f" — {note}" if note and role == "gate_up" else "")
+            if "column" not in found or "row" not in found:
+                lines.append(f"| {label} | {role.replace('_', '/')} | — | — | no matched probe row |")
+                continue
+            (col_us, col_sp), (row_us, row_sp) = found["column"], found["row"]
+            span, gap = max(col_sp, row_sp), abs(col_us - row_us)
+            winner = "column" if col_us < row_us else "row"
+            verdict = (
+                f"{winner} nominally ahead, inside the ±{span:.1f} µs spread"
+                if round(gap, 1) <= round(span, 1)
+                else f"**{winner}** wins by {gap:.1f} µs, beyond the ±{span:.1f} µs spread"
+            )
+            cells = (
+                f"**{col_us:.1f} µs**" if winner == "column" else f"{col_us:.1f} µs",
+                f"**{row_us:.1f} µs**" if winner == "row" else f"{row_us:.1f} µs",
+            )
+            lines.append(f"| {label} | {role.replace('_', '/')} | {cells[0]} | {cells[1]} | {verdict} |")
+    return "\n".join(lines)
+
+
+def block_layer_ab() -> str:
+    """The layer-level A/B figures README §5.1, §5.4 and §9 quote, generated rather than transcribed.
+
+    These are the numbers that change on every sweep, and hand-typing them has been wrong twice: round 10 found
+    §5.1 claiming the harness's repeats "agree to the last digit" and §9 crediting the `q0/k0` candidate with a
+    layer win, both contradicted by the artifact of the day; round 11's own text then went stale against the
+    next run before it was committed. Generated, they cannot.
+    """
+    harness = _harness_runs(
+        "ab_decode_harness.txt",
+        r"arm=(\S+) trace_region=(\d+) run=\d+ layer=\d+ \((\w+)\).*?wall/iter=([\d.]+)",
+    )
+    grid = _harness_runs(
+        "ab_sdpa_decode_grid.txt",
+        r"knob=(\S+) arm=(\S+) run=\d+ layer=\d+ \((\w+)\) (\S+) wall/iter=([\d.]+)",
+    )
+    lines = [
+        "| A/B | arm | builds, ms | span |",
+        "| --- | --- | --- | --- |",
+    ]
+    for (arm, region, kind), values in sorted(harness.items()):
+        if region != "0":
+            continue
+        lines.append(
+            f"| SDPA `q0/k0` candidate, {kind} | `{arm}` | {' / '.join(f'{v:.3f}' for v in values)} | "
+            f"{max(values) - min(values):.3f} |"
+        )
+    for (knob, arm, kind, phase), values in sorted(grid.items()):
+        if not phase.startswith("prefill"):
+            continue
+        lines.append(
+            f"| routed `down` orientation, {kind} | `{arm}` | {' / '.join(f'{v:.3f}' for v in values)} | "
+            f"{max(values) - min(values):.3f} |"
+        )
+    # The conclusions are computed, not asserted: which arm leads, and by how much against the spans, changes
+    # between sweeps. Round 10 found prose claiming one direction and round 11's replacement went stale against
+    # the next run in the same direction, so the sentence below states this run and the reasoning that survives
+    # either outcome.
+    q0 = {kind: values for (arm, region, kind), values in harness.items() if region == "0" and "candidate" in arm}
+    shipped = {kind: values for (arm, region, kind), values in harness.items() if region == "0" and "shipped" in arm}
+    lead = {
+        kind: (min(shipped[kind]) - min(q0[kind])) * 1000 for kind in q0 if kind in shipped
+    }  # µs, positive = candidate ahead
+    spans = [max(v) - min(v) for v in harness.values()]
+    lines.append("")
+    lines.append(
+        f"Read the **span** column first. In this run three fresh builds of one decode arm agree to within "
+        f"{max(spans) * 1000:.0f} µs, and the `q0/k0` candidate leads the shipped arm by "
+        + ", ".join(f"{v:.1f} µs on `{k}`" for k, v in sorted(lead.items()))
+        + " — but the previous sweep of the same file had the same arms in the *opposite* order by a similar "
+        "margin, and its spans were an order of magnitude wider. A layer difference of a microsecond or two is "
+        "therefore not a property of the configuration, which is why §9 item 8 rejects that candidate on its "
+        "invariant rather than on timing, and why no rejection in this stage rests on a sub-span layer gap. The "
+        "orientation arms are the contrast: every build of the shipped column beats every build of the row "
+        "candidate, on both layer kinds, by far more than any span here — which is what settles §5.4."
+    )
+    return "\n".join(lines)
+
+
 def block_topology_audit(kind: str) -> str:
     """work_log §2's operation-topology audit table for one layer kind, times generated from the fused capture."""
     ranked = kind == "full_attention"
@@ -1601,11 +1806,13 @@ def main():
         "accounting": block_accounting(),
         "watcher-result": block_watcher_result(),
         "composite-chains": block_composite_chains(),
+        "layer-ab": block_layer_ab(),
     }
     # work_log §2's operation-topology audit is generated too, from the *fused* stage's capture: round 10
     # found five of its times wrong, and they are two-digit integers that the figure audit exempts wholesale,
     # so generation is the only thing that keeps them honest.
     work_log_blocks = {
+        "orientation-ladder": block_orientation_ladder(),
         "topology-audit-full": block_topology_audit("full_attention"),
         "topology-audit-linear": block_topology_audit("linear_attention"),
     }

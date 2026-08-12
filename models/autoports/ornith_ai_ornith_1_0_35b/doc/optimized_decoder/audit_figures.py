@@ -198,8 +198,10 @@ DERIVED: dict[str, tuple[str, str]] = {
     "67633152": ("2 * 264192 * 64 * 2", "rope_dim-wide cos/sin tables, B"),
     "264192": ("262144 + 2048", "RoPE table rows: the context plus one prefill chunk of headroom"),
     "34091302912": ("31.75 * 1024 ** 3", "measured allocatable DRAM, B"),
-    # How far the contract's earlier hand-modelled worst-case layer was from the measured one.
-    "285700": ("839553028 - 839267328", "the hand-modelled footprint's error, B"),
+    # No entry for the hand-modelled footprint's error any more: its expression subtracted a *superseded*
+    # contract value that appears in no artifact and was only tolerated by ALLOWED_INT, so the audit was
+    # standing in for the evidence. Review round 11 flagged it; the contract now states that error
+    # qualitatively, which is all a superseded model deserves.
     # The *logical* size of the batch-1 DeltaNet conv state, which the contract quotes beside the
     # allocated padded size to explain the difference: 3 kernel-1 rows of conv_dim 8192 at bfloat16.
     "49152": ("3 * 8192 * 2", "DeltaNet conv state at batch 1, logical (unpadded), B"),
@@ -330,7 +332,6 @@ ALLOWED_INT = {
     # Byte counts the contract quotes for the FUSED policy, to say what each term was before. They are
     # either in DERIVED or measured by probe_footprint.py's `fused-parity` rows; these two are the
     # earlier hand-modelled values kept in a note and are exempt as such.
-    "839267328",
 }
 
 #: A ``<!-- generated:NAME -->`` … ``<!-- /generated:NAME -->`` region of the README. Stripped before

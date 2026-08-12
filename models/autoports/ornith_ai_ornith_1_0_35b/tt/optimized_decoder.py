@@ -2009,11 +2009,19 @@ class OptimizedDecoder(LightweightModule):
     #:
     #: On the **isolated op** the ladder is monotonic — 4 cores is fastest and 8/16/32/64 get
     #: progressively worse as the per-core block shrinks (``logs/probe_decode_micro.txt``, ``NORM`` rows,
-    #: now min-of-three with a reported ``spread=``). On the **whole layer** all of 4/8/16/32 land within a
-    #: few microseconds of each other and 8 is marginally best on both layer kinds
-    #: (``logs/ab_norm_shard_cores.txt``), because each sharded norm also pays a ``to_memory_config`` in
-    #: and a ``sharded_to_interleaved`` out and those scale with the shard count, cancelling the op-level
-    #: gain. The layer measurement is the decision, so 8 ships.
+    #: now min-of-three with a reported ``spread=``). On the **whole layer** that ladder does not transfer at
+    #: all: every one of 4/8/16/32 lands inside the run-to-run band the layer harness itself shows
+    #: (``logs/ab_norm_shard_cores.txt``; README §5.1 measures three builds of one arm differing by more than
+    #: ten microseconds), so the artifact does **not** rank them, and on ``linear_attention`` 8 is not even the
+    #: fastest arm. Review round 11 found this comment claiming 8 was "marginally best on both layer kinds",
+    #: which the artifact reverses. The likely mechanism is that each sharded norm pays a ``to_memory_config``
+    #: in and a ``sharded_to_interleaved`` out and those scale with the shard count, cancelling the op-level
+    #: gain — unmeasured, and not worth measuring while nothing distinguishes the arms.
+    #:
+    #: 8 therefore ships for one stated reason, and it is not a latency win: it is the shard count the rest of
+    #: the stage's norm evidence was measured at (``ab_norm_shard_width.txt`` and the §3 development ladder),
+    #: it is the value the isolated ladder's monotonic region and the layer's indifference are both consistent
+    #: with, and changing it would invalidate that evidence for nothing measurable in return.
     #:
     #: Review round 6 found this comment claiming the ladder was monotonic *the other way* and citing
     #: ``ab_norm_shard_width.txt``, which varies a different knob (which norms shard, not over how many

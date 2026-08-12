@@ -265,8 +265,11 @@ interleaved form the fused stage used puts the whole 2048-wide norm on **one cor
 input and output over 8 cores with an explicit `LayerNormShardedMultiCoreProgramConfig` takes about a
 third off it — README §5.5's generated knob table has both times, from `probe_decode_micro.py`'s `NORM`
 rows, which also sweep 4, 16, 32 and 64 cores: 16 and up get progressively worse as the per-core block
-shrinks, and 4 is inside the run-to-run spread of 8. 8 is shipped because it is the width the
-whole-layer A/B in `ab_norm_shard_width.txt` was run at.
+shrinks, and 4 is inside the run-to-run spread of 8. At the *layer* none of 4/8/16/32 can be told apart at
+all — §4.13 has the A/B and what it does and does not support — so 8 ships for the reason stated there and
+nowhere else: it is the shard count every other piece of norm evidence in this stage was measured at. Review
+round 11 found this sentence giving a second, differently-worded reason, which is how a constant ends up with
+two justifications and no measurement.
 
 The 1D `mcast_in0` projection matmul that consumes the result needs an interleaved `in0` back, so
 each sharded norm pays one `to_memory_config` in and one `sharded_to_interleaved` out — about 3 µs
@@ -318,11 +321,10 @@ Three findings, all kept as evidence:
 * the **grid is not a latency axis at all**, which took taking it to find out. `8x4` leads the shipped `8x8`
   in both sections of [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — 60.0 vs 61.0 µs and
   60.1 vs 61.1 µs, at spreads of 0.1–0.2 and identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
-  dead heat at the layer ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt): the shipped arm's
-  three builds are 0.888 / 0.893 / 0.889 ms and the candidate's 0.907 / 0.889 / 0.889 ms, i.e. the arms overlap
-  and the spread within one arm exceeds the difference between them, SDPA being ~2 % of a step). Review round 9
-  was right that nothing recorded which end of the axis shipped, so it was taken — and **the suite rejected
-  it**:
+  dead heat at the layer ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt); README §5.1's
+  generated table carries every build of both arms, and the difference between the arms is smaller than one
+  arm's own span, SDPA being ~2 % of a step). Review round 9 was right that nothing recorded which end of the
+  axis shipped, so it was taken — and **the suite rejected it**:
 
   ```
   TT_FATAL @ sdpa_decode_program_factory.cpp:191: num_cores_available >= B
@@ -460,12 +462,12 @@ Round 8 then asked the two questions that settle it, and both are now measured r
   is entirely k-chunk-side, so there is no safe way to take it.
 * **Is the layer-level gap real or noise?** Noise — and this answer has now been wrong in both directions.
   [`logs/ab_decode_harness.txt`](logs/ab_decode_harness.txt) times both arms with three fresh builds each, and
-  with no trace region reports 0.876 / 0.877 / 0.875 ms for the candidate against 0.871 / 0.880 / 0.870 ms for
-  the shipped arm; with a reserved region, 0.875 / 0.883 / 0.875 against 0.883 / 0.870 / 0.873. The candidate is
-  not ahead on either, and every difference between the arms is smaller than the span of one arm's own three
-  builds. Round 8 corrected my original "inside the spread" wording to "reproducibly a microsecond or two
-  faster" on the strength of that round's artifact; round 10 found the next run saying the opposite, and it is
-  the current artifact that counts. The advantage is real but exists only in the isolated op
+  README §5.1's generated table prints them with each arm's span beside it. The two arms have now swapped order
+  between consecutive sweeps by a microsecond or two — round 8 read one direction out of that file, round 10
+  read the other, and round 11's sweep swapped it back — which is the finding: at this harness's resolution the
+  ordering is not a property of the configuration. That is why the figures live in a generated block now and why
+  the rejection below rests on the invariant rather than on either ordering. The advantage is real but exists
+  only in the isolated op
   ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), 56.5 against 61.0 µs). Worth stating plainly:
   my first instinct here was right and I talked myself out of it on one run of a harness whose own repeats
   disagree by more than the effect.
@@ -650,14 +652,16 @@ The probe now reports a `spread=` per row (min of three repeats, max−min), bec
 claim without one. The spread is small — typically well under a microsecond — so the gaps are real, and
 README §5.4's generated table prints every one of them. What they are:
 
+<!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — **the tuned batch-1 decode target** | gate/up | **219.3 µs** | 241.1 µs | column wins, ~10 % |
-| 8 active | down | **214.9 µs** | 239.4 µs | column wins, ~10 % |
-| ~162 active — a 32-token prefill group | gate/up | **570.0 µs** | 579.0 µs | column wins, beyond both spreads |
-| ~162 active | down | 346.3 µs | **342.4 µs** | *row* wins, beyond both spreads (0.8, 0.1) |
-| 64 active — decode batch 8, **not tuned** (README §9 item 5) | gate/up | **385.6 µs** | 387.7 µs | column wins, just outside the spreads |
-| 64 active | down | 291.3 µs | **290.6 µs** | row wins, inside the 1.0 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.9 µs** | 172.3 µs | **column** wins by 18.4 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **153.0 µs** | 171.9 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **571.0 µs** | 579.2 µs | **column** wins by 8.2 µs, beyond the ±1.0 µs spread |
+| 162 active | down | 343.0 µs | **341.5 µs** | row nominally ahead, inside the ±1.6 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.2 µs** | 387.6 µs | **column** wins by 2.4 µs, beyond the ±0.2 µs spread |
+| 64 active | down | 286.6 µs | **277.8 µs** | **row** wins by 8.8 µs, beyond the ±1.2 µs spread |
+<!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
 shipped code really builds, under a key with no competing point: `down` reaches 32 cores only in prefill,
@@ -668,11 +672,7 @@ that rule, and it is a one-line rule: `("down", 32) -> row`.
 [`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt) alternates the two arms build-by-build with
 three timed builds each, discarding each arm's first:
 
-| layer kind | column (shipped) | row (candidate) | verdict |
-| --- | --- | --- | --- |
-| `full_attention` prefill | 96.191 / 96.328 / 96.417 ms | 97.059 / 97.087 / 97.334 ms | column faster, no overlap |
-| `linear_attention` prefill | 102.120 / 102.204 / 102.626 ms | 102.999 / 103.000 / 103.026 ms | column faster, no overlap |
-| traced decode, both kinds | 0.880 / 1.080 ms | 0.880 / 1.081 ms | unchanged; decode never builds this grid |
+README §5.1's generated table has every timed build of both arms.
 
 Every timed build of the column arm beats every timed build of the row arm, on both layer kinds, by close to a
 millisecond — more than the whole op-level gap, in the opposite direction. The op-level advantage does not
@@ -860,7 +860,7 @@ What changed, and why these three cannot recur rather than merely being fixed:
    config column is read out of the suite log — i.e. out of a run of the shipped code.
 5. **The capability contract's footprint terms are measured, not modelled.**
    `logs/probe_footprint.py` walks every device tensor of a built layer at its allocated padded size
-   under both policies. The hand-modelled figures were 285 700 B low on the worst-case layer: they
+   under both policies. The hand-modelled figures were a few hundred kilobytes low on the worst-case layer: they
    omitted the RMSNorm gains and the RoPE transformation matrix, counted the batch-1 conv state at its
    logical rather than its padded size, and over-counted the projection weights. The direction of the
    claim is unchanged (63 % less on a `full_attention` layer, 69 % on a `linear_attention` one, 40×
@@ -1068,15 +1068,28 @@ sections now report a measured `spread=` like the matmul probes (round 5 had fix
 repeats the isolated ladder turns out to be *monotonic* — 4 fastest, then 8, 16, 32, 64 — so the earlier
 non-monotonicity was single-shot noise, which is exactly what a spread exists to reveal. The new
 whole-layer A/B ([`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt)) then shows all of 4/8/16/32
-landing within a few microseconds, with 8 marginally best on both layer kinds. 8 ships because the layer
-measurement says so, not because of the claim that was there.
+landing inside the layer harness's own run-to-run band, so it does not rank them. In the committed run the four
+arms span 0.869 to 0.871 ms on `full_attention` and 1.075 to 1.079 ms on `linear_attention` — a couple of
+microseconds, with 8 nominally first on both. The *previous* run of the same file put 8 last on
+`linear_attention`, which is the point: this artifact resolves nothing, and any ranking read out of it is a
+reading of that run's noise. Review round 11 found this paragraph, the source comment and the A/B
+script's docstring all claiming 8 was "marginally best on both layer kinds", which is the artifact read
+backwards — and it was the replacement for the claim round 6 found wrong, which makes it the third round on
+this one constant.
 
-One loose end, stated rather than glossed: the boundary conversions are the obvious reason the op-level
-ladder does not transfer, but they do not explain the *sign* at 4 cores — fewer shards should be cheaper on
-both the norm and the conversions, and the layer is nonetheless a microsecond slower there. So the honest
-summary is that the isolated ladder does not predict the layer at this knob, and the layer is what decides.
-It is not investigated further because every arm is within a few microseconds of every other, so nothing
-measurable rides on the explanation.
+What the evidence supports is narrower: **the knob does not matter at the layer**, and 8 ships because it is
+the shard count every other piece of norm evidence in this stage was measured at (`ab_norm_shard_width.txt`,
+the §3 development ladder), not because it is fastest. That is now the single stated reason in all three
+places; §3.6 previously gave a second, inconsistent one.
+
+One loose end, stated rather than glossed: the boundary conversions are the obvious reason the op-level ladder
+does not transfer, but nothing here establishes the sign at 4 cores either way — the earlier version of this
+paragraph asserted the layer was "a microsecond slower there", and the run that was written from had it faster.
+The honest summary is that the isolated ladder does not predict the layer at this knob and
+the layer does not resolve the arms, so neither number is a fact about the hardware. It is not investigated
+further because every arm sits inside the harness's own spread, so nothing measurable rides on the
+explanation — but that also means no ranking may be quoted from this artifact, which is the mistake rounds 6
+and 11 both caught here.
 
 **Round 7** returned `more-work-needed` with eight items. Three were **defects in round 6's own fix**, which
 is the pattern to notice: every round that changes a generator or the gate introduces a new way for the same
@@ -1293,9 +1306,10 @@ claims, and both geometry rules against every config the suite log records.
 * **P2 — the generated sparse table's shipped cell named a geometry the layer does not build.** The lookup
   matched the probe on (cores, `in0_block_w`, `per_core_N`) and took `min()`, but the probe sweeps `out_block_w`
   and `sub_w` as independent axes while the layer derives both from `per_core_N`. At the 32-active `down` point
-  three rows share the key and `min()` took the fastest, so the table reported 237.4 µs where the layer runs
-  241.5 ([`logs/probe_sparse_matmul.txt`](logs/probe_sparse_matmul.txt), the `sub_w=2` and `sub_w=8` rows of that
-  geometry). **Fifth consecutive round that this one lookup was under-constrained by exactly one axis** — and the
+  three rows share the key and `min()` took the fastest of them, so the table reported the `sub_w=2` row's time
+  where the layer runs `sub_w=8` ([`logs/probe_sparse_matmul.txt`](logs/probe_sparse_matmul.txt) carries all
+  three; README §5.4's shipped column now names the one the layer builds, and the gap it prints changed
+  accordingly). **Fifth consecutive round that this one lookup was under-constrained by exactly one axis** — and the
   argument that a generated table cannot be wrong only holds if its key is the whole rule. Every swept axis is
   pinned now, and `audit_figures.check_sparse_block_rule` asserts the rule against the layer's own record: the
   suite log prints every sparse program config the layer built, so `out_block_w == per_core_N` and
@@ -1333,12 +1347,85 @@ The contract's batch note claimed "any batch up to the 110-core grid is legal", 
 inherited unchanged from the functional and fused decoders and sits above the 56 the suite exercises, so no
 capability is reduced here, but the note now states it.
 
-The suggestion to add a decode batch in 5..8, on the grounds that those exercise the tuned dense configs at
-`per_core_M` 5-8, does not hold: `per_core_M` is `ceil(batch / 32)`, so it is **1 for every batch from 1 to 32
-and 2 for 40 and 56** — two classes, both already tested, plus 13 for a batch with no rectangular factor pair.
-Simulating all seven dense roles across batches 1-8, 13, 32, 40 and 56 gives exactly two distinct config
-signatures, so a batch-8 case would add a second copy of what batch 4 already covers. Recorded here rather than
-implemented, because a test that cannot distinguish anything is not coverage.
+The suggestion to add a decode batch in 5..8 was declined here on the grounds that `per_core_M` is
+`ceil(batch / 32)`, making batches 1-32 one config class. **That was wrong, and review round 11 caught it.**
+`ceil(batch / 32)` is true only of the three MoE roles, whose activation the block reshapes to
+`[1, 1, padded_tokens, dim]`; the four token-mixer roles (`attn_in`, `o_proj`, `gdn_in`, `gdn_out`) are called
+on `[batch, 1, dim]`, so `_physical_rows` returns `32 * batch` and **`per_core_M == batch`**. Simulating
+`_ProjectionConfigs.get` properly gives **eight** distinct tuned signatures over batches 1-8 — batch 5 is where
+`o_proj`'s `in0_block_w` drops from 16 to 8, because `DECODE_MATMUL_IN0_TILE_BUDGET // 5` is 12 — and batches 13
+upward build **no** tuned mixer config at all, since `m_tiles > DECODE_MATMUL_MAX_M_TILES`. So the suite's
+13/32/40/56 cases were never covering a second class of tuned config; they were covering the fallback.
+
+Two things follow, and both are done rather than argued. The coverage is real, so batches **5 and 8** are added
+to `test_batched_prefill_decode_pcc` (PCC at both, both layer kinds) and
+`test_decode_runs_the_tuned_program_configs` is parametrised over batches 1 and 5 — which immediately failed,
+because its routed-`in0_block_w` assertion had been written against batch-1 literals, so a batch it had never
+run at was a batch it could not have checked. It is keyed on the rule now. And batch 5 does build different
+geometry: `grid=2-8 in0_block_w=64 per_core_N=2` for the routed gate/up against batch 1's
+`grid=1-8 in0_block_w=32 per_core_N=4`.
+
+The general lesson is the one this round is mostly about: I declined coverage on an analysis I had run but not
+validated against the code path, and the wrong arithmetic was in a *simulation I wrote to check the claim*.
+Simulating the selector by calling the inner helper directly skipped the two caps the real selector applies and
+the row convention the caller uses. A simulation that does not go through the shipped entry point is a
+hypothesis about the shipped entry point.
+
+**Round 11** returned `more-work-needed` with four items. It verified all four round-10 fixes, could not defeat
+any gate across eighteen injections, and re-derived the suite, watcher, dtype/fidelity, footprint, headline and
+both geometry rules independently — and then found the first **shipped-coverage** finding in three rounds, in
+the disposition round 10 had written for itself.
+
+* **P2 — the round-10 refusal to add a decode batch in 5..8 rested on arithmetic the code contradicts.**
+  Corrected in §6 above: `per_core_M == batch` for the four token-mixer roles, so batches 1-8 are **eight**
+  distinct tuned config classes and 13 upward build none. Batches 5 and 8 are covered now, and parametrising the
+  config test immediately exposed that its routed-`in0_block_w` assertion was written against batch-1 literals.
+  Both fixed. The failure worth naming is not the missing coverage but the *simulation*: I checked the claim by
+  calling the inner config helper directly, which skipped the caps the real selector applies and the activation
+  convention its caller uses, and then trusted the result enough to decline work with it.
+* **P2 — "8 cores is marginally best on both layer kinds" is the artifact read backwards.**
+  [`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt) puts every arm inside the layer harness's own
+  run-to-run band, and in the run round 11 read, 8 was the *slowest* of the four on `linear_attention` — while in
+  the run committed here it is nominally the fastest, which is the same fact stated twice. The claim
+  sat in three places, and §3.6 gave a second, differently-worded reason for the same constant. All four now say
+  the one thing the evidence supports: the knob does not matter at the layer, and 8 ships because it is the
+  shard count the rest of the stage's norm evidence was measured at. Third round on this one constant, and the
+  second time a *ranking* was quoted from an artifact that does not rank anything.
+* **P2 — README §8 misreported the stack-watermark coverage.** The generated sentence rendered the census's
+  count of *detail lines* (five, one per RISC of the one core that reported) as "5 dump(s)", when the log holds
+  one summary in one dump of sixty. `census.py` now emits a labelled `dumps:` count and separates the per-dump
+  timestamp lines from the banners, so the generator can say "in 1 of its 60 dumps, across 5 RISC processors",
+  and the tightest 1332-byte figure is stated as the single sample it is. Two bucket labels that oversold what
+  they counted were renamed at the same time. The audit could not have caught this: `5` is a single digit.
+* **P2 — README §5.3 printed an all-codes total over a truncated body.** The table lists the top 16 op codes by
+  the larger of their two per-step costs and then a total summed over all of them, hiding tens of microseconds of
+  each window — nearly a tenth of `full_attention`'s — including that kind's second and third
+  largest attention-side ops, because the ranking is shared between the columns while the two kinds' op sets are
+  not. §7's parallel table had always disclosed its remainder; §5.3 does now, per column, and the columns
+  reconcile to the total.
+
+Round 11's other concerns, all acted on: the sentence claiming §5.4's remaining gaps are "orientation, not the
+inner block" is qualified, because at 32 active / `down` about half the gap is `out_subblock_w` — the layer's
+largest-legal-subblock rule is measurably not optimal there, at an untuned batch; README §9 item 5 now lists
+**four** batch thresholds, the fourth being that the tuned 2D prefill configs apply at batch 1 only; §8's two
+artifact links pointed at uncompressed names that do not exist; `run_evidence.sh`'s committed-tree block now
+runs both summary generators with `--check` instead of regenerating them there; and the contract's hand-modelled
+footprint error is stated qualitatively rather than as a figure whose only support was an audit allowlist entry
+for a superseded value.
+
+One of those concerns was a genuine unswept knob, and it is swept now.
+**`SDPAProgramConfig.max_cores_per_head_batch`** defaults to 16, and flash-decode activates
+`max_cores_per_head_batch * batch * kv_heads` cores — 32 of the shipped grid's 64 at batch 1. So that field, not
+the grid, is what sets SDPA's parallelism here, and it is the mechanical reason the 8x4 and 8x8 arms tie: both
+activate the same 32 cores. The stage had called this config swept with one of its four fields defaulted.
+Swept now, as generated rows of README §5.5's knob table: raising it to 32 or 64 changes nothing beyond the
+spread, and halving it to 8 costs tens of microseconds. The default is right, the ~1 % of decode round 11
+bounded as possible upside is not there, and one more "why" in §3.8 is now measured rather than asserted.
+
+Adding those arms also caught a latent generator defect of the class rounds 5-10 kept finding: `best()` matches a
+*subset* of a row's fields, so the new arms — which carry an extra labelled field and are faster — satisfied
+every key the "shipped arm" lookup used, and would have quietly become the shipped figure in three README rows.
+`best()` takes an `absent=` list now, and the plain SDPA arms declare what they must not carry.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits
