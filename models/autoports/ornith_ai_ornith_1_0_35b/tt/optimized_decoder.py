@@ -11,19 +11,17 @@ same DeltaNet state, same determinism, same support for any non-aligned ``seq_le
 each change is measured in ``doc/optimized_decoder/`` with the candidate it beat.
 
 Measured on one Blackhole ``p300c``, real checkpoint weights, batch 1, against the fused decoder
-built in the same process on the same device (``doc/optimized_decoder/logs/bench.py``):
+built in the same process on the same device (``doc/optimized_decoder/logs/bench.py``): roughly
+**2.5x** warmed 2048-token prefill and **1.9-2.1x** warmed traced decode on both layer kinds.
 
-===================  ==================  ==================
-window               fused               optimized
-===================  ==================  ==================
-``full_attention``   1.830 ms decode     0.858 ms  (2.13x)
-``linear_attention`` 2.063 ms decode     1.094 ms  (1.89x)
-``full_attention``   243.58 ms prefill   96.61 ms  (2.52x)
-``linear_attention`` 257.67 ms prefill   102.62 ms (2.51x)
-===================  ==================  ==================
-
-(``doc/optimized_decoder/logs/ab_fused_vs_optimized.txt``; the README's headline table is generated
-from that same file rather than transcribed.)
+**No run-varying timing is quoted anywhere in this module or its tests, on purpose.** Three review
+rounds of this stage closed on "the figures are re-derived" and each next re-run made a hand-written
+microsecond figure in a docstring stale again, so the numbers live only where a generator or an audit
+keeps them true: the README's headline table is spliced from
+``doc/optimized_decoder/logs/ab_fused_vs_optimized.txt`` by ``logs/make_readme.py``, and
+``doc/optimized_decoder/audit_figures.py`` asserts that every figure quoted in any of this stage's
+documents exists in a committed artifact. What the comments below carry instead is the *decision*,
+the shipped configuration, and the artifact rows to read - which do not drift.
 
 What was changed, largest measured effect first (``doc/optimized_decoder/work_log.md`` §3 has the
 cumulative table, one row per step)
@@ -199,11 +197,11 @@ DEFAULT_POLICY = PrecisionPolicy(
 
 #: The BFP4 dense-projection candidate OPT-007 requires, kept as a named policy so the comparison
 #: stays reproducible and a later datatype-sweep stage can take it without rediscovering it. It is
-#: **faster** — 0.859 -> 0.839 ms (`full_attention`) and 1.094 -> 1.073 ms (`linear_attention`)
-#: traced decode, prefill unchanged — and it is not selected, because on the same real-weight
-#: HF-golden ladder the delivered suite runs it costs 30-43x the layer error:
-#: worst-case PCC 0.996507 / 0.997422 against 0.999883 / 0.999920 for BFP8, i.e. 1.5e-3 of margin
-#: above the 0.995 bar instead of 4.9e-3, in one layer of a 48-layer stack, for 2.3 %.
+#: **faster** on traced decode at unchanged prefill — README §4.2's generated policy-sweep table
+#: times it against the selected policy — and it is **not** selected, because on the same real-weight
+#: HF-golden ladder the delivered suite runs it costs an order of magnitude more layer error, leaving
+#: a third of the selected policy's margin above the 0.995 bar, in one layer of a 48-layer stack, for
+#: a low-single-digit percentage of one decode step. README §4.3 states the trade with both figures;
 #: `doc/optimized_decoder/logs/probe_projection_dtype.txt` is the whole ladder, both arms.
 BFP4_PROJECTION_POLICY = DEFAULT_POLICY.replace(name="bfp4-projections", proj_dtype=ttnn.bfloat4_b)
 
@@ -241,7 +239,8 @@ GDN_CHUNK = 32
 #: The op cannot serve Ornith's full ``conv_dim = 8192``: height-sharded it runs out of L1 at every
 #: legal slice count, at 128 slices and above it refuses the slice count itself, and block-sharded it
 #: fails at kernel compile — three distinct blockers, all in
-#: ``doc/fused_decoder/logs/probe_conv1d_and_norm.txt`` and catalogued in ``work_log.md`` §4.4. But a
+#: ``doc/fused_decoder/logs/probe_conv1d_and_norm.txt`` and catalogued in
+#: ``doc/fused_decoder/work_log.md`` §4.4. But a
 #: depthwise conv is separable over
 #: channels, and 4096 is the widest split that runs. It also happens to be the natural split point:
 #: channels ``[0, 4096)`` are exactly Q and K, and ``[4096, 8192)`` are exactly V, so the two halves
@@ -548,8 +547,8 @@ def _sparse_matmul_config(
 #: DRAM width-sharded weight plus L1 width-sharded activation) across core counts, ``in0_block_w``
 #: and output placement, under each role's own weight dtype and math fidelity.
 #:
-#: The DRAM-sharded family lost on every role here, even measured without its activation-reshard
-#: cost — 34.2 vs 26.6 us on ``o_proj``, 14.4 vs 9.4 on ``shared_in``, 71.4 vs 55.9 on ``attn_in``.
+#: The DRAM-sharded family lost on every one of the seven roles here, even measured without its
+#: activation-reshard cost (README §5.4 has the per-role table, generated from the probe).
 #: That matches what ``models/demos/blackhole/qwen36`` reports for Blackhole decode matmuls: the op
 #: pins the compute grid to the 8 DRAM banks, and 8 wide-shard cores lose to a large mcast grid on
 #: shapes this skinny. §Dense in the README carries the whole table.
@@ -713,8 +712,12 @@ DECODE_MATMUL_IN0_TILE_BUDGET = 64
 #: buffer, in tiles. ``in0_block_w`` 16 is the best value for the narrow-output prefill roles but
 #: fails to build for the wide ones (``attn_in`` at ``per_core_N`` 27, ``gdn_in`` at 36) with
 #: "statically allocated circular buffers ... clash with L1 buffers"; this budget picks 8 for those
-#: two and 16 for the rest, which is exactly the measured winner in
-#: ``doc/optimized_decoder/logs/probe_prefill_matmul.txt``.
+#: two and 16 for the rest, which is exactly the measured winner for all six roles in
+#: ``doc/optimized_decoder/logs/probe_prefill_matmul.txt`` — read the ``in0=DRAM`` rows, which are the
+#: arm whose L1 state matches the shipped graph. (Review round 4 caught the ``in0=L1`` arm of an
+#: earlier run of that probe holding its 8 MB activation copy resident across *both* arms, which made
+#: ``gdn_in`` at ``in0_block_w`` 8 — the geometry this budget selects and the layer runs — appear to
+#: fail to build. The probe now allocates that copy only during its own pass.)
 PREFILL_MATMUL_IN1_TILE_BUDGET = 320
 PREFILL_MATMUL_IN0_BLOCK_CAP = 16
 
@@ -1503,19 +1506,20 @@ class OptimizedDecoder(LightweightModule):
             packer_l1_acc=False,
         )
         #: Paged flash-decode program config. Explicit, and it matters far more than a knob usually
-        #: does: at Ornith's cache geometry the op *default* is 1004.7 us against 62.3 us for this
-        #: one, i.e. **16x**, which is why the fused stage's explicit config is kept rather than
-        #: replaced by the default.
+        #: does: at Ornith's cache geometry the op *default* is more than an order of magnitude slower
+        #: than this one, which is why the fused stage's explicit config is kept rather than replaced
+        #: by the default. README §5.5 quotes both times.
         #:
         #: `doc/optimized_decoder/logs/probe_decode_micro.txt` (`SDPA` rows) sweeps four grids x four
         #: chunk pairs at an 8192-token context under the shipped BFP8 paged cache. The k-chunk is
-        #: the only live axis there — `k_chunk_size` 128 or 0 measures 55.7-57.2 us against 61.2-63.7
-        #: at 64, and 87.2-90.5 at 32 — but a k-chunk **larger than the 64-token paged block size is
-        #: wrong**, not just risky: the isolated op agrees with itself (the probe's reference is the
-        #: op default on the same page table, so it cannot see this), while the layer's decode PCC
-        #: against the HF golden collapses to 0.02-0.91 at the paged contexts the tests use. So 128
-        #: is rejected on correctness with that evidence, and 64 — one k-chunk per page — stays.
-        #: The grid is worth <2 % across 8x4 / 8x8 / 4x8 / 11x10, so it stays at the fused stage's.
+        #: the only live axis there — a 128-token or unbounded chunk is a few microseconds faster than
+        #: the shipped 64 in isolation, and 32 is markedly slower — but a k-chunk **larger than the
+        #: 64-token paged block size is wrong**, not just risky: the isolated op agrees with itself
+        #: (the probe's reference is the op default on the same page table, so it cannot see this),
+        #: while the layer's decode PCC against the HF golden collapses far below the bar at the paged
+        #: contexts the tests use (`logs/ab_sdpa_decode_contract.txt`). So 128 is rejected on
+        #: correctness with that evidence, and 64 — one k-chunk per page — stays. The grid is worth
+        #: under 2 % across 8x4 / 8x8 / 4x8 / 11x10, so it stays at the fused stage's.
         self.decode_sdpa_config = ttnn.SDPAProgramConfig(
             compute_with_storage_grid_size=ttnn.CoreCoord(8, 8),
             q_chunk_size=32,
@@ -1907,9 +1911,12 @@ class OptimizedDecoder(LightweightModule):
     #: Cores the decode residual RMSNorms are width-sharded over. ``ttnn.rms_norm`` parallelises
     #: over *rows*, and a decode activation is a single tile of rows, so the interleaved form the
     #: fused stage used lands the whole 2048-wide norm on one core. Width-sharding the input and
-    #: output and naming a ``LayerNormShardedMultiCoreProgramConfig`` moves it onto ``cores`` cores:
-    #: 22.4 -> 13.7 us at 8 cores (13.2 at 4), rising again above that as the per-core block shrinks
-    #: (``doc/optimized_decoder/logs/probe_decode_micro.txt``, ``NORM`` rows).
+    #: output and naming a ``LayerNormShardedMultiCoreProgramConfig`` moves it onto ``cores`` cores,
+    #: which cuts the norm's time by around a third; 16, 32 and 64 get progressively worse as the
+    #: per-core block shrinks, and 4 is inside the run-to-run spread of 8 — 8 is shipped because it is
+    #: the width the whole-layer A/B in ``logs/ab_norm_shard_width.txt`` was run at.
+    #: (``doc/optimized_decoder/logs/probe_decode_micro.txt``, ``NORM`` rows; README §5.5 and
+    #: ``doc/optimized_decoder/work_log.md`` §3.6 quote the sharded and unsharded times.)
     NORM_SHARD_CORES = 8
 
     #: Narrowest activation that takes the sharded norm path. 0 means every decode-shaped norm
@@ -2776,11 +2783,12 @@ class OptimizedDecoder(LightweightModule):
         stage used does not expose one — so the advice is actionable after all, which is what review
         round 2 found:
 
-        * ``read`` (``q @ h`` and ``k @ h``): ``Mt`` 1, ``Kt`` 4, ``Nt`` 4. ``in0_block_w`` 2 measures
-          14.0 us against 14.7-14.8 for the ``core_grid`` spelling, 14.2-14.4 at 1 and 14.8 at 4.
+        * ``read`` (``q @ h`` and ``k @ h``): ``Mt`` 1, ``Kt`` 4, ``Nt`` 4. ``in0_block_w`` 2 is the
+          measured winner, a little under a microsecond ahead of the ``core_grid`` spelling and of
+          ``in0_block_w`` 1 and 4.
         * ``outer`` (``k^T @ delta``, ``transpose_a=True``): ``Mt`` 4, ``Kt`` **1**, ``Nt`` 4, so 1 is
-          the only legal ``in0_block_w`` — 2 and 4 are rejected by the op. It measures 12.6 us
-          against 20.4 for the ``core_grid`` spelling, which is the larger win of the two.
+          the only legal ``in0_block_w`` — 2 and 4 are rejected by the op. This is the larger win of
+          the two, roughly a third off the ``core_grid`` spelling.
 
         The op parallelises over ``batch * M-blocks * N-blocks`` and that product must fit the worker
         grid. With ``num_value_heads`` 32 blocks per batch row that means **decode batch 3 or less** on

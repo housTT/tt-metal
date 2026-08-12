@@ -82,7 +82,7 @@ mixer, and its own top items (from the same capture set, per traced step) are:
 | `MatmulDeviceOperation 32 x 4096 x 2048` | 74 | `out_proj` | explicit decode config (§3.5) + a bfloat16 activation (§4.11) |
 | 3 x `MatmulDeviceOperation b={32} 32 x 128 x 128` | 45 | the float32 recurrent-state matmuls: decay read, delta outer product, output read | operands moved to L1 — 19 µs (§3.9 item 2); fidelity swept and rejected |
 | `ReshapeViewDeviceOperation` + `PermuteDeviceOperation` | 39 | the one-shot head-major relayout of the conv output | inherited from the fused stage, which already reduced it from three round trips to one |
-| `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` | 24 | `repeat_interleave`'s GQA head expansion | output moved to L1 (§3.9 item 5); the 22.7 µs op-to-op stall in front of it is named in §7 of the README |
+| `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` | 24 | `repeat_interleave`'s GQA head expansion | output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation |
 | `TernaryDeviceOperation` | 17 | the `addcmul` conv-tap accumulation | inherited; the fused stage measured `addcmul` against `mac` and kept it |
 
 Structural observations from the same read, which drove §3.1 and §3.4:
@@ -145,9 +145,13 @@ stage's harness it is 2.06-2.07 ms, about 4 % slower — harness and run-to-run 
 figure the README quotes is this stage's own re-measurement, not row 0; against the fused stage's
 published figure the `linear_attention` decode speedup would read ~1.86x instead of ~1.93x.
 
-The per-step figures in this column are the running total from one harness during development. Where
-a step's own A/B was captured as an artifact it is linked from the section that describes it (§3.6,
-§3.9, §4.10, §4.11); the *shipped* numbers are always README §5.2's generated table.
+The per-step figures in this column are the running total from one harness during development, and they
+are the one group of numbers in this stage that **no artifact can contain**: each row measures an
+intermediate revision of the code that no longer exists, so a re-run cannot reproduce it and
+`audit_figures.py` exempts them by name, as the development ladder, only in this file. Where a step's own
+A/B was captured as an artifact it is linked from the section that describes it (§3.6, §3.9, §4.10,
+§4.11); the *shipped* numbers are always README §5.2's generated table. If you want to know what the
+decoder does today, read §5.2, not this column.
 
 ### 3.1 Sparse-matmul geometry is a function of the *active* expert count
 
@@ -159,17 +163,18 @@ the output block and subblock to 1×1.
 divisor ladder of `Kt`, output block/subblock width and output placement, under the selected
 BFP4/LoFi policy, at four active-expert counts. The winner moves with the active count:
 
-| active experts | gate/up winner | µs | down winner | µs |
-| --- | --- | --- | --- | --- |
-| 8 (batch-1 decode) | 8 cores (1×8), `in0_block_w` 32, `per_core_N` 4, `out_block_w` 4, `sub_w` 4, L1 | **153.4** | 8 cores (1×8), `in0_block_w` 16, `per_core_N` 8, `out_block_w` 8, `sub_w` 8, L1 | **152.8** |
-| 32 | 16 cores (8×2), `in0_block_w` 64, `per_core_N` 2 | **288.7** | 8 cores (1×8), `per_core_N` 8 | **234.0** |
-| 64 | 32 cores (4×8), `in0_block_w` 64, `per_core_N` 1 | **387.3** | 16 cores (8×2), `in0_block_w` 16, `per_core_N` 4 | **277.5** |
-| 162 (a 32-token prefill group) | 32 cores (4×8), `in0_block_w` 64, `per_core_N` 1 | **576.3** | 32 cores (8×4), `in0_block_w` 16, `per_core_N` 2 | **345.3** |
+**README §5.4 has the table, generated** from the probe and from the geometry the suite log records the
+layer building — the winner, the fused rule's candidate and the shipped choice at each of the four
+active-expert counts, with the shipped row's gap against the winner where there is one. It is not
+duplicated here: this log used to carry a second copy of it and review rounds 3 and 4 both found that
+copy describing an older run of the probe.
 
-For reference, the fused stage's geometry at 8 active experts is 255.3 µs (gate/up) and 333.1 µs
-(down), so the decode-shaped winner is ~40 % faster; and at 162 active experts the *8-core* geometry
-is roughly 4× slower than the 32-core one, which is exactly what step 5 in the table above shows —
-decode fell 20 % and prefill rose 71 % when the decode geometry was applied unconditionally.
+What the sweep establishes, in words: the winner **moves with the active count**. At 8 active experts
+(batch-1 decode) both roles want 8 cores with a wide output block, and the fused rule's 32/64-core
+`per_core_N` 1 geometry is ~40 % slower. At 162 active experts (a 32-token prefill group) the ordering
+reverses and the 8-core geometry is roughly 4× slower than the 32-core one — which is exactly what step
+5 in the table above shows, decode falling 20 % and prefill rising 71 % when the decode geometry was
+applied unconditionally.
 
 The shipped rule is therefore an active-expert-aware target:
 `cores = clamp(active_bound / k, 8, 32)` with `k` = 2 for gate/up and 4 for down, where
@@ -201,9 +206,10 @@ decode intermediate is a performance smell.
 ### 3.3 BFP8 expert activations
 
 With the intermediates in L1 the remaining cost of the chain is their width. Setting the routed
-`sparse_matmul` output dtype to `bfloat8_b` halves every byte in it: **1.297 → 1.253** and
-**1.515 → 1.473 ms**, prefill 131.87 → 126.58 and 139.17 → 133.72 ms, with no measurable PCC change
-(0.999949 → 0.999945 on the `full_attention` prefill screen). The expert weights are already BFP4,
+`sparse_matmul` output dtype to `bfloat8_b` halves every byte in it: rows 3→4 of §3's ladder on decode,
+and about 4 % off prefill on both kinds, with no measurable PCC change on the `full_attention` prefill
+screen (README §4.2's generated policy-sweep table times the reverse direction,
+`expert_act_dtype=bfloat16`, against the shipped policy). The expert weights are already BFP4,
 so this is the activation side of the same tensor group.
 
 ### 3.4 The decode router must not route the tile padding
@@ -233,18 +239,14 @@ Every dense matmul in a decode step is skinny — one tile of rows against a lar
 heuristic sizes the grid from the output width, which is the wrong axis for these. `probe_dense_matmul.py`
 compares three families per role at the real shapes under each role's own weight dtype and fidelity:
 
-| role | shape (M×K×N) | ttnn heuristic | best DRAM-sharded | best explicit 1D `mcast_in0` | kept |
-| --- | --- | --- | --- | --- | --- |
-| `attn_in` | 32×2048×9216 | 58.3 | 71.4 | **55.9** (99 cores, `in0_block_w` 8, `per_core_N` 3, L1) | 1D |
-| `o_proj` | 32×4096×2048 | 75.5 | 34.2 | **26.6** (22 cores, `in0_block_w` 16, `per_core_N` 3, L1) | 1D |
-| `gdn_in` | 32×2048×12352 | 76.1 | 94.5 | **73.5** (110 cores, `in0_block_w` 8, `per_core_N` 4, L1) | 1D |
-| `gdn_out` | 32×4096×2048 | 75.6 | 34.3 | shipped: 33 cores (11×3), `in0_block_w` 8, `per_core_N` 2 — 26.4 µs in the probe, ~26 in the layer once its activation is bfloat16 (§4.11) | 1D |
-| `shared_in` | 32×2048×1056 | 32.3 | 14.4 | **9.4** (88 cores, `in0_block_w` 32, `per_core_N` 1, L1) | 1D |
-| `shared_down` | 32×512×2048 | 16.2 | 17.1 | **9.3** (55 cores, `in0_block_w` 16, `per_core_N` 2, L1) | 1D |
-| `router` | 32×2048×256 (BF16/HiFi4) | 27.4 | 17.1 | **9.2** (33 cores, `in0_block_w` 32, `per_core_N` 1, L1) | 1D |
+**README §5.4 has the table, generated** — all seven roles, ttnn's heuristic against the best
+DRAM-sharded candidate against the shipped 1D `mcast_in0` config, with the shipped geometry read out of
+the suite log. Not duplicated here, for the same reason as §3.1's.
 
-Sum for a `full_attention` step: 208.9 → 110.4 µs; for a `linear_attention` one: 226.8 → 127.0 µs.
-Measured end to end as **0.875 / 1.111 ms**, from 0.983 / 1.205.
+What it establishes: the explicit 1D `mcast_in0` config wins on **every** role, ttnn's heuristic is
+1.1–2.9× off it, and the DRAM-sharded family loses on all seven even measured without the activation
+reshard it would additionally need — the op pins its compute grid to the 8 DRAM banks, and 8 wide-shard
+cores cannot beat a large mcast grid at one tile of M. End to end this step is rows 6→7 of §3's ladder.
 
 The `router` row keeps bfloat16 weights, HiFi4 and float32 accumulation — expert *selection* is a
 discrete decision and this stage did not touch it — so it was swept separately under its own
@@ -253,12 +255,12 @@ settings rather than inheriting the BFP8/HiFi2 sweep.
 ### 3.6 Width-sharded decode RMSNorms
 
 `ttnn.rms_norm` parallelises over rows, and a decode activation is one tile of rows, so the
-interleaved form the fused stage used puts the whole 2048-wide norm on **one core**:
-22.4 µs. Width-sharding input and output over 8 cores with an explicit
-`LayerNormShardedMultiCoreProgramConfig` takes it to **13.7 µs** (`probe_decode_micro.py`, `NORM`
-rows; 4 cores measures 13.2 and 8 cores 13.7, and 16/32/64 get progressively worse as the per-core
-block shrinks - 8 is shipped because it is the value the whole-layer A/B in
-`ab_norm_shard_width.txt` was run at, and the two are inside the spread).
+interleaved form the fused stage used puts the whole 2048-wide norm on **one core**. Width-sharding
+input and output over 8 cores with an explicit `LayerNormShardedMultiCoreProgramConfig` takes about a
+third off it — README §5.5's generated knob table has both times, from `probe_decode_micro.py`'s `NORM`
+rows, which also sweep 4, 16, 32 and 64 cores: 16 and up get progressively worse as the per-core block
+shrinks, and 4 is inside the run-to-run spread of 8. 8 is shipped because it is the width the
+whole-layer A/B in `ab_norm_shard_width.txt` was run at.
 
 The 1D `mcast_in0` projection matmul that consumes the result needs an interleaved `in0` back, so
 each sharded norm pays one `to_memory_config` in and one `sharded_to_interleaved` out — about 3 µs
@@ -290,20 +292,14 @@ worth and what else the axis holds
 ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), `SDPA` rows, four grids × four chunk
 pairs at an 8192-token context under the shipped BFP8 paged cache):
 
-| config | µs |
-| --- | --- |
-| **op default (`None`)** | **1004.7** |
-| `(8, 8)` q32 k64 — the fused stage's, shipped | 62.3 |
-| `(8, 4)` q32 k64 | 61.2 |
-| `(8, 8)` q32 k128 | 57.2 |
-| `(8, 4)` q32 k128 | 55.9 |
-| `(8, 4)` q0 k0 | 55.7 |
-| `(8, 8)` q32 k32 | 88.4 |
+The ladder is in the artifact — 17 rows, four grids (`8x8`, `11x10`, `8x4`, `4x8`) against four chunk
+pairs (`q32 k64`, `q32 k128`, `q32 k32`, `q0 k0`) — and README §5.5's generated knob table quotes the
+three rows the decisions rest on: the op default, the shipped `8x8 / k64`, and the faster `k128`.
 
 Two findings, both kept as evidence:
 
-* the **op default is 16× slower** than any explicit config here, which is why the explicit one
-  stays;
+* the **op default is more than an order of magnitude slower** than any explicit config here, which is
+  why the explicit one stays;
 * a `k_chunk_size` **larger than the 64-token paged block size is wrong**, not merely risky. The
   isolated op cannot see it — the probe's reference is the op default on the same page table — but
   the layer's decode PCC against the HF golden collapses to 0.02–0.91 at the paged contexts the
@@ -336,7 +332,7 @@ are fixed above rather than argued with, and two of them were real performance w
    group in the *slower* layer kind went unranked; §5.5 of the README now covers both reports.
 3. **`nnz` was rejected on an inherited argument.** Measured instead; it wedged the device. §4.8.
 4. **The `gdn_out` probe used a bfloat16 in0 where the layer had float32.** §4.11.
-5. **The 22.7 us traced op-to-op stall was unclassified.** Attributed to the tilize inside
+5. **The largest traced op-to-op stall was unclassified.** Attributed to the tilize inside
    `repeat_interleave`'s GQA expansion; ~3 us recovered by placing it in L1, the rest named in the
    accounting.
 
@@ -353,15 +349,9 @@ the 8 DRAM banks, activation and output L1 width-sharded on a matching grid, `in
 the legal divisors of the per-core K — and it **loses on every role**, even measured with the
 activation reshard outside the timed region:
 
-| role | best DRAM-sharded | best 1D `mcast_in0` |
-| --- | --- | --- |
-| `attn_in` | 71.4 µs | 55.9 µs |
-| `o_proj` | 34.2 µs | 26.6 µs |
-| `gdn_in` | 94.5 µs | 73.5 µs |
-| `gdn_out` | 34.3 µs | 26.2 µs |
-| `shared_in` | 14.4 µs | 9.4 µs |
-| `shared_down` | 14.2 µs | 9.3 µs |
-| `router` | 13.2 µs | 9.2 µs |
+README §5.4's generated dense-decode table carries the per-role pair (`best DRAM-sharded` against
+`shipped 1D mcast_in0`) and its closing line states how many roles the family loses on, computed from
+the probe rather than asserted — so this rejection cannot survive a re-run that reverses it.
 
 The reason is structural rather than a tuning miss: the op pins its compute grid to the DRAM banks,
 so 8 wide-shard cores compete with a 22–110-core multicast grid on shapes this skinny.
@@ -372,38 +362,35 @@ matmuls"). It is kept in the probe so the comparison is re-runnable, not deleted
 ### 4.2 Splitting the packed gate/up pair — rejected on measurement (OPT-010)
 
 Under the new BFP4/LoFi policy and the tuned 8-core geometry, the packed `N = 2·I` sparse matmul plus
-its two unpacking slices and the fused-SiLU multiply costs **222.3 µs**; the separate `N = I` pair
-plus the same multiply costs **297.9 µs** (`probe_decode_micro.py`, `SPLIT` rows; the two produce
-identical output, PCC 1.000000). Packed stays. The split candidate loses because halving `N` halves
+its two unpacking slices and the fused-SiLU multiply beats the separate `N = I` pair plus the same
+multiply by about a quarter — README §5.5's generated knob table has both times, from
+`probe_decode_micro.py`'s `SPLIT` rows, which also record that the two produce identical output
+(PCC 1.000000). Packed stays. The split candidate loses because halving `N` halves
 the usable output block: at `N = 512` the same 8-core grid gives `per_core_N` 2 instead of 4, and
 two launches pay the per-expert loop twice.
 
 ### 4.3 Padding the router logits to the multi-core `topk` width — rejected on measurement
 
-`ttnn.topk` is single-core on a 256-wide reduced dim and costs 48 µs/step, the 8th largest item in
-the window. Its multi-core path needs a power-of-two width of at least 8192, and the
-`$optimize` LM-head guidance recommends padding to reach a fast TopK path, so it was measured:
+`ttnn.topk` is single-core on a 256-wide reduced dim and is one of the ten largest items in the
+window (README §7's generated limitation list has its per-step cost). Its multi-core path needs a
+power-of-two width of at least 8192, and the `$optimize` LM-head guidance recommends padding to reach a
+fast TopK path, so the whole ladder was measured — 256, 512, 1024, 2048, 4096, 8192, 16384 — in
+[`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt)'s `TOPK` rows, with README §5.5 quoting
+the two endpoints.
 
-| reduced width | µs | indices still < 256 |
-| --- | --- | --- |
-| **256** (shipped) | **52.4** | — |
-| 512 | 97.1 | yes |
-| 1024 | 186.2 | yes |
-| 2048 | 363.2 | yes |
-| 4096 | 717.4 | yes |
-| 8192 | 150.0 | yes |
-| 16384 | 172.9 | yes |
-
-Padding with `-inf` is *correct* — the returned indices stay in range at every width — but the
-multi-core path only becomes legal at 8192 and is still ~3× the single-core 256 call. Rejected with
-the number; the single-core `topk` remains a named limitation.
+Padding with `-inf` is *correct* — the probe records that the returned indices stay in range at every
+width — but the multi-core path only becomes legal at 8192, every intermediate width is worse than the
+one below it, and even 8192 is roughly 3× the single-core 256 call. Rejected with the numbers; the
+single-core `topk` remains a named limitation.
 
 ### 4.4 Replacing `topk → softmax → scatter` with a threshold rewrite — rejected on measurement
 
 The scatter internally untilizes its input, index and source and retilizes the result, ~34 µs/step.
 `topk → ge(kth) → where(-inf) → softmax(256)` produces the *bit-identical* dense vector (max
 absolute difference 0.000e+00 over the probe's inputs) without any of that, so it was re-measured
-under this stage's regime rather than inherited from the fused stage's rejection: **118.7 µs against 104.5 µs** for the whole chain. Still slower. Rejected again, now with this stage's own number.
+under this stage's regime rather than inherited from the fused stage's rejection. Still slower — README
+§5.5's generated knob table has both times for the whole chain, from `probe_decode_micro.py`'s `GATE`
+rows. Rejected again, now with this stage's own measurement.
 
 `ttnn.experimental.deepseek.moe.generalized_moe_gate` fuses the whole gate into one kernel but is
 bfloat16-only; the fused stage measured bfloat16 routing logits agreeing with float32 on only
@@ -430,16 +417,16 @@ model-visible correctness, so it was decided on the **same HF-golden ladder the 
 runs** — ten prefill lengths from 1 to 3000 including the non-aligned ones, plus four decode steps,
 both arms in one process ([`logs/probe_projection_dtype.txt`](logs/probe_projection_dtype.txt)):
 
-| arm | worst `full_attention` | worst `linear_attention` | margin above the 0.995 bar |
-| --- | --- | --- | --- |
-| **BFP8 (shipped)** | 0.999883 (decode step 2) | 0.999920 (prefill 3000) | 4.9e-3 |
-| BFP4 | 0.996507 (prefill 7) | 0.997422 (decode step 2) | 1.5e-3 |
+**README §4.3 has the table, generated** — the worst PCC of each arm on each layer kind, which case it
+came from, the margin above the bar, the error ratio and what the candidate buys on traced decode, all
+computed from the probe. Not duplicated here: the PCCs move in the fifth decimal between runs, so a
+transcribed copy of them goes stale on every re-run, which is what review round 4 found.
 
-Every BFP4 row clears the bar, so this is not a pass/fail rejection — it is a 30–43× increase in
-layer error, leaving a third of the headroom, in **one** layer of a 48-layer stack, bought for
-2.3 % of one traced decode step and nothing at all in prefill. The routed-expert BFP4 step this
-stage *did* take is the opposite trade: it costs 2.4× the layer error (0.999978 → 0.999947 on the
-same screen) and buys 6 %+ of decode.
+The shape of the decision: every BFP4 row clears the bar, so this is not a pass/fail rejection — it is
+an order-of-magnitude increase in layer error, leaving about a third of the headroom, in **one** layer of
+a 48-layer stack, bought for a low-single-digit percentage of one traced decode step and nothing at all
+in prefill. The routed-expert BFP4 step this stage *did* take is the opposite trade: a much smaller
+error increase for a much larger share of decode.
 
 Rejected on that comparison, and shipped as `POLICIES["bfp4-projections"]` so the candidate stays
 one flag away for `$datatype-sweep`, which owns the accuracy/performance frontier.
@@ -529,9 +516,12 @@ expert-major layout the fused stage's §8 item 1 identified as the way to remove
 `tt-perf-report` flags `in0_block_w=1 is small` on every dense prefill row: ttnn's heuristic already
 picks the 2D family and fills the 11x10 grid, but leaves the inner block at one tile. An explicit
 `MatmulMultiCoreReuseMultiCastProgramConfig` with the largest inner block the `in1` circular buffer
-holds wins on all of them ([`logs/probe_prefill_matmul.txt`](logs/probe_prefill_matmul.txt)):
-`attn_in` 528.5 -> 471.9 us, `o_proj` 260.3 -> 178.8, `gdn_in` 695.3 -> 607.0, `shared_in`
-111.9 -> 64.9, `shared_down` 73.4 -> 52.6.
+holds wins on all six of them. **README §5.4 carries the table and it is generated** — from the probe's
+`in0=DRAM` arm and from the configs the suite log records the layer building — because review round 4
+found the hand-written version quoting a superseded run of the probe in every row, including one
+geometry the artifact called unbuildable while the layer ran it (§6, round 4 P1).
+[`logs/probe_prefill_matmul.txt`](logs/probe_prefill_matmul.txt) is the sweep: three grids x the whole
+`in0_block_w` ladder x both `in0` placements, min of three repeats with the spread reported.
 
 Two limits are encoded rather than discovered at runtime. `in0_block_w` 16 is best for the
 narrow-output roles but fails to build for the two wide ones (`attn_in` at `per_core_N` 27, `gdn_in`
@@ -543,8 +533,10 @@ heuristic. That is an explicit size check, not a silent fallback, and it is gate
 `test_prefill_runs_the_tuned_program_configs` — which exists because review round 1 found the check
 running against a 1 MiB L1 constant that turned the config off on `attn_in` and `gdn_in` (§3.9).
 
-The whole dense group is **1.07 %** of the prefill window — the window is 81.65 % routed-expert
-`sparse_matmul` — so this is worth about 0.4 % of prefill end to end, which is what it measures.
+The whole dense group is well under one percent of the prefill window — the window is overwhelmingly
+routed-expert `sparse_matmul` — so this step is worth a fraction of a percent of prefill end to end,
+which is what it measures. README §5.4 states both shares, generated from the committed prefill
+reports.
 
 ### 4.11 The gated-DeltaNet output activation dtype — taken
 
@@ -595,7 +587,7 @@ Two independent `$stage-review` passes ran against this stage.
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
 on the two widest projections), the `linear_attention` recurrent-state matmuls left unswept with
-three open advice items, a `full_attention`-only accounting with an unclassified 22.7 µs in-trace
+three open advice items, a `full_attention`-only accounting with an unclassified in-trace
 stall, a `nnz` rejection resting on an inherited argument, and a `gdn_out` row that misdescribed the
 shipped geometry and had been swept at the wrong activation dtype. §3.9 records what each one
 changed; two of them were real performance wins and one of them (`nnz`) wedged the device when
@@ -613,9 +605,9 @@ items, all fixed:
   SwiGLU product moved to L1;
 * the `in0_block_w` advice on the state matmuls had been closed with the claim that the op family
   takes no such field. It does — the batched non-mcast `MatmulMultiCoreReuseProgramConfig` — so the
-  three matmuls now carry explicit program configs: `in0_block_w` 2 for the reads (13.9 vs 14.7 µs)
-  and 1 for the `transpose_a` outer product, where `Kt` is a single tile and 2/4 are rejected by the
-  op (12.6 vs 20.4 µs);
+  three matmuls now carry explicit program configs: `in0_block_w` 2 for the reads and 1 for the
+  `transpose_a` outer product, where `Kt` is a single tile and 2/4 are rejected by the op. README
+  §5.5's generated advice row carries both times, read out of the probe (§3.5 has the win);
 * README §6's flat "no tilize/untilize appears in either measured path" was contradicted by this
   stage's own tables — restated to separate what the *model* dispatches from what three composite
   ops lower to, with their per-step cost;
@@ -641,11 +633,11 @@ allocator's bank size, and the state-L1 win got its own `ab_*.txt`.
   ones. That surfaced `place input 0 in L1` still open on three prefill rows; measured and rejected
   with numbers (an L1 `in0` is *slower* on `attn_in` and `gdn_in`, and worth ~3 µs on `shared_in` —
   0.006 % of the prefill window), `probe_prefill_matmul.txt`;
-* every hand-written µs figure in this log, the README and the code docstrings was re-derived from the
-  committed probe artifacts, which a later `run_evidence.sh` re-run had left them behind: NORM
-  22.4 → 13.7 rather than 21.4 → 9.3, the state outer product 18.2 rather than 20.4, SPLIT
-  222.3 / 297.9, GATE 118.7 / 104.5, the fused sparse geometry 255.3 / 333.1, DRAM-sharded
-  `shared_down` 14.2 and `router` 13.2. No decision direction changes.
+* hand-written µs figures in this log, the README and the code docstrings were re-derived from the
+  committed probe artifacts, which a later `run_evidence.sh` re-run had left behind — NORM, the state
+  outer product, SPLIT, GATE, the fused sparse geometry and two DRAM-sharded rows. No decision
+  direction changed. **Round 4 then found this fix incomplete** (eight figures still wrong), which is
+  what finally replaced "re-derive them by hand" with a mechanical gate; see round 4 below.
 
 Round 3's other concerns were closed in the same pass: the state program configs now have a test gate
 (they go through `ttnn.matmul`, which the dense-config spy cannot see), the shared expert's L1
@@ -653,5 +645,93 @@ placement gained the per-call-token guard the routed chain has, `_delta_rule_ste
 local is renamed with its docstring corrected, the five unqualified `work_log.md §N` references that
 meant the *fused* stage are qualified, and README §9 item 5 lists all three batch thresholds including
 the recurrent-state config's batch-3 bound.
+
+**Round 4** returned `more-work-needed` with three items. Two were the same defect class as round
+3's third item, which is the point: three consecutive rounds had closed on "the figures are
+re-derived" and the figures were still not derived. This round replaced the promise with a gate.
+
+* **P1 — the dense-prefill search table quoted a superseded run of its own probe, in every row.**
+  Round 3's fix to `probe_prefill_matmul.py` added an `in0=L1` arm to measure the `place input 0 in L1`
+  advice, and held that 8 MB L1 copy *resident across both arms*. On an 11×10 grid that is ~76 KB per
+  core taken out of the same L1 the matmul's circular buffers are charged against, so the `in0=DRAM`
+  rows were measured under an L1 pressure the shipped layer does not have. It slowed several rows and
+  made `gdn_in` at `in0_block_w` 8 — the geometry `PREFILL_MATMUL_IN1_TILE_BUDGET` selects and the
+  layer runs, asserted by `test_prefill_runs_the_tuned_program_configs` — report as failing to build.
+  The artifact therefore contradicted the running code, and the prefill arm of the L1 advice was
+  rejected against a baseline that did not exist. Fixed by running the two arms as separate passes,
+  with the L1 copy allocated only during its own pass; the clean `in0=DRAM` arm confirms the shipped
+  `in0_block_w` is the measured winner for **all six** roles. §4.10 has the corrected table, which is
+  now generated (below) rather than transcribed.
+* **P2 — eight figures still contradicted the artifact they cited**, three of them inside
+  `make_readme.py`'s `ADVICE_ACTIONS` prose, where `--check` could never see them: that table is
+  hand-written text spliced into a *generated* block, so the generator regenerated the block from the
+  same stale prose and agreed with itself every time. Also caught: the module docstring's own A/B
+  table, which disagreed with `ab_fused_vs_optimized.txt` in five of eight cells and which no round
+  had flagged.
+* **P2 — no figure-audit gate, although the preceding stage had built one for this exact failure mode
+  and this stage's code still referenced it.** `doc/fused_decoder/audit_figures.py` existed;
+  this stage had not carried it.
+
+What changed, and why these three cannot recur rather than merely being fixed:
+
+1. **`audit_figures.py` is ported** and runs last in `run_evidence.sh`, in-tree *and* against
+   `git archive HEAD`. It asserts every decimal and every multi-digit integer quoted in the README,
+   this log, the capability contract, `CLASSIFICATION.md`, `make_readme.py` **and the implementation
+   and test sources** appears in a committed artifact; evaluates the declared derived figures and
+   requires their operands to be sourced too; refuses a suite log with no pytest summary line; and
+   re-runs all three generators.
+2. **`logs/source_manifest.txt`** records the sha256 of the implementation, the tests and the
+   suite conftest *before* the first device run, and the audit re-hashes them. Round 4's hard-check gap
+   was six probe artifacts predating a source edit with nothing to prove the edit was inert; now a
+   source edit after the evidence run fails the gate.
+3. **No run-varying timing is quoted in `tt/optimized_decoder.py` or the tests any more.** They carry
+   the decision, the shipped configuration and the artifact rows to read. This is the structural
+   reason the docstrings kept going stale: a code comment has no generator and no reviewer re-reads it
+   after a re-run.
+4. **Three more README blocks are generated**: the dense-prefill search table (§4.10 / README §5.4),
+   the op-to-op gap itemisation (README §7) and every microsecond figure inside the advice actions
+   (README §5.5). The prefill table's last column re-checks each shipped row against the whole sweep,
+   so "it is the measured winner" is asserted on regeneration instead of claimed in prose, and its
+   config column is read out of the suite log — i.e. out of a run of the shipped code.
+5. **The capability contract's footprint terms are measured, not modelled.**
+   `logs/probe_footprint.py` walks every device tensor of a built layer at its allocated padded size
+   under both policies. The hand-modelled figures were 285 700 B low on the worst-case layer: they
+   omitted the RMSNorm gains and the RoPE transformation matrix, counted the batch-1 conv state at its
+   logical rather than its padded size, and over-counted the projection weights. The direction of the
+   claim is unchanged (63 % less on a `full_attention` layer, 69 % on a `linear_attention` one, 40×
+   DRAM headroom) and the corrected total is *larger*, which is the conservative direction.
+
+Round 4's other concerns were closed in the same pass: the last three unqualified section references
+in the tests now name `doc/fused_decoder/`, README §7's typecast-gap count is generated rather than
+counted by hand (there were three, not two), the prefill `in0=L1` rejection now also measures what the
+enabling DRAM→L1 copy costs — 12–50 µs per role against a 2–17 µs saving, so it is a net loss on every
+role and the rejection no longer rests on "it is only a few microseconds" — and the prefill probe rows
+carry a measured `spread=` so the "inside the run-to-run spread" arguments are checkable.
+
+Six further defects surfaced *while* fixing the above, none of them in any review round's list. They are
+recorded here because each one is evidence that the gate was the right fix rather than the numbers:
+
+1. **The module docstring's own before/after table** disagreed with `ab_fused_vs_optimized.txt` in five
+   of its eight cells. No round had flagged it; the audit flags it, and it is gone — the docstring now
+   states the ratios and points at the generated table.
+2. **`probe_sparse_matmul.txt` was internally inconsistent**: 472 of its 1888 rows carried no `active=`
+   field, because that section had been produced by an earlier revision of the probe than the other
+   three. One `run_evidence.sh` pass now produces all four sections from one script, and the generated
+   sparse table reports any row it has to exclude.
+3. **README §10's checklist claimed the recurrent-state matmuls "take no `in0_block_w` at the API"** —
+   the exact claim review round 2 disproved and this stage then fixed. The row had never been updated.
+4. **README §5.4 said the shipped sparse rule "reproduces the measured winner at all four points"**,
+   and its own regenerated table showed gate/up at 8 active experts landing 2–3 % behind. The rule
+   reproduces the winning *core count* everywhere; `in0_block_w` comes from a separate divisor rule and
+   is 2–3 % off at that one point, worth ~0.4 % of a traced step. Now stated, with the gap computed.
+5. **The first attempt at deriving the prefill window composition was wrong by two orders of
+   magnitude**: `op_device_time` matched op codes by substring, and `MatmulDeviceOperation` is a
+   substring of `SparseMatmulDeviceOperation`, so the *dense* projections were credited with 82 % of a
+   window they are 0.8 % of. Matching is by prefix now, and the function says why.
+6. **The op-to-op gap itemisation was reading the report wrong.** Its rows are one op *per replay*, not
+   one aggregated row per op, so the first version reported 32 copies of each gap and a per-step total
+   32× too large. Grouped by op code and divided by the replay count, the itemisation reconciles with
+   §7's dispatch gap — and it shows the float32 gate-promotion typecasts are the *largest* line item of
+   the `linear_attention` window, not the "two 6–8 µs gaps" the prose claimed.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt). Local commits only; nothing is pushed.

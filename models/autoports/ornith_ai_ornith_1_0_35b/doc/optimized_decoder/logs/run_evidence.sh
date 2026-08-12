@@ -19,16 +19,27 @@ ROOT="models/autoports/ornith_ai_ornith_1_0_35b"
 ART="$ROOT/doc/optimized_decoder"
 LOGS="$ART/logs"
 
-echo "=== 1/7  correctness suite (no watcher, no profiler) ==="
+# Record WHICH BYTES every artifact below was produced from, before producing any of them. mtimes alone
+# cannot prove this (a touch defeats them), and review round 4 found six probe artifacts predating a
+# source edit with nothing to show whether the edit was inert. `audit_figures.py` re-hashes these three
+# files and fails if the shipped bytes differ from the run's.
+echo "=== 0/9  record the source hashes the evidence is produced from ==="
+{
+  echo "# sha256 of the code every artifact in this directory was produced from."
+  echo "# Written by logs/run_evidence.sh before the first device run; checked by audit_figures.py."
+  sha256sum "$ROOT/tt/optimized_decoder.py" "$ROOT/tests/test_optimized_decoder.py" "$ROOT/tests/conftest.py"
+} > "$LOGS/source_manifest.txt"
+
+echo "=== 1/9  correctness suite (no watcher, no profiler) ==="
 python -m pytest "$ROOT/tests/test_optimized_decoder.py" -v -p no:randomly > "$LOGS/pytest_full_suite.txt" 2>&1
 
-echo "=== 2/7  before/after benchmark, fused and optimized in one process ==="
+echo "=== 2/9  before/after benchmark, fused and optimized in one process ==="
 {
   python "$LOGS/bench.py" --impl fused     --layers 0,3 --phase both --iters 32 --tag before
   python "$LOGS/bench.py" --impl optimized --layers 0,3 --phase both --iters 32 --tag after --policy optimized
 } 2>&1 | grep -aE "^BENCH" > "$LOGS/ab_fused_vs_optimized.txt"
 
-echo "=== 3/7  precision policy sweep, one tensor group at a time ==="
+echo "=== 3/9  precision policy sweep, one tensor group at a time ==="
 {
   for set in "" "proj_dtype=bfloat4_b" "proj_fidelity=LoFi" "expert_fidelity=HiFi2" \
              "expert_gate_up_dtype=bfloat8_b" "shared_dtype=bfloat4_b,shared_fidelity=LoFi" \
@@ -38,7 +49,7 @@ echo "=== 3/7  precision policy sweep, one tensor group at a time ==="
   done
 } 2>&1 | grep -aE "^BENCH" > "$LOGS/ab_precision_policy.txt"
 
-echo "=== 4/7  op-level candidate sweeps ==="
+echo "=== 4/9  op-level candidate sweeps ==="
 {
   echo "# ttnn.sparse_matmul geometry sweep for the two routed-expert projections."
   for active in 8 32 64 162; do
@@ -59,7 +70,10 @@ echo "=== 4/7  op-level candidate sweeps ==="
 } 2>&1 | grep -aE "^DENSE|^#" > "$LOGS/probe_dense_matmul.txt"
 
 {
-  echo "# Explicit 2D program configs for the dense PREFILL projections vs ttnn's heuristic."
+  echo "# Explicit 2D program configs for the dense PREFILL projections, and the 'place input 0 in L1'"
+  echo "# advice that both committed prefill reports still raise on three rows."
+  echo "# in0=DRAM and in0=L1 are SEPARATE passes; the L1 copy exists only during its own pass, so the"
+  echo "# DRAM rows are measured under the L1 state the shipped graph actually has (review round 4)."
   python "$LOGS/probe_prefill_matmul.py"
 } 2>&1 | grep -aE "^PREFILLMM|^#" > "$LOGS/probe_prefill_matmul.txt"
 
@@ -70,17 +84,24 @@ echo "=== 4/7  op-level candidate sweeps ==="
   python "$LOGS/probe_decode_micro.py" --section state
 } 2>&1 | grep -aE "^NORM|^TOPK|^GATE|^SDPA|^STATE|^SPLIT|^#" > "$LOGS/probe_decode_micro.txt"
 
-echo "=== 5/7  OPT-007: BFP4 vs BFP8 projections on the real-weight PCC ladder ==="
+echo "=== 5/9  OPT-007: BFP4 vs BFP8 projections on the real-weight PCC ladder ==="
 {
   echo "# OPT-007: BFP4 vs BFP8 dense projection weights, real-weight HF-golden PCC ladder."
   python "$LOGS/probe_projection_dtype.py"
 } 2>&1 | grep -aE "^PROJDTYPE|^#" > "$LOGS/probe_projection_dtype.txt"
 
-echo "=== 6/7  Tracy / tt-perf-report captures (separate runs, advice enabled) ==="
+echo "=== 6/9  measured per-layer device footprint, both policies, full context ==="
+{
+  echo "# Measured per-layer device footprint; sources doc/context_contract.json's footprint_change."
+  echo "# Command: python doc/optimized_decoder/logs/probe_footprint.py"
+  python "$LOGS/probe_footprint.py"
+} 2>&1 | grep -aE "^FOOTPRINT|^#" > "$LOGS/probe_footprint.txt"
+
+echo "=== 7/9  Tracy / tt-perf-report captures (separate runs, advice enabled) ==="
 bash "$ART/tracy/run_profiling.sh"
 python "$ART/tracy/perf_accounting.py" | tee "$ART/tracy/perf_accounting.txt"
 
-echo "=== 7/7  watcher (separate run, never combined with the profiler) ==="
+echo "=== 8/9  watcher (separate run, never combined with the profiler) ==="
 rm -f generated/watcher/watcher.log
 TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=1 \
 python -m pytest "$ROOT/tests/test_optimized_decoder.py" -v -p no:randomly \
@@ -99,9 +120,16 @@ for big in "$LOGS/pytest_full_suite.txt" "$LOGS/watcher_pytest.txt" "$ART/watche
   if [ -f "$big" ] && [ "$(stat -c%s "$big")" -gt 500000 ]; then gzip -9 -f "$big"; fi
 done
 
-echo "=== fill the README's generated blocks from the artifacts above ==="
+echo "=== 9/9  fill the README's generated blocks from the artifacts above ==="
 python "$LOGS/make_readme.py"
 python "$LOGS/make_readme.py" --check
+
+echo "=== assert every figure quoted in any document exists in a committed artifact ==="
+# Review rounds 2, 3 and 4 each closed on "the figures are re-derived" and each next round found more
+# that were not - round 4 found a whole search table quoting a superseded run of its own probe. This is
+# the mechanical gate for that class, ported from the fused stage. It also re-hashes the sources against
+# source_manifest.txt, so a code edit after the evidence run fails here.
+python "$ART/audit_figures.py"
 
 echo "=== prove the generators reproduce from the COMMITTED tree, not just this worktree ==="
 # Review round 3's P1: `make_readme.py --check` passed locally while one of its inputs was matched by
@@ -112,7 +140,8 @@ git archive HEAD | tar -x -C "$tree"
 ( cd "$tree" \
   && python "$LOGS/make_readme.py" --check \
   && python "$ART/tracy/perf_accounting.py" > /dev/null \
-  && python "$ART/watcher/census.py" > /dev/null )
+  && python "$ART/watcher/census.py" > /dev/null \
+  && python "$ART/audit_figures.py" )
 rm -rf "$tree"
 echo "committed-tree reproduction OK"
 

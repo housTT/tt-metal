@@ -161,8 +161,8 @@
     },
     "footprint_change": {
       "direction": "reduction",
-      "worst_case_layer_total_bytes": 839267328,
-      "worst_case_layer_total_note": "0.78 GiB for a full_attention layer at the full 262144 context including its paged KV cache, against 2.12 GiB for the fused decoder: 63% less. Every term falls because of the dtype policy and nothing grows. Block-float sizes count the shared exponent: bfloat8_b is 1.0625 B/element and bfloat4_b is 0.5625 B/element (one exponent byte per 16 data).",
+      "worst_case_layer_total_bytes": 839553028,
+      "worst_case_layer_total_note": "0.78 GiB for a full_attention layer at the full 262144 context including its paged KV cache, against 2.12 GiB for the fused decoder: 63% less (69% on a linear_attention layer). Every term falls because of the dtype policy and nothing grows. Block-float sizes count the shared exponent: bfloat8_b is 1.0625 B/element and bfloat4_b is 0.5625 B/element (one exponent byte per 16 data). MEASURED, not modelled: doc/optimized_decoder/logs/probe_footprint.txt walks every device tensor of a built layer at its allocated padded size under both policies. The earlier hand-modelled figure here was 285700 B lower: it omitted the RMSNorm gains and the RoPE transformation matrix and over-counted the projection weights. Review round 4's figure audit had nothing to check it against, so it is now produced by a probe rather than by arithmetic in a document.",
       "per_term_bytes": {
         "paged_kv_cache_k": 142606336,
         "paged_kv_cache_v": 142606336,
@@ -172,13 +172,19 @@
         "moe_routed_expert_weights": 452984832,
         "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 0.5625 B (bfloat4_b); was 1610612736 at bfloat16",
         "moe_shared_and_router_weights": 4460544,
-        "moe_shared_and_router_note": "shared_in (2048 x 1056) and shared_down (512 x 2048) at 1.0625 B plus the 256-wide router at 2 B; was 7340032",
-        "full_attention_projection_weights": 28976128,
-        "linear_attention_projection_weights": 35873024,
+        "moe_shared_and_router_note": "shared_in (2048 x 1056) and shared_down (512 x 2048) at 1.0625 B plus the 256-wide router at 2 B; was 7471104",
+        "full_attention_projection_weights": 28966912,
+        "linear_attention_projection_weights": 35790848,
+        "norms_and_constants": 294912,
+        "norms_and_constants_note": "RMSNorm gains, the RoPE transformation matrix and the DeltaNet constant tiles, all unchanged bfloat16/float32; 565248 on a linear_attention layer, which also holds the gated-DeltaNet constant tiles",
+        "runtime_index_tensors": 4,
         "deltanet_recurrent_state_batch1": 2097152,
-        "deltanet_conv_state_batch1": 49152
+        "deltanet_conv_state_batch1": 1572864,
+        "deltanet_conv_state_note": "allocated padded size: 3 buffers x 32 padded rows x conv_dim 8192 x 2 B. The logical size is 49152; TILE layout pads a batch-1 row to a full tile",
+        "linear_attention_conv1d_weights": 35651584,
+        "linear_attention_conv1d_note": "prepared ttnn.conv1d weights, one set per accepted prefill block length; allocated by allocate_state and unchanged by this stage's dtype policy"
       },
-      "dram_headroom": "839267328 B against the measured 34091302912 B allocatable DRAM: 40x, up from 15x. No capability reduction is required by this stage and none is taken."
+      "dram_headroom": "839553028 B against the measured 34091302912 B allocatable DRAM: 40x, up from 15x. No capability reduction is required by this stage and none is taken."
     },
     "internal_shape_policy_delta": {
       "moe_tokens_per_sparse_matmul_call": 32,

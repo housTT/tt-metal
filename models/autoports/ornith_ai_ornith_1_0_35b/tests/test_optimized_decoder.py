@@ -302,8 +302,9 @@ DEDICATED_OPS_PREFILL = {
 }
 DEDICATED_OPS_DECODE = {
     # No `mac` here: the conv-tap accumulator is `ttnn.addcmul`, the same op the functional decoder
-    # uses, because `addcmul` is a single LLK op for these shapes and `mac` is always two (work_log
-    # §4.14). It is therefore not a fused rewrite and cannot be a fused-only assertion.
+    # uses, because `addcmul` is a single LLK op for these shapes and `mac` is always two
+    # (doc/fused_decoder/work_log.md §4.14). It is therefore not a fused rewrite and cannot be a
+    # fused-only assertion.
     LINEAR_LAYER: ["experimental.deepseek_moe_fast_reduce_nc", "sparse_matmul"],
     FULL_LAYER: [
         "experimental.nlp_create_qkv_heads_decode",
@@ -706,8 +707,9 @@ def test_moe_group_tokens_pcc(mesh_device, layer_idx, group_tokens):
     reshape, and a whole-call ``call_mask`` computed separately from the per-group ``group_mask`` —
     that is unreachable at the shipped ``moe_group_tokens = 32``, where every call is a single
     32-token group. Review rounds 21, 22 and 23 each noted it had no correctness coverage: the only
-    thing exercising it was ``logs/ab_moe_group_tokens.txt``, which measures wall time and asserts no
-    PCC. §4.16's hoist then put *new* code on that branch (the borrowed mask now spans
+    thing exercising it was ``doc/fused_decoder/logs/ab_moe_group_tokens.txt``, which measures wall
+    time and asserts no PCC. ``doc/fused_decoder/work_log.md`` §4.16's hoist then put *new* code on
+    that branch (the borrowed mask now spans
     ``span // TILE`` rows rather than one), so it is now covered here rather than argued about.
 
     A 2048-token prefill at 64 tokens/group is 32 calls of 2 groups; at 256 it is 8 calls of 8.
@@ -1404,8 +1406,8 @@ def test_lazy_allocation_is_the_only_host_call(mesh_device, layer_idx, monkeypat
     assert len(first) == expected, (
         f"the first forward on an unallocated {LAYER_IDS[layer_idx]} layer made {len(first)} host "
         f"call(s) among {banned}, expected {expected} — if allocate_state's host work changed, update "
-        "the module docstring and README §6, which document this divergence, and work_log.md §7, which "
-        "quotes this count"
+        "the module docstring and doc/optimized_decoder/README.md §6, which document this divergence, "
+        "and doc/fused_decoder/work_log.md §7, which quotes this count"
     )
     assert not second, f"a prefill on an *allocated* layer touched the host: {sorted(set(second))}"
     assert not third, f"a decode on an *allocated* layer touched the host: {sorted(set(third))}"

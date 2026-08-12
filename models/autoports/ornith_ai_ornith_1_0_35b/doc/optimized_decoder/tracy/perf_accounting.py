@@ -116,6 +116,86 @@ def device_us_per_step(csv_path: Path, replays: int) -> float:
     return total / replays
 
 
+#: A gap this large or larger is itemised individually in the accounting; everything below it is
+#: reported as an aggregate. 5 us is about five times the ~1 us steady-state op-to-op gap, so the
+#: itemised list is "the stalls that are not just dispatch" rather than an arbitrary top-N.
+GAP_ITEMISE_US = 5.0
+
+
+def op_gaps(csv_path: Path, replays: int) -> dict:
+    """Itemise the op-to-op gaps of one signposted decode window, per step.
+
+    README §7 used to describe these by hand — "two 6-8 us gaps in front of the float32 gate-promotion
+    typecasts" — and review round 4 found there were three. The whole point of that paragraph is that
+    the end-to-end/device-time difference is *itemised rather than waved away*, so the itemisation is
+    computed here from the report the paragraph cites, and the count cannot be wrong.
+
+    The report holds one row per op **per replay**, not one aggregated row per op, so every figure here
+    is divided by ``replays`` to become per-step. Gaps are then grouped **by op code**: what §7 needs is
+    "which ops account for the dispatch gap", and a per-replay list would repeat the same op 32 times.
+    ``total_us`` is the per-step sum, and it should reconcile with the §7 dispatch-and-host gap.
+    """
+    per_code: dict[str, list[float]] = {}
+    with open_csv(csv_path) as handle:
+        for row in csv.DictReader(handle):
+            try:
+                gap = float(row.get("Op-to-Op Gap") or "")
+            except ValueError:
+                continue
+            per_code.setdefault((row.get("OP Code") or "").strip(), []).append(gap)
+    if not per_code:
+        raise SystemExit(f"no Op-to-Op Gap column values in {csv_path}")
+    total_rows = sum(len(v) for v in per_code.values())
+    grouped = []
+    for code, gaps in per_code.items():
+        grouped.append(
+            {
+                "op_code": code,
+                "gap_us_per_step": round(sum(gaps) / replays, 1),
+                "launches_per_step": round(len(gaps) / replays, 1),
+                "largest_single_gap_us": round(max(gaps), 1),
+            }
+        )
+    grouped.sort(key=lambda g: -g["gap_us_per_step"])
+    big = [g for g in grouped if g["gap_us_per_step"] >= GAP_ITEMISE_US]
+    small = [g for g in grouped if g["gap_us_per_step"] < GAP_ITEMISE_US]
+    return {
+        "total_us": round(sum(sum(v) for v in per_code.values()) / replays, 1),
+        "itemise_threshold_us": GAP_ITEMISE_US,
+        "largest": big,
+        "remainder_op_codes": len(small),
+        "remainder_us": round(sum(g["gap_us_per_step"] for g in small), 1),
+        "op_codes": len(grouped),
+        "launches_per_step": round(total_rows / replays, 1),
+    }
+
+
+def op_device_time(csv_path: Path, op_prefix: str, replays: int) -> tuple[float, float]:
+    """``(us_per_step, fraction_of_window)`` for ops whose code **starts with** ``op_prefix``.
+
+    Every figure README §7 and §5.4 attribute to a specific op comes from here rather than from a number
+    typed into the limitation text, so a re-run cannot leave the attribution behind.
+
+    Prefix, not substring, and case-sensitive: the report's op codes are
+    ``MatmulDeviceOperation`` and ``SparseMatmulDeviceOperation …``, and ``MatmulDeviceOperation`` is a
+    *substring* of the sparse one — a contains-match silently reported the routed-expert matmuls as
+    dense, which is how the first version of this function attributed 82 % of the prefill window to the
+    dense projections that are actually ~1 % of it. The op codes also carry a shape suffix, which is why
+    this is a prefix rather than an equality test.
+    """
+    total = matched = 0.0
+    with open_csv(csv_path) as handle:
+        for row in csv.DictReader(handle):
+            try:
+                device = float(row.get("Device Time") or "")
+            except ValueError:
+                continue
+            total += device
+            if (row.get("OP Code") or "").strip().startswith(op_prefix):
+                matched += device
+    return matched / replays, (matched / total if total else 0.0)
+
+
 def e2e_ms_per_step(run_log: Path) -> float:
     text = run_log.read_text(errors="ignore")
     match = re.findall(r"decode\(traced\).*?wall/iter=([0-9.]+) ms", text)
@@ -146,7 +226,23 @@ def main():
         roofline_us = (weight_bytes + kv_bytes) / (peak * 1e9) * 1e6
         device_us = device_us_per_step(report_csv, DECODE_REPLAYS)
         e2e_us = e2e_ms_per_step(run_log) * 1e3
+        gaps = op_gaps(report_csv, DECODE_REPLAYS)
+        sparse_us, sparse_share = op_device_time(report_csv, "SparseMatmul", DECODE_REPLAYS)
+        topk_us, topk_share = op_device_time(report_csv, "TopK", DECODE_REPLAYS)
+        # The prefill window's composition, which README §5.4 and work_log §4.10 quote to say why the
+        # dense-projection work is worth ~0.4 % of prefill: the window is overwhelmingly routed-expert
+        # sparse_matmul. Measured here so those two percentages have a source.
+        prefill_csv = base / "prefill_perf_report.csv"
+        prefill_shares = {}
+        if prefill_csv.is_file() or prefill_csv.with_suffix(".csv.gz").is_file():
+            _, sparse_prefill = op_device_time(prefill_csv, "SparseMatmul", 1)
+            _, dense_prefill = op_device_time(prefill_csv, "MatmulDeviceOperation", 1)
+            prefill_shares = {
+                "sparse_matmul_share": round(sparse_prefill, 4),
+                "dense_matmul_share": round(dense_prefill, 4),
+            }
         out[kind] = {
+            "prefill_window_composition": prefill_shares,
             "workload": {"profile": "single_user_decode", "prompt_len": DECODE_CONTEXT, "gen_len": 1, "batch": 1},
             "bytes_per_token": round(weight_bytes + kv_bytes),
             "state_or_kv_bytes_per_token": round(kv_bytes),
@@ -156,21 +252,31 @@ def main():
             "decode_ms_per_token_e2e": round(e2e_us / 1e3, 4),
             "roofline_fraction_of_device": round(roofline_us / device_us, 4),
             "dispatch_and_host_ms": round((e2e_us - device_us) / 1e3, 4),
+            "op_to_op_gaps": gaps,
+            "sparse_matmul_share_of_device_time": round(sparse_share, 4),
+            "sparse_matmul_us_per_step": round(sparse_us, 1),
+            "topk_share_of_device_time": round(topk_share, 4),
+            "topk_us_per_step": round(topk_us, 1),
             "named_limitations": [
                 "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops "
                 "once per active expert at a single tile of M, so the two routed projections reach "
                 "roughly 5 % of the FLOP roofline and ~40 GB/s of weight bandwidth even after the "
-                "geometry sweep; they are 31 % of the window.",
+                f"geometry sweep; they are {sparse_share:.0%} of the window.",
                 "The routed-expert intermediates are num_experts wide where only num_experts_per_tok "
                 "slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the "
                 "score multiply and the expert reduction each touch 32x the useful width. Moving "
                 "them to L1 removed the DRAM cost; the remaining ~230 us/step is L1 and launch "
                 "bound and needs an expert-major gather to remove, which is a routing-algorithm "
                 "change rather than an op-config one.",
-                "ttnn.topk is single-core on the 256-wide routing dim (48 us/step); its multi-core "
-                "path needs a power-of-two width >= 8192 and padding to it measured ~3x slower.",
-                "About 90 device ops per decode step at a ~1 us op-to-op gap accounts for most of "
-                "the difference between device time and end-to-end.",
+                f"ttnn.topk is single-core on the 256-wide routing dim ({topk_us:.0f} us/step); its "
+                "multi-core path needs a power-of-two width >= 8192 and padding to it measured ~3x "
+                "slower.",
+                f"{gaps['launches_per_step']:.0f} device op launches per decode step, across "
+                f"{gaps['op_codes']} op codes, whose op-to-op gaps sum to {gaps['total_us']:.1f} us/step "
+                f"and account for most of the difference between device time and end-to-end; "
+                f"{gaps['remainder_op_codes']} op codes are individually below "
+                f"{gaps['itemise_threshold_us']:.0f} us/step and total "
+                f"{gaps['remainder_us']:.1f} us.",
             ],
         }
         print(
