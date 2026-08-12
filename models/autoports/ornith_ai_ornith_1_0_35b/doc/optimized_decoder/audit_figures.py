@@ -871,14 +871,21 @@ def selftest() -> str:
     # including it makes the experiment self-referential and it never converges — round 6 measured exactly
     # that, three consecutive runs producing three different files. `audit_selftest.txt` is therefore out of
     # ARTIFACTS entirely, which also makes this reproducible enough for `check_generators` to diff.
-    blobs = load(ARTIFACTS)
+    # `commit_record.txt` is excluded: it is a hand-written checkpoint note, not measurement evidence, and
+    # it is written AFTER the sweep — it names the commit that contains it. Leaving it in made this
+    # artifact's own header depend on a file edited after it was generated, so the committed selftest could
+    # never match its regeneration. (Caught by the committed-tree run of this audit, which is what that run
+    # is for.)
+    blobs = {path: body for path, body in load(ARTIFACTS).items() if path.name != "commit_record.txt"}
     tokens = measured_tokens(blobs) | derived_from_artifacts(blobs)
     rnd = random.Random(SELFTEST_SEED)
     lines = [
         "# How often audit_figures.sourced() says yes to an ARBITRARY value of each figure class.",
         "# Lower is stronger. Written by `audit_figures.py --selftest`; a rate that rises means the",
         "# matching rules got weaker. Seeded, so it is reproducible.",
-        f"# pool: {len(blobs)} artifacts, {sum(len(v) for v in blobs.values())} chars, {len(tokens)} labelled tokens",
+        # Deliberately NOT a byte count: it is incidental to what this measures and it moves whenever any
+        # artifact gains a line, which made the file fail its own reproducibility check.
+        f"# pool: {len(blobs)} artifacts, {len(tokens)} labelled tokens",
     ]
     for label, expression in SELFTEST_CLASSES:
         # Counts an ACCEPTANCE, which is what the gate actually does: sourced OR blanket-exempted. Without
