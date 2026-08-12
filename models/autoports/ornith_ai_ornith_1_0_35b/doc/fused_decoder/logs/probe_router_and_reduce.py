@@ -143,10 +143,14 @@ def main():
         # faithful to the shipped graph: the shipped one scores the down projection's *input* at
         # moe_intermediate width (§3.2), the candidate scores its *output* inside the reduce.
         # NOTE the down projection here is a DENSE ttnn.matmul standing in for the shipped
-        # sparse_matmul, which cannot be reproduced standalone without the sparsity mask. That makes
-        # the two latencies dominated by the matmul and not a proxy for the shipped windows - what
-        # this arm establishes is that the op ACCEPTS this decoder's dense shapes and is as accurate
-        # as the shipped pair in isolation. The deciding measurement is the in-model one in §4.17.
+        # sparse_matmul, which cannot be reproduced standalone without the sparsity mask. Both arms
+        # pay it identically, so the ABSOLUTE times are not a proxy for the §5 windows but the
+        # DIFFERENCE between the arms isolates exactly what the fusion changes: arm 1's permute and
+        # moe_intermediate-wide multiply against arm 2's in-reduce scaling. Two things follow, and
+        # §4.17 states both: the op accepts this decoder's dense shapes and is as accurate here as
+        # the shipped pair, and it is not faster - because §3.2 already moved the multiply onto the
+        # narrow input. The accuracy loss that adopting it would cause is separate, in-model, and
+        # reproducible rather than committed (§4.17 gives the one-line reproduction).
         I = INTER
         gen2 = torch.Generator().manual_seed(77)
         act_i = dev(mesh, torch.randn(1, E, TOKENS, I, generator=gen2).to(torch.bfloat16))

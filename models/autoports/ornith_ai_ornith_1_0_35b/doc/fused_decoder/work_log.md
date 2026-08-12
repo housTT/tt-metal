@@ -587,23 +587,47 @@ from the op's own validation or kernel contract, not its documentation:
   transformation matrix that emulates rotate-half or permuting Q/K/K-cache at load time — the latter
   being precisely the `rope_mode="full"` head permutation §4.6 already measured and rejected as
   slower. Recorded as a different rotation convention, not a missing fusion.
-* **Native decode-mode `rotary_embedding_hf`** — `rotary_embedding_hf_device_operation.cpp:55-68`
-  requires the input **and** `cos`/`sin` to be HEIGHT_SHARDED. Round 0 rejected decode mode on an
-  interleaved probe, which round 24 rightly called an unearned first-error rejection, since
-  `_decode_qkv_heads` now receives height-sharded tensors from `nlp_create_qkv_heads_decode`. The
-  requirement that stands is the *cos/sin* one: the shipped `rope_mode="partial"` gathers them with
-  `ttnn.embedding` into interleaved DRAM and rotates a 64-wide slice of a 256-wide head, so a
-  height-sharded decode rope needs both tables sharded per user and a head-dim slice that is itself
-  shard-aligned. That is a different graph rather than a swap, and it is the natural first item for
-  the optimized-decoder stage, which owns the decode layout end to end.
-* **`models/demos/deepseek_v3_b1/micro_ops/dram_streaming_{matmul,experts_matmul}`** — these are not
-  ttnn ops but Python kernel descriptors over a **pre-swizzled** weight layout ("K tiles contiguous
-  for each N column in physical memory"), and they are *dense*: there is no sparsity argument. Ornith's
-  expert matmuls are `ttnn.sparse_matmul` with a per-group mask, and the expert skipping that mask
-  buys is what §2 round 2 measured the 32-token grouping for. Adopting a dense streaming matmul over
-  256 experts means giving that up, which is a routing-algorithm change of the same class §4.10
-  rejects — not a graph rewrite. They remain the right thing to look at for the *dense* projections in
-  a later stage, which is where §8 item 1 already points.
+* **Native decode-mode `rotary_embedding_hf`** — `rotary_embedding_hf_device_operation.cpp:57-62`
+  requires the **input** to be HEIGHT_SHARDED and `cos`/`sin` merely to be *sharded*
+  (`is_sharded()`, with no layout constraint). An earlier revision of this bullet over-stated that as
+  HEIGHT_SHARDED for all three; round 25 corrected it. Round 0 rejected decode mode on an interleaved
+  probe, which round 24 rightly called an unearned first-error rejection, since `_decode_qkv_heads`
+  now receives height-sharded tensors from `nlp_create_qkv_heads_decode`.
+
+  The blocker that survives is the **partial rotation**, not the sharding of the tables. Ornith
+  rotates the first `rope_dim` 64 of each 256-wide head; the shipped graph does that with
+  `_slice_last(x, 0, 64)`, and the decode tensor is height-sharded over the *batch*, so its shards
+  are whole `[1, heads, 256]` rows. A 64-wide sub-range of the last dim is not a sub-shard of that
+  layout, so the slice cannot be taken without leaving the sharded form — which is the thing the
+  decode-mode op exists to avoid. The one spelling that removes the slice is `rope_mode="full"`,
+  whose head permutation §4.6 measured and rejected as slower on traced decode with a 4x larger
+  table. So the two are coupled: decode-mode rope needs full-width rotation, full-width rotation is
+  measured slower here, and that is the recorded ground rather than a deferral.
+* **`models/demos/deepseek_v3_b1/micro_ops/dram_streaming_{matmul,experts_matmul}`** — an earlier
+  revision of this bullet rejected these as "dense: there is no sparsity argument". **That was
+  wrong**, and round 25 caught it: `dram_streaming_experts_matmul/op.py:131` takes an
+  `index_tensor`, `:137` a `selected_experts_k` (validated `<= 16`), and the docstring is explicit —
+  "reads K tiles from in1 starting at `expert_idx * K_tiles` offset". There is an in-tree,
+  **single-device**, 256-expert test of exactly that
+  (`deepseek_v3_b1/tests/unit_tests/test_dram_streaming_matmul.py::test_dram_streaming_matmul_indexed`),
+  so §4.10's "multi-device in every in-tree instance" does not cover this op either. The indexed
+  weight read is genuinely the lever on the cost §5.4 and §8 item 1 call the floor: it would remove
+  both the wasted expert FLOPs and the 256-wide `UnaryOpType::FILL` prologue.
+
+  The blocker is real but it is a **shape** one, and it is not the one that was written. The expert
+  index is supplied **per core**, as a `[1, 16]` tensor whose leading entry selects the expert, and
+  it applies to that core's whole `in0` M-tile — the unit test says so directly ("Create expert index
+  - select one random expert", "only uses the first index"). Ornith's router gives **every token**
+  its own top-8: a shipped 32-token group is one M-tile carrying 32 *different* expert sets. To use
+  this op the M-tile would have to be one token's rows with a uniform expert set, i.e. one launch per
+  (token, selected expert) — 2048 x 8 launches per prefill block where the shipped graph issues 64
+  `sparse_matmul`s. That is the same expert-major regrouping §4.10 rejects, reached from a different
+  direction, and it is a routing-algorithm change rather than a graph rewrite.
+
+  So the disposition is unchanged and the reasoning that supports it is now the op's own contract
+  rather than a false claim about its arguments. It stays the right first thing for a stage that owns
+  the routing algorithm — which is where §8 item 1 already points — and this catalogue records that
+  the *op exists and is single-device*, which the earlier text denied.
 
 None of the three is adopted; all three now have a recorded reason read from the contract rather than
 from prose, which is the standard §4.17 had to learn twice.
@@ -1584,6 +1608,24 @@ tree or about this stage's own artifacts* that had not been re-checked against t
 in §5 have been reproduced exactly by four consecutive reviewers; it is the prose around the rejected
 candidates that keeps needing correction.
 
+### Round 25 — `more-work-needed`
+
+The twenty-fifth review reproduced every load-bearing figure exactly again (all four device times,
+the complete per-op-code decode diffs closing on −26/−33, the census, the manifest hashes, both
+audits at 0 problems), confirmed round 24's fixes, and then found that §4.18 — the section round 24
+*asked for* — rejected an op on a claim the op's source contradicts.
+
+| Finding | Fix |
+| --- | --- |
+| **P1** — §4.18 dismissed the `deepseek_v3_b1` DRAM-streaming micro-ops as "dense: there is no sparsity argument". `dram_streaming_experts_matmul/op.py` takes an `index_tensor` and a `selected_experts_k`, reads each expert's K tiles at an `expert_idx * K_tiles` offset, and has an in-tree **single-device 256-expert** test. So both halves of the rejection were false, and §4.10's "multi-device in every in-tree instance" does not cover it either. | rewritten around the op's actual contract. The blocker is a **shape** one: the expert index is supplied *per core*, as a `[1, 16]` tensor applied to that core's whole `in0` M-tile, while Ornith's router gives every token its own top-8 — a shipped 32-token group is one M-tile carrying 32 different expert sets. Using it means one launch per (token, expert), 2048 x 8 per prefill block against 64 `sparse_matmul`s, which is the expert-major regrouping §4.10 rejects reached from another direction. Disposition unchanged; reasoning now the op's own. |
+| **P2** — §4.18 said decode-mode `rotary_embedding_hf` requires input *and* cos/sin to be HEIGHT_SHARDED; the source requires HEIGHT_SHARDED of the input and only `is_sharded()` of the tables. The bullet then closed on a deferral, which §4.16 records as not one of the three admissible grounds. | corrected, and the real blocker stated: the shipped partial rotation slices 64 of a 256-wide head, which is not a sub-shard of a batch-height-sharded decode tensor, so decode-mode rope needs full-width rotation — and full-width rotation is `rope_mode="full"`, which §4.6 already measured as slower. The two are coupled, and that is the ground rather than a deferral. |
+| **P2** — `probe_router_and_reduce.py`'s own comment still said the latency arm is "not a proxy … the deciding measurement is the in-model one", while round 24 had just made that arm §4.17's primary ground. Two artifacts of one commit disagreeing — the exact defect round 24 raised. | the comment now says what the arm does and does not establish: absolute times are not a proxy, the *difference* isolates the fusion, and the accuracy loss is separate and reproducible-not-committed. |
+| **P2** — `logs/commit_record.txt` still claimed `ac3b0e2ec25` is the commit every README §2/§5 figure comes from, seven lines above the row saying the same of `f6cd9504e2f`. | the earlier claim is marked historical, leaving one current attribution. |
+
+Round 25 also noted that `audit_figures.py` does not audit the probe *scripts*, which is why that
+stale comment could survive — a real gap, recorded here for the next stage rather than closed, since
+adding sources to the audited set changes what the freshness gate measures.
+
 ---
 
 ## 8. Commit record
@@ -1592,7 +1634,7 @@ Repo `/home/ttuser/dev/ornith/tt-metal`, branch `agentic-research/hous/ornith-1.
 is **local**; nothing was pushed, and nothing outside
 `models/autoports/ornith_ai_ornith_1_0_35b/` is touched. The one unrelated dirty path in the
 worktree, `.agents/fast-models-fast-feedback.md`, is deliberately left untracked and is in none of
-these commits. `git log --oneline -9` shows all of them.
+these commits. `git log --oneline -10` shows all of them.
 
 | Commit | What it carries |
 | --- | --- |
@@ -1604,7 +1646,8 @@ these commits. `git log --oneline -9` shows all of them.
 | `ac3b0e2ec25` | round 22's fixes: the dead per-group `ttnn.slice` removed, the layout budget tightened to the shipped counts and asserted exactly, `logs/commit_record.txt` rewritten. |
 | `be9e83d0ef1` | round 23's **first and partly wrong** answer: §4.17 added, but it rejected `deepseek_moe_fast_reduce_nc_fused` by reading the op's docstring. Documentation only. |
 | `f6cd9504e2f` | round 23's P1 re-answered by *running* the op, plus `test_moe_group_tokens_pcc` (the `groups > 1` MoE branch's first PCC coverage). Changed `tests/test_fused_decoder.py` and regenerated the whole chain — the suite is 97 cases from here. |
-| `<this commit>` | round 24's fixes: §4.17 restated on the ground the committed artifact supports (the fused reduce is **not faster here**, because §3.2 already took that win), round 24's score-layout hypothesis checked and refuted, §4.18 assessing the three op families it named, README §5.4's generator string corrected, and this table. Documentation and generators only — no source file changed, so `f6cd9504e2f`'s evidence still describes the shipped code and `logs/source_manifest.txt` still matches it. **Every figure in README §2 and §5 comes from `f6cd9504e2f`'s `run_evidence.sh` pass.** |
+| `35c3d584d76` | round 24's fixes: §4.17 restated on the committed ground, round 24's score-layout hypothesis refuted, §4.18 added, README §5.4's generator string corrected. |
+| `<this commit>` | round 25's fixes: §4.18's `dram_streaming_experts_matmul` rejection rewritten around the op's real contract (it *does* have an indexed expert read; the blocker is the per-core/per-M-tile expert index against per-token routing), the decode-rope validation misstatement corrected and its deferral replaced by the coupling to §4.6, the `FUSEDREDUCE` probe comment reconciled with §4.17, and the stale figure attribution in `logs/commit_record.txt` marked historical. Documentation and one probe comment only — no source file changed, so `f6cd9504e2f`'s evidence still describes the shipped code and `logs/source_manifest.txt` still matches it. **Every figure in README §2 and §5 comes from `f6cd9504e2f`'s `run_evidence.sh` pass.** |
 
 A commit cannot contain its own SHA, so the tip is written `<this commit>`. `logs/commit_record.txt`
 carries the same table; round 23 found the two had drifted apart in *both* directions across rounds
