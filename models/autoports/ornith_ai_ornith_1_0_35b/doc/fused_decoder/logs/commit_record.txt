@@ -42,12 +42,20 @@ updated in the same commit, and `git log` is the authority over either.
                and this file rewritten. The chain is regenerated once more, so THIS is the commit
                whose evidence every figure in README sections 2 and 5 comes from.
 
-  <tip>        round 23's fixes: work_log section 4.17 - the deepseek_moe_fast_reduce_nc_fused
+  be9e83d0ef1  round 23's first (and partly wrong) answer: work_log section 4.17 - the deepseek_moe_fast_reduce_nc_fused
                assessment section 4.13 had missed entirely while claiming no such fusion was
                expressible - plus the two corrected categorical claims, the layout budget's scaling
                claim restated as per-chunk rather than per-sequence, and this table. Documentation
-               only: no source file changed, so ac3b0e2ec25's evidence still describes the shipped
-               code and logs/source_manifest.txt still matches it.
+               only: no source file changed. Its section 4.17 concluded from the op's DOCSTRING
+               that the fusion wanted a layout this decoder does not use; that conclusion was wrong.
+
+  <tip>        round 23's P1 re-answered by running the op, plus the last two residuals. The fused
+               reduce is measured at Ornith's shapes (it works, PCC 0.999998), landed in the model
+               and then rejected on the accuracy the placement change costs - section 4.17 has both
+               halves. test_moe_group_tokens_pcc closes the groups > 1 MoE branch that rounds 21-23
+               each flagged as uncovered; the suite is 97 cases. The chain is regenerated once more,
+               so THIS is the commit whose evidence every figure in README sections 2 and 5 comes
+               from.
 
 A commit cannot contain its own SHA, so the tip is written as <tip> above; `git log --oneline -6`
 enumerates all of them.

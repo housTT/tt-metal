@@ -8,50 +8,50 @@ is cross-checked against the profiler's own windowed report (see this script's d
 Per iteration of the window: prefill = one 2048-token pass, decode = one traced replay.
 
 === fused ===
-linear_attention/prefill: window 256700.7 us/iter
-  UnaryDeviceOperation       total   16999.2 us/iter   FILL   16758.8 us/iter ( 98.6 %)     6.5 % of window   134 launches/iter   of which 129 are FILL
-        178.137 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-        176.795 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-        176.475 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-        175.879 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-  BinaryNgDeviceOperation    total    7990.5 us/iter   MUL    7784.6 us/iter ( 97.4 %)     3.0 % of window   136 launches/iter   of which 132 are MUL
-        183.961 us  folded=-        next=MatmulDeviceOperation/w=2048[2048]       reported_out=1[1]x2048[2048]x4096[4096]
-         74.850 us  folded=-        next=LayerNormDeviceOperation/w=2048[2048]    reported_out=1[1]x2048[2048]x2048[2048]
-         72.224 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
-         71.987 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
-linear_attention/decode: window 1985.2 us/iter
-  UnaryDeviceOperation       total     282.4 us/iter   FILL     267.4 us/iter ( 94.7 %)    13.5 % of window   8 launches/iter   of which 3 are FILL
-        172.646 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-         91.379 us  folded=-        next=SparseMatmulDeviceOperation/w=1024[1024] reported_out=256[256]x32[32]x1024[1024]
-          4.713 us  folded=SILU     next=CopyDeviceOperation/w=8192[8192]         reported_out=1[1]x128[128]x4096[4096]
-          3.529 us  folded=SILU     next=BinaryNgDeviceOperation/w=4096[4096]     reported_out=1[1]x128[128]x4096[4096]
-  BinaryNgDeviceOperation    total     199.1 us/iter   MUL     167.0 us/iter ( 83.9 %)     8.4 % of window   17 launches/iter   of which 11 are MUL
-         69.035 us  folded=SILU     next=PermuteDeviceOperation/w=32[1]           reported_out=1[1]x128[128]x512[512]
-         47.290 us  folded=-        next=UnaryDeviceOperation/w=1024[1024]        reported_out=256[256]x32[32]x512[512]
-         17.270 us  folded=-        next=MatmulDeviceOperation/w=128[128]         reported_out=32[32]x128[128]x128[128]
-         14.718 us  folded=-        next=MatmulDeviceOperation/w=128[128]         reported_out=32[32]x128[128]x128[128]
-full_attention/prefill: window 242650.1 us/iter
-  UnaryDeviceOperation       total   16794.1 us/iter   FILL   16788.3 us/iter (100.0 %)     6.9 % of window   130 launches/iter   of which 129 are FILL
-        178.875 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-        178.097 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-        177.850 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-        176.742 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-  BinaryNgDeviceOperation    total    7887.2 us/iter   MUL    7718.2 us/iter ( 97.9 %)     3.2 % of window   134 launches/iter   of which 131 are MUL
-        129.780 us  folded=SIGMOID  next=MatmulDeviceOperation/w=2048[2048]       reported_out=1[1]x2048[2048]x4096[4096]
-         71.878 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
-         71.677 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
-         71.484 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
-full_attention/decode: window 1813.3 us/iter
-  UnaryDeviceOperation       total     269.6 us/iter   FILL     267.5 us/iter ( 99.2 %)    14.8 % of window   4 launches/iter   of which 3 are FILL
-        172.664 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
-         90.590 us  folded=-        next=SparseMatmulDeviceOperation/w=1024[1024] reported_out=256[256]x32[32]x1024[1024]
-          2.110 us  folded=-        next=UntilizeWithUnpaddingDeviceOperation/w=256[256] reported_out=4[4]x32[1]x256[256]
-          2.104 us  folded=-        next=TypecastDeviceOperation/w=256[256]       reported_out=1[1]x128[128]x256[256]
-  BinaryNgDeviceOperation    total     139.3 us/iter   MUL     132.4 us/iter ( 95.0 %)     7.3 % of window   8 launches/iter   of which 5 are MUL
-         68.977 us  folded=SILU     next=PermuteDeviceOperation/w=32[1]           reported_out=1[1]x128[128]x512[512]
-         47.330 us  folded=-        next=UnaryDeviceOperation/w=1024[1024]        reported_out=256[256]x32[32]x512[512]
-          5.673 us  folded=SIGMOID  next=MatmulDeviceOperation/w=256[256]         reported_out=1[1]x128[128]x2048[2048]
-          5.670 us  folded=SIGMOID  next=MatmulDeviceOperation/w=2048[2048]       reported_out=1[1]x128[128]x4096[4096]
+linear_attention/prefill: window 256503.7 us/iter
+  UnaryDeviceOperation       total   17025.3 us/iter   FILL   16789.6 us/iter ( 98.6 %)     6.5 % of window   134 launches/iter   of which 129 are FILL
+        179.347 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+        178.443 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+        178.065 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+        177.935 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+  BinaryNgDeviceOperation    total    7968.5 us/iter   MUL    7761.5 us/iter ( 97.4 %)     3.0 % of window   136 launches/iter   of which 132 are MUL
+        183.036 us  folded=-        next=MatmulDeviceOperation/w=2048[2048]       reported_out=1[1]x2048[2048]x4096[4096]
+         74.690 us  folded=-        next=LayerNormDeviceOperation/w=2048[2048]    reported_out=1[1]x2048[2048]x2048[2048]
+         72.339 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
+         72.162 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
+linear_attention/decode: window 1987.4 us/iter
+  UnaryDeviceOperation       total     282.4 us/iter   FILL     267.3 us/iter ( 94.6 %)    13.4 % of window   8 launches/iter   of which 3 are FILL
+        175.261 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+         88.341 us  folded=-        next=SparseMatmulDeviceOperation/w=1024[1024] reported_out=256[256]x32[32]x1024[1024]
+          4.748 us  folded=SILU     next=CopyDeviceOperation/w=8192[8192]         reported_out=1[1]x128[128]x4096[4096]
+          3.928 us  folded=SILU     next=BinaryNgDeviceOperation/w=4096[4096]     reported_out=1[1]x128[128]x4096[4096]
+  BinaryNgDeviceOperation    total     200.0 us/iter   MUL     167.8 us/iter ( 83.9 %)     8.4 % of window   17 launches/iter   of which 11 are MUL
+         69.012 us  folded=SILU     next=PermuteDeviceOperation/w=32[1]           reported_out=1[1]x128[128]x512[512]
+         49.754 us  folded=-        next=UnaryDeviceOperation/w=1024[1024]        reported_out=256[256]x32[32]x512[512]
+         16.736 us  folded=-        next=MatmulDeviceOperation/w=128[128]         reported_out=32[32]x128[128]x128[128]
+         15.068 us  folded=-        next=MatmulDeviceOperation/w=128[128]         reported_out=32[32]x128[128]x128[128]
+full_attention/prefill: window 242440.5 us/iter
+  UnaryDeviceOperation       total   16798.3 us/iter   FILL   16792.8 us/iter (100.0 %)     6.9 % of window   130 launches/iter   of which 129 are FILL
+        177.612 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+        177.064 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+        176.890 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+        176.639 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+  BinaryNgDeviceOperation    total    7870.3 us/iter   MUL    7701.8 us/iter ( 97.9 %)     3.2 % of window   134 launches/iter   of which 131 are MUL
+        129.858 us  folded=SIGMOID  next=MatmulDeviceOperation/w=2048[2048]       reported_out=1[1]x2048[2048]x4096[4096]
+         72.073 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
+         71.728 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
+         71.647 us  folded=SILU     next=BinaryNgDeviceOperation/w=512[512]       reported_out=1[1]x2048[2048]x512[512]
+full_attention/decode: window 1814.7 us/iter
+  UnaryDeviceOperation       total     270.1 us/iter   FILL     267.9 us/iter ( 99.2 %)    14.8 % of window   4 launches/iter   of which 3 are FILL
+        173.996 us  folded=-        next=SparseMatmulDeviceOperation/w=2048[2048] reported_out=256[256]x32[32]x1024[1024]
+         91.350 us  folded=-        next=SparseMatmulDeviceOperation/w=1024[1024] reported_out=256[256]x32[32]x1024[1024]
+          2.127 us  folded=-        next=TypecastDeviceOperation/w=256[256]       reported_out=1[1]x128[128]x256[256]
+          2.119 us  folded=-        next=UntilizeWithUnpaddingDeviceOperation/w=256[256] reported_out=4[4]x32[1]x256[256]
+  BinaryNgDeviceOperation    total     139.8 us/iter   MUL     132.9 us/iter ( 95.0 %)     7.3 % of window   8 launches/iter   of which 5 are MUL
+         68.898 us  folded=SILU     next=PermuteDeviceOperation/w=32[1]           reported_out=1[1]x128[128]x512[512]
+         47.650 us  folded=-        next=UnaryDeviceOperation/w=1024[1024]        reported_out=256[256]x32[32]x512[512]
+          6.361 us  folded=SIGMOID  next=MatmulDeviceOperation/w=256[256]         reported_out=1[1]x128[128]x2048[2048]
+          5.804 us  folded=SIGMOID  next=MatmulDeviceOperation/w=2048[2048]       reported_out=1[1]x128[128]x4096[4096]
 
 === functional ===
 linear_attention/prefill: window 337758.7 us/iter

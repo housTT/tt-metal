@@ -670,6 +670,39 @@ def test_prefill_pcc(mesh_device, layer_idx, seq_len):
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("group_tokens", [64, 256], ids=lambda g: f"group{g}")
+def test_moe_group_tokens_pcc(mesh_device, layer_idx, group_tokens):
+    """PCC at non-default ``moe_group_tokens``, which is the only way to reach a multi-group branch.
+
+    ``FusedMoE._routed_experts`` has a ``groups > 1`` path — the expert-axis `transpose` instead of a
+    reshape, and a whole-call ``call_mask`` computed separately from the per-group ``group_mask`` —
+    that is unreachable at the shipped ``moe_group_tokens = 32``, where every call is a single
+    32-token group. Review rounds 21, 22 and 23 each noted it had no correctness coverage: the only
+    thing exercising it was ``logs/ab_moe_group_tokens.txt``, which measures wall time and asserts no
+    PCC. §4.16's hoist then put *new* code on that branch (the borrowed mask now spans
+    ``span // TILE`` rows rather than one), so it is now covered here rather than argued about.
+
+    A 2048-token prefill at 64 tokens/group is 32 calls of 2 groups; at 256 it is 8 calls of 8.
+    """
+    source = default_weight_source()
+    seq_len = 2048
+    x = make_activations(1, seq_len, seed=seq_len)
+    ref_out, _ = run_reference(layer_idx, source, x)
+
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, moe_group_tokens=group_tokens)
+    assert decoder.moe.group_tokens == group_tokens
+    out = decoder.prefill_forward(to_device(mesh_device, x), page_table=page_table)
+    got = ttnn.to_torch(out)
+    value = pcc(ref_out, got)
+    logger.info(
+        f"fused moe_group_tokens={group_tokens} layer={layer_idx} ({LAYER_IDS[layer_idx]}) "
+        f"seq_len={seq_len} PCC={value:.6f}"
+    )
+    assert torch.isfinite(got.float()).all()
+    assert value > PCC_BAR, f"multi-group MoE PCC {value} <= {PCC_BAR} (group_tokens {group_tokens})"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 def test_repeated_prefill_at_a_masked_chunk_length(mesh_device, layer_idx):
     """A logical length that pads up to exactly one full chunk must survive being run twice.
 

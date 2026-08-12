@@ -9,6 +9,7 @@ test_fused_matches_functional: fused-vs-functional layer=0 (linear_attention) se
 test_rope_matches_hf: fused rope vs HF mode=partial seq_len=1 start=12345 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
 test_rope_mode_equivalence: rope-mode equivalence prefill PCC=0.999995 decode PCC=0.999996
 test_prefill_pcc: fused prefill layer=0 (linear_attention) seq_len=1 PCC=0.999996
+test_moe_group_tokens_pcc: fused moe_group_tokens=64 layer=0 (linear_attention) seq_len=2048 PCC=0.999975
 test_repeated_prefill_at_a_masked_chunk_length: masked-chunk prefill layer=0 (linear_attention) seq_len=2000 (physical 2048) attempt 1 PCC=0.999976
 test_repeated_prefill_at_a_masked_chunk_length: masked-chunk prefill layer=0 (linear_attention) seq_len=2000 (physical 2048) attempt 2 PCC=0.999976
 test_repeated_prefill_at_a_masked_chunk_length: masked-chunk prefill layer=0 (linear_attention) seq_len=1900 (physical 1920) attempt 1 PCC=0.999975
@@ -48,8 +49,8 @@ test_synthetic_weights_pcc: fused SYNTHETIC WEIGHTS layer=0 (linear_attention) p
 test_full_context_prefill_and_decode: fused full-context layer=0 (linear_attention) seq_len=262143 prefill+decode completed, tail std=0.5310
 test_full_context_chunk_size_invariance: fused chunk-size invariance layer=0 (linear_attention) seq_len=262144 tail(128) PCC(chunk 2048 vs 1024)=1.000000
 test_long_context_pcc: fused long-context PCC layer=0 seq_len=8000 prefill=0.999970 decode=0.999991
-test_perf_prefill: FUSED PERF prefill layer=0 (linear_attention) seq_len=2048 wall=257.56 ms  tok/s=7951.6
-test_perf_decode_traced: FUSED PERF decode(traced) layer=0 (linear_attention) iters=32 wall/iter=2.065 ms  steps/s=484.2
+test_perf_prefill: FUSED PERF prefill layer=0 (linear_attention) seq_len=2048 wall=257.73 ms  tok/s=7946.4
+test_perf_decode_traced: FUSED PERF decode(traced) layer=0 (linear_attention) iters=32 wall/iter=2.064 ms  steps/s=484.6
 test_fused_path_is_used: fused-op dispatch layer=3 (full_attention) prefill={'experimental.nlp_create_qkv_heads': 1, 'experimental.rotary_embedding_hf': 2, 'experimental.paged_fill_cache': 2, 'experimental.nlp_concat_heads': 1, 'sparse_matmul': 16, 'experimental.deepseek_moe_fast_reduce_nc': 8}
 test_fused_path_is_used: fused-op dispatch layer=3 (full_attention) prefill+decode={'experimental.nlp_create_qkv_heads': 1, 'experimental.rotary_embedding_hf': 4, 'experimental.paged_fill_cache': 2, 'experimental.nlp_concat_heads': 1, 'sparse_matmul': 18, 'experimental.deepseek_moe_fast_reduce_nc': 9, 'experimental.nlp_create_qkv_heads_decode': 1, 'experimental.paged_fused_update_cache': 1}
 test_fused_path_is_used: replaced-op check: ttnn.experimental.fast_reduce_nc fused decode 0, functional decode 1
@@ -59,6 +60,7 @@ test_no_layout_churn_in_measured_forward: layout ops layer=3 (full_attention) se
 test_fused_matches_functional: fused-vs-functional layer=3 (full_attention) seq_len=1 prefill PCC=0.999999 decode PCC=0.999999
 test_rope_matches_hf: fused rope vs HF mode=partial seq_len=64 start=12345 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
 test_prefill_pcc: fused prefill layer=3 (full_attention) seq_len=1 PCC=0.999951
+test_moe_group_tokens_pcc: fused moe_group_tokens=64 layer=3 (full_attention) seq_len=2048 PCC=0.999978
 test_repeated_prefill_at_a_masked_chunk_length: masked-chunk prefill layer=3 (full_attention) seq_len=2000 (physical 2048) attempt 1 PCC=0.999978
 test_repeated_prefill_at_a_masked_chunk_length: masked-chunk prefill layer=3 (full_attention) seq_len=2000 (physical 2048) attempt 2 PCC=0.999978
 test_repeated_prefill_at_a_masked_chunk_length: masked-chunk prefill layer=3 (full_attention) seq_len=1900 (physical 1920) attempt 1 PCC=0.999978
@@ -100,12 +102,13 @@ test_synthetic_weights_pcc: fused SYNTHETIC WEIGHTS layer=3 (full_attention) pre
 test_full_context_prefill_and_decode: fused full-context layer=3 (full_attention) seq_len=262143 prefill+decode completed, tail std=0.5037
 test_full_context_chunk_size_invariance: fused chunk-size invariance layer=3 (full_attention) seq_len=262144 tail(128) PCC(chunk 2048 vs 1024)=1.000000
 test_long_context_pcc: fused long-context PCC layer=3 seq_len=8000 prefill=0.999982 decode=0.999944
-test_perf_prefill: FUSED PERF prefill layer=3 (full_attention) seq_len=2048 wall=243.97 ms  tok/s=8394.4
+test_perf_prefill: FUSED PERF prefill layer=3 (full_attention) seq_len=2048 wall=243.54 ms  tok/s=8409.4
 test_perf_decode_traced: FUSED PERF decode(traced) layer=3 (full_attention) iters=32 wall/iter=1.830 ms  steps/s=546.3
 test_no_layout_churn_in_measured_forward: layout ops layer=0 (linear_attention) seq_len=2048 prefill=12 {'to_layout': 10, 'sharded_to_interleaved': 2} decode=1 {'to_layout': 1}
 test_fused_matches_functional: fused-vs-functional layer=0 (linear_attention) seq_len=130 prefill PCC=0.999995 decode PCC=0.999993
 test_rope_matches_hf: fused rope vs HF mode=partial seq_len=4096 start=0 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
 test_prefill_pcc: fused prefill layer=0 (linear_attention) seq_len=7 PCC=0.999994
+test_moe_group_tokens_pcc: fused moe_group_tokens=256 layer=0 (linear_attention) seq_len=2048 PCC=0.999975
 test_decode_pcc: fused decode layer=0 (linear_attention) prefill_len=2048 step=0 pos=2048 PCC=0.999995
 test_decode_pcc: fused decode layer=0 (linear_attention) prefill_len=2048 step=1 pos=2049 PCC=0.999991
 test_decode_pcc: fused decode layer=0 (linear_attention) prefill_len=2048 step=2 pos=2050 PCC=0.999909
@@ -119,6 +122,7 @@ test_no_layout_churn_in_measured_forward: layout ops layer=3 (full_attention) se
 test_fused_matches_functional: fused-vs-functional layer=3 (full_attention) seq_len=130 prefill PCC=0.999996 decode PCC=0.999997
 test_rope_matches_hf: fused rope vs HF mode=full seq_len=1 start=12345 prefill cos PCC=0.999999 sin PCC=0.999999; decode-gather cos PCC=0.999999 sin PCC=0.999999
 test_prefill_pcc: fused prefill layer=3 (full_attention) seq_len=7 PCC=0.999946
+test_moe_group_tokens_pcc: fused moe_group_tokens=256 layer=3 (full_attention) seq_len=2048 PCC=0.999978
 test_decode_pcc: fused decode layer=3 (full_attention) prefill_len=2048 step=0 pos=2048 PCC=0.999984
 test_decode_pcc: fused decode layer=3 (full_attention) prefill_len=2048 step=1 pos=2049 PCC=0.999961
 test_decode_pcc: fused decode layer=3 (full_attention) prefill_len=2048 step=2 pos=2050 PCC=0.999949
@@ -150,4 +154,4 @@ test_prefill_pcc: fused prefill layer=3 (full_attention) seq_len=2049 PCC=0.9999
 test_prefill_pcc: fused prefill layer=0 (linear_attention) seq_len=3000 PCC=0.999973
 test_prefill_pcc: fused prefill layer=3 (full_attention) seq_len=3000 PCC=0.999980
 
-================== 93 passed, 2 warnings in 550.51s (0:09:10) ==================
+================== 97 passed, 2 warnings in 552.42s (0:09:12) ==================

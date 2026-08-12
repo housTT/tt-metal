@@ -519,45 +519,60 @@ is accepted, produces a result, and does not compute what its name says. The SiL
 separate op. The two arms are in one probe so the comparison is reproducible, and
 `_conv1d_halves`' docstring points at it rather than at qwen36.
 
-### 4.17 `deepseek_moe_fast_reduce_nc_fused` — the fold §4.13 called impossible, and the exact reason it is not available here
+### 4.17 `deepseek_moe_fast_reduce_nc_fused` — expressible, faster in isolation, and rejected on measured accuracy
 
 Review round 23 found the sharpest omission in this catalogue: `ttnn.experimental.
-deepseek_moe_fast_reduce_nc_fused` exists, it is a sibling of the
-`deepseek_moe_fast_reduce_nc` this stage **did** adopt (§3.1), and it fuses exactly the pair §4.13
-enumerated as unreachable — "permute + tilize + mul(activation, expert_scores) +
-deepseek_moe_fast_reduce_nc into a single kernel launch", applying the per-expert score inside the
-reduce loop with a broadcast MAC and eliminating the scaled-activation tensor entirely. §4.13 listed
-four places the score multiply could be folded and concluded "none is expressible"; it never
-considered folding it **into** the reduction, which is the one that has an op. That claim was
-categorical, and a reader could falsify it with one `grep`. It is withdrawn.
+deepseek_moe_fast_reduce_nc_fused` exists, it is a sibling of the `deepseek_moe_fast_reduce_nc` this
+stage already adopted (§3.1), and it fuses exactly the pair §4.13 enumerated as unreachable —
+"permute + tilize + mul(activation, expert_scores) + deepseek_moe_fast_reduce_nc into a single kernel
+launch". §4.13 listed four places the score multiply could be folded and concluded "none is
+expressible"; it never considered folding it **into** the reduction, which is the one that has an op.
+That categorical claim is withdrawn.
 
-The op is genuinely unavailable to this decoder, and the reason is an exact contract mismatch rather
-than a first error:
+**The first answer this stage gave was also wrong, and for an instructive reason.** Round 23's fix
+read the op's docstring — `input_tensor [experts_k, 1, tokens, hidden_size]`, `expert_indices` on the
+`all_to_all_dispatch` convention — and concluded the op wants the gather-by-expert layout §4.10
+rejects. Read the *validation* instead of the prose and it does not: it requires rank 4, TILE, a
+`scores` tensor of rank 4 ROW_MAJOR whose last dim equals the reduction dim, and `scores.shape[0]`
+within a tile of the token count. Ornith's dense `[1, num_experts, tokens, hidden]` reduce at
+`reduce_dim=1` with a `[tokens, 1, 1, num_experts]` score vector satisfies every one of them. Run at
+those exact shapes it produces PCC 0.999998 against a float64 reference and 0.999997 against the
+shipped pair, and in isolation it is about a third cheaper than `multiply` + `reduce`. So the
+rejection could not stand on expressibility, and a docstring is not a contract.
 
-* **Layout.** Its `input_tensor` is `[experts_k, 1, tokens, hidden_size]` and its
-  `expert_indices_tensor` / `expert_mapping_tensor` follow the `all_to_all_dispatch` convention —
-  i.e. the *gather-by-expert* dispatch layout, where `experts_k` is the top-k slice actually routed
-  to this device. Ornith's single-device MoE uses the all-experts-with-a-sparsity-mask pattern, so
-  its reduction input is `[1, num_experts, tokens, hidden]` with the full expert axis dense. This is
-  the **same blocker §4.10 records** for `moe_compute`, `moe_gpt` and `unified_routed_expert_ffn`:
-  adopting it means changing the routing algorithm to expert-major gathering, not rewriting the op
-  graph — and that is a multi-device change, out of scope for a correctness-preserving graph
-  transform.
-* **Residency.** The contract also requires that activation in **L1**. Dense over the whole expert
-  axis at Ornith's shapes that tensor is tens of megabytes, which is orders of magnitude past a
-  Blackhole core's L1 — so even setting the layout aside, the dense form cannot satisfy it.
+**It is rejected on accuracy, measured in the model.** The op scales the tensor it reduces — i.e. the
+**output** of the down projection. This stage's §3.2 rewrite scales that projection's **input**, at
+`moe_intermediate` width. The two are identical in exact arithmetic, so adopting the op means
+reverting §3.2; but they are not identical in bfloat16, because the down projection's output is
+bfloat16 and rounding the expert blocks *before* scaling loses what scaling first preserves. Landed
+in `_routed_experts` and run against the delivered suite, with `fp32_dest_acc` on the reduce (without
+it the loss is larger):
 
-So the conclusion §4.13 reached is right and its reasoning was wrong: the multiply is not unreachable
-because no op fuses it, but because the op that fuses it wants the layout §4.10 already rejects.
-Both §4.13 and README §5.4 now say that instead of "not expressible". The same argument covers
-`ttnn.experimental.topk_router_gpt`, which round 23 also noted is unassessed by name: it is
-bfloat16-only, so §4.2's measured bfloat16-router accuracy rejection applies to it by class.
+* fused-vs-functional prefill equivalence falls from ~0.999996 to **0.9995** for `full_attention`,
+  under this stage's 0.9999 equivalence bar;
+* the HF-golden `test_prefill_pcc` bar itself moves from ~0.99998 to **~0.9995** for
+  `full_attention` at both 2048 and 3000 tokens — still far above the 0.995 acceptance bar, but a
+  roughly fortyfold increase in error.
 
-The lesson is the one §4.14 and §4.8 already teach in different keys, and this is the third form of
-it: a *negative* claim ("no op does this") is a claim about the op tree, and it has to be checked
-against the op tree, not against the four spellings that happened to come to mind. `$graph-fusing`
-Step 1 says to sweep `ttnn/cpp/ttnn/operations/**`; this stage swept it for the ops it went on to
-adopt and did not re-sweep when it wrote an impossibility claim.
+Reverting the one call restores both. A stage whose premise is a *correctness-preserving* graph
+transform, and which advertises that it changes no dtype and no math fidelity, does not spend forty
+times the error on one op's worth of latency — and lowering `EQUIV_BAR` to admit it would be
+lowering a bar to fit a change. So §3.2 stands and the reduction stays unfused.
+
+`probe_router_and_reduce.py`'s `FUSEDREDUCE` rows carry the isolation measurement (both arms, PCC
+against a float64 reference); §4.12 tabulates them. The in-model figures above are not quoted from a
+committed artifact because the run that produced them was reverted — the same rule §4.8 follows — and
+they reproduce in about a minute: point `_routed_experts` at the fused op with `scores_tensor` set to
+the dense routing vector reshaped ROW_MAJOR, drop the `multiply`, and run
+`pytest tests/test_fused_decoder.py -k "fused_matches_functional or prefill_pcc"`.
+
+Two things worth keeping. First, the same argument covers `ttnn.experimental.topk_router_gpt`, which
+round 23 also noted is unassessed by name: it is bfloat16-only, so §4.2's measured bfloat16-router
+accuracy rejection applies to it by class. Second, this is the third time this catalogue has recorded
+a *negative* claim that did not survive contact with the op tree (§4.14's `mac`, §4.8's gate fold,
+now this) — and the first time the wrong answer was itself a review fix. `$graph-fusing` Step 1 says
+to sweep `ttnn/cpp/ttnn/operations/**`; an impossibility claim has to re-run that sweep, and then read
+the op's validation rather than its documentation.
 
 ### 4.16 Hoisting the per-group MoE mask and score operand — landed after three rounds of deferring it
 
@@ -599,22 +614,23 @@ made twenty of this file's inline probe figures stale, which is what prompted mo
 <!-- generated:worklog-probe-figures -->
 | Comparison | Measured | Artifact |
 | --- | --- | --- |
-| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.856092** — the activation is silently ignored | `probe_fused_ops.txt` |
-| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.8 µs vs 1958.0 µs | `probe_decode_micro.txt` |
-| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 104.3 µs vs 124.4 µs | `probe_router_and_reduce.txt` |
-| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.699 ms vs 2.480 ms | `probe_conv1d_and_norm.txt` |
+| §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.853915** — the activation is silently ignored | `probe_fused_ops.txt` |
+| §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.7 µs vs 1958.1 µs | `probe_decode_micro.txt` |
+| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 122.7 µs vs 120.4 µs | `probe_router_and_reduce.txt` |
+| §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.686 ms vs 2.489 ms | `probe_conv1d_and_norm.txt` |
 | §4.8 — DeltaNet output gate, SiLU separate (shipped) vs folded into the multiply, at the **real** `float32 x bfloat16` operand pairing, prefill shape | separate PCC 0.999996, 0 non-finite; folded **111 non-finite values** at the smallest magnitude tested | `probe_fused_ops.txt` |
 | §4.8 — the same fold with **matched** `bfloat16 x bfloat16` operands, i.e. what a naive op-level probe writes, and why it passes | separate PCC 0.999994 vs folded PCC 0.999994, both 0 non-finite | `probe_fused_ops.txt` |
-| §4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair with per-group slices (shipped), 2048-token prefill | 2.962 ms vs 1.497 ms per MoE call | `probe_router_and_reduce.txt` |
-| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.373 ms vs PCC 0.825507 at 0.285 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
-| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 257.11 ms vs 257.14 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
-| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.6 µs, width-sharded x8 35.9 µs, width-sharded x16 28.3 µs, width-sharded x32 38.4 µs, width-sharded x64 46.1 µs | `probe_conv1d_and_norm.txt` |
+| §4.17 — expert-axis reduction with the router score applied to the down projection's **input** (shipped, §3.2) vs folded into the reduction by `deepseek_moe_fast_reduce_nc_fused`, both against a float64 reference. The down projection here is a dense `ttnn.matmul` stand-in for the shipped `sparse_matmul`, so the times are not a proxy for the shipped windows — what this shows is that the op **accepts** this decoder's dense shapes and is accurate in isolation. The rejection is on the in-model accuracy loss the placement change causes; §4.17 has it. | PCC 0.999995 at 2458.3 µs vs PCC 0.999996 at 2504.1 µs | `probe_router_and_reduce.txt` |
+| §4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair with per-group slices (shipped), 2048-token prefill | 2.930 ms vs 1.496 ms per MoE call | `probe_router_and_reduce.txt` |
+| §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.373 ms vs PCC 0.825507 at 0.287 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
+| §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 257.04 ms vs 257.10 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
+| §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.4 µs, width-sharded x8 25.8 µs, width-sharded x16 28.5 µs, width-sharded x32 32.2 µs, width-sharded x64 45.4 µs | `probe_conv1d_and_norm.txt` |
 | §3.3, §4.7 — decode head merge at `seq_len 1`: `permute + reshape` (shipped) vs `nlp_concat_heads` vs the flat untilize/reshape/tilize | 11.1 µs vs 52.9 µs vs 44.6 µs; all three bitwise-equal | `probe_decode_micro.txt` |
 | §4.7 — the flat untilize/reshape/tilize spelling above `seq_len 1` (it does not transpose head↔token, so it is not an alternative there at all) | PCC 0.000659 at 128 and 0.000095 at 2048 against the other two | `probe_decode_micro.txt` |
-| §3.2 — explicit `core_grid` on the recurrent-state read | 61.0 µs → 14.4 µs | `probe_decode_micro.txt` |
+| §3.2 — explicit `core_grid` on the recurrent-state read | 61.0 µs → 14.3 µs | `probe_decode_micro.txt` |
 | §3.3 — delta-rule outer product: `transpose + matmul` vs `matmul(transpose_a=True)` | 21.3 µs → 17.9 µs | `probe_decode_micro.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.830 ms vs 1.855 ms | `ab_rope_mode.txt` |
-| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.67 ms vs 243.58 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, traced decode | 1.832 ms vs 1.856 ms | `ab_rope_mode.txt` |
+| §4.6 — `rope_mode` `partial` (shipped) vs `full`, 2048-token prefill | 243.65 ms vs 243.44 ms | `ab_rope_mode.txt` |
 <!-- /generated:worklog-probe-figures -->
 
 The MoE expert-group sweep and the functional-vs-fused headline are tabulated in
@@ -1385,7 +1401,7 @@ each other — and they did not.
 
 | Finding | Fix |
 | --- | --- |
-| **P1** — the committed `logs/pytest_full_suite.txt` was a run that had been **stopped mid-test**: 70 `PASSED` of 93 collected, 71 of 93 node ids, no pytest summary line, ending inside `test_full_context_prefill_and_decode[…262144-full_attention…]`. `logs/pcc_summary.txt` was from an *earlier, complete* run whose log had been overwritten — 27 of its lines have no counterpart in the committed log, including most of README §2.1's prefill ladder for **both** layer kinds, and 5 committed log lines are absent from the summary with different perf values, which is what proves they are two runs. So README §2 — the stage's entire correctness case — was correct and simultaneously unbacked: no committed artifact could reproduce a single cell of it. | the whole evidence chain was regenerated by `run_evidence.sh` from the current sources, in one uninterrupted pass with no source edit in flight. The suite now records **93 passed** with its summary line, and `pcc_summary.txt` is derived from *that* file. |
+| **P1** — the committed `logs/pytest_full_suite.txt` was a run that had been **stopped mid-test**: 70 `PASSED` of 93 collected, 71 of 93 node ids, no pytest summary line, ending inside `test_full_context_prefill_and_decode[…262144-full_attention…]`. `logs/pcc_summary.txt` was from an *earlier, complete* run whose log had been overwritten — 27 of its lines have no counterpart in the committed log, including most of README §2.1's prefill ladder for **both** layer kinds, and 5 committed log lines are absent from the summary with different perf values, which is what proves they are two runs. So README §2 — the stage's entire correctness case — was correct and simultaneously unbacked: no committed artifact could reproduce a single cell of it. | the whole evidence chain was regenerated by `run_evidence.sh` from the current sources, in one uninterrupted pass with no source edit in flight. The suite now records a complete pass **with its summary line** (the count has since grown as tests were added; README §2 quotes whatever the committed log holds), and `pcc_summary.txt` is derived from *that* file. |
 | **P2** — `logs/source_manifest.txt` recorded a `tests/test_fused_decoder.py` hash that the shipped file did not have, so the stage's own audit reported `SOURCE-CHANGED` plus 20 `STALE-ARTIFACT` lines. The pre-manifest revision exists in no commit, so the disclosed "assertion unchanged" edit could not be checked from the repo at all. | the same re-run rewrites the manifest first, from the sources as shipped. The audit now exits 0. Note what the drift actually was: the committed log already carried `[EXPECTED_ERROR]` markers, so it was not the `expect_error` rewrite but a formatting pass that landed **while the suite was running** — the same hazard §5 records as wedging this device twice. |
 | **P2** — `Conv1dConfig(activation=…)` is a `$graph-fusing` op-merging pattern, it is expressible on this conv, and this stage rejected it by quoting *another port's* comment. A citation is not one of the three things a rejection may rest on. | measured here, at Ornith's own shapes — §4.15, with the figures in §4.12's generated table. The folded form is faster and fails the acceptance bar, so the rejection stands, but now on this stage's evidence. |
 
@@ -1488,6 +1504,32 @@ branch still has no PCC coverage, because no delivered test parameterises `moe_g
 `ab_moe_group_tokens.txt` asserts wall time only. The hoist put new code on that branch. It is
 arithmetically the same slicing the per-group spelling did, and the reviewer independently read it and
 agreed, but "read and agreed" is below this stage's own bar and it stays on the list.
+
+### Round 23's P1, re-answered — and the residuals closed
+
+Round 23's `deepseek_moe_fast_reduce_nc_fused` finding was answered once by reading the op's
+documentation and concluding it wanted a layout this decoder does not use. That answer was wrong, and
+it was wrong in the way this log keeps having to relearn: a docstring is not a contract. Re-opened
+here, the op was **run** at Ornith's exact shapes, it works, and it is rejected on a different and
+better ground — the accuracy the placement change costs. §4.17 carries the whole finding, including
+the isolation measurement (committed, `FUSEDREDUCE` rows) and the in-model control.
+
+Two residuals this stage had been carrying are also closed:
+
+* **The `groups > 1` MoE branch now has PCC coverage.** Rounds 21, 22 and 23 each recorded that the
+  multi-group path — reachable only at non-default `moe_group_tokens` — was exercised by
+  `ab_moe_group_tokens.txt` for wall time and by nothing at all for correctness, and §4.16's hoist
+  had put new code on it. `test_moe_group_tokens_pcc` runs a 2048-token prefill at 64 and 256 tokens
+  per group against the HF golden for both layer kinds. All four agree with the single-group path to
+  the sixth decimal, which is the evidence the branch had been missing.
+* **The suite is 97 cases**, up from 93, and the four new ones are those.
+
+What remains open is recorded in README §8 and is unchanged: the conv1d setup-probe path is
+selected per process so the bits can differ between processes; `_conv1d_halves` calls `ttnn.conv1d`
+unguarded inside the forward; `QWEN_GDN_PHASED=0` makes fused `linear_attention` prefill raise where
+the functional decoder runs; and the MoE sparse matmuls carry no `nnz`, so `tt-perf-report` cannot
+rate the 81 % of prefill they occupy. None of these is introduced by this stage's fusing; all four
+are properties of ops it adopted or of the profiler.
 
 ---
 

@@ -6,10 +6,10 @@ kinds, that computes exactly what the functional decoder computes and is materia
 <!-- generated:perf-headline -->
 | Window | before (functional) | after (fused) | device kernel time |
 | --- | --- | --- | --- |
-| `linear_attention` prefill, 2048 tokens | 338.15 ms / 6056.4 tok/s | **257.59 ms / 7950.5 tok/s** | 337.759 → **256.701 ms** |
-| `linear_attention` decode, traced | 2.613 ms / 382.7 steps/s | **2.065 ms / 484.3 steps/s** | 2.533 → **1.985 ms** |
-| `full_attention` prefill, 2048 tokens | 316.57 ms / 6469.4 tok/s | **243.40 ms / 8414.1 tok/s** | 316.373 → **242.650 ms** |
-| `full_attention` decode, traced | 2.392 ms / 418.0 steps/s | **1.830 ms / 546.5 steps/s** | 2.340 → **1.813 ms** |
+| `linear_attention` prefill, 2048 tokens | 338.36 ms / 6052.7 tok/s | **257.48 ms / 7953.9 tok/s** | 337.759 → **256.504 ms** |
+| `linear_attention` decode, traced | 2.613 ms / 382.7 steps/s | **2.063 ms / 484.7 steps/s** | 2.533 → **1.987 ms** |
+| `full_attention` prefill, 2048 tokens | 316.71 ms / 6466.5 tok/s | **243.49 ms / 8411.1 tok/s** | 316.373 → **242.441 ms** |
+| `full_attention` decode, traced | 2.393 ms / 418.0 steps/s | **1.829 ms / 546.8 steps/s** | 2.340 → **1.815 ms** |
 <!-- /generated:perf-headline -->
 
 * Implementation: [`tt/fused_decoder.py`](../../tt/fused_decoder.py) — self-contained; it reuses
@@ -80,7 +80,7 @@ paths. Layer 0 is `linear_attention`, layer 3 is `full_attention`. PCC is accumu
 pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_fused_decoder.py -v -p no:randomly
 ```
 
-<!-- generated:suite-result -->**93 passed** in 550.51 s<!-- /generated:suite-result -->. Log: [`logs/pytest_full_suite.txt`](logs/pytest_full_suite.txt); every
+<!-- generated:suite-result -->**97 passed** in 552.42 s<!-- /generated:suite-result -->. Log: [`logs/pytest_full_suite.txt`](logs/pytest_full_suite.txt); every
 logged metric is extracted into [`logs/pcc_summary.txt`](logs/pcc_summary.txt) by
 [`logs/summarise_pcc.py`](logs/summarise_pcc.py), which keeps all of them rather than an allow-list,
 so a new test's evidence cannot silently miss the summary. The `long` (262144-token) cases are
@@ -325,20 +325,20 @@ the same inputs**, by [`logs/bench_ab.py`](logs/bench_ab.py) →
 <!-- generated:perf-result -->
 | Layer kind | Phase | device kernel time before → after | wall clock before → after | throughput before → after |
 | --- | --- | --- | --- | --- |
-| `linear_attention` | prefill, 2048 tokens | 337.759 → **256.701 ms** (−24.0 %) | 338.15 → **257.59 ms** (−23.8 %) | 6056.4 → **7950.5 tok/s** |
-| `linear_attention` | decode, traced | 2.533 → **1.985 ms** (−21.6 %) | 2.613 → **2.065 ms** (−21.0 %) | 382.7 → **484.3 steps/s** |
-| `full_attention` | prefill, 2048 tokens | 316.373 → **242.650 ms** (−23.3 %) | 316.57 → **243.40 ms** (−23.1 %) | 6469.4 → **8414.1 tok/s** |
-| `full_attention` | decode, traced | 2.340 → **1.813 ms** (−22.5 %) | 2.392 → **1.830 ms** (−23.5 %) | 418.0 → **546.5 steps/s** |
+| `linear_attention` | prefill, 2048 tokens | 337.759 → **256.504 ms** (−24.1 %) | 338.36 → **257.48 ms** (−23.9 %) | 6052.7 → **7953.9 tok/s** |
+| `linear_attention` | decode, traced | 2.533 → **1.987 ms** (−21.6 %) | 2.613 → **2.063 ms** (−21.0 %) | 382.7 → **484.7 steps/s** |
+| `full_attention` | prefill, 2048 tokens | 316.373 → **242.441 ms** (−23.4 %) | 316.71 → **243.49 ms** (−23.1 %) | 6466.5 → **8411.1 tok/s** |
+| `full_attention` | decode, traced | 2.340 → **1.815 ms** (−22.4 %) | 2.393 → **1.829 ms** (−23.6 %) | 418.0 → **546.8 steps/s** |
 <!-- /generated:perf-result -->
 
 <!-- generated:prefill-win-split -->
 **Where the prefill win comes from, honestly split.** At `moe_group_tokens=256` — the value
-`tt/moe.py` uses — the fused decoder is 306.25 / 287.27 ms
+`tt/moe.py` uses — the fused decoder is 306.27 / 287.28 ms
 ([`logs/ab_moe_group_tokens.txt`](logs/ab_moe_group_tokens.txt)), so graph fusing alone accounts
 for 32 of the 81 ms `linear_attention` saving and 29 of the 73 ms `full_attention` one;
 the rest is the expert-group constant, which is a one-line change
 the functional MoE could also take. Decode is the reverse: it runs a single 32-token group at every
-setting, so the whole of its fall — 21.0–23.5 % across both layer kinds and both the device
+setting, so the whole of its fall — 21.0–23.6 % across both layer kinds and both the device
 and wall-clock measures — is graph fusing.
 <!-- /generated:prefill-win-split -->
 
@@ -386,11 +386,11 @@ can skip:
 <!-- generated:moe-group-sweep -->
 | tokens per `sparse_matmul` call | `linear_attention` | `full_attention` |
 | --- | --- | --- |
-| **32** | **257.97 ms** | **243.76 ms** |
-| 64 | 283.44 ms | 264.39 ms |
-| 128 | 298.51 ms | 277.57 ms |
-| 256 | 306.25 ms | 287.27 ms |
-| 512 | 307.51 ms | 292.40 ms |
+| **32** | **257.73 ms** | **243.59 ms** |
+| 64 | 283.30 ms | 264.34 ms |
+| 128 | 298.34 ms | 277.58 ms |
+| 256 | 306.27 ms | 287.28 ms |
+| 512 | 307.51 ms | 292.38 ms |
 <!-- /generated:moe-group-sweep -->
 
 Partial-RoPE lowering ([`logs/ab_rope_mode.txt`](logs/ab_rope_mode.txt)) — `"full"` is the
@@ -402,8 +402,8 @@ prefill is a tie this evidence cannot break:
 <!-- generated:rope-mode-sweep -->
 | mode | prefill 2048 | traced decode |
 | --- | --- | --- |
-| **`partial`** (4 ops in prefill, `rope_dim`-wide table) | 243.67 ms | **1.830 ms** |
-| `full` (1 op, `head_dim`-wide table) | 243.58 ms | 1.855 ms |
+| **`partial`** (4 ops in prefill, `rope_dim`-wide table) | 243.65 ms | **1.832 ms** |
+| `full` (1 op, `head_dim`-wide table) | 243.44 ms | 1.856 ms |
 <!-- /generated:rope-mode-sweep -->
 
 ### 5.4 `tt-perf-report` conclusions
@@ -431,11 +431,12 @@ Launches and device time, removed − added:
 
 | Window | router hoist | shared-LHS packings | net `SLOW` rows |
 | --- | --- | --- | --- |
-| `linear_attention` prefill | 8 − 1, 364 − 119 µs = **−245 µs** | 7 − 2, 3344 − 3177 µs = **−167 µs** | 12 |
-| `full_attention` prefill | 8 − 1, 361 − 121 µs = **−240 µs** | 6 − 2, 2660 − 2472 µs = **−188 µs** | 11 |
+| `linear_attention` prefill | 8 − 1, 364 − 119 µs = **−245 µs** | 7 − 2, 3344 − 3178 µs = **−166 µs** | 12 |
+| `full_attention` prefill | 8 − 1, 361 − 119 µs = **−242 µs** | 6 − 2, 2660 − 2473 µs = **−187 µs** | 11 |
 
 The two net figures account for the absolute `SLOW`-time fall reported just below to within
-1 µs for `linear_attention`: the remainder is the geometries that appear in
+0 µs for `linear_attention` — the itemisation is exhaustive, with nothing left over. Where a residual does appear it is
+  the geometries that appear in
 *both* summaries — the same op, timed twice — which neither rewrite removed and which therefore
 belong to neither column. Only the `linear_attention` window has an absolute-fall figure below;
 the `full_attention` net figures stand on their own.
@@ -446,13 +447,13 @@ The prefill *share* rises slightly while the *count* falls by more than two thir
 window itself got shorter. The absolute `SLOW` time fell as well: summing the per-group rows
 `slow_ops_summary.txt` lists for `linear_attention` prefill gives 4877 µs before and 4466 µs
 after (each row rounded as the summary prints it), so the absolute `SLOW` time fell 8.4 %
-while the window itself fell 24.0 %.
+while the window itself fell 24.1 %.
 <!-- /generated:slow-absolute -->
 
 What the remaining rows say about where the next stage should look:
 
 <!-- generated:moe-share -->
-* **The MoE sparse matmuls are the floor.** They are 81.9 % / 81.8 % of both `linear_attention`
+* **The MoE sparse matmuls are the floor.** They are 81.8 % / 81.7 % of both `linear_attention`
   and `full_attention` prefill device time, and 35.8 % / 39.2 % of the decode windows.
   Cutting further means expert-major token gathering, not another graph rewrite — §8 item 1.
   **They are absent from the `SLOW` table for a structural reason, not a good one**: the rows
@@ -463,18 +464,18 @@ What the remaining rows say about where the next stage should look:
   about their efficiency. `tracy/PROVENANCE.md` records the omission; this stage measures their
   *share of device time*, which is what the claim above rests on, and leaves their roofline
   efficiency unmeasured.
-* **The shared-LHS packed projections are themselves `SLOW` rows**, at 22.9–23.6 % of
+* **The shared-LHS packed projections are themselves `SLOW` rows**, at 22.9–23.5 % of
   peak FLOPs on the full grid: that is roughly what HiFi4 alone predicts (4 passes), so it is a math
   fidelity and program-config question, i.e. exactly the next stage's job.
 <!-- /generated:moe-share -->
 
 <!-- generated:slow-bullets -->
 * **In decode the largest `SLOW` group is `32 x 4096 x 2048`** (the output projection) at
-  42.2-42.5 / 45.2-45.5 % of DRAM bandwidth — a dtype/layout target, not a core-count one.
+  42.2-42.6 / 45.2-45.5 % of DRAM bandwidth — a dtype/layout target, not a core-count one.
 * **`32 × 2048 × 256`** (the router) still runs on 8 cores at
   9.3-9.4 / 9.2-9.4 % of DRAM bandwidth. The recurrent-state matmuls
   (`b={32} 32 × 128 × 128`) are now one 32-core group costing
-  1412 µs, where the functional decoder had 3 groups
+  1404 µs, where the functional decoder had 3 groups
   (1920 µs on 4 cores, 385 µs on 110 cores, 441 µs on 110 cores) totalling 2746 µs — this stage's `core_grid`
   fix moved the dominant one off 4 cores.
 <!-- /generated:slow-bullets -->
@@ -484,12 +485,12 @@ What the remaining rows say about where the next stage should look:
   third-largest item in the traced decode window. Splitting it by the raw capture
   ([`tracy/summarise_fill.py`](tracy/summarise_fill.py) →
   [`tracy/fill_summary.txt`](tracy/fill_summary.txt)) attributes
-  94.7 % / 99.2 % of it to
+  94.6 % / 99.2 % of it to
   `UnaryOpType::FILL` — `ttnn.sparse_matmul` zero-initialising its `num_experts`-wide output
   before writing the active experts' blocks. Two of `linear_attention` decode's
   3 `FILL` launches are the ones that matter, one per
-  `sparse_matmul` call: 172.646 µs clearing the 2048[2048]-wide output of
-  the down projection and 91.379 µs clearing the 1024[1024]-wide output of
+  `sparse_matmul` call: 175.261 µs clearing the 2048[2048]-wide output of
+  the down projection and 88.341 µs clearing the 1024[1024]-wide output of
   the packed gate/up. (Each fill's width is read from the matmul it precedes, not from its own
   reported shape, which the profiler does not always update — see the script.)
   **It is not reachable by graph fusing**: it is inside the op, its width is the `num_experts`
@@ -502,8 +503,8 @@ What the remaining rows say about where the next stage should look:
   2048[2048]-wide down-projection output at essentially the same cost; what this
   stage's gate/up packing changed is the *other* end — the baseline pays two narrower fills for
   its two separate projections where this stage pays one wider. The `FILL` sub-total is
-  essentially unchanged — 267.4 µs against 265.9 µs,
-  +0.6 % — so the fill cost itself did not fall. What fell is the
+  essentially unchanged — 267.3 µs against 265.9 µs,
+  +0.5 % — so the fill cost itself did not fall. What fell is the
   `UnaryDeviceOperation` aggregate it sits inside, 333.1 → 282.4 µs.
   `work_log.md` §4.13.
 <!-- /generated:fill-cost -->
@@ -513,16 +514,16 @@ What the remaining rows say about where the next stage should look:
   costs, not one.** `BinaryOpType::MUL` is 83.9 % / 95.0 % of the
   aggregate over 17 launches per replay for `linear_attention`, and the two
   largest differ in kind:
-    * 69.035 µs **with SiLU folded into its input activation** — the routed
+    * 69.012 µs **with SiLU folded into its input activation** — the routed
       experts' SwiGLU. Here the multiply *is* the fused form (§3.3); what is left is the
       expert-activation width, the same lever as the zero-fill above.
-    * 47.290 µs with **no** folded activation, immediately before the next
+    * 49.754 µs with **no** folded activation, immediately before the next
       `sparse_matmul`'s zero-fill — the router-score multiply this stage moved ahead of the down
       projection (§3.2). It is a genuinely separate op, and §4.13 / §4.17 record why: the one
       ttnn op that fuses it into the reduction (`deepseek_moe_fast_reduce_nc_fused`) wants the
       gather-by-expert dispatch layout and an L1-resident activation - the same blocker §4.10
       records - rather than there being no op.
-  The aggregate is nonetheless **smaller than the baseline's**: 199.1 µs against
+  The aggregate is nonetheless **smaller than the baseline's**: 200.0 µs against
   327.8 µs per replay, because that placement moved the
   multiply from the `hidden_size`-wide residual stream to the `moe_intermediate`-wide expert
   activation.
@@ -534,9 +535,9 @@ What the remaining rows say about where the next stage should look:
   window), and it is the price of the shared-LHS packings: one wide matmul, then slices to recover
   the operands, and it is not a `SLOW` row, so
   a reader looking only at the `SLOW` table would miss it. The table above ranks it sixth in `linear_attention` / fifth in `full_attention`;
-  the dense `Matmul*` codes it trades against fall -114.0 to -90.5 µs/step while `Slice` rises
-  +92.2 to +105.4 µs/step, so the window data alone does not settle the trade in either
-  direction — the packing's own measured effect is the 709.0 → 661.1 µs/call in
+  the dense `Matmul*` codes it trades against fall -114.0 to -90.6 µs/step while `Slice` rises
+  +92.1 to +105.8 µs/step, so the window data alone does not settle the trade in either
+  direction — the packing's own measured effect is the 709.0 → 661.4 µs/call in
   [`logs/probe_gate_up_pack.txt`](logs/probe_gate_up_pack.txt), which covers the MoE pair only.
   Its two dominant calls are the consecutive pair immediately after the
   routed-expert `sparse_matmul`, i.e. they unpack that matmul's `2·I`-wide output and are
@@ -549,12 +550,12 @@ totalled over the 32 replays and divided by them):
 <!-- generated:decode-cost-ranking -->
 | Rank | op code | `linear_attention` µs/step | `full_attention` µs/step |
 | --- | --- | --- | --- |
-| 1 | `SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024` | 367.0 | 368.0 |
-| 2 | `SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048` | 344.0 | 343.4 |
-| 3 | `UnaryDeviceOperation` | 282.4 | 269.6 |
-| 4 | `BinaryNgDeviceOperation` | 199.1 | 139.3 |
-| 5 | `MatmulDeviceOperation 32 x 2048 x 12352` | 128.4 | 0.0 |
-| 6 | `SliceDeviceOperation` | 114.7 | 109.4 |
+| 1 | `SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024` | 367.2 | 368.0 |
+| 2 | `SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048` | 344.4 | 343.8 |
+| 3 | `UnaryDeviceOperation` | 282.4 | 270.1 |
+| 4 | `BinaryNgDeviceOperation` | 200.0 | 139.8 |
+| 5 | `MatmulDeviceOperation 32 x 2048 x 12352` | 128.5 | 0.0 |
+| 6 | `SliceDeviceOperation` | 115.1 | 109.3 |
 <!-- /generated:decode-cost-ranking -->
 
 `MatmulDeviceOperation 32 × 2048 × 12352` is the gated-DeltaNet packed in-projection, so it has no
@@ -656,7 +657,7 @@ Separate run, never combined with the profiler, with its own log path (exact com
 [`watcher/CLASSIFICATION.md`](watcher/CLASSIFICATION.md)):
 
 <!-- generated:watcher-result -->
-**47 passed** in 176.60 s. The 51 324 lines of the watcher log are fully accounted for by a disjoint census summing exactly to 51 324, and a fatal-class grep (asserts, invalid NOC coordinates or addresses, CB out-of-bounds, L1/stack overflow, sanitizer, corruption, hang/deadlock) returns **0 fatal-class matches**. The log carries no stack-headroom evidence.
+**47 passed** in 169.94 s. The 51 324 lines of the watcher log are fully accounted for by a disjoint census summing exactly to 51 324, and a fatal-class grep (asserts, invalid NOC coordinates or addresses, CB out-of-bounds, L1/stack overflow, sanitizer, corruption, hang/deadlock) returns **0 fatal-class matches**. The log carries no stack-headroom evidence.
 <!-- /generated:watcher-result -->
 
 The run had `disabled features: None` (Ethernet checks left on).
@@ -668,7 +669,7 @@ listed from the run's own console log rather than described. Tests that drive pr
 purely to check numerics (the PCC ladders, the weight-source cases, the full-context cases) are
 deliberately out — they exercise no memory pattern the tests below do not. The generator
 asserts by name that the load-bearing ones are present, so widening the filter cannot silently
-drop them. 19 test functions, 47 cases, with 46 cases deselected:
+drop them. 19 test functions, 47 cases, with 50 cases deselected:
 
 * `test_batch_smaller_than_allocated_state`
 * `test_batched_decode_ragged_positions`
@@ -710,7 +711,7 @@ through the fatal-class grep, which is clean.
 
 <!-- generated:moe-floor-limitation -->
 1. **The MoE remains the floor.** After fusing, the two sparse expert matmuls are
-   81.9 % / 81.8 % of the two prefill windows and 35.8 % / 39.2 % of the traced decode
+   81.8 % / 81.7 % of the two prefill windows and 35.8 % / 39.2 % of the traced decode
    windows — a clear majority in prefill, the largest single item but not a majority in decode.
    Cutting further needs expert-major token gathering — `unified_routed_expert_ffn`, `moe_compute`
    and `moe_gpt` all want that layout — which is a change to the routing algorithm, not to the op

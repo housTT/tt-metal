@@ -110,6 +110,18 @@ def rows():
         "a",
         "b",
     )
+    fr_ship_p, fr_ship_t = grab(
+        router,
+        r"FUSEDREDUCE shipped score-input \(dense stand-in\)\s+pcc_vs_float64=(?P<p>[\d.]+)\s+(?P<t>[\d.]+) us",
+        "p",
+        "t",
+    )
+    fr_fused_p, fr_fused_t = grab(
+        router,
+        r"FUSEDREDUCE fused score-in-reduce \(dense stand-in\)\s+pcc_vs_float64=(?P<p>[\d.]+)\s+(?P<t>[\d.]+) us",
+        "p",
+        "t",
+    )
     hoist_per, hoist_all = grab(
         router,
         r"MASKHOIST per-group \(superseded\)\s+(?P<a>[\d.]+) ms[\s\S]*?"
@@ -173,6 +185,17 @@ def rows():
             "op-level probe writes, and why it passes",
             f"separate PCC {gate_bf16} vs folded PCC {gate_bf16_fold}, both 0 non-finite",
             "`probe_fused_ops.txt`",
+        ),
+        (
+            "§4.17 — expert-axis reduction with the router score applied to the down projection's "
+            "**input** (shipped, §3.2) vs folded into the reduction by "
+            "`deepseek_moe_fast_reduce_nc_fused`, both against a float64 reference. The down "
+            "projection here is a dense `ttnn.matmul` stand-in for the shipped `sparse_matmul`, so "
+            "the times are not a proxy for the shipped windows — what this shows is that the op "
+            "**accepts** this decoder's dense shapes and is accurate in isolation. The rejection is "
+            "on the in-model accuracy loss the placement change causes; §4.17 has it.",
+            f"PCC {fr_ship_p} at {fr_ship_t} µs vs PCC {fr_fused_p} at {fr_fused_t} µs",
+            "`probe_router_and_reduce.txt`",
         ),
         (
             "§4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair "

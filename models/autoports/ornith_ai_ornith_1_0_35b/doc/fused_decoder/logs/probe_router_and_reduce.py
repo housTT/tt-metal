@@ -134,6 +134,76 @@ def main():
             per = (time.time() - start) / iters
             print(f"REDUCE {name:30s} pcc={p:.6f} wall={per * 1e6:.1f} us/call", flush=True)
 
+        # ------------------------------------------------------------------ §4.17: the fused reduce
+        # ttnn.experimental.deepseek_moe_fast_reduce_nc_fused folds mul(activation, expert_scores)
+        # into the expert-axis reduction. Review round 23 found §4.13 had claimed no such fusion was
+        # expressible without ever inventorying it. Its validation DOES accept this decoder's dense
+        # [1, E, tokens, H] reduce at reduce_dim=1 with a [tokens, 1, 1, E] ROW_MAJOR score vector,
+        # so the question is not expressibility but whether it is a good trade. Both arms are
+        # faithful to the shipped graph: the shipped one scores the down projection's *input* at
+        # moe_intermediate width (§3.2), the candidate scores its *output* inside the reduce.
+        # NOTE the down projection here is a DENSE ttnn.matmul standing in for the shipped
+        # sparse_matmul, which cannot be reproduced standalone without the sparsity mask. That makes
+        # the two latencies dominated by the matmul and not a proxy for the shipped windows - what
+        # this arm establishes is that the op ACCEPTS this decoder's dense shapes and is as accurate
+        # as the shipped pair in isolation. The deciding measurement is the in-model one in §4.17.
+        I = INTER
+        gen2 = torch.Generator().manual_seed(77)
+        act_i = dev(mesh, torch.randn(1, E, TOKENS, I, generator=gen2).to(torch.bfloat16))
+        w_down = dev(mesh, torch.randn(1, E, I, HIDDEN, generator=gen2).to(torch.bfloat16))
+        dense_t = torch.zeros(1, 1, TOKENS, E)
+        for t in range(TOKENS):
+            for e in torch.randperm(E, generator=gen2)[:K]:
+                dense_t[0, 0, t, e] = float(torch.rand(1, generator=gen2))
+        dense_tile = dev(mesh, dense_t.to(torch.bfloat16))
+        dense_rm = dev(mesh, dense_t.reshape(TOKENS, 1, 1, E).to(torch.bfloat16), layout=ttnn.ROW_MAJOR_LAYOUT)
+        zi = dev(mesh, torch.zeros(1, 1, 1, E, dtype=torch.int32), dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
+        zm = dev(mesh, torch.zeros(1, 1, 1, E, dtype=torch.int32), dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
+        # float64 reference: score, project, sum over the expert axis.
+        a64 = ttnn.to_torch(act_i).double()
+        w64 = ttnn.to_torch(w_down).double()
+        s64 = dense_t.double().reshape(1, TOKENS, E).permute(0, 2, 1).reshape(1, E, TOKENS, 1)
+        ref_fr = ((a64 * s64) @ w64).sum(1, keepdim=True)
+
+        def shipped_score_input():
+            sc = ttnn.permute(dense_tile, (0, 3, 2, 1))
+            scaled = ttnn.multiply(act_i, sc, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            dwn = ttnn.matmul(scaled, w_down, compute_kernel_config=ckc)
+            out = ttnn.experimental.deepseek_moe_fast_reduce_nc(dwn, dim=1, split_size=HIDDEN)[0]
+            ttnn.deallocate(sc)
+            ttnn.deallocate(scaled)
+            ttnn.deallocate(dwn)
+            return out
+
+        def fused_score_in_reduce():
+            dwn = ttnn.matmul(act_i, w_down, compute_kernel_config=ckc)
+            out = ttnn.experimental.deepseek_moe_fast_reduce_nc_fused(
+                dwn, zi, zm, 1, split_size=HIDDEN, cluster_axis=0, scores_tensor=dense_rm, compute_kernel_config=ckc
+            )
+            ttnn.deallocate(dwn)
+            return out[0] if isinstance(out, (list, tuple)) else out
+
+        for name, fn in (
+            ("shipped score-input (dense stand-in)", shipped_score_input),
+            ("fused score-in-reduce (dense stand-in)", fused_score_in_reduce),
+        ):
+            o = fn()
+            g = ttnn.to_torch(o).double().reshape(1, 1, TOKENS, HIDDEN)
+            aa = ref_fr.flatten() - ref_fr.mean()
+            bb = g.flatten() - g.mean()
+            p_fr = float((aa * bb).sum() / (aa.norm() * bb.norm() + 1e-12))
+            ttnn.deallocate(o)
+            ttnn.synchronize_device(mesh)
+            st = time.time()
+            iters = 20
+            for _ in range(iters):
+                ttnn.deallocate(fn())
+            ttnn.synchronize_device(mesh)
+            print(
+                f"FUSEDREDUCE {name:24s} pcc_vs_float64={p_fr:.6f} {(time.time()-st)/iters*1e6:8.1f} us/call",
+                flush=True,
+            )
+
         # ------------------------------------------------------------------ the §4.16 hoists
         # FusedMoE._routed_experts rebuilds two per-call quantities inside every 32-token expert
         # group: the sparse_matmul sparsity mask (reshape -> sum -> gtz -> to_layout) and the down
