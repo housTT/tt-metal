@@ -46,6 +46,11 @@ WATCHER = ROOT / "watcher"
 
 KINDS = [("linear_attention", "linear_attention"), ("full_attention", "full_attention")]
 
+#: Mirrors ``tt/optimized_decoder.SPARSE_MIN_CORES``: the routed core count at or below which a call is the
+#: narrow (batch-1 decode) geometry. ``audit_figures.check_mirrored_constants`` compares the two, so this
+#: cannot drift silently — which is the class of bug that put a decode `in0_block_w` on a prefill row.
+SPARSE_MIN_CORES_MIRROR = 8
+
 
 def read(path: Path) -> str:
     """Text of ``path``, or of ``path.gz`` — the big logs are committed gzipped (500 KB repo limit)."""
@@ -821,12 +826,17 @@ def block_sparse_search():
 
     Round 6 then found the lookup *still* under-constrained: it filtered on the core count and the output
     placement only, took the minimum over everything else, and so printed a time measured at an
-    ``in0_block_w`` the layer does not use — calling the shipped 8-active gate/up row "the measured winner"
-    at 153.3 us when the geometry it actually runs measures 156.7. The ``in0_block_w`` now comes from a run
-    of the shipped code: ``test_{decode,prefill}_runs_the_tuned_program_configs`` log both routed configs,
-    and ``in0_block_w`` is a function of ``K`` alone, so the logged value applies at every active count.
-    Everything else — ``per_core_N``, ``out_block_w``, ``out_subblock_w`` — follows from the core count and
-    ``Nt``, which the matched probe row already carries.
+    ``in0_block_w`` the layer does not use, which made a shipped row that was a couple of percent behind
+    read as "the measured winner". Round 7 found the repair half-done: the cap was read from the *decode*
+    log line and applied to every row, on the reasoning that ``in0_block_w`` is a function of ``K`` alone —
+    true until round 6 made the gate/up cap depend on the realised core count as well, after which the
+    prefill rows were reported at the decode cap and understated by roughly ten percent.
+
+    So: the cap comes from a run of the shipped code, per phase.
+    ``test_{decode,prefill}_runs_the_tuned_program_configs`` log both routed configs for both phases, and
+    which phase applies is decided here from the realised core count, mirroring ``_sparse_cfg``. Everything
+    else — ``per_core_N``, ``out_block_w``, ``out_subblock_w`` — follows from the core count and ``Nt``,
+    which the matched probe row already carries.
     """
     rows = probe_rows(LOGS / "probe_sparse_matmul.txt", "SPARSE")
     rows = [r for r in rows if r["us"] is not None and "active" in r]
@@ -845,16 +855,28 @@ def block_sparse_search():
     #: What the fused decoder's rule picked: the largest core count dividing Nt, per_core_N 1.
     FUSED_RULE = {"gate_up": ("32(8x4)", "16", "1"), "down": ("64(8x8)", "8", "1")}
 
-    #: The `in0_block_w` each routed role actually runs, read out of the suite log's own record of the
-    #: configs the layer built. Keyed by role, in the order the layer issues them (gate/up then down).
+    #: The `in0_block_w` each routed role actually runs, per phase, read out of the suite log's own record
+    #: of the configs the layer built. BOTH lines are read: `decode sparse matmuls` for the narrow-grid
+    #: phase and `prefill sparse matmuls` for the wide one.
+    #:
+    #: Reading only the decode line was this generator's bug in round 7. Its docstring justified that with
+    #: "`in0_block_w` is a function of `K` alone, so the logged value applies at every active count" — true
+    #: before round 6 and false after it, because round 6's whole point was to make the gate/up cap depend
+    #: on the realised core count too. The table then reported the *decode* cap on the prefill row and
+    #: understated shipped prefill sparse performance by ~10 % on the largest op in that window.
     shipped_ibw: dict = {}
-    for line in read(LOGS / "pytest_full_suite.txt").splitlines():
-        if "decode sparse matmuls:" not in line:
-            continue
-        found = re.findall(r"in0_block_w=(\d+)", line.split("decode sparse matmuls:")[-1])
-        if len(found) >= 2:
-            shipped_ibw = {"gate_up": found[0], "down": found[1]}
-            break
+    # Matched without the trailing colon: the prefill line carries `layer=N (kind):` between the marker and
+    # the configs, so a marker ending in ":" silently matched nothing and every wide-geometry row rendered
+    # "no probe row at the shipped geometry".
+    for phase, marker in (("narrow", "decode sparse matmuls"), ("wide", "prefill sparse matmuls")):
+        for line in read(LOGS / "pytest_full_suite.txt").splitlines():
+            if marker not in line:
+                continue
+            found = re.findall(r"in0_block_w=(\d+)", line[line.index(marker) :])
+            if len(found) >= 2:
+                shipped_ibw[(phase, "gate_up")] = found[0]
+                shipped_ibw[(phase, "down")] = found[1]
+                break
 
     lines = [
         "| active experts | role | fused rule | best measured | shipped | shipped vs winner |",
@@ -868,13 +890,17 @@ def block_sparse_search():
             winner = min(pool, key=lambda r: r["us"])
             cores = max(8, min(32, max(1, active // K_PER_ROLE[role])))
             gx, gy = shipped_grid(cores)
+            # Which phase's cap applies is decided by the realised core count, mirroring
+            # `OptimizedMoE._sparse_cfg`: the minimum core count is the narrow (decode) geometry, anything
+            # above it is the wide one. `check_mirrored_constants` compares this rule against the source.
+            phase = "narrow" if cores <= SPARSE_MIN_CORES_MIRROR else "wide"
             mine = min(
                 (
                     r
                     for r in pool
                     if r.get("cores") == f"{cores}({gx}x{gy})"
                     and r.get("mem") == "L1"
-                    and r.get("in0_block_w") == shipped_ibw.get(role)
+                    and r.get("in0_block_w") == shipped_ibw.get((phase, role))
                 ),
                 key=lambda r: r["us"],
                 default=None,
@@ -965,8 +991,11 @@ def block_op_knobs():
             f"**width-sharded on 8 cores {cell(sharded)}**",
             "taken; it saves "
             + (f"{interleaved - sharded:.1f} µs" if None not in (interleaved, sharded) else "more")
-            + " per norm and adds two layout conversions, which the whole-layer A/B in "
-            "`ab_norm_shard_width.txt` shows to be the smaller of the two",
+            + " per norm on the isolated op and adds two layout conversions. At the whole layer the two "
+            "roughly cancel: `ab_norm_shard_cores.txt` shows the core count barely moving the layer at all, "
+            "and the only layer-level sharded-vs-interleaved comparison is step 8 of work_log §3's "
+            "development ladder. `ab_norm_shard_width.txt` answers a different question — whether the narrow "
+            "head-dim norms should shard too — and both of its arms are sharded",
         ),
         (
             "paged flash decode",

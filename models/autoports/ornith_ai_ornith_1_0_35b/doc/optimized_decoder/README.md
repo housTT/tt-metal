@@ -7,10 +7,10 @@ supported, and is materially faster in both phases.
 <!-- generated:headline -->
 | Window | before (fused) | after (optimized) | speedup |
 | --- | --- | --- | --- |
-| `linear_attention` prefill, 2048 tokens | 257.72 ms / 7946.7 tok/s | **102.05 ms / 20068.5 tok/s** | **2.53x** |
-| `linear_attention` decode, traced | 2.063 ms / 484.6 steps/s | **1.062 ms / 941.8 steps/s** | **1.94x** |
-| `full_attention` prefill, 2048 tokens | 243.74 ms / 8402.4 tok/s | **96.37 ms / 21251.2 tok/s** | **2.53x** |
-| `full_attention` decode, traced | 1.830 ms / 546.4 steps/s | **0.849 ms / 1178.1 steps/s** | **2.16x** |
+| `linear_attention` prefill, 2048 tokens | 257.62 ms / 7949.8 tok/s | **102.14 ms / 20050.7 tok/s** | **2.52x** |
+| `linear_attention` decode, traced | 2.064 ms / 484.4 steps/s | **1.061 ms / 942.4 steps/s** | **1.95x** |
+| `full_attention` prefill, 2048 tokens | 243.62 ms / 8406.5 tok/s | **96.38 ms / 21248.9 tok/s** | **2.53x** |
+| `full_attention` decode, traced | 1.830 ms / 546.5 steps/s | **0.849 ms / 1177.5 steps/s** | **2.16x** |
 <!-- /generated:headline -->
 
 * Implementation: [`tt/optimized_decoder.py`](../../tt/optimized_decoder.py) — self-contained; it
@@ -119,7 +119,7 @@ pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_optimized_decoder.py
 ```
 
 <!-- generated:suite-result -->
-**109 passed** in 572.97 s.
+**109 passed** in 574.49 s.
 <!-- /generated:suite-result -->
 
 Log: [`logs/pytest_full_suite.txt.gz`](logs/pytest_full_suite.txt.gz). The `long` (262144-token) cases are
@@ -243,14 +243,14 @@ halves of OPT-013.
 <!-- generated:policy-sweep -->
 | candidate | `full` decode ms | `linear` decode ms | `full` / `linear` prefill screen PCC |
 | --- | --- | --- | --- |
-| **(selected policy)** | 0.849 | 1.062 | 0.999946 / 0.994385 |
-| `proj_dtype=bfloat4_b` | 0.830 | 1.037 | 0.998860 / 0.992463 |
+| **(selected policy)** | 0.850 | 1.061 | 0.999946 / 0.994385 |
+| `proj_dtype=bfloat4_b` | 0.829 | 1.037 | 0.998860 / 0.992463 |
 | `proj_fidelity=LoFi` | 0.849 | 1.061 | 0.999937 / 0.994642 |
 | `expert_fidelity=HiFi2` | 0.879 | 1.090 | 0.999946 / 0.994385 |
-| `expert_gate_up_dtype=bfloat8_b` | 0.894 | 1.113 | 0.999956 / 0.994386 |
-| `shared_dtype=bfloat4_b,shared_fidelity=LoFi` | 0.848 | 1.060 | 0.999902 / 0.994359 |
+| `expert_gate_up_dtype=bfloat8_b` | 0.894 | 1.114 | 0.999956 / 0.994386 |
+| `shared_dtype=bfloat4_b,shared_fidelity=LoFi` | 0.847 | 1.060 | 0.999902 / 0.994359 |
 | `expert_down_dtype=bfloat8_b` | 0.867 | 1.081 | 0.999951 / 0.994386 |
-| `kv_cache_dtype=bfloat16` | 0.849 | 1.061 | 0.999950 / 0.994385 |
+| `kv_cache_dtype=bfloat16` | 0.850 | 1.061 | 0.999950 / 0.994385 |
 | `expert_act_dtype=bfloat16` | 0.891 | 1.103 | 0.999949 / 0.994390 |
 <!-- /generated:policy-sweep -->
 
@@ -270,7 +270,7 @@ steps, both arms in one process:
 | **BFP8 (selected)** | 0.999895 (decode step=2) | 0.999919 (prefill seq_len=3000) | 4.9e-03 |
 | BFP4 | 0.996461 (prefill seq_len=7) | 0.997416 (decode step=2) | 1.5e-03 |
 
-Every BFP4 row clears the bar, so this is not a pass/fail rejection — it is a 32–34x increase in layer error for 2.2–2.4 % of one traced decode step and nothing in prefill, in one layer of a 48-layer stack. The routed-expert BFP4 step this stage *did* take is the opposite trade. Rejected on that comparison, and shipped as `POLICIES["bfp4-projections"]` so `$datatype-sweep` can take it without rediscovering it. Full ladder: [`logs/probe_projection_dtype.txt`](logs/probe_projection_dtype.txt).
+Every BFP4 row clears the bar, so this is not a pass/fail rejection — it is a 32–34x increase in layer error for 2.3–2.5 % of one traced decode step and nothing in prefill, in one layer of a 48-layer stack. The routed-expert BFP4 step this stage *did* take is the opposite trade. Rejected on that comparison, and shipped as `POLICIES["bfp4-projections"]` so `$datatype-sweep` can take it without rediscovering it. Full ladder: [`logs/probe_projection_dtype.txt`](logs/probe_projection_dtype.txt).
 <!-- /generated:bfp4-pcc -->
 
 **What this rejection does and does not rest on.** OPT-007 and OPT-012 list the grounds for rejecting a
@@ -308,7 +308,7 @@ takes a single `--impl`. The genuinely **same-process** comparison is
 gates the claim.
 
 <!-- generated:same-process-gate -->
-Its numbers, from the committed suite log: `linear_attention` 2.065 → 1.059 ms (1.95x); `full_attention` 1.830 → 0.850 ms (2.15x). They agree with the A/B file above, which is why both are quoted — one process proves the comparison is apples to apples, two processes prove it is not an artifact of sharing a device session.
+Its numbers, from the committed suite log: `linear_attention` 2.065 → 1.059 ms (1.95x); `full_attention` 1.831 → 0.850 ms (2.15x). They agree with the A/B file above, which is why both are quoted — one process proves the comparison is apples to apples, two processes prove it is not an artifact of sharing a device session.
 <!-- /generated:same-process-gate -->
 
 `tt-perf-report` device tables come from four separate Tracy captures — one per (layer kind × phase)
@@ -326,15 +326,18 @@ constant, a different dtype on one multiply, a k-chunk the layer must not ship).
 measured back to back in one process**, so what they establish is the sign and size of a *difference*;
 their absolute level belongs to the revision that produced it. The shipped default's absolute level is
 the end-to-end run in §5.2, always. The audit exempts these four from its freshness rule and says why.
+The other two `ab_*.txt` files — [`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt) and
+[`logs/ab_gate_up_in0_block_w.txt`](logs/ab_gate_up_in0_block_w.txt) — swap a constant at *runtime*
+instead, so the sweep regenerates them and the freshness rule does apply.
 
 ### 5.2 Result
 
 <!-- generated:perf-result -->
 | Layer kind | Phase | before | after | speedup |
 | --- | --- | --- | --- | --- |
-| `linear_attention` | prefill, 2048 tokens | 257.72 ms | **102.05 ms** | **2.53x** (−60.4 %) |
-| `linear_attention` | decode, traced (32 replays) | 2.063 ms | **1.062 ms** | **1.94x** (−48.5 %) |
-| `full_attention` | prefill, 2048 tokens | 243.74 ms | **96.37 ms** | **2.53x** (−60.5 %) |
+| `linear_attention` | prefill, 2048 tokens | 257.62 ms | **102.14 ms** | **2.52x** (−60.4 %) |
+| `linear_attention` | decode, traced (32 replays) | 2.064 ms | **1.061 ms** | **1.95x** (−48.6 %) |
+| `full_attention` | prefill, 2048 tokens | 243.62 ms | **96.38 ms** | **2.53x** (−60.4 %) |
 | `full_attention` | decode, traced (32 replays) | 1.830 ms | **0.849 ms** | **2.16x** (−53.6 %) |
 <!-- /generated:perf-result -->
 
@@ -343,23 +346,23 @@ the end-to-end run in §5.2, always. The audit exempts these four from its fresh
 <!-- generated:decode-breakdown -->
 | Op code | `linear_attention` µs/step | `full_attention` µs/step | launches/step (`full`) |
 | --- | --- | --- | --- |
-| `SparseMatmulDeviceOperation` | 258.4 | 260.4 | 2 |
-| `MatmulDeviceOperation` | 155.0 | 98.7 | 5 |
-| `BinaryNgDeviceOperation` | 148.3 | 99.6 | 8 |
-| `UnaryDeviceOperation` | 87.1 | 75.3 | 4 |
+| `SparseMatmulDeviceOperation` | 258.4 | 260.5 | 2 |
+| `MatmulDeviceOperation` | 154.9 | 98.7 | 5 |
+| `BinaryNgDeviceOperation` | 148.3 | 99.7 | 8 |
+| `UnaryDeviceOperation` | 87.3 | 75.2 | 4 |
+| `SliceDeviceOperation` | 48.4 | 45.6 | 15 |
 | `TopKDeviceOperation` | 48.4 | 48.4 | 1 |
-| `SliceDeviceOperation` | 48.3 | 45.6 | 15 |
 | `UntilizeWithUnpaddingDeviceOperation` | 26.3 | 23.3 | 3 |
 | `ReshapeViewDeviceOperation` | 26.2 | 3.7 | 1 |
-| `LayerNormDeviceOperation` | 23.4 | 19.6 | 4 |
-| `DeepseekMoEFastReduceNCDeviceOperation` | 22.3 | 22.2 | 1 |
-| `FillPadDeviceOperation` | 9.8 | 19.6 | 4 |
+| `LayerNormDeviceOperation` | 23.4 | 19.5 | 4 |
+| `DeepseekMoEFastReduceNCDeviceOperation` | 22.2 | 22.2 | 1 |
+| `FillPadDeviceOperation` | 9.8 | 19.7 | 4 |
 | `SdpaDecodeDeviceOperation` | — | 17.5 | 1 |
 | `TernaryDeviceOperation` | 17.0 | — | 0 |
-| `PermuteDeviceOperation` | 11.4 | 11.5 | 1 |
+| `PermuteDeviceOperation` | 11.3 | 11.5 | 1 |
 | `CopyDeviceOperation` | 11.3 | — | 0 |
 | `TypecastDeviceOperation` | 10.1 | 3.5 | 2 |
-| **total device time** | **944.7** | **827.5** | |
+| **total device time** | **944.8** | **827.8** | |
 <!-- /generated:decode-breakdown -->
 
 ### 5.4 Dominant matmul search tables
@@ -376,28 +379,34 @@ width, and output placement, under the selected BFP4/LoFi policy, at four active
 <!-- generated:sparse-search -->
 | active experts | role | fused rule | best measured | shipped | shipped vs winner |
 | --- | --- | --- | --- | --- | --- |
-| 8 | gate/up | 255.6 µs | **153.3 µs** — 8(1x8), `in0_block_w` 32, `per_core_N` 4, L1 | **153.3 µs** — 8 cores (1x8), `in0_block_w` 32, `per_core_N` 4 | **the measured winner** |
-| 8 | down | 332.4 µs | **152.6 µs** — 8(1x8), `in0_block_w` 16, `per_core_N` 8, L1 | **152.6 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **the measured winner** |
-| 32 | gate/up | 356.8 µs | **287.6 µs** — 16(8x2), `in0_block_w` 64, `per_core_N` 2, L1 | **293.5 µs** — 16 cores (2x8), `in0_block_w` 32, `per_core_N` 2 | **+5.9 µs (+2.1 %)**, beyond the ±0.7 µs spread |
-| 32 | down | 373.1 µs | **232.0 µs** — 8(8x1), `in0_block_w` 16, `per_core_N` 8, L1 | **237.6 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **+5.6 µs (+2.4 %)**, beyond the ±0.4 µs spread |
-| 64 | gate/up | 477.5 µs | **385.6 µs** — 32(4x8), `in0_block_w` 64, `per_core_N` 1, L1 | **415.7 µs** — 32 cores (4x8), `in0_block_w` 32, `per_core_N` 1 | **+30.1 µs (+7.8 %)**, beyond the ±0.2 µs spread |
-| 64 | down | 415.3 µs | **275.9 µs** — 16(8x2), `in0_block_w` 16, `per_core_N` 4, L1 | **286.0 µs** — 16 cores (2x8), `in0_block_w` 16, `per_core_N` 4 | **+10.1 µs (+3.7 %)**, beyond the ±0.8 µs spread |
-| 162 | gate/up | 751.0 µs | **568.2 µs** — 32(4x8), `in0_block_w` 64, `per_core_N` 1, L1 | **624.4 µs** — 32 cores (4x8), `in0_block_w` 32, `per_core_N` 1 | **+56.2 µs (+9.9 %)**, beyond the ±1.3 µs spread |
-| 162 | down | 517.0 µs | **341.3 µs** — 32(8x4), `in0_block_w` 16, `per_core_N` 2, L1 | **343.2 µs** — 32 cores (4x8), `in0_block_w` 16, `per_core_N` 2 | **+1.9 µs (+0.6 %)**, beyond the ±0.6 µs spread |
+| 8 | gate/up | 255.6 µs | **153.2 µs** — 8(1x8), `in0_block_w` 32, `per_core_N` 4, L1 | **153.2 µs** — 8 cores (1x8), `in0_block_w` 32, `per_core_N` 4 | **the measured winner** |
+| 8 | down | 332.9 µs | **152.5 µs** — 8(1x8), `in0_block_w` 16, `per_core_N` 8, L1 | **152.5 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **the measured winner** |
+| 32 | gate/up | 356.8 µs | **287.6 µs** — 16(8x2), `in0_block_w` 64, `per_core_N` 2, L1 | **291.9 µs** — 16 cores (2x8), `in0_block_w` 64, `per_core_N` 2 | **+4.3 µs (+1.5 %)**, beyond the ±0.6 µs spread |
+| 32 | down | 371.8 µs | **232.2 µs** — 8(8x1), `in0_block_w` 16, `per_core_N` 8, L1 | **237.7 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **+5.5 µs (+2.4 %)**, beyond the ±0.4 µs spread |
+| 64 | gate/up | 477.2 µs | **385.3 µs** — 32(4x8), `in0_block_w` 64, `per_core_N` 1, L1 | **385.3 µs** — 32 cores (4x8), `in0_block_w` 64, `per_core_N` 1 | **the measured winner** |
+| 64 | down | 415.5 µs | **276.0 µs** — 16(8x2), `in0_block_w` 16, `per_core_N` 4, L1 | **286.7 µs** — 16 cores (2x8), `in0_block_w` 16, `per_core_N` 4 | **+10.7 µs (+3.9 %)**, beyond the ±1.0 µs spread |
+| 162 | gate/up | 751.1 µs | **567.9 µs** — 32(4x8), `in0_block_w` 64, `per_core_N` 1, L1 | **567.9 µs** — 32 cores (4x8), `in0_block_w` 64, `per_core_N` 1 | **the measured winner** |
+| 162 | down | 517.0 µs | **343.2 µs** — 32(4x8), `in0_block_w` 16, `per_core_N` 2, L1 | **343.2 µs** — 32 cores (4x8), `in0_block_w` 16, `per_core_N` 2 | **the measured winner** |
 
 `spread` is the max-minus-min of three repeats of the same measurement, so a gap smaller than it is not a result. The 8-active rows are the tuned batch-1 decode target; ~162 is a 32-token prefill group; 32 and 64 are decode batch 4 and 8, supported for correctness and explicitly not tuned (§9 item 5).
 <!-- /generated:sparse-search -->
 
-The shipped rule reproduces the measured winning **core count** at all four points from a bound the
-layer knows exactly: `cores = clamp(active_bound / k, 8, 32)`, `k` = 2 for gate/up and 4 for down, with
-`active_bound = min(num_experts, real_rows * num_experts_per_tok)`. `in0_block_w` is a separate divisor
-rule — the largest divisor of the tiled `K` up to a cap — which gives 64 for gate/up (the whole tiled
-K) and 16 for down. That is the winner everywhere except **gate/up at 8 active experts**, where the
-table above shows it landing 2–3 % behind `in0_block_w` 32; the table states the gap rather than
-hiding it, because it is a deliberate simplification. It is worth ~3.5 µs of a ~860 µs traced step
-(0.4 %), it is the same order as the sparse probe's own run-to-run spread, and taking it would mean
-special-casing one (role, active-count) pair against a rule that is otherwise exactly right — so the
-rule stays and the cost is recorded.
+Two rules, both keyed off the same bound the layer knows exactly
+(`active_bound = min(num_experts, real_rows * num_experts_per_tok)`):
+
+* **core count** — `cores = clamp(active_bound / k, 8, 32)`, `k` = 2 for gate/up and 4 for down, then
+  reduced to a divisor of `Nt`. This reproduces the measured winning core count at all four sweep points.
+* **`in0_block_w`** — the largest divisor of the tiled `K` up to a cap, and for gate/up **the cap follows
+  the realised core count too**: the narrow (batch-1 decode) geometry takes 32, the wide one the whole
+  tiled `K`. `down` takes the whole tiled `K` everywhere. The two phases genuinely disagree here and not
+  by a little — a single cap costs either a couple of percent of every decode step or roughly ten percent
+  of every prefill group — so one value cannot serve both. [`work_log.md`](work_log.md) §4.15 has the
+  measurement and the end-to-end A/B.
+
+The remaining gaps in the table above are the grid **orientation**, not the inner block: the shipped rule
+fills one grid axis first, which is decisively right at the tuned decode point and 1–4 % behind the other
+rectangle at three untuned batch sizes and one prefill row. §4.14 of the work log records that as measured
+and rejected, with the arithmetic.
 
 **Dense decode projections** — three families per role, under each role's own weight dtype and math
 fidelity ([`logs/probe_dense_matmul.txt`](logs/probe_dense_matmul.txt)):
@@ -405,13 +414,13 @@ fidelity ([`logs/probe_dense_matmul.txt`](logs/probe_dense_matmul.txt)):
 <!-- generated:decode-search -->
 | role | shape M×K×N | ttnn heuristic | best DRAM-sharded | **shipped 1D `mcast_in0`** | vs the whole 1D sweep |
 | --- | --- | --- | --- | --- | --- |
-| `attn_in` | 32×2048×9216 | 57.8 µs | 71.0 | **56.1 µs** — 99 cores (11×9), `in0_block_w` 8, `per_core_N` 3 | +0.5 µs, inside the ±2.8 µs spread of this role's sweep |
-| `o_proj` | 32×4096×2048 | 75.1 µs | 34.0 | **26.1 µs** — 22 cores (11×2), `in0_block_w` 16, `per_core_N` 3 | **the measured winner** |
-| `gdn_in` | 32×2048×12352 | 75.5 µs | 94.0 | **73.7 µs** — 110 cores (11×10), `in0_block_w` 8, `per_core_N` 4 | +0.5 µs, inside the ±2.9 µs spread of this role's sweep |
-| `gdn_out` | 32×4096×2048 | 75.4 µs | 34.0 | **26.4 µs** — 33 cores (11×3), `in0_block_w` 8, `per_core_N` 2 | +0.1 µs, inside the ±1.4 µs spread of this role's sweep |
-| `shared_in` | 32×2048×1056 | 32.4 µs | 14.0 | **9.4 µs** — 88 cores (11×8), `in0_block_w` 32, `per_core_N` 1 | +0.1 µs, inside the ±0.8 µs spread of this role's sweep |
-| `shared_down` | 32×512×2048 | 12.7 µs | 12.1 | **9.2 µs** — 55 cores (11×5), `in0_block_w` 16, `per_core_N` 2 | **the measured winner** |
-| `router` | 32×2048×256 | 26.3 µs | 12.0 | **8.7 µs** — 33 cores (11×3), `in0_block_w` 32, `per_core_N` 1 | **the measured winner** |
+| `attn_in` | 32×2048×9216 | 57.7 µs | 70.9 | **55.9 µs** — 99 cores (11×9), `in0_block_w` 8, `per_core_N` 3 | +0.4 µs, inside the ±4.8 µs spread of this role's sweep |
+| `o_proj` | 32×4096×2048 | 75.2 µs | 34.1 | **26.3 µs** — 22 cores (11×2), `in0_block_w` 16, `per_core_N` 3 | **the measured winner** |
+| `gdn_in` | 32×2048×12352 | 75.7 µs | 94.1 | **73.9 µs** — 110 cores (11×10), `in0_block_w` 8, `per_core_N` 4 | +0.5 µs, inside the ±1.6 µs spread of this role's sweep |
+| `gdn_out` | 32×4096×2048 | 75.1 µs | 33.9 | **26.4 µs** — 33 cores (11×3), `in0_block_w` 8, `per_core_N` 2 | +0.2 µs, inside the ±1.7 µs spread of this role's sweep |
+| `shared_in` | 32×2048×1056 | 32.0 µs | 14.2 | **9.4 µs** — 88 cores (11×8), `in0_block_w` 32, `per_core_N` 1 | **the measured winner** |
+| `shared_down` | 32×512×2048 | 12.7 µs | 12.0 | **9.2 µs** — 55 cores (11×5), `in0_block_w` 16, `per_core_N` 2 | +0.2 µs, inside the ±6.2 µs spread of this role's sweep |
+| `router` | 32×2048×256 | 26.5 µs | 11.8 | **8.8 µs** — 33 cores (11×3), `in0_block_w` 32, `per_core_N` 1 | +0.1 µs, inside the ±4.8 µs spread of this role's sweep |
 
 The DRAM-sharded family loses to the shipped 1D `mcast_in0` config on **7 of 7** roles, measured without its activation-reshard cost, which it would also have to pay.
 <!-- /generated:decode-search -->
@@ -458,12 +467,12 @@ measurement, and that is the honest status of it.
 <!-- generated:prefill-search -->
 | role | shape M×K×N | ttnn heuristic | shipped 2D config | shipped | vs the whole `in0=DRAM` sweep |
 | --- | --- | --- | --- | --- | --- |
-| `attn_in` | 2048×2048×9216 | 523.3 µs | 11x10, `in0_block_w` 8 | **481.6 µs** | **the measured winner** |
-| `o_proj` | 2048×4096×2048 | 258.1 µs | 11x10, `in0_block_w` 16 | **183.8 µs** | **the measured winner** |
-| `gdn_in` | 2048×2048×12352 | 683.9 µs | 11x10, `in0_block_w` 8 | **639.5 µs** | **the measured winner** |
-| `gdn_out` | 2048×4096×2048 | 257.3 µs | 11x10, `in0_block_w` 16 | **186.9 µs** | **the measured winner** |
-| `shared_in` | 2048×2048×1056 | 111.6 µs | 11x10, `in0_block_w` 16 | **62.0 µs** | **the measured winner** |
-| `shared_down` | 2048×512×2048 | 69.2 µs | 11x10, `in0_block_w` 16 | **51.3 µs** | **the measured winner** |
+| `attn_in` | 2048×2048×9216 | 528.9 µs | 11x10, `in0_block_w` 8 | **464.8 µs** | **the measured winner** |
+| `o_proj` | 2048×4096×2048 | 258.0 µs | 11x10, `in0_block_w` 16 | **183.3 µs** | **the measured winner** |
+| `gdn_in` | 2048×2048×12352 | 696.3 µs | 11x10, `in0_block_w` 8 | **639.1 µs** | **the measured winner** |
+| `gdn_out` | 2048×4096×2048 | 258.4 µs | 11x10, `in0_block_w` 16 | **188.5 µs** | **the measured winner** |
+| `shared_in` | 2048×2048×1056 | 112.6 µs | 11x10, `in0_block_w` 16 | **62.7 µs** | **the measured winner** |
+| `shared_down` | 2048×512×2048 | 69.4 µs | 11x10, `in0_block_w` 16 | **51.5 µs** | **the measured winner** |
 <!-- /generated:prefill-search -->
 
 `in0_block_w` 16 fails to build for the two wide-output roles ("statically allocated circular
@@ -497,12 +506,12 @@ The non-matmul decode knobs, each against the alternative it beat or was rejecte
 <!-- generated:op-knobs -->
 | knob | alternative | shipped | decision |
 | --- | --- | --- | --- |
-| residual RMSNorm | interleaved (one core) 21.0 µs | **width-sharded on 8 cores 13.0 µs** | taken; it saves 8.0 µs per norm and adds two layout conversions, which the whole-layer A/B in `ab_norm_shard_width.txt` shows to be the smaller of the two |
-| paged flash decode | op default 1004.7 µs | **explicit config 62.0 µs** | taken; the default is more than an order of magnitude slower |
-| paged flash decode, `k_chunk` 128 | 57.0 µs — *faster in isolation* | **64, one chunk per page, 62.0 µs** | **rejected on correctness**: layer PCC collapses (`ab_sdpa_decode_contract.txt`) |
-| `ttnn.topk` routing width | padded to 8192 (multi-core) 149.4 µs | **native 256 (single-core) 52.2 µs** | the multi-core path needs width ≥ 8192 and loses anyway |
-| gate/up projection | separate pair 298.0 µs | **packed 221.9 µs** | taken (OPT-010) |
-| routing gate | `topk`→`ge`→`where`→softmax 118.2 µs | **`topk`→softmax→scatter 102.4 µs** | kept; the rewrite is bit-identical and slower |
+| residual RMSNorm | interleaved (one core) 21.1 µs | **width-sharded on 8 cores 13.2 µs** | taken; it saves 7.9 µs per norm on the isolated op and adds two layout conversions. At the whole layer the two roughly cancel: `ab_norm_shard_cores.txt` shows the core count barely moving the layer at all, and the only layer-level sharded-vs-interleaved comparison is step 8 of work_log §3's development ladder. `ab_norm_shard_width.txt` answers a different question — whether the narrow head-dim norms should shard too — and both of its arms are sharded |
+| paged flash decode | op default 1004.8 µs | **explicit config 62.0 µs** | taken; the default is more than an order of magnitude slower |
+| paged flash decode, `k_chunk` 128 | 56.9 µs — *faster in isolation* | **64, one chunk per page, 62.0 µs** | **rejected on correctness**: layer PCC collapses (`ab_sdpa_decode_contract.txt`) |
+| `ttnn.topk` routing width | padded to 8192 (multi-core) 149.5 µs | **native 256 (single-core) 52.3 µs** | the multi-core path needs width ≥ 8192 and loses anyway |
+| gate/up projection | separate pair 298.2 µs | **packed 222.2 µs** | taken (OPT-010) |
+| routing gate | `topk`→`ge`→`where`→softmax 116.8 µs | **`topk`→softmax→scatter 100.7 µs** | kept; the rewrite is bit-identical and slower |
 
 All from [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), which is regenerated by `run_evidence.sh` from the shipped code.
 <!-- /generated:op-knobs -->
@@ -514,18 +523,18 @@ And the advice table itself:
 | --- | --- | --- | --- | --- | --- | --- |
 | *nnz=std::nullopt* | 2.00 | 2.00 | 128 | 128 | `SparseMatmulDeviceOperation active=?/256 x 3 (de)`, `SparseMatmulDeviceOperation active=?/256 x 3 (pr)` | **Reporting limitation, not advice.** `nnz` is inferred at runtime because pinning it wedged the device (§9 item 3); the report cannot model DRAM/FLOP utilisation for those rows, so this stage measures their share of device time instead. |
 | *use HiFi4 with BF16 activations* | 4.00 | 4.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 9216 (pr)` … | **Rejected with measurement** — the reverse direction of §4.2's fidelity sweep; HiFi4 is what the fused decoder had and it is slower at equal correctness. |
-| *look good* | 3.25 | 1.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 9216 (pr)` … | **Not advice** — `tt-perf-report` printing that a row's `in0_block_w` and output subblock are already what it would have suggested. Kept in the table so the generator cannot silently drop a line it does not recognise. |
-| *DRAM-sharded program config* | 1.75 | 2.00 | 0 | 0 | `MatmulDeviceOperation 32 x 2048 x 12352 (de)`, `MatmulDeviceOperation 32 x 2048 x 9216 (de)`, `MatmulDeviceOperation 32 x 4096 x 2048 (de)` | **Tried, rejected with measurement** — loses on all seven dense roles, even without its activation-reshard cost (§5.4). |
-| *HiFi2 is sufficient* | 2.00 | 0.00 | 0 | 0 | `MatmulDeviceOperation b={32} x 32 x 128 x 12 (de)` | **Tried, rejected with measurement** on the recurrent-state rows: HiFi2 is 14.7 µs and LoFi 14.7 µs against 14.6 µs for the shipped HiFi4 + fp32-accumulate — under a microsecond per matmul, well inside the run-to-run spread and under 0.1 % of the window, for the float32 state that is the model's exact carry between steps. |
-| *Output subblock 1x1 is small* | 2.00 | 2.00 | 1 | 1 | `MatmulDeviceOperation 2048 x 2048 x 256 (pr)`, `MatmulDeviceOperation 32 x 2048 x 1056 (de)`, `MatmulDeviceOperation 32 x 2048 x 256 (de)` | **Tried on the row where it is expressible, rejected with measurement.** `shared_in`: the `per_core_N` ≥ 2 alternative measures 10.8 µs against 9.4 µs for the shipped `per_core_N` 1 at the same output placement — slower, because at 32 rows of M these are bandwidth-bound rather than block-bound. `router`: **not expressible** — `Nt` is 8, so `per_core_N` ≥ 2 needs ≤ 4 cores and the sweep's core ladder starts at 8; the shipped row is 8.7 µs. |
+| *look good* | 3.16 | 1.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 9216 (pr)` … | **Not advice** — `tt-perf-report` printing that a row's `in0_block_w` and output subblock are already what it would have suggested. Kept in the table so the generator cannot silently drop a line it does not recognise. |
+| *DRAM-sharded program config* | 1.84 | 2.00 | 0 | 0 | `MatmulDeviceOperation 32 x 2048 x 12352 (de)`, `MatmulDeviceOperation 32 x 2048 x 9216 (de)`, `MatmulDeviceOperation 32 x 4096 x 2048 (de)` | **Tried, rejected with measurement** — loses on all seven dense roles, even without its activation-reshard cost (§5.4). |
+| *HiFi2 is sufficient* | 2.00 | 0.00 | 0 | 0 | `MatmulDeviceOperation b={32} x 32 x 128 x 12 (de)` | **Tried, rejected with measurement** on the recurrent-state rows: HiFi2 is 14.7 µs and LoFi 14.6 µs against 14.7 µs for the shipped HiFi4 + fp32-accumulate — under a microsecond per matmul, well inside the run-to-run spread and under 0.1 % of the window, for the float32 state that is the model's exact carry between steps. |
+| *Output subblock 1x1 is small* | 2.00 | 2.00 | 1 | 1 | `MatmulDeviceOperation 2048 x 2048 x 256 (pr)`, `MatmulDeviceOperation 32 x 2048 x 1056 (de)`, `MatmulDeviceOperation 32 x 2048 x 256 (de)` | **Tried on the row where it is expressible, rejected with measurement.** `shared_in`: the `per_core_N` ≥ 2 alternative measures 10.7 µs against 9.4 µs for the shipped `per_core_N` 1 at the same output placement — slower, because at 32 rows of M these are bandwidth-bound rather than block-bound. `router`: **not expressible** — `Nt` is 8, so `per_core_N` ≥ 2 needs ≤ 4 cores and the sweep's core ladder starts at 8; the shipped row is 8.8 µs. |
 | *HiFi2 may also work* | 1.00 | 1.00 | 1 | 1 | `MatmulDeviceOperation 2048 x 2048 x 256 (pr)`, `MatmulDeviceOperation 32 x 2048 x 256 (de)` | **Rejected on purpose** (the router row): the matmul is under 10 µs and its output decides *which experts run*. The preceding stages measured bfloat16 routing agreeing with float32 on only 99.8 % / 95.5 % of top-8 sets (`doc/functional_decoder/logs/router_precision_ab.txt`), so this group stays BF16/HiFi4/fp32-accumulate. |
-| *place input 0 in L1* | 0.00 | 0.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 256 (pr)` … | **Taken for decode, measured and rejected for prefill.** Decode: the two residual norms, the three float32 recurrent-state matmuls and the shared expert's SwiGLU product all hand their result to L1, each size-gated so a large batch still uses DRAM — the item is now raised 0 times in both decode reports. The head-dim norms are the one decode exception and cannot move: `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q outside DRAM. Prefill: still raised on three rows, and measured at each role's **shipped** `in0_block_w`, against the DRAM→L1 copy that would have to *enable* it — the shipped graph would pay that copy per role, because the activation arrives interleaved from the preceding norm or residual add. `attn_in` saves 11.0 µs (470.6 against 481.6), against 26.1 µs to place the operand; `gdn_in` **does not build** at the shipped geometry with an L1 `in0`; `shared_in` saves 4.2 µs (57.8 against 62.0), against 26.2 µs to place the operand; `shared_down` saves 2.7 µs (48.6 against 51.3), against 11.8 µs to place the operand. So even the advice's best case (`attn_in`) saves 11.0 µs to spend 26.1 µs, i.e. it is a net loss on every role — before counting that the whole dense group is 0.77%-0.86% of the prefill window, and that the two arms of the widest role swap order between runs, which is what "inside the spread" looks like. `probe_prefill_matmul.txt` `in0=DRAM`, `in0=L1` and `family=place-in0-L1` rows. |
+| *place input 0 in L1* | 0.00 | 0.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 256 (pr)` … | **Taken for decode, measured and rejected for prefill.** Decode: the two residual norms, the three float32 recurrent-state matmuls and the shared expert's SwiGLU product all hand their result to L1, each size-gated so a large batch still uses DRAM — the item is now raised 0 times in both decode reports. The head-dim norms are the one decode exception and cannot move: `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q outside DRAM. Prefill: still raised on three rows, and measured at each role's **shipped** `in0_block_w`, against the DRAM→L1 copy that would have to *enable* it — the shipped graph would pay that copy per role, because the activation arrives interleaved from the preceding norm or residual add. `attn_in` costs 14.0 µs (478.8 against 464.8), against 26.1 µs to place the operand; `gdn_in` **does not build** at the shipped geometry with an L1 `in0`; `shared_in` saves 4.4 µs (58.3 against 62.7), against 26.4 µs to place the operand; `shared_down` saves 3.3 µs (48.2 against 51.5), against 11.8 µs to place the operand. So even the advice's best case (`shared_in`) saves 4.4 µs to spend 26.4 µs, i.e. it is a net loss on every role — before counting that the whole dense group is 0.77%-0.86% of the prefill window, and that the two arms of the widest role swap order between runs, which is what "inside the spread" looks like. `probe_prefill_matmul.txt` `in0=DRAM`, `in0=L1` and `family=place-in0-L1` rows. |
 
 Advice items **no longer raised in any of the four committed reports**:
 
 | Advice (no longer raised) | What closed it |
 | --- | --- |
-| *in0_block_w=1 is small* | **Taken.** Every dense *prefill* projection got an explicit 2D config with `in0_block_w` 8/16 (§5.4), and the three recurrent-state rows got an explicit `MatmulMultiCoreReuseProgramConfig` — that family does expose `in0_block_w`, unlike the `core_grid` spelling the fused stage used: 2 for the two reads (13.9 µs against 14.6 µs) and 1 for the `transpose_a` outer product, where `Kt` is 1 tile so 2 and 4 are rejected by the op (12.6 µs against 18.1 µs). `probe_decode_micro.txt` `STATE` rows. |
+| *in0_block_w=1 is small* | **Taken.** Every dense *prefill* projection got an explicit 2D config with `in0_block_w` 8/16 (§5.4), and the three recurrent-state rows got an explicit `MatmulMultiCoreReuseProgramConfig` — that family does expose `in0_block_w`, unlike the `core_grid` spelling the fused stage used: 2 for the two reads (13.9 µs against 14.7 µs) and 1 for the `transpose_a` outer product, where `Kt` is 1 tile so 2 and 4 are rejected by the op (12.5 µs against 18.2 µs). `probe_decode_micro.txt` `STATE` rows. |
 <!-- /generated:advice -->
 
 ## 6. Runtime audit
@@ -581,7 +590,7 @@ the assertions cannot pass vacuously.
 | 2. device-time decode (signposted window / 32 replays) | 0.945 ms | 0.828 ms |
 | 3. end-to-end decode, **profiled** run | 1.092 ms | 0.909 ms |
 | roofline as a fraction of device time | 13.4% | 11.3% |
-| dispatch + host gap (3 − 2) | 0.147 ms | 0.082 ms |
+| dispatch + host gap (3 − 2) | 0.147 ms | 0.081 ms |
 
 Named limitations, in the order they cost time. Stated **per layer kind**, because the two windows differ — review rounds 2 and 6 both found this list rendering only the `full_attention` figures, unlabelled, under a table that is per-kind, and under-reporting the kind with the *larger* dispatch gap.
 
@@ -598,7 +607,7 @@ Named limitations, in the order they cost time. Stated **per layer kind**, becau
 * ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops once per active expert at a single tile of M, so the two routed projections reach roughly 5 % of the FLOP roofline and ~40 GB/s of weight bandwidth even after the geometry sweep; they are 31% of the window.
 * The routed-expert intermediates are num_experts wide where only num_experts_per_tok slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the score multiply and the expert reduction each touch 32x the useful width. Moving them to L1 removed the DRAM cost; the remaining ~230 us/step is L1 and launch bound and needs an expert-major gather to remove, which is a routing-algorithm change rather than an op-config one.
 * ttnn.topk is single-core on the 256-wide routing dim (48 us/step); its multi-core path needs a power-of-two width >= 8192 and padding to it measured ~3x slower.
-* 84 device op launches per decode step, across 33 op codes, whose op-to-op gaps sum to 81.1 us/step and account for most of the difference between device time and end-to-end; 29 op codes are individually below 5 us/step and total 46.7 us.
+* 84 device op launches per decode step, across 33 op codes, whose op-to-op gaps sum to 81.0 us/step and account for most of the difference between device time and end-to-end; 29 op codes are individually below 5 us/step and total 46.6 us.
 <!-- /generated:accounting -->
 
 Row 3 is the **profiled** run, which is what makes it comparable to row 2 — both come from the same
@@ -624,20 +633,20 @@ separately rather than summarised together:
 | Layer kind | op code | op-to-op gap, µs/step | launches/step | largest single gap |
 | --- | --- | --- | --- | --- |
 | `linear_attention` | `TypecastDeviceOperation` | **25.1** | 7 | 8.0 µs |
-|  | `TilizeWithValPaddingDeviceOperation` | **22.7** | 1 | 23.6 µs |
+|  | `TilizeWithValPaddingDeviceOperation` | **22.7** | 1 | 23.4 µs |
 |  | `BinaryNgDeviceOperation` | **21.4** | 17 | 3.9 µs |
-|  | `SliceDeviceOperation` | **17.3** | 17 | 6.6 µs |
-|  | `UnaryDeviceOperation` | **10.2** | 8 | 6.3 µs |
-|  | `LayerNormDeviceOperation` | **8.6** | 5 | 4.0 µs |
+|  | `SliceDeviceOperation` | **17.2** | 17 | 6.8 µs |
+|  | `UnaryDeviceOperation` | **10.2** | 8 | 6.2 µs |
+|  | `LayerNormDeviceOperation` | **8.7** | 5 | 4.1 µs |
 |  | `UntilizeWithUnpaddingDeviceOperation` | **5.0** | 4 | 1.5 µs |
 |  | *the other 24 op codes, each under 5 µs/step* | 36.1 | | |
 | | **all 31 op codes, 97 launches/step** | **146.4** | | |
 | `full_attention` | `SliceDeviceOperation` | **11.5** | 15 | 1.5 µs |
 |  | `ShardedToInterleavedDeviceOperation` | **9.5** | 7 | 1.5 µs |
-|  | `InterleavedToShardedDeviceOperation` | **8.3** | 6 | 4.1 µs |
-|  | `LayerNormDeviceOperation` | **5.0** | 4 | 3.9 µs |
-|  | *the other 29 op codes, each under 5 µs/step* | 46.7 | | |
-| | **all 33 op codes, 84 launches/step** | **81.1** | | |
+|  | `InterleavedToShardedDeviceOperation` | **8.3** | 6 | 4.0 µs |
+|  | `LayerNormDeviceOperation` | **5.1** | 4 | 3.9 µs |
+|  | *the other 29 op codes, each under 5 µs/step* | 46.6 | | |
+| | **all 33 op codes, 84 launches/step** | **81.0** | | |
 
 Grouped by op code and divided by the 32 replays. The bottom row of each kind is what §7's dispatch-and-host gap has to be made of, and it reconciles with it. Note what this replaces: the hand-written version of this paragraph said *two* 6–8 µs typecast gaps, when the `TypecastDeviceOperation` gaps are the **largest single line item** of the `linear_attention` window at 7 launches a step.
 <!-- /generated:gap-itemisation -->
@@ -657,7 +666,7 @@ test subset. Exact command, subset rationale and classification:
 [`watcher/CLASSIFICATION.md`](watcher/CLASSIFICATION.md).
 
 <!-- generated:watcher-result -->
-**59 passed** in 330.95 s. The 65,505 lines of the watcher log are fully accounted for by a disjoint census, and a fatal-class grep (asserts, invalid NOC coordinates or addresses, CB out-of-bounds, L1/stack overflow, sanitizer, corruption, hang/deadlock) returns **0 matches**. Watcher recorded a stack watermark on 5 dump(s); the tightest leaves 1332 bytes free.
+**59 passed** in 329.82 s. The 65,505 lines of the watcher log are fully accounted for by a disjoint census, and a fatal-class grep (asserts, invalid NOC coordinates or addresses, CB out-of-bounds, L1/stack overflow, sanitizer, corruption, hang/deadlock) returns **0 matches**. Watcher recorded a stack watermark on 5 dump(s); the tightest leaves 1332 bytes free.
 
 Artifacts: [`watcher/watcher_log.txt`](watcher/watcher_log.txt), [`watcher/census_summary.txt`](watcher/census_summary.txt), console log [`logs/watcher_pytest.txt`](logs/watcher_pytest.txt).
 <!-- /generated:watcher-result -->

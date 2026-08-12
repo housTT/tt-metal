@@ -505,6 +505,19 @@ def _sparse_cores(role: str, active_experts: int) -> int:
     return max(SPARSE_MIN_CORES, min(SPARSE_MAX_CORES, active_experts // per))
 
 
+def _sparse_n_tiles(config, role: str) -> int:
+    """Tiles of ``N`` the routed matmul of ``role`` produces, which is what a core count must divide.
+
+    Shared with :meth:`OptimizedMoE._sparse_cfg` so the realised core count can be computed before the
+    config is built, and named rather than inlined because README §5.4's generated table mirrors the same
+    reduction and ``audit_figures.check_mirrored_constants`` compares the two.
+    """
+    import math
+
+    width = 2 * config.moe_intermediate_size if role == "gate_up" else config.dim
+    return max(1, int(math.ceil(width / TILE)))
+
+
 def _sparse_matmul_config(
     m: int, n: int, k: int, *, cores: int = SPARSE_MIN_CORES, in0_block_w: int | None = None, grid=None
 ):
@@ -1084,17 +1097,14 @@ class OptimizedMoE:
         self._expert_mem_cache: dict[tuple, object] = {}
         #: Token count of the whole MoE call in flight; see EXPERT_L1_MAX_CALL_TOKENS.
         self._call_tokens = 0
-        # in0_block_w: swept over the full divisor ladder of Kt (64 for gate/up, 16 for down) under
-        # the selected BFP4/LoFi policy; both roles improve monotonically up to the largest legal
-        # divisor and then flatten, so the whole K sweep is one block.
-        # in0_block_w: swept over the full divisor ladder of Kt (64 for gate/up, 16 for down) under
-        # the selected BFP4/LoFi policy. Both roles improve monotonically with it and then flatten,
-        # so each takes the largest legal divisor; gate/up at its 8-core decode geometry is the one
-        # place where 32 edged out 64, by ~2 %, and that is inside the run-to-run spread.
-        # `in0_block_w` per role, and for gate/up it depends on the ACTIVE-EXPERT BOUND exactly as the core
-        # count does — see SPARSE_GATE_UP_IN0_BLOCK_W. Review round 6 found the single-cap version costing
-        # 2.2 % of the largest decode op, beyond the measured spread, because the value that wins a
-        # 32-token prefill group loses a batch-1 decode step.
+        # `in0_block_w`, swept over the full divisor ladder of Kt under the selected BFP4/LoFi policy.
+        #
+        # `down` takes the largest legal divisor (16): it improves monotonically with the inner block and
+        # then flattens. `gate/up` does NOT have one best value — the cap depends on the realised core
+        # count exactly as the geometry does, see SPARSE_GATE_UP_IN0_BLOCK_W. Review round 6 found the
+        # single-cap version costing 2.2 % of the largest decode op, beyond the measured spread, because
+        # the value that wins a 32-token prefill group loses a batch-1 decode step. Round 7 then found
+        # three stale copies of the old single-cap claim, including two stacked here; this is the one.
         self.gate_up_in0_block_w = {
             bound: _largest_divisor_at_most(config.dim // TILE, cap)
             for bound, cap in SPARSE_GATE_UP_IN0_BLOCK_W.items()
@@ -1147,7 +1157,13 @@ class OptimizedMoE:
     def _sparse_cfg(self, role: str, tokens: int, active_bound: int):
         """Cached sparse-matmul program config for ``role`` at this M and active-expert bound."""
         cores = _sparse_cores(role, active_bound)
-        gate_up_block_w = self.gate_up_in0_block_w[cores > SPARSE_MIN_CORES]
+        # The cap keys off the **realised** core count, not the target. `_sparse_matmul_config` reduces the
+        # target to the largest divisor of `Nt`, so the two differ — and review round 7 found the target-keyed
+        # version handing batch-3 decode the one combination round 6 had just removed: a bound of 24 gives a
+        # target of 12, which is above SPARSE_MIN_CORES, while the grid it builds is still 8 cores. Reducing
+        # here means the cap always describes the geometry that actually runs.
+        realised_cores = _largest_divisor_at_most(_sparse_n_tiles(self.cfg, role), max(1, cores))
+        gate_up_block_w = self.gate_up_in0_block_w[realised_cores > SPARSE_MIN_CORES]
         key = (role, tokens, cores)
         cfg = self._sparse_cfg_cache.get(key)
         if cfg is None:
@@ -2041,7 +2057,8 @@ class OptimizedDecoder(LightweightModule):
         Decode-shaped activations take a width-sharded multi-core program config; everything else
         keeps the interleaved form. The sharded arm pays one shard in and one interleave out — the
         1D ``mcast_in0`` projection matmul that consumes the result needs an interleaved ``in0`` —
-        and still wins by roughly 9 us per norm at this shape.
+        and still wins at this shape — README §5.5's generated knob table has the interleaved and
+        width-sharded times, and `logs/ab_norm_shard_cores.txt` has the whole-layer comparison.
         """
         shape = [int(d) for d in x.shape]
         cfg, mem = self._norm_shard(_physical_rows(shape), shape[-1]) if self._decode_phase else (None, None)

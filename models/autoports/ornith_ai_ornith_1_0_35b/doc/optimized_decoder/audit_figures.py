@@ -228,6 +228,10 @@ ALLOWED = {
     "20.0",  # the SOFTPLUS threshold in UnaryWithParam(SOFTPLUS, 1.0, 20.0)
     "1.0625",  # bfloat8_b bytes per element (shared exponent per 16-datum face)
     "0.5625",  # bfloat4_b bytes per element
+    # The two spaced mathematical exponents in the implementation's prose (`head_k_dim ** -0.5`,
+    # `K**-0.5`), exempted by value because no whitespace rule can tell a spaced exponent from a markdown
+    # bold marker — see IDENTIFIER. Both are algorithm constants: the DeltaNet key scale.
+    "0.5",
     "0.32",  # EXPERT_L1_BUDGET_FRACTION
     "0.05",  # a tolerance in make_readme.py's range formatting
     "0.0",  # a numeric default in perf_accounting.py
@@ -344,23 +348,28 @@ SECTION = re.compile(r"(?m)^#{1,6}\s+\d+(?:\.\d+)*\.?\s|§\s?\d+(?:\.\d+)*|\bsec
 RULE_ID = re.compile(r"\bOPT-\d+|#\d{4,6}\b")
 
 IDENTIFIER = re.compile(
-    # A mathematical exponent, e.g. `head_dim**-0.5` or `head_k_dim ** -0.5` — an expression, not a
-    # measurement.
+    # A mathematical exponent with NO space around the `**`, e.g. `head_dim**-0.5`. Safe because markdown
+    # bold never has a word character immediately before its opener AND a number immediately after.
     #
-    # Distinguishing it from a markdown **bold opener** is delicate and got this wrong twice. The naive
-    # `\*\*\s*-?[\d.]+` matched the bold opener too, so it stripped the leading `**` AND the number of
-    # every bolded figure in these documents — which is how nearly all of them are written; review round 6
-    # proved it by injecting `**777.7 us**` into the README and watching the audit pass. Requiring a word
-    # character before the `**` did not fix it either, because `and **1.07 %**` also has one.
-    #
-    # The reliable discriminator is what follows the `**`: markdown bold opens with NO space before its
-    # content (`**1.07`), while a spaced exponent always has one (`** -0.5`). So two tight alternatives,
-    # and neither can match a bold opener:
-    r"\w\*\*-?[\d.]+"  # tight form: head_dim**-0.5
-    r"|\*\*\s+-?[\d.]+"  # spaced form: head_k_dim ** -0.5
+    # The *spaced* form (`head_k_dim ** -0.5`) is deliberately NOT matched here. Three attempts to separate
+    # it from markdown bold by regex all leaked, each in a different direction:
+    #   1. `\*\*\s*-?[\d.]+` matched the bold **opener**, stripping the number of every bolded figure —
+    #      which is how nearly all figures in these documents are written (round 6).
+    #   2. `\w\s*\*\*…` did not help: `and **1.07 %**` has a word character before the `**` too.
+    #   3. `\*\*\s+-?[\d.]+` matched after a bold **closer**: `is **taken** 777.7 us` (round 7).
+    # A bold closer followed by a figure is ordinary prose, so there is no whitespace rule that separates
+    # the two. The spaced exponents are therefore exempted BY VALUE in ``ALLOWED`` instead — there are two
+    # of them and they are constants of the algorithm, not measurements.
+    # The minus sign is required, not optional: `\w\*\*-?…` also matched `x**888.8`, i.e. a bold figure
+    # immediately after an identifier (round 7). Every exponent in these documents is negative — it is the
+    # DeltaNet key scale — so requiring the sign closes that without exempting anything real.
+    r"\w\*\*-[\d.]+"
     r"|(?:manual_)?seed\s*[=(]\s*\d+|\bseed=\d+|\.(?:cpp|hpp|py|cc|h|sh|json|md|txt|csv):\d+(?:-\d+)?"
-    # Scientific notation is one literal; without this the exponent of "0.000e+00" reads as an integer.
-    r"|\d+\.?\d*e[+-]?\d+"
+    # Only the EXPONENT of scientific notation, not the mantissa. The exponent has to go — otherwise the
+    # `00` of "0.000e+00" reads as an integer — but stripping the whole literal exempted hand-written
+    # values like "7.7e-03" from being checked at all, which round 7 flagged. This leaves the mantissa in
+    # the text, where the decimal pass checks it like any other figure.
+    r"|(?<=[\d.])e[+-]?\d+"
     # A git object name, which must contain at least one hex LETTER: `[0-9a-f]{7,40}` on its own also
     # matches a long decimal, which would silently exempt every byte count in the contract.
     r"|\b(?=[0-9a-f]{7,40}\b)[0-9a-f]*[a-f][0-9a-f]*\b"
@@ -425,6 +434,10 @@ HISTORICAL = {
     # re-run replaced, and the 1 MiB-fallback L1 budget round 1 found. Facts about superseded states.
     "1888",
     "472",
+    # The fabricated values round 6 and round 7 injected to prove the gate was leaking. Quoted in §6 to
+    # record what the experiment was; they describe a test of the checker, not a measurement of the model.
+    "777.7",
+    "888.8",
     # Round 5's measurement of the SUPERSEDED substring rule's false-positive rate. A fact about a checker
     # that no longer exists; `logs/audit_selftest.txt` carries the current rule's rates.
     "1581",
@@ -738,18 +751,36 @@ def check_mirrored_constants() -> list:
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
-            if name in {"SPARSE_CORES_PER_ACTIVE", "SPARSE_MIN_CORES", "SPARSE_MAX_CORES"}:
+            if name in {
+                "SPARSE_CORES_PER_ACTIVE",
+                "SPARSE_MIN_CORES",
+                "SPARSE_MAX_CORES",
+                "SPARSE_GATE_UP_IN0_BLOCK_W",
+            }:
                 try:
                     found[name] = ast.literal_eval(node.value)
                 except ValueError:
                     pass
     #: What make_readme.block_sparse_search assumes. Keep in step with that function.
-    expected = {"SPARSE_CORES_PER_ACTIVE": {"gate_up": 2, "down": 4}, "SPARSE_MIN_CORES": 8, "SPARSE_MAX_CORES": 32}
+    expected = {
+        "SPARSE_CORES_PER_ACTIVE": {"gate_up": 2, "down": 4},
+        "SPARSE_MIN_CORES": 8,
+        "SPARSE_MAX_CORES": 32,
+        # The generated sparse table picks which phase's `in0_block_w` applies from the realised core count.
+        # That rule is only meaningful while the cap actually differs between the two, so the *shape* of this
+        # constant is mirrored, not just its presence: round 7 found the table reporting the decode cap on a
+        # prefill row precisely because it assumed a single cap after round 6 had made it two.
+        "SPARSE_GATE_UP_IN0_BLOCK_W": {False: 32, True: 64},
+    }
     problems = []
     for name, want in expected.items():
         got = found.get(name)
         if got is None:
             problems.append(f"MIRRORED-RULE-MISSING  {name} not found in tt/optimized_decoder.py")
+        elif name == "SPARSE_MIN_CORES" and got != 8:
+            problems.append(
+                f"MIRRORED-RULE-DRIFT  make_readme.SPARSE_MIN_CORES_MIRROR is 8, the implementation says {got!r}"
+            )
         elif got != want:
             problems.append(
                 f"MIRRORED-RULE-DRIFT  make_readme.block_sparse_search mirrors {name} as {want!r}, the "
@@ -764,7 +795,7 @@ def check_mirrored_constants() -> list:
 #:   freshness evidence itself.
 #: * ``context_contract.json`` is a document that is also evidence; its figures are audited.
 #: * ``triage/`` is a capture of a *hardware incident* that a re-run must not reproduce on purpose.
-#: * The five ``ab_*.txt`` below are **one-off decision records**, not regenerable by
+#: * The four ``ab_*.txt`` below are **one-off decision records**, not regenerable by
 #:   ``run_evidence.sh``: each needed a deliberate variant of the implementation (a different constant, a
 #:   different dtype on one multiply, a k-chunk the layer must not ship) that only exists long enough to
 #:   measure it. They are A/B *pairs* measured back to back in one process, so what they establish is the
@@ -772,6 +803,11 @@ def check_mirrored_constants() -> list:
 #:   level belongs to the revision that produced them, and the shipped default's absolute level is
 #:   re-measured end to end on every run in ``ab_fused_vs_optimized.txt``. Documents quoting them must
 #:   quote the pair, not the level.
+#:
+#: ``ab_norm_shard_cores.txt`` and ``ab_gate_up_in0_block_w.txt`` are deliberately NOT here: both swap a
+#: constant at runtime rather than needing a variant of the implementation, so ``run_evidence.sh``
+#: regenerates them and the freshness rule applies. Round 7 caught the first of the two exempted under a
+#: rationale that did not describe it.
 EXEMPT_FROM_FRESHNESS = {
     "commit_record.txt",
     "context_contract.json",
@@ -780,7 +816,6 @@ EXEMPT_FROM_FRESHNESS = {
     "triage-summary.txt",
     "ab_gdn_out_activation.txt",
     "ab_norm_shard_width.txt",
-    "ab_norm_shard_cores.txt",
     "ab_state_l1.txt",
     "ab_sdpa_decode_contract.txt",
 }

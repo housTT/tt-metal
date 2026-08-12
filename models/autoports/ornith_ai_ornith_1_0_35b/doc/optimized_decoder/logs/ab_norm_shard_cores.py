@@ -2,12 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Whole-layer A/B over ``OptimizedDecoder.NORM_SHARD_CORES``.
 
-The isolated ``NORM`` rows of ``probe_decode_micro.txt`` are **not monotonic** in the core count — 4
-cores and 32 cores both measure faster than the shipped 8 — and review round 6 found the documented
-conclusion claiming the opposite while no whole-layer A/B had ever been run at 4 or 32. An isolated norm
-is not the decision either way: each sharded norm also pays a ``to_memory_config`` in and a
-``sharded_to_interleaved`` out, and those scale with the shard count, so the op-level winner need not be
-the layer-level winner. This measures the layer.
+The isolated ``NORM`` rows of ``probe_decode_micro.txt`` make **4 cores** the fastest, several microseconds
+ahead of the shipped 8, and review round 6 found the shipped choice defended by a monotonicity claim the
+artifact contradicted and by an A/B that varies a different knob. An isolated norm is not the decision
+either way: each sharded norm also pays a ``to_memory_config`` in and a ``sharded_to_interleaved`` out.
+This measures the layer, which is what the ship decision rests on.
+
+What it finds is that the layer barely moves at all across 4/8/16/32 — a few microseconds, with 8
+marginally best on both kinds — while the isolated rows predict a much larger swing. The conversions are
+the obvious suspect but they do not explain the *sign* at 4 cores (fewer shards should be cheaper on both
+terms), so the honest statement is that the op-level ladder does not transfer to the layer here and the
+layer measurement is the one that decides. Not investigated further: every arm is within a few
+microseconds of every other, so nothing measurable is at stake.
 
     python models/autoports/ornith_ai_ornith_1_0_35b/doc/optimized_decoder/logs/ab_norm_shard_cores.py
 

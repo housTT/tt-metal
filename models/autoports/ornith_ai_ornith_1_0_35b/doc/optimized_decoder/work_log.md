@@ -180,13 +180,14 @@ applied unconditionally.
 The shipped rule is therefore an active-expert-aware target:
 `cores = clamp(active_bound / k, 8, 32)` with `k` = 2 for gate/up and 4 for down, where
 `active_bound = min(num_experts, real_rows * num_experts_per_tok)` is known exactly from the token
-count. It reproduces the measured winner at all four sweep points. `in0_block_w` takes the largest
-legal divisor of `Kt` (64 and 16); both roles improve monotonically with it and then flatten, and
-the one place a smaller value edged ahead — gate/up at the 8-core decode geometry, 32 over 64 — is a
-2 % gap inside the run-to-run spread.
+count. It reproduces the measured winner at all four sweep points. `in0_block_w` takes the largest legal
+divisor of `Kt` up to a cap; `down` improves monotonically with it and then flattens, so its cap is the
+whole tiled `K`, while **gate/up's cap follows the realised core count** — the narrow decode geometry wants
+a smaller inner block and the wide one wants the whole `K`, by margins several times the measured spread in
+both directions (§4.15).
 
-`in0_block_w = 2` never appears: the shipped values are **64** (gate/up, the whole tiled K) and
-**16** (down, the whole tiled K), and the sweep shows the full ladder below them.
+`in0_block_w = 2` never appears: the shipped values are **32 or 64** for gate/up depending on the realised
+core count (§4.15) and **16** for down, the whole tiled K, and the sweep shows the full ladder below them.
 
 ### 3.2 Every routed-expert intermediate moves to L1
 
@@ -408,6 +409,17 @@ faster standalone) drops the layer's decode PCC to 0.02-0.92, and passing the pr
 config to the decode op drops it to 0.33. Both failures are invisible to a standalone probe, whose
 reference is the same op on the same page table. The shipped config keeps `k_chunk_size` pinned to
 `page_block_size` and passes no compute-kernel config. `SdpaDecode` is 17 µs/step, 2 % of the window.
+
+Review round 7 raised a **third** candidate — `q_chunk_size = 0, k_chunk_size = 0`, which the probe
+measures ~9 % faster in isolation on all four grids, and which OPT-002 names as the usual first paged
+decode candidate. It was measured rather than argued, and the result corrects the review's own
+inference: it is **correct** at the layer (the whole 109-case suite passes, and every case candidates A
+and B fail passes with worst PCC 0.999865), so the correctness argument that rejects those two does not
+apply. What rejects it is that the win does not survive the layer — 0.848 against the shipped 0.849 ms,
+inside the spread, because a 5 µs op-level difference has nowhere to go in a window where `SdpaDecode`
+is 2 %. Against that, `k_chunk_size = 0` hands the chunk choice to the op, and candidate A is the proof
+that a chunk larger than `page_block_size` is silently wrong at this paged geometry. Rejected on **no
+layer-level gain**, with both arms in `ab_sdpa_decode_contract.txt`.
 
 ### 4.6 BFP4 dense projection weights — measured, decision recorded in §5 of the README
 
@@ -969,9 +981,75 @@ sections now report a measured `spread=` like the matmul probes (round 5 had fix
 repeats the isolated ladder turns out to be *monotonic* — 4 fastest, then 8, 16, 32, 64 — so the earlier
 non-monotonicity was single-shot noise, which is exactly what a spread exists to reveal. The new
 whole-layer A/B ([`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt)) then shows all of 4/8/16/32
-landing within a few microseconds, with 8 marginally best on both layer kinds: each sharded norm also pays a
-`to_memory_config` in and a `sharded_to_interleaved` out, and those scale with the shard count, cancelling
-the op-level gain. 8 ships because the layer measurement says so, not because of the claim that was there.
+landing within a few microseconds, with 8 marginally best on both layer kinds. 8 ships because the layer
+measurement says so, not because of the claim that was there.
+
+One loose end, stated rather than glossed: the boundary conversions are the obvious reason the op-level
+ladder does not transfer, but they do not explain the *sign* at 4 cores — fewer shards should be cheaper on
+both the norm and the conversions, and the layer is nonetheless a microsecond slower there. So the honest
+summary is that the isolated ladder does not predict the layer at this knob, and the layer is what decides.
+It is not investigated further because every arm is within a few microseconds of every other, so nothing
+measurable rides on the explanation.
+
+**Round 7** returned `more-work-needed` with eight items. Three were **defects in round 6's own fix**, which
+is the pattern to notice: every round that changes a generator or the gate introduces a new way for the same
+class of error to appear, and only an independent pass finds it.
+
+* **P1 — the generated sparse table reported an `in0_block_w` the layer does not build on three of its four
+  gate/up rows, including the prefill geometry.** The generator read the shipped cap from the suite log's
+  *decode* line only, justified by a docstring saying "`in0_block_w` is a function of `K` alone" — true
+  before round 6 and made false **by** round 6, whose entire point was to make the gate/up cap depend on the
+  realised core count as well. So the table put the decode cap on the prefill row and understated shipped
+  prefill sparse performance by ~10 % on the largest op in that window. It now reads both the decode and
+  prefill lines (the new prefill test logs the latter) and picks the phase from the realised core count. Two
+  secondary bugs surfaced while fixing it: the prefill marker was matched with a trailing colon that the log
+  line does not have, so every wide-geometry row silently rendered "no probe row at the shipped geometry".
+* **P2 — the new discriminator keyed off the *target* core count instead of the realised one**, and at
+  exactly one batch size that mattered: 3 real rows give a bound of 24 and a target of 12, which is above
+  `SPARSE_MIN_CORES`, while the grid actually built is still 8 cores — so batch-3 decode got the 8-core /
+  wide-block pair that round 6 had just removed. The cap is derived after the `Nt` divisor reduction now,
+  via a shared `_sparse_n_tiles` helper so the layer and the generator cannot disagree about it.
+* **P1 — the round-6 replacement for the bold-figure exemption still stripped a figure after a bold
+  *closer*** (`is **taken** 777.7 µs`), which is ordinary prose. That was the third failed attempt to
+  separate a spaced mathematical exponent from a markdown bold marker by whitespace rule, and there is no
+  such rule: a bold closer followed by a figure looks exactly like `x ** -0.5`. The spaced exponents are
+  exempted **by value** now (there are two, both the DeltaNet key scale), the tight form requires the minus
+  sign so `x**888.8` no longer leaks, and the scientific-notation exemption was narrowed to the exponent so
+  a hand-written mantissa is still checked. Verified against the full injection set: bold opener, bold
+  closer, tight form, table cell and plain are all caught.
+* **P2 — nothing gated the new constant.** `check_mirrored_constants` covered the core-count rules but not
+  `SPARSE_GATE_UP_IN0_BLOCK_W` — the very assumption whose drift caused the P1 above — and neither config
+  test asserted the sparse `in0_block_w`, so setting the cap table to a single value passed the whole suite.
+  Both tests assert it per phase now, derived from the layer's own rules rather than from a literal, plus an
+  explicit assertion that the two phases' caps *differ*; I verified a collapsed table fails them. The
+  constant is in the mirror check, and an induced drift is caught.
+* **P1 — three documents still stated the pre-round-6 single-cap rule**, including two stacked stale comment
+  blocks in the implementation left by the round-6 edit itself. All rewritten to the shipped phase-aware
+  rule; the stacked blocks are one block.
+
+The remaining items:
+
+* README §5.5's sharded-norm knob row cited `ab_norm_shard_width.txt` as showing the conversions to be the
+  smaller cost, and **both of that A/B's arms are sharded** — it varies which norms shard, not whether they
+  do. This is round 6's "the A/B cited in its defence varies a different knob", recurring one row over. The
+  row now cites `ab_norm_shard_cores.txt` for the core count and names the development-ladder row as the only
+  layer-level sharded-vs-interleaved comparison there is.
+* `ab_norm_shard_cores.txt` was in `EXEMPT_FROM_FRESHNESS` under a rationale ("not regenerable, needs a
+  variant of the implementation") that does not describe it — it swaps a class attribute at runtime and the
+  sweep regenerates it. Removed from the exempt set, and README §5.1's disclosure of that set corrected.
+* the last "~9 µs" norm figure, in a code comment where the integer pass does not look; removed.
+* `ab_norm_shard_cores.py`'s own docstring still asserted the non-monotonicity its artifact had disproved.
+
+**The SDPA `q_chunk=0, k_chunk=0` candidate was measured, and the review's own reasoning about it was
+wrong.** Round 7 observed it measured on all four grids and dispositioned nowhere, and inferred from its
+`pcc_vs_default` fingerprint that it would collapse like the `k_chunk 128` candidate. It does not: with only
+that config changed, the **whole 109-case suite passes**, and every case candidates A and B fail passes with
+worst PCC 0.999865. So the correctness argument that rejects those two does not apply here. What rejects it
+is the layer: 0.848 ms against the shipped 0.849, inside the spread, because a 5 µs op-level difference has
+nowhere to go in a window where `SdpaDecode` is 2 %. Recorded as candidate C in
+`ab_sdpa_decode_contract.txt` with both arms, rejected on *no layer-level gain* rather than on correctness —
+and `k_chunk_size` stays pinned to `page_block_size` because candidate A is the proof that exceeding the
+page block is silently wrong, and delegating the choice to the op makes that invariant uncheckable.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

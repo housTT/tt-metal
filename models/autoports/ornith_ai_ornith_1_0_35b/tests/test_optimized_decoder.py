@@ -1786,6 +1786,28 @@ def test_precision_policy_reaches_the_device_tensors(mesh_device, layer_idx):
     del decoder
 
 
+def _sparse_gate_up_block_w(moe, *, batch: int) -> int:
+    """The routed gate/up ``in0_block_w`` the layer will pick for a call of ``batch`` real rows.
+
+    Derived from the implementation's own two rules — the active-expert bound chooses a core target, the
+    target reduces to a divisor of ``Nt``, and the reduced count selects the cap — rather than from a
+    literal, so the assertions using it stay true if the ladder changes and fail if the *rule* changes.
+    """
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
+        SPARSE_GATE_UP_IN0_BLOCK_W,
+        SPARSE_MIN_CORES,
+        _largest_divisor_at_most,
+        _sparse_cores,
+        _sparse_n_tiles,
+    )
+
+    bound = moe._active_expert_bound(batch)
+    target = _sparse_cores("gate_up", bound)
+    realised = _largest_divisor_at_most(_sparse_n_tiles(moe.cfg, "gate_up"), max(1, target))
+    cap = SPARSE_GATE_UP_IN0_BLOCK_W[realised > SPARSE_MIN_CORES]
+    return _largest_divisor_at_most(moe.cfg.dim // 32, cap)
+
+
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypatch):
     """Every dense decode projection must run under its tuned program config, not ttnn's heuristic.
@@ -1870,11 +1892,25 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
             "the recurrent-state config must drop above the batch its block count fits, or the op "
             "fails at validation instead of falling back"
         )
-    for cfg, mem in sparse_calls:
+    # The routed gate/up `in0_block_w` is phase-dependent, and that is the whole point of
+    # SPARSE_GATE_UP_IN0_BLOCK_W: the value that wins a prefill group loses a batch-1 decode step by a
+    # margin several times the measured spread. Asserted per phase, in both this test and the prefill one,
+    # because review round 7 pointed out that nothing stopped the two values collapsing back into one —
+    # setting the table to a single cap passed the whole suite unchanged.
+    expected_ibw = [
+        _sparse_gate_up_block_w(decoder.moe, batch=1),
+        decoder.moe.down_in0_block_w,
+    ]
+    for (cfg, mem), want_ibw in zip(sparse_calls, expected_ibw):
         assert cfg is not None, "routed-expert sparse matmul ran without a program config"
         assert mem is not None and mem.buffer_type == ttnn.BufferType.L1, (
             f"routed-expert sparse matmul writes its num_experts-wide output to {mem}; the optimized "
             "path keeps every expert intermediate in L1"
+        )
+        assert cfg.in0_block_w == want_ibw, (
+            f"routed decode sparse matmul has in0_block_w={cfg.in0_block_w}, expected {want_ibw} — a "
+            f"batch-1 decode step realises the minimum core count, where the narrower inner block is the "
+            f"measured winner (README §5.4's generated table, work_log §4.15)"
         )
     logger.info(
         "decode sparse matmuls: "
@@ -1974,6 +2010,18 @@ def test_prefill_runs_the_tuned_program_configs(mesh_device, layer_idx):
             f"the 8-core decode geometry is ~4x slower here (work_log §3.1)"
         )
         assert cfg.in0_block_w >= 16, f"prefill sparse matmul has in0_block_w={cfg.in0_block_w}"
+    # And the *prefill* gate/up cap specifically: a 2048-token chunk realises a wide grid, where the whole
+    # tiled K wins by roughly ten percent. The pair of asserts — here and in the decode test — is what makes
+    # the phase-aware cap a contract rather than a coincidence.
+    want_prefill_ibw = _sparse_gate_up_block_w(decoder.moe, batch=DEFAULT_PREFILL_CHUNK)
+    assert sparse_calls[0][0].in0_block_w == want_prefill_ibw, (
+        f"routed prefill gate/up matmul has in0_block_w={sparse_calls[0][0].in0_block_w}, expected "
+        f"{want_prefill_ibw}"
+    )
+    assert want_prefill_ibw != _sparse_gate_up_block_w(decoder.moe, batch=1), (
+        "the prefill and decode gate/up in0_block_w caps are equal, so SPARSE_GATE_UP_IN0_BLOCK_W has "
+        "collapsed to a single value and one of the two phases is running the geometry the sweep rejects"
+    )
     # De-duplicated: a 2048-token chunk makes one call per 32-token MoE group, so the raw list is 128
     # copies of two configs and would put a 6 KB line in the suite log for no extra information.
     distinct = dict.fromkeys(
