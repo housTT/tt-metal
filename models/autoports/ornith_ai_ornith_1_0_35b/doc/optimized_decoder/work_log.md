@@ -628,4 +628,30 @@ corrected to name the test that actually is one, §5.4 says its core counts are 
 buffer-side L1 budget absorbs the ~6.5 % gap between `get_max_worker_l1_unreserved_size()` and the
 allocator's bank size, and the state-L1 win got its own `ab_*.txt`.
 
-Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt). Local commit only; nothing is pushed.
+**Round 3** returned `more-work-needed` with three items, all closed:
+
+* **P1, artifact plumbing rather than the model.** The repo's `.gitignore` has a blanket `*.csv` and
+  `run_profiling.sh` only gzipped files over the 500 KB hook limit, so
+  `full_attention/decode_perf_report.csv` (477 600 B) was never committed — `make_readme.py --check`
+  passed against the working tree while the *committed* tree could regenerate neither README §5.5 nor
+  §7, and `perf_accounting.py` quietly wrote a half accounting. Every report CSV is now gzipped
+  unconditionally, `perf_accounting.py` raises instead of writing a partial summary, and
+  `run_evidence.sh` ends by re-running all three generators against `git archive HEAD`.
+* the generated advice table now covers **all four** committed reports rather than the two decode
+  ones. That surfaced `place input 0 in L1` still open on three prefill rows; measured and rejected
+  with numbers (an L1 `in0` is *slower* on `attn_in` and `gdn_in`, and worth ~3 µs on `shared_in` —
+  0.006 % of the prefill window), `probe_prefill_matmul.txt`;
+* every hand-written µs figure in this log, the README and the code docstrings was re-derived from the
+  committed probe artifacts, which a later `run_evidence.sh` re-run had left them behind: NORM
+  22.4 → 13.7 rather than 21.4 → 9.3, the state outer product 18.2 rather than 20.4, SPLIT
+  222.3 / 297.9, GATE 118.7 / 104.5, the fused sparse geometry 255.3 / 333.1, DRAM-sharded
+  `shared_down` 14.2 and `router` 13.2. No decision direction changes.
+
+Round 3's other concerns were closed in the same pass: the state program configs now have a test gate
+(they go through `ttnn.matmul`, which the dense-config spy cannot see), the shared expert's L1
+placement gained the per-call-token guard the routed chain has, `_delta_rule_step`'s `dram`-named-but-L1
+local is renamed with its docstring corrected, the five unqualified `work_log.md §N` references that
+meant the *fused* stage are qualified, and README §9 item 5 lists all three batch thresholds including
+the recurrent-state config's batch-3 bound.
+
+Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt). Local commits only; nothing is pushed.

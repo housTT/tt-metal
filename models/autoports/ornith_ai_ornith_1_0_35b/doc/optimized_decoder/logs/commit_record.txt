@@ -2,10 +2,18 @@
 repo   = /home/ttuser/dev/ornith/tt-metal
 branch = agentic-research/hous/ornith-1.0-35B
 parent = 525530bdfc7a88d42bd1c6e93a19fbba0754dd18  [autoports] Ornith-1.0-35B fused decoder: record review round 27's clean-pass
-commit = 6d7e576bd6ab6a37d10ab5b5cbc3364f880d3ed3  [autoports] Ornith-1.0-35B optimized decoder: 2.5x prefill, 1.9-2.1x traced decode
+head   = a7c9340bee660d6eb45b729e4077e3c26b3ead6b
 
-# Stage-owned paths only; no unrelated dirty file is included. The one untracked file left in the
-# worktree, .agents/fast-models-fast-feedback.md, predates this stage and is deliberately not staged.
- .../tests/test_optimized_decoder.py                | 2029 +++++++++++++
- .../tt/optimized_decoder.py                        | 2996 ++++++++++++++++++++
- 59 files changed, 18042 insertions(+)
+# Commits this stage added, oldest first:
+6d7e576bd6a [autoports] Ornith-1.0-35B optimized decoder: 2.5x prefill, 1.9-2.1x traced decode
+7aeccd08b74 [autoports] Ornith-1.0-35B optimized decoder: record the review rounds and the checkpoint SHA
+a7c9340bee6 [autoports] Ornith-1.0-35B optimized decoder: close review round 3
+
+# Stage-owned paths only. The one untracked file left in the worktree,
+# .agents/fast-models-fast-feedback.md, predates this stage and is deliberately not staged.
+#
+# The committed tree reproduces every generator:
+#   tree=$(mktemp -d); git archive HEAD | tar -x -C "$tree"
+#   ( cd "$tree" && python .../logs/make_readme.py --check \
+#       && python .../tracy/perf_accounting.py && python .../watcher/census.py )
+# -> "README matches the artifacts", full accounting for both layer kinds, fatal-class matches: 0.
