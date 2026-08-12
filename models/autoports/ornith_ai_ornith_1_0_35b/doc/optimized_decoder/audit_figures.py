@@ -851,6 +851,43 @@ def check_model_facts() -> list:
     return problems
 
 
+def check_sparse_block_rule() -> list:
+    """The output-block rule the generated sparse table pins must be the rule the layer logged.
+
+    Round 10's finding: `make_readme.block_sparse_search` looked the shipped row up by (cores, in0_block_w,
+    per_core_N) and took `min()`, while the probe sweeps `out_block_w` and `sub_w` as independent axes - so at
+    one point it reported a *faster* geometry than the layer builds, and the mirror checks could not see it
+    because they mirror the core rule and not the block rule. Five consecutive rounds found that one lookup
+    under-constrained by exactly one axis, which is the argument for checking the rule rather than the table.
+
+    This checks it against the layer's own record instead of against the implementation's text: the suite log
+    prints every sparse program config the layer actually built (``... sparse matmuls ... per_core_N=N
+    out_block_w=W sub_w=S``), so the two invariants - ``out_block_w == per_core_N`` and
+    ``out_subblock_w == largest divisor of per_core_N at most 8`` - are asserted on measured behaviour. If the
+    layer's rule changes, the generated table's pins become wrong and this fails.
+    """
+    log = artifact_path(DOC / "logs/pytest_full_suite.txt")
+    if not exists(DOC / "logs/pytest_full_suite.txt"):
+        return ["MISSING-ARTIFACT  logs/pytest_full_suite.txt (needed for the sparse block rule)"]
+    body = read_blob(log)
+    # Every triple in the log, not one per line: a single line lists several configs, and the dense matmul
+    # lines carry the same three fields under the same rule, so scanning all of them widens the check.
+    seen = re.findall(r"per_core_N=(\d+) out_block_w=(\d+) sub_w=(\d+)", body)
+    if not seen:
+        return ["SPARSE-RULE-UNRECORDED  the suite log records no sparse program config to check the rule on"]
+    problems = []
+    for pcn, obw, sub in {tuple(map(int, s)) for s in seen}:
+        expect_sub = max((d for d in range(min(8, pcn), 0, -1) if pcn % d == 0), default=1)
+        if obw != pcn or sub != expect_sub:
+            problems.append(
+                f"SPARSE-BLOCK-RULE-DRIFT  the suite log records a sparse config with per_core_N={pcn}, "
+                f"out_block_w={obw}, sub_w={sub}; the rule the generated table pins is out_block_w=per_core_N "
+                f"and sub_w={expect_sub}, so README §5.4's shipped column describes a geometry the layer does "
+                f"not build"
+            )
+    return problems
+
+
 def check_mirrored_constants() -> list:
     """``make_readme.py`` mirrors a few implementation rules; assert they still agree with the code.
 
@@ -1197,6 +1234,7 @@ def main() -> int:
     problems += check_freshness()
     problems += check_freshness_exemptions()
     problems += check_model_facts()
+    problems += check_sparse_block_rule()
     problems += check_mirrored_constants()
     problems += check_generators()
     problems += check_derived(all_tokens)

@@ -338,8 +338,14 @@ same harness reports the same figure with `trace_region_size` 0 and reserved. Wh
 process itself (allocator state and several resident KV caches), so the level belongs to the harness rather
 than to the trace region. It does not affect any A/B: every arm in a given file is measured by the same
 harness, and the differences are what those files claim. The same artifact also measures the layer-level
-run-to-run spread that several rejections lean on — repeats agree to the last digit the harness prints —
-which is what makes a one-microsecond gap a real difference rather than noise.
+run-to-run spread that several rejections lean on, and the answer is a caution rather than a licence: three
+fresh builds of the *same* arm in one process differ by more than ten microseconds — the shipped
+`linear_attention` arm reports 1.091, 1.077 and 1.077 ms — which is many times the gap some candidates were
+argued over. Round 10 found this sentence claiming the opposite, that repeats agree to the last digit, which
+would have made a one-microsecond layer gap meaningful. It is not. Every rejection in §5.4 and work_log §4 that
+turns on a small difference therefore turns on an *op-level* measurement with its own per-row spread, and the
+two layer-level A/Bs that decide something are far outside this band — tens of microseconds for the routed
+gate/up cap, most of a millisecond of prefill for the grid orientation.
 
 **Two classes of artifact, and how to read each.** Everything `logs/run_evidence.sh` regenerates is
 re-measured from the shipped code on every run, and `audit_figures.py` requires it to be newer than
@@ -412,7 +418,7 @@ width, and output placement, under the selected BFP4/LoFi policy, at four active
 | 8 | gate/up | 256.1 µs | **153.4 µs** — 8(1x8), `in0_block_w` 32, `per_core_N` 4, L1 | **153.4 µs** — 8 cores (1x8), `in0_block_w` 32, `per_core_N` 4 | **the measured winner** |
 | 8 | down | 332.8 µs | **152.5 µs** — 8(1x8), `in0_block_w` 16, `per_core_N` 8, L1 | **152.5 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **the measured winner** |
 | 32 | gate/up | 356.9 µs | **287.4 µs** — 16(8x2), `in0_block_w` 64, `per_core_N` 2, L1 | **292.1 µs** — 16 cores (2x8), `in0_block_w` 64, `per_core_N` 2 | **+4.7 µs (+1.6 %)**, beyond the ±0.7 µs spread |
-| 32 | down | 370.3 µs | **232.2 µs** — 8(8x1), `in0_block_w` 16, `per_core_N` 8, L1 | **237.4 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **+5.2 µs (+2.2 %)**, beyond the ±1.1 µs spread |
+| 32 | down | 370.3 µs | **232.2 µs** — 8(8x1), `in0_block_w` 16, `per_core_N` 8, L1 | **241.5 µs** — 8 cores (1x8), `in0_block_w` 16, `per_core_N` 8 | **+9.3 µs (+4.0 %)**, beyond the ±1.1 µs spread |
 | 64 | gate/up | 477.3 µs | **385.6 µs** — 32(4x8), `in0_block_w` 64, `per_core_N` 1, L1 | **385.6 µs** — 32 cores (4x8), `in0_block_w` 64, `per_core_N` 1 | **the measured winner** |
 | 64 | down | 415.4 µs | **276.1 µs** — 16(8x2), `in0_block_w` 16, `per_core_N` 4, L1 | **284.5 µs** — 16 cores (2x8), `in0_block_w` 16, `per_core_N` 4 | **+8.4 µs (+3.0 %)**, beyond the ±4.3 µs spread |
 | 162 | gate/up | 751.7 µs | **570.0 µs** — 32(4x8), `in0_block_w` 64, `per_core_N` 1, L1 | **570.0 µs** — 32 cores (4x8), `in0_block_w` 64, `per_core_N` 1 | **the measured winner** |
@@ -604,11 +610,19 @@ The model itself dispatches **no** explicit `tilize`, `untilize`, `reshard`, `to
 `from_torch` in either measured path — the `tilize`/`untilize` entry points are watched by the test
 above and are 0 in all four cases. What does appear in the device reports is the lowering of three
 *composite* ops that have no tile-native form at these shapes, and they are itemised rather than
-denied: `ttnn.scatter` in the router (untilize ×2 → scatter → tilize, ~34 µs/step),
-`ttnn.repeat_interleave` for the GQA head expansion (untilize → concat → tilize, ~24 µs/step on
-`linear_attention`, plus the once-per-step stall in front of it that §7 itemises), and the `topk`
-index readback. §5.3 counts
-them and §7 names what removing them would take.
+denied — `ttnn.scatter` in the router, `ttnn.repeat_interleave` for the GQA head expansion (plus the
+once-per-step stall in front of it that §7 itemises), and the `topk` index readback:
+
+<!-- generated:composite-chains -->
+| Composite op | Chain, in dispatch order | µs/step |
+| --- | --- | --- |
+| `ttnn.repeat_interleave (GQA head expansion)` | UntilizeWithUnpadding → Concat → TilizeWithValPadding | **12.3** |
+| `ttnn.scatter (router)` | Untilize → UntilizeWithUnpadding → UntilizeWithUnpadding → Scatter → Tilize | **32.2** |
+
+Both are measured on `linear_attention`, summed over the *consecutive* ops of each call rather than by op code — the router's and `topk`'s untilizes share op codes with the head-expansion chain and are separate calls, which is how review round 10 found the `repeat_interleave` figure roughly doubled.
+<!-- /generated:composite-chains -->
+
+§5.3 counts them and §7 names what removing them would take.
 
 `test_optimized_path_is_used` additionally asserts the dedicated fused ops are still dispatched and
 that the *functional* decoder dispatches none of them beyond the three the implementations share, so
@@ -768,16 +782,21 @@ Artifacts: [`watcher/watcher_log.txt`](watcher/watcher_log.txt), [`watcher/censu
    prefill window — §5.4's generated composition line states it exactly — i.e. the same order as the dense
    prefill matmul group that *does* get a swept table, so this is a real gap rather than a non-issue — it is named here instead of being left for a reader to notice. The decode SDPA config
    *is* swept (§5.5, `probe_decode_micro.txt`, and `ab_sdpa_decode_contract.txt` for the rejected arms).
-8. **Two measured-faster decode candidates are deliberately not shipped, both on the SDPA op.** The
-   `q_chunk = k_chunk = 0` arm is correct on all 109 cases and reproducibly a microsecond or two faster at the
-   layer — about 0.1–0.2 % of a decode step — and is rejected because it replaces a checkable invariant
-   (`k_chunk == page_block_size`) with trust in the op's internal chunk choice, where the k128 arm in
-   `ab_sdpa_decode_contract.txt` proves an oversized k-chunk is *silently wrong* rather than an error. The
-   `8x4` grid is 0.9 µs faster in isolation, a dead heat at the layer, and is rejected because flash-decode
-   needs one core per batch row: 32 cores would cap decode at batch 32 and break the supported batch-40 and
-   batch-56 cases. So "the shipped configuration beats every correct candidate" holds on every axis except
-   those two — by ~0.1–0.2 % of a step and by nothing measurable respectively — deliberately, with the
-   evidence in work_log §4.5 and §3.8. Every other candidate this stage measured is shipped or slower.
+8. **Two SDPA candidates are faster in the isolated op and not shipped — neither is faster at the layer.**
+   The `q_chunk = k_chunk = 0` arm is correct on all 109 cases and faster as an op — 56.5 against 61.0 µs in
+   [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — while at the layer it is a dead heat or
+   marginally behind: [`logs/ab_decode_harness.txt`](logs/ab_decode_harness.txt) reports 0.876 / 0.877 / 0.875 ms
+   for the candidate against 0.871 / 0.880 / 0.870 ms for the shipped arm, three fresh builds each, differences
+   smaller than one arm's own span. It is rejected because it replaces a checkable invariant
+   (`k_chunk == page_block_size`) with
+   trust in the op's internal chunk choice, where the k128 arm in `ab_sdpa_decode_contract.txt` proves an
+   oversized k-chunk is *silently wrong* rather than an error. The `8x4` grid is ~1 µs faster as an op, a dead
+   heat at the layer, and is rejected because flash-decode needs one core per page-table row: 32 cores would
+   cap decode at 32 rows and break the supported batch-40 and batch-56 cases. So **no measured candidate is
+   faster than the shipped configuration at the layer**, which is the level that ships; the two op-level wins
+   are recorded here because an unexplained faster row in a committed probe is a trap for the next stage.
+   Round 10 corrected this item: it previously credited the `q0/k0` arm with a layer-level win its own artifact
+   does not show. work_log §4.5 and §3.8 have both arms.
 9. **The `linear_attention` prefill still selects its depthwise-conv path by probing at
    `allocate_state`**, inherited unchanged from the fused decoder together with its coverage table
    and its documented risk that a `(batch, length)` which passes the probe can still fail inside a

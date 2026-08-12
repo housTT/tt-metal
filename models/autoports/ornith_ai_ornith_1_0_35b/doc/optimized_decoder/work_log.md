@@ -58,32 +58,36 @@ Done first, before any knob tuning, from the fused stage's committed
 `tracy/<kind>/decode_perf_report.csv` plus a fresh capture of the copied decoder. Per traced decode
 step, `full_attention`, sorted by device time — this is the table the whole stage was planned from:
 
+<!-- generated:topology-audit-full -->
 | Rank | Op code | µs/step | What it is | Candidate | Action |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `SparseMatmul active=?/256 x 32 x 2048 x 1024` | 368.0 | packed routed-expert gate/up | BFP4 weights + LoFi; core/block geometry; L1 output; fewer active experts | **all four taken** (§3.1, §3.2, §3.3, §3.4) |
 | 2 | `SparseMatmul active=?/256 x 32 x 512 x 2048` | 343.8 | routed-expert down | same | **all four taken** |
 | 3 | `UnaryDeviceOperation` | 270.1 | ~99 % `UnaryOpType::FILL` — `sparse_matmul` zeroing its 256-expert-wide output | move the output to L1; halve its dtype | **taken** (§3.2, §3.3) |
 | 4 | `BinaryNgDeviceOperation` | 139.8 | SwiGLU multiply + router-score multiply, both over the 256-expert axis | L1 + BFP8 intermediates | **taken** (§3.2, §3.3) |
-| 5 | `MatmulDeviceOperation 32 x 4096 x 2048` | 74 | `o_proj` — flagged `SLOW`, 23.2 % of DRAM bandwidth | explicit decode program config; DRAM-sharded | **explicit 1D config taken**, DRAM-sharded measured and rejected (§4.1) |
+| 5 | `MatmulDeviceOperation 32 x 4096 x 2048` | 73.9 | `o_proj` — flagged `SLOW`, 23.2 % of DRAM bandwidth | explicit decode program config; DRAM-sharded | **explicit 1D config taken**, DRAM-sharded measured and rejected (§4.1) |
 | 6 | `SliceDeviceOperation` | 109.3 | mostly the two slices that unpack the packed gate/up output | split the pair instead; L1 + BFP8 | **packed kept** (§4.2), L1+BFP8 taken |
-| 7 | `MatmulDeviceOperation 32 x 2048 x 9216` | 56 | packed attention in-projection | explicit config; BFP8/BFP4 weights | **BFP8 + explicit config taken**, BFP4 measured (§4.6) |
-| 8 | `TopKDeviceOperation` | 48 | router top-8 over 256 experts, single core | pad to the multi-core width; replace the gate op | **both measured and rejected** (§4.3, §4.4) |
-| 9 | `LayerNormDeviceOperation` | 51 | four RMSNorms; the two residual ones run on **one core** | width-sharded L1 + `LayerNormShardedMultiCoreProgramConfig` | **taken** (§3.6) |
-| 10 | `MatmulDeviceOperation 32 x 2048 x 256` | 25 | router projection, 8 cores, 9.4 % of DRAM bandwidth | explicit config | **taken** (§3.5) |
-| 11 | `DeepseekMoEFastReduceNC` | 92 | expert-axis reduction over the 256-wide down output | L1 + BFP8 input | **taken** |
-| 12 | `SdpaDecodeDeviceOperation` | 18 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
+| 7 | `MatmulDeviceOperation 32 x 2048 x 9216` | 95.6 | packed attention in-projection | explicit config; BFP8/BFP4 weights | **BFP8 + explicit config taken**, BFP4 measured (§4.6) |
+| 8 | `TopKDeviceOperation` | 48.3 | router top-8 over 256 experts, single core | pad to the multi-core width; replace the gate op | **both measured and rejected** (§4.3, §4.4) |
+| 9 | `LayerNormDeviceOperation` | 51.0 | four RMSNorms; the two residual ones run on **one core** | width-sharded L1 + `LayerNormShardedMultiCoreProgramConfig` | **taken** (§3.6) |
+| 10 | `MatmulDeviceOperation 32 x 2048 x 256` | 25.5 | router projection, 8 cores, 9.4 % of DRAM bandwidth | explicit config | **taken** (§3.5) |
+| 11 | `DeepseekMoEFastReduceNC` | 92.0 | expert-axis reduction over the 256-wide down output | L1 + BFP8 input | **taken** |
+| 12 | `SdpaDecodeDeviceOperation` | 17.6 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
+<!-- /generated:topology-audit-full -->
 
 `linear_attention` shares the whole MoE and the norms with the table above; what differs is the
 mixer, and its own top items (from the same capture set, per traced step) are:
 
+<!-- generated:topology-audit-linear -->
 | Op code | µs/step | What it is | Action |
 | --- | --- | --- | --- |
 | `MatmulDeviceOperation 32 x 2048 x 12352` | 128.5 | packed DeltaNet in-projection | BFP8 + explicit decode config (§3.5) |
-| `MatmulDeviceOperation 32 x 4096 x 2048` | 74 | `out_proj` | explicit decode config (§3.5) + a bfloat16 activation (§4.11) |
-| 3 x `MatmulDeviceOperation b={32} 32 x 128 x 128` | 45 | the float32 recurrent-state matmuls: decay read, delta outer product, output read | operands moved to L1 — 19 µs (§3.9 item 2); fidelity swept and rejected |
-| `ReshapeViewDeviceOperation` + `PermuteDeviceOperation` | 39 | the one-shot head-major relayout of the conv output | inherited from the fused stage, which already reduced it from three round trips to one |
-| `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` | 24 | `repeat_interleave`'s GQA head expansion | output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation |
-| `TernaryDeviceOperation` | 17 | the `addcmul` conv-tap accumulation | inherited; the fused stage measured `addcmul` against `mac` and kept it |
+| `MatmulDeviceOperation 32 x 4096 x 2048` | 80.9 | `out_proj` | explicit decode config (§3.5) + a bfloat16 activation (§4.11) |
+| 3 x `MatmulDeviceOperation b={32} 32 x 128 x 128` | 44.2 | the float32 recurrent-state matmuls: decay read, delta outer product, output read | operands moved to L1 — 19 µs (§3.9 item 2); fidelity swept and rejected |
+| `ReshapeViewDeviceOperation` + `PermuteDeviceOperation` | 44.2 | the one-shot head-major relayout of the conv output | inherited from the fused stage, which already reduced it from three round trips to one |
+| `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` | 36.2 | `repeat_interleave`'s GQA head expansion | output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation |
+| `TernaryDeviceOperation` | 23.6 | the `addcmul` conv-tap accumulation | inherited; the fused stage measured `addcmul` against `mac` and kept it |
+<!-- /generated:topology-audit-linear -->
 
 Structural observations from the same read, which drove §3.1 and §3.4:
 
@@ -454,13 +458,20 @@ Round 8 then asked the two questions that settle it, and both are now measured r
 * **Is there a variant that keeps the page-block invariant?** No. The probe now sweeps `q_chunk=0` with
   `k_chunk=page_block` too, and it measures *identically* to the shipped `q_chunk=32` arm. The isolation win
   is entirely k-chunk-side, so there is no safe way to take it.
-* **Is the layer-level gap real or noise?** Real and small. `ab_decode_harness.txt` times both arms with
-  three repeats each: the candidate is reproducibly a microsecond or two faster, a fraction of a percent of a
-  decode step, against repeats that agree to the last digit the harness prints. My earlier "inside the
-  spread" wording was wrong, and measuring the spread is what showed it was wrong.
+* **Is the layer-level gap real or noise?** Noise — and this answer has now been wrong in both directions.
+  [`logs/ab_decode_harness.txt`](logs/ab_decode_harness.txt) times both arms with three fresh builds each, and
+  with no trace region reports 0.876 / 0.877 / 0.875 ms for the candidate against 0.871 / 0.880 / 0.870 ms for
+  the shipped arm; with a reserved region, 0.875 / 0.883 / 0.875 against 0.883 / 0.870 / 0.873. The candidate is
+  not ahead on either, and every difference between the arms is smaller than the span of one arm's own three
+  builds. Round 8 corrected my original "inside the spread" wording to "reproducibly a microsecond or two
+  faster" on the strength of that round's artifact; round 10 found the next run saying the opposite, and it is
+  the current artifact that counts. The advantage is real but exists only in the isolated op
+  ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), 56.5 against 61.0 µs). Worth stating plainly:
+  my first instinct here was right and I talked myself out of it on one run of a harness whose own repeats
+  disagree by more than the effect.
 
-Rejected on the **trade**, therefore, not on a tie: a fraction of a percent of one window in exchange for
-replacing a
+Rejected on the trade *and* on the measurement, therefore, where round 8 had it resting on the trade alone:
+there is nothing to trade away at the layer, and taking it would still mean replacing a
 checkable invariant with trust in the op's internal chunk choice, where candidate A is the proof that an
 oversized k-chunk here is *silently wrong* rather than an error. The 109-case pass bounds that risk without
 eliminating it — those contexts are a subset and the failure mode is a wrong answer, not a crash. Both arms
@@ -1166,7 +1177,9 @@ defects inside earlier rounds' fixes, and one corrected a claim I had made witho
   own rationale pointed at had never been tried. Both are now measured, and both matter: `q_chunk=0` with
   `k_chunk` still pinned to the page block measures **identically** to the shipped arm, so the isolation win
   is entirely k-chunk-side and there is no safe way to take it; and at the layer, with three repeats per arm,
-  the candidate is reproducibly a microsecond or two faster rather than tied. My "inside the spread" wording
+  the candidate looked reproducibly a microsecond or two faster rather than tied in that round's artifact -
+  which round 10 then found reversed in the next run, so §4.5 now rests on the op-level gap and the layer-level
+  dead heat rather than on either direction of a sub-spread difference. My "inside the spread" wording
   was simply wrong, and measuring the spread is what showed it. The rejection now rests on the trade — a
   fraction of a percent of one window against replacing a checkable invariant with trust in an op's internal
   chunk choice, where the failure mode is a silently wrong answer — which is a defensible reason where "it's
@@ -1271,6 +1284,61 @@ reproducibly 1–2 µs faster at the layer, and is rejected on the invariant-ver
 goal's "beat the best correct candidate" is met on every axis except that one, by ~0.1 %, deliberately and in
 writing. And `logs/commit_record.txt` necessarily records the SHA of the commit *before* the one that records
 it; the file says so.
+
+**Round 10** returned `more-work-needed` with four items, all of them documentation or gate integrity: no
+shipped configuration, PCC, capability or headline number changed. It also confirmed round 9's two reversals
+from the artifacts, and independently re-derived the suite, watcher, dtype/fidelity, footprint and headline
+claims, and both geometry rules against every config the suite log records.
+
+* **P2 — the generated sparse table's shipped cell named a geometry the layer does not build.** The lookup
+  matched the probe on (cores, `in0_block_w`, `per_core_N`) and took `min()`, but the probe sweeps `out_block_w`
+  and `sub_w` as independent axes while the layer derives both from `per_core_N`. At the 32-active `down` point
+  three rows share the key and `min()` took the fastest, so the table reported 237.4 µs where the layer runs
+  241.5 ([`logs/probe_sparse_matmul.txt`](logs/probe_sparse_matmul.txt), the `sub_w=2` and `sub_w=8` rows of that
+  geometry). **Fifth consecutive round that this one lookup was under-constrained by exactly one axis** — and the
+  argument that a generated table cannot be wrong only holds if its key is the whole rule. Every swept axis is
+  pinned now, and `audit_figures.check_sparse_block_rule` asserts the rule against the layer's own record: the
+  suite log prints every sparse program config the layer built, so `out_block_w == per_core_N` and
+  `out_subblock_w == largest divisor of per_core_N at most 8` are checked on measured behaviour rather than on
+  the implementation's text. Verified by injecting a drifted triple into the log.
+* **P2 — `census.py --check` could not fail.** Round 9 added the flag because the script accepted and ignored
+  it; round 10 found the fix comparing the file against itself, because the write happened one line above the
+  comparison. Replacing `census_summary.txt` with the word CORRUPTED and running `--check` reported success and
+  silently rewrote the file. **Fourth "gate that cannot fail" in this stage** — `check_freshness` twice, the
+  ignored flag, and now this — and the pattern in all four is identical: the check ran after the thing it
+  checked had already been overwritten or excused. It compares before writing now, and fails on corruption.
+* **P2 — two README claims contradicted by their own cited artifact.** §5.1 said the harness's repeats "agree to
+  the last digit", which was the stated basis for treating a one-microsecond layer gap as real; three fresh
+  builds of the same arm actually differ by more than ten microseconds. And §9 credited the SDPA `q0/k0`
+  candidate with being "reproducibly a microsecond or two faster at the layer" when the current artifact has it
+  level or behind on both trace-region settings. Both corrected, and §4.5's rejection is *stronger* for it: the
+  candidate is faster only as an isolated op, so there is nothing to trade away at the layer. The honest summary
+  of that sub-thread is that my original "inside the spread" reading was right, round 8 talked me out of it on
+  one run of a harness whose own repeats disagree by more than the effect, and round 10 put it back.
+* **P2 — five wrong figures in the operation-topology audit, and one in §6.** The §2 tables are the
+  pre-optimization read the whole stage was planned from, and three rows carried this stage's *post*-change
+  values (understating its own largest dense win by ~42 µs), one took a row from the other layer kind, and §6's
+  `repeat_interleave` cost was roughly doubled by summing op codes across a step instead of the consecutive ops
+  of that one call. All six were two-digit integers, which `ALLOWED_INT` exempts from sourcing wholesale — the
+  live consequence of the hole README §1 discloses. Transcribing corrections would leave the class open, so
+  both §2 tables and §6's two composite chains are **generated blocks** now: the topology tables from the fused
+  stage's committed capture (the baseline, by definition), the chains summed positionally from this stage's.
+  `make_readme.py --check` covers `work_log.md` as well as `README.md` from this round on.
+
+Two of round 10's concerns are recorded rather than changed, one because it is right and one because it is not.
+
+The contract's batch note claimed "any batch up to the 110-core grid is legal", which is true of the
+`paged_update_cache` shard it was describing and false of the path as a whole: the same flash-decode bound
+§3.8 documents caps `full_attention` decode at 64 page-table rows on the shipped 8x8 grid. The bound is
+inherited unchanged from the functional and fused decoders and sits above the 56 the suite exercises, so no
+capability is reduced here, but the note now states it.
+
+The suggestion to add a decode batch in 5..8, on the grounds that those exercise the tuned dense configs at
+`per_core_M` 5-8, does not hold: `per_core_M` is `ceil(batch / 32)`, so it is **1 for every batch from 1 to 32
+and 2 for 40 and 56** — two classes, both already tested, plus 13 for a batch with no rectangular factor pair.
+Simulating all seven dense roles across batches 1-8, 13, 32, 40 and 56 gives exactly two distinct config
+signatures, so a batch-8 case would add a second copy of what batch 4 already covers. Recorded here rather than
+implemented, because a test that cannot distinguish anything is not coverage.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

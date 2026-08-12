@@ -40,6 +40,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
+WORK_LOG = ROOT / "work_log.md"
 LOGS = ROOT / "logs"
 TRACY = ROOT / "tracy"
 WATCHER = ROOT / "watcher"
@@ -55,6 +56,10 @@ SPARSE_MIN_CORES_MIRROR = 8
 #: ``2 * moe_intermediate`` wide and down is ``dim`` wide, in tiles. ``audit_figures`` compares these against
 #: the implementation.
 SPARSE_N_TILES_MIRROR = {"gate_up": 2 * 512 // 32, "down": 2048 // 32}
+
+#: Traced decode replays inside one signposted profiler window. The captures are per-window, so every µs/step
+#: figure derived from them divides by this.
+TRACED_REPLAYS = 32
 
 
 def model_fact(name: str) -> int:
@@ -956,6 +961,16 @@ def block_sparse_search():
             # diverges at 24, 40, 48, 72 and 96, i.e. it would silently mis-key any point added later.
             realised = _largest_divisor_at_most(_sparse_n_tiles_mirror(role), max(1, cores))
             phase = "narrow" if realised <= SPARSE_MIN_CORES_MIRROR else "wide"
+            # Every axis the probe sweeps must be pinned here, or `min()` silently reports a *faster*
+            # geometry the layer does not build. The probe sweeps `out_block_w` and `sub_w` independently,
+            # while the layer derives both from `per_core_N` (`_sparse_matmul_config`: `out_block_w =
+            # per_core_N`, `out_subblock_w = _largest_divisor_at_most(per_core_N, 8)`), so at (32, `down`)
+            # three rows share the (cores, in0_block_w, per_core_N) key and `min()` took the `sub_w=2` one -
+            # round 10's finding, and the fifth round in a row that this one lookup was under-constrained by
+            # exactly one axis. The rule below is mirrored from the layer and enforced by
+            # `audit_figures.check_mirrored_constants`.
+            per_core_n = _sparse_n_tiles_mirror(role) // max(1, realised)
+            shipped_sub_w = _largest_divisor_at_most(per_core_n, 8)
             mine = min(
                 (
                     r
@@ -963,6 +978,9 @@ def block_sparse_search():
                     if r.get("cores") == f"{cores}({gx}x{gy})"
                     and r.get("mem") == "L1"
                     and r.get("in0_block_w") == shipped_ibw.get((phase, role))
+                    and r.get("per_core_N") == str(per_core_n)
+                    and r.get("out_block_w") == str(per_core_n)
+                    and r.get("sub_w") == str(shipped_sub_w)
                 ),
                 key=lambda r: r["us"],
                 default=None,
@@ -1268,6 +1286,295 @@ def block_watcher_result():
     )
 
 
+#: The op codes the operation-topology audit (`work_log.md` §2) tabulates, per layer kind, with what each is
+#: and what happened to it. Only the **times** are generated; the prose columns are the audit's own judgement.
+#: Round 10 found five of these times wrong - a baseline table carrying post-optimization values, and one row
+#: taken from the other layer kind - because they are two-digit integers, which `ALLOWED_INT` exempts from
+#: sourcing wholesale. Generating them from the fused stage's committed capture is the only way this table
+#: cannot drift again, and its wrongness mattered: it is the table the whole stage was planned from.
+TOPOLOGY_AUDIT = {
+    "full_attention": [
+        (
+            "SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024",
+            "`SparseMatmul active=?/256 x 32 x 2048 x 1024`",
+            (
+                "packed routed-expert gate/up",
+                "BFP4 weights + LoFi; core/block geometry; L1 output; fewer active experts",
+                "**all four taken** (§3.1, §3.2, §3.3, §3.4)",
+            ),
+        ),
+        (
+            "SparseMatmulDeviceOperation active=?/256 x 32 x 512 x 2048",
+            "`SparseMatmul active=?/256 x 32 x 512 x 2048`",
+            (
+                "routed-expert down",
+                "same",
+                "**all four taken**",
+            ),
+        ),
+        (
+            "UnaryDeviceOperation",
+            "`UnaryDeviceOperation`",
+            (
+                "~99 % `UnaryOpType::FILL` — `sparse_matmul` zeroing its 256-expert-wide output",
+                "move the output to L1; halve its dtype",
+                "**taken** (§3.2, §3.3)",
+            ),
+        ),
+        (
+            "BinaryNgDeviceOperation",
+            "`BinaryNgDeviceOperation`",
+            (
+                "SwiGLU multiply + router-score multiply, both over the 256-expert axis",
+                "L1 + BFP8 intermediates",
+                "**taken** (§3.2, §3.3)",
+            ),
+        ),
+        (
+            "MatmulDeviceOperation 32 x 4096 x 2048",
+            "`MatmulDeviceOperation 32 x 4096 x 2048`",
+            (
+                "`o_proj` — flagged `SLOW`, 23.2 % of DRAM bandwidth",
+                "explicit decode program config; DRAM-sharded",
+                "**explicit 1D config taken**, DRAM-sharded measured and rejected (§4.1)",
+            ),
+        ),
+        (
+            "SliceDeviceOperation",
+            "`SliceDeviceOperation`",
+            (
+                "mostly the two slices that unpack the packed gate/up output",
+                "split the pair instead; L1 + BFP8",
+                "**packed kept** (§4.2), L1+BFP8 taken",
+            ),
+        ),
+        (
+            "MatmulDeviceOperation 32 x 2048 x 9216",
+            "`MatmulDeviceOperation 32 x 2048 x 9216`",
+            (
+                "packed attention in-projection",
+                "explicit config; BFP8/BFP4 weights",
+                "**BFP8 + explicit config taken**, BFP4 measured (§4.6)",
+            ),
+        ),
+        (
+            "TopKDeviceOperation",
+            "`TopKDeviceOperation`",
+            (
+                "router top-8 over 256 experts, single core",
+                "pad to the multi-core width; replace the gate op",
+                "**both measured and rejected** (§4.3, §4.4)",
+            ),
+        ),
+        (
+            "LayerNormDeviceOperation",
+            "`LayerNormDeviceOperation`",
+            (
+                "four RMSNorms; the two residual ones run on **one core**",
+                "width-sharded L1 + `LayerNormShardedMultiCoreProgramConfig`",
+                "**taken** (§3.6)",
+            ),
+        ),
+        (
+            "MatmulDeviceOperation 32 x 2048 x 256",
+            "`MatmulDeviceOperation 32 x 2048 x 256`",
+            (
+                "router projection, 8 cores, 9.4 % of DRAM bandwidth",
+                "explicit config",
+                "**taken** (§3.5)",
+            ),
+        ),
+        (
+            "DeepseekMoEFastReduceNCDeviceOperation",
+            "`DeepseekMoEFastReduceNC`",
+            (
+                "expert-axis reduction over the 256-wide down output",
+                "L1 + BFP8 input",
+                "**taken**",
+            ),
+        ),
+        (
+            "SdpaDecodeDeviceOperation",
+            "`SdpaDecodeDeviceOperation`",
+            (
+                "paged flash-decode",
+                "reduced cache dtype; program config sweep",
+                "**BFP8 cache taken** (§3.7), config swept (§4.5)",
+            ),
+        ),
+    ],
+    "linear_attention": [
+        (
+            "MatmulDeviceOperation 32 x 2048 x 12352",
+            "`MatmulDeviceOperation 32 x 2048 x 12352`",
+            (
+                "packed DeltaNet in-projection",
+                "BFP8 + explicit decode config (§3.5)",
+            ),
+        ),
+        (
+            "MatmulDeviceOperation 32 x 4096 x 2048",
+            "`MatmulDeviceOperation 32 x 4096 x 2048`",
+            (
+                "`out_proj`",
+                "explicit decode config (§3.5) + a bfloat16 activation (§4.11)",
+            ),
+        ),
+        (
+            "MatmulDeviceOperation b={32} x 32 x 128 x 128",
+            "3 x `MatmulDeviceOperation b={32} 32 x 128 x 128`",
+            (
+                "the float32 recurrent-state matmuls: decay read, delta outer product, output read",
+                "operands moved to L1 — 19 µs (§3.9 item 2); fidelity swept and rejected",
+            ),
+        ),
+        (
+            "ReshapeViewDeviceOperation+PermuteDeviceOperation",
+            "`ReshapeViewDeviceOperation` + `PermuteDeviceOperation`",
+            (
+                "the one-shot head-major relayout of the conv output",
+                "inherited from the fused stage, which already reduced it from three round trips to one",
+            ),
+        ),
+        (
+            "TilizeWithValPaddingDeviceOperation+ConcatDeviceOperation+UntilizeWithUnpaddingDeviceOperation",
+            "`TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding`",
+            (
+                "`repeat_interleave`'s GQA head expansion",
+                "output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation",
+            ),
+        ),
+        (
+            "TernaryDeviceOperation",
+            "`TernaryDeviceOperation`",
+            (
+                "the `addcmul` conv-tap accumulation",
+                "inherited; the fused stage measured `addcmul` against `mac` and kept it",
+            ),
+        ),
+    ],
+}
+
+
+def fused_op_totals(kind: str) -> dict:
+    """``{op code: us/step}`` from the **fused** stage's committed decode capture — the audit's baseline.
+
+    The fused stage's reports are read rather than this stage's on purpose: §2 is the pre-optimization read of
+    the measured path, so its numbers must be the ones that were there before any change. Round 10 found three
+    rows carrying this stage's *post*-change values, which understated the stage's own largest dense win.
+    """
+    path = ROOT.parent / "fused_decoder/tracy" / kind / "decode_perf_report.csv"
+    raw = read(path)
+    totals: dict = {}
+    for row in csv.DictReader(io.StringIO(raw)):
+        code, time = row.get("OP Code"), row.get("Device Time")
+        if not code:
+            continue
+        try:
+            totals[code] = totals.get(code, 0.0) + float((time or "0").replace(",", ""))
+        except ValueError:
+            pass
+    return {k: v / TRACED_REPLAYS for k, v in totals.items()}
+
+
+def topology_time(kind: str, code: str) -> str:
+    """One cell of the audit table: a single op code, or a ``+``-joined chain summed as one."""
+    totals = fused_op_totals(kind)
+    parts = code.split("+")
+    if any(p not in totals for p in parts):
+        missing = [p for p in parts if p not in totals]
+        raise SystemExit(f"work_log §2: no {missing} row in the fused {kind} capture")
+    return f"{sum(totals[p] for p in parts):.1f}"
+
+
+#: The composite chains README §6 itemises: a chain is a *consecutive* run of op codes inside one traced step,
+#: so it is summed positionally rather than by op code. Round 10 found the `repeat_interleave` figure roughly
+#: doubled, because summing by op code sweeps in the router's and topk's untilizes as well - they share codes
+#: with this chain and are separate calls. Generated for the same reason as everything else in §5: these are
+#: two-digit integers when written by hand, and `ALLOWED_INT` exempts those from sourcing.
+COMPOSITE_CHAINS = {
+    "ttnn.repeat_interleave (GQA head expansion)": (
+        "linear_attention",
+        ("UntilizeWithUnpaddingDeviceOperation", "ConcatDeviceOperation", "TilizeWithValPaddingDeviceOperation"),
+    ),
+    "ttnn.scatter (router)": (
+        "linear_attention",
+        (
+            "UntilizeDeviceOperation",
+            "UntilizeWithUnpaddingDeviceOperation",
+            "UntilizeWithUnpaddingDeviceOperation",
+            "ScatterDeviceOperation",
+            "TilizeDeviceOperation",
+        ),
+    ),
+}
+
+
+def optimized_step_ops(kind: str) -> list:
+    """``[(op code, us)]`` for one traced decode step of the shipped decoder, in dispatch order."""
+    raw = read(TRACY / kind / "decode_perf_report.csv")
+    rows = [r for r in csv.DictReader(io.StringIO(raw)) if r.get("OP Code")]
+    per_step = len(rows) // TRACED_REPLAYS
+    return [(r["OP Code"], float((r["Device Time"] or "0").replace(",", ""))) for r in rows[:per_step]]
+
+
+def composite_chain_us(kind: str, codes: tuple) -> float:
+    """Sum of the first consecutive run matching ``codes`` in one step. Positional, not by op code."""
+    ops = optimized_step_ops(kind)
+    for start in range(len(ops) - len(codes) + 1):
+        window = ops[start : start + len(codes)]
+        if all(have == want for (have, _), want in zip(window, codes)):
+            return sum(us for _, us in window)
+    raise SystemExit(f"README §6: no consecutive {codes} chain in the {kind} decode capture")
+
+
+def block_composite_chains() -> str:
+    rows = ["| Composite op | Chain, in dispatch order | µs/step |", "| --- | --- | --- |"]
+    for label, (kind, codes) in COMPOSITE_CHAINS.items():
+        pretty = " → ".join(c.replace("DeviceOperation", "") for c in codes)
+        rows.append(f"| `{label}` | {pretty} | **{composite_chain_us(kind, codes):.1f}** |")
+    rows.append("")
+    rows.append(
+        "Both are measured on `linear_attention`, summed over the *consecutive* ops of each call rather than by "
+        "op code — the router's and `topk`'s untilizes share op codes with the head-expansion chain and are "
+        "separate calls, which is how review round 10 found the `repeat_interleave` figure roughly doubled."
+    )
+    return "\n".join(rows)
+
+
+def block_topology_audit(kind: str) -> str:
+    """work_log §2's operation-topology audit table for one layer kind, times generated from the fused capture."""
+    ranked = kind == "full_attention"
+    head = (
+        "| Rank | Op code | µs/step | What it is | Candidate | Action |"
+        if ranked
+        else ("| Op code | µs/step | What it is | Action |")
+    )
+    rule = "| --- | --- | --- | --- | --- | --- |" if ranked else "| --- | --- | --- | --- |"
+    lines = [head, rule]
+    for index, (code, label, rest) in enumerate(TOPOLOGY_AUDIT[kind], start=1):
+        cells = ([str(index)] if ranked else []) + [label, topology_time(kind, code), *rest]
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def splice(path: Path, blocks: dict, check: bool) -> int:
+    """Replace every ``<!-- generated:NAME -->`` block in ``path``; returns how many were filled."""
+    text = original = path.read_text()
+    for name, body in blocks.items():
+        marker, end = f"<!-- generated:{name} -->", f"<!-- /generated:{name} -->"
+        if marker not in text or end not in text:
+            raise SystemExit(f"{path.name} is missing the {name} block markers")
+        replacement = f"{marker}\n{body}\n{end}"
+        text = re.sub(re.escape(marker) + r".*?" + re.escape(end), lambda _: replacement, text, flags=re.S)
+    if check:
+        if text != original:
+            raise SystemExit(f"{path.name} disagrees with the artifacts; re-run make_readme.py")
+        return 0
+    path.write_text(text)
+    return len(blocks)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
@@ -1293,23 +1600,22 @@ def main():
         "advice": block_advice(),
         "accounting": block_accounting(),
         "watcher-result": block_watcher_result(),
+        "composite-chains": block_composite_chains(),
     }
-    text = README.read_text()
-    for name, body in blocks.items():
-        marker = f"<!-- generated:{name} -->"
-        end = f"<!-- /generated:{name} -->"
-        replacement = f"{marker}\n{body}\n{end}"
-        if marker in text and end in text:
-            text = re.sub(re.escape(marker) + r".*?" + re.escape(end), lambda _: replacement, text, flags=re.S)
-        else:
-            raise SystemExit(f"README is missing the {name} block markers")
+    # work_log §2's operation-topology audit is generated too, from the *fused* stage's capture: round 10
+    # found five of its times wrong, and they are two-digit integers that the figure audit exempts wholesale,
+    # so generation is the only thing that keeps them honest.
+    work_log_blocks = {
+        "topology-audit-full": block_topology_audit("full_attention"),
+        "topology-audit-linear": block_topology_audit("linear_attention"),
+    }
     if args.check:
-        if text != README.read_text():
-            raise SystemExit("README disagrees with the artifacts; re-run make_readme.py")
+        splice(README, blocks, check=True)
+        splice(WORK_LOG, work_log_blocks, check=True)
         print("README matches the artifacts")
         return
-    README.write_text(text)
-    print(f"filled {len(blocks)} generated blocks in {README}")
+    filled = splice(README, blocks, check=False) + splice(WORK_LOG, work_log_blocks, check=False)
+    print(f"filled {filled} generated blocks in {README.name} and {WORK_LOG.name}")
 
 
 if __name__ == "__main__":

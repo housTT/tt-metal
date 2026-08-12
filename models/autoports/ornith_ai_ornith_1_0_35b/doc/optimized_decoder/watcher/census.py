@@ -98,20 +98,26 @@ def main():
     # Committed next to the log so the counts CLASSIFICATION.md quotes are a generated artifact
     # rather than a transcription, and so audit_figures.py can trace them.
     text = "\n".join(out) + "\n"
-    (LOG.parent / "census_summary.txt").write_text(text)
-    # `--check` compares the committed summary instead of printing a new one: the sweep redirects this
-    # script's stdout into `census_summary.txt`, so "regenerate" and "verify" are the same command otherwise.
-    # Round 9 found the flag accepted and ignored.
     unknown = [a for a in sys.argv[1:] if a != "--check"]
     if unknown:
         raise SystemExit(f"unknown argument(s): {unknown}; this script takes only --check")
+    # `--check` verifies the committed summary; anything else regenerates it. The comparison happens
+    # **before** any write, which is the whole content of the flag: round 9 added `--check` because the
+    # script accepted and ignored it, and round 10 found that fix comparing the file against itself - it
+    # wrote `census_summary.txt` unconditionally on the line above, so `--check` reported success on a
+    # summary that had been replaced by the word CORRUPTED. Fourth "gate that cannot fail" in this stage
+    # (check_freshness twice, the ignored flag, this), and the pattern in all four is the same: the check
+    # ran after the thing it was checking had already been overwritten or excused.
+    summary = LOG.parent / "census_summary.txt"
     if "--check" in sys.argv[1:]:
-        summary = _HERE / "census_summary.txt"
         if not summary.is_file() or summary.read_text() != text:
             print("census_summary.txt does not match what this script produces")
             raise SystemExit(1)
         print("census_summary.txt matches the artifacts")
     else:
+        # Committed next to the log so the counts CLASSIFICATION.md quotes are a generated artifact
+        # rather than a transcription, and so audit_figures.py can trace them.
+        summary.write_text(text)
         print(text, end="")
     assert not fatal, fatal[:5]
 
