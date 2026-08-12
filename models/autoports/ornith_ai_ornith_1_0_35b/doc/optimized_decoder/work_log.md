@@ -583,3 +583,47 @@ single `tt-smi -r`; the table there records the failure signature, the commands,
 mesh smoke. `tt-smi -ls --local` showed all 8 Blackhole boards before the first run of this stage and
 after the last. Watcher and profiler runs were kept in strictly separate processes throughout, and no
 vLLM or serving process was started at any point.
+
+---
+
+## 6. Review rounds and checkpoint
+
+Two independent `$stage-review` passes ran against this stage.
+
+**Round 1** returned `more-work-needed` with five items: a device-capability query that could never
+succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
+on the two widest projections), the `linear_attention` recurrent-state matmuls left unswept with
+three open advice items, a `full_attention`-only accounting with an unclassified 22.7 µs in-trace
+stall, a `nnz` rejection resting on an inherited argument, and a `gdn_out` row that misdescribed the
+shipped geometry and had been swept at the wrong activation dtype. §3.9 records what each one
+changed; two of them were real performance wins and one of them (`nnz`) wedged the device when
+measured properly, which is now the blocker of record.
+
+**Round 2** returned `more-work-needed` with five more, all documentation-fidelity or small unclosed
+items, all fixed:
+
+* the `nnz` rationale in `../context_contract.json` still carried round 1's disproved reason — rewritten
+  to the reproduced hang and pointed at `triage/`;
+* `place input 0 in L1` was still open on the shared expert's down projection while the README's
+  hand-written advice table attributed the count to the rows already fixed. The advice table is now
+  **generated** from the committed reports (an item with no recorded action renders as
+  *unclassified*, and an item this stage closed moves to a second table), and the shared expert's
+  SwiGLU product moved to L1;
+* the `in0_block_w` advice on the state matmuls had been closed with the claim that the op family
+  takes no such field. It does — the batched non-mcast `MatmulMultiCoreReuseProgramConfig` — so the
+  three matmuls now carry explicit program configs: `in0_block_w` 2 for the reads (13.9 vs 14.7 µs)
+  and 1 for the `transpose_a` outer product, where `Kt` is a single tile and 2/4 are rejected by the
+  op (12.6 vs 20.4 µs);
+* README §6's flat "no tilize/untilize appears in either measured path" was contradicted by this
+  stage's own tables — restated to separate what the *model* dispatches from what three composite
+  ops lower to, with their per-step cost;
+* the work log's own closing figures were a pre-fix run — that paragraph now defers to README §5.2's
+  generated table, and the 1.987-vs-2.065 fused-baseline difference is stated.
+
+Round 2's other concerns were addressed in the same pass: the `linear_attention` roofline now counts
+the recurrent state the way the other kind counts its KV read, the "same-process" method claim is
+corrected to name the test that actually is one, §5.4 says its core counts are program grids, the
+buffer-side L1 budget absorbs the ~6.5 % gap between `get_max_worker_l1_unreserved_size()` and the
+allocator's bank size, and the state-L1 win got its own `ab_*.txt`.
+
+Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt). Local commit only; nothing is pushed.
