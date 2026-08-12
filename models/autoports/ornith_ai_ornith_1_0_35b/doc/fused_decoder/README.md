@@ -519,10 +519,12 @@ What the remaining rows say about where the next stage should look:
       expert-activation width, the same lever as the zero-fill above.
     * 49.754 µs with **no** folded activation, immediately before the next
       `sparse_matmul`'s zero-fill — the router-score multiply this stage moved ahead of the down
-      projection (§3.2). It is a genuinely separate op, and §4.13 / §4.17 record why: the one
-      ttnn op that fuses it into the reduction (`deepseek_moe_fast_reduce_nc_fused`) wants the
-      gather-by-expert dispatch layout and an L1-resident activation - the same blocker §4.10
-      records - rather than there being no op.
+      projection (§3.2). It is a genuinely separate op, and §4.17 records why it stays one: the
+      ttnn op that fuses it into the reduction (`deepseek_moe_fast_reduce_nc_fused`) does accept
+      this decoder's shapes, but it is **not faster here** - §3.2 already moved this multiply
+      onto the `moe_intermediate`-wide input, so there is no win left for it to take - and
+      adopting it would mean scoring the down projection's bfloat16 output instead, which costs
+      accuracy. §4.12 has both arms.
   The aggregate is nonetheless **smaller than the baseline's**: 200.0 µs against
   327.8 µs per replay, because that placement moved the
   multiply from the `hidden_size`-wide residual stream to the `moe_intermediate`-wide expert

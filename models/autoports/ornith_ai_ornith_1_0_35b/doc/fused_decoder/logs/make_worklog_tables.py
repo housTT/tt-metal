@@ -189,11 +189,13 @@ def rows():
         (
             "§4.17 — expert-axis reduction with the router score applied to the down projection's "
             "**input** (shipped, §3.2) vs folded into the reduction by "
-            "`deepseek_moe_fast_reduce_nc_fused`, both against a float64 reference. The down "
-            "projection here is a dense `ttnn.matmul` stand-in for the shipped `sparse_matmul`, so "
-            "the times are not a proxy for the shipped windows — what this shows is that the op "
-            "**accepts** this decoder's dense shapes and is accurate in isolation. The rejection is "
-            "on the in-model accuracy loss the placement change causes; §4.17 has it.",
+            "`deepseek_moe_fast_reduce_nc_fused`, both against a float64 reference and both paying "
+            "the same down projection. This is the stage's primary ground for keeping the two ops "
+            "separate: the fused form **is not faster here**, because §3.2 already moved the "
+            "multiply onto the `moe_intermediate`-wide input. (The down projection is a dense "
+            "`ttnn.matmul` stand-in for the shipped `sparse_matmul`, which cannot be reproduced "
+            "standalone, so the absolute times are not a proxy for the §5 windows — the *difference* "
+            "between the arms is what this measures.)",
             f"PCC {fr_ship_p} at {fr_ship_t} µs vs PCC {fr_fused_p} at {fr_fused_t} µs",
             "`probe_router_and_reduce.txt`",
         ),
