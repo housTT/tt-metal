@@ -42,19 +42,30 @@ TOPK = 8
 I = 512
 
 
-def timeit(mesh, fn, iters=30, warmup=5):
+def timeit(mesh, fn, iters=30, warmup=5, repeats=3):
+    """Min-of-``repeats`` mean-of-``iters`` microseconds, formatted with the spread across repeats.
+
+    Returns a string, not a number, because every caller prints it: the rows read ``us=<min>
+    spread=<max-min>``. Review round 6 pointed out that the sparse, dense and prefill probes had gained a
+    measured spread in round 5 while these sections had not, which left every "inside the run-to-run
+    spread" argument about a norm, a topk, a gate or an SDPA config unfalsifiable — and one of them
+    (``NORM``) turned out to support a documented conclusion the artifact contradicts.
+    """
     for _ in range(warmup):
         out = fn()
         for t in out if isinstance(out, (tuple, list)) else (out,):
             ttnn.deallocate(t)
     ttnn.synchronize_device(mesh)
-    start = time.time()
-    for _ in range(iters):
-        out = fn()
-        for t in out if isinstance(out, (tuple, list)) else (out,):
-            ttnn.deallocate(t)
-    ttnn.synchronize_device(mesh)
-    return (time.time() - start) / iters * 1e6
+    samples = []
+    for _ in range(repeats):
+        start = time.time()
+        for _ in range(iters):
+            out = fn()
+            for t in out if isinstance(out, (tuple, list)) else (out,):
+                ttnn.deallocate(t)
+        ttnn.synchronize_device(mesh)
+        samples.append((time.time() - start) / iters * 1e6)
+    return f"{min(samples):.1f} spread={max(samples) - min(samples):.1f}"
 
 
 def pcc(a, b):
@@ -70,7 +81,7 @@ def section_norm(mesh, grid, gen):
     x = ttnn.from_torch(x_t, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh)
     w = ttnn.from_torch(w_t, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh)
     base = ttnn.to_torch(ttnn.rms_norm(x, weight=w, epsilon=1e-6)).float()
-    print(f"NORM spelling=interleaved-default us={timeit(mesh, lambda: ttnn.rms_norm(x, weight=w, epsilon=1e-6)):.1f}")
+    print(f"NORM spelling=interleaved-default us={timeit(mesh, lambda: ttnn.rms_norm(x, weight=w, epsilon=1e-6))}")
 
     for cores in (4, 8, 16, 32, 64):
         n_tiles = DIM // TILE
@@ -102,7 +113,7 @@ def section_norm(mesh, grid, gen):
                 return ttnn.rms_norm(x_sh, weight=w, epsilon=1e-6, program_config=cfg, memory_config=shard)
 
             got = ttnn.to_torch(run()).float()
-            print(f"{tag} us={timeit(mesh, run):.1f} pcc={pcc(base, got):.6f}", flush=True)
+            print(f"{tag} us={timeit(mesh, run)} pcc={pcc(base, got):.6f}", flush=True)
             ttnn.deallocate(x_sh)
         except Exception as exc:  # noqa: BLE001
             print(f"{tag} FAILED {str(exc).splitlines()[0][:110]}", flush=True)
@@ -111,7 +122,7 @@ def section_norm(mesh, grid, gen):
 def section_topk(mesh, gen):
     logits_t = torch.randn(1, 1, TILE, E, generator=gen)
     logits = ttnn.from_torch(logits_t, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT, device=mesh)
-    print(f"TOPK width={E} us={timeit(mesh, lambda: ttnn.topk(logits, k=TOPK, dim=-1, sorted=True)):.1f}", flush=True)
+    print(f"TOPK width={E} us={timeit(mesh, lambda: ttnn.topk(logits, k=TOPK, dim=-1, sorted=True))}", flush=True)
     for width in (512, 1024, 2048, 4096, 8192, 16384):
         padded_t = torch.full((1, 1, TILE, width), float("-inf"))
         padded_t[..., :E] = logits_t
@@ -123,7 +134,7 @@ def section_topk(mesh, gen):
             ttnn.deallocate(values)
             ttnn.deallocate(indices)
             print(
-                f"{tag} us={timeit(mesh, lambda p=padded: ttnn.topk(p, k=TOPK, dim=-1, sorted=True)):.1f} "
+                f"{tag} us={timeit(mesh, lambda p=padded: ttnn.topk(p, k=TOPK, dim=-1, sorted=True))} "
                 f"indices_in_range={ok}",
                 flush=True,
             )
@@ -162,9 +173,9 @@ def section_gate(mesh, gen):
 
     a = ttnn.to_torch(scatter_chain()).float()
     b = ttnn.to_torch(threshold_chain()).float()
-    print(f"GATE spelling=topk-softmax-scatter us={timeit(mesh, scatter_chain):.1f}", flush=True)
+    print(f"GATE spelling=topk-softmax-scatter us={timeit(mesh, scatter_chain)}", flush=True)
     print(
-        f"GATE spelling=topk-ge-where-softmax us={timeit(mesh, threshold_chain):.1f} "
+        f"GATE spelling=topk-ge-where-softmax us={timeit(mesh, threshold_chain)} "
         f"pcc={pcc(a, b):.6f} max_abs_diff={float((a - b).abs().max()):.3e}",
         flush=True,
     )
@@ -233,7 +244,7 @@ def section_sdpa(mesh, grid, gen):
     for name, cfg in candidates:
         try:
             got = ttnn.to_torch(make(cfg)()).float()
-            print(f"SDPA cfg={name} us={timeit(mesh, make(cfg)):.1f} pcc_vs_default={pcc(base, got):.6f}", flush=True)
+            print(f"SDPA cfg={name} us={timeit(mesh, make(cfg))} pcc_vs_default={pcc(base, got):.6f}", flush=True)
         except Exception as exc:  # noqa: BLE001 - illegal configs are data
             print(f"SDPA cfg={name} FAILED {str(exc).splitlines()[0][:110]}", flush=True)
 
@@ -292,7 +303,7 @@ def section_state(mesh, grid, gen):
                         )
 
                     ttnn.deallocate(run())
-                    print(f"{tag} us={timeit(mesh, run):.1f}", flush=True)
+                    print(f"{tag} us={timeit(mesh, run)}", flush=True)
                 except Exception as exc:  # noqa: BLE001 - illegal configs are data
                     print(f"{tag} FAILED {str(exc).splitlines()[0][:100]}", flush=True)
 
@@ -326,7 +337,7 @@ def section_state(mesh, grid, gen):
                     if label == "read" and fid_name == "HiFi4/fp32acc" and cores == (grid.x, grid.y):
                         base = got
                     extra = f" pcc_vs_shipped={pcc(base, got):.6f}" if (base is not None and label == "read") else ""
-                    print(f"{tag} us={timeit(mesh, run):.1f}{extra}", flush=True)
+                    print(f"{tag} us={timeit(mesh, run)}{extra}", flush=True)
                 except Exception as exc:  # noqa: BLE001 - illegal grids are data
                     print(f"{tag} FAILED {str(exc).splitlines()[0][:100]}", flush=True)
 
@@ -385,9 +396,9 @@ def section_split(mesh, grid, gen):
 
     a = ttnn.to_torch(packed()).float()
     b = ttnn.to_torch(split()).float()
-    print(f"SPLIT spelling=packed-gate-up us={timeit(mesh, packed, iters=20):.1f}", flush=True)
+    print(f"SPLIT spelling=packed-gate-up us={timeit(mesh, packed, iters=20)}", flush=True)
     print(
-        f"SPLIT spelling=separate-gate-up us={timeit(mesh, split, iters=20):.1f} pcc_vs_packed={pcc(a, b):.6f}",
+        f"SPLIT spelling=separate-gate-up us={timeit(mesh, split, iters=20)} pcc_vs_packed={pcc(a, b):.6f}",
         flush=True,
     )
 

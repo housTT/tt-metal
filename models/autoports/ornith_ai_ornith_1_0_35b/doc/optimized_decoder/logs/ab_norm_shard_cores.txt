@@ -1,0 +1,26 @@
+# Whole-layer traced decode against OptimizedDecoder.NORM_SHARD_CORES.
+# Command: python doc/optimized_decoder/logs/ab_norm_shard_cores.py
+#
+# Why this exists: the isolated NORM rows of probe_decode_micro.txt say 4 cores is fastest, and
+# review round 6 found the shipped choice of 8 defended by a monotonicity claim the artifact
+# contradicted and by an A/B that varies a different knob. Each sharded norm also pays a
+# to_memory_config in and a sharded_to_interleaved out, and those scale with the shard count, so
+# the op-level winner need not be the layer-level one. This measures the layer.
+# Whole-layer traced decode against NORM_SHARD_CORES. Shipped default: 8.
+# Two runs per arm per layer kind, one process, one device, real weights.
+NORMCORES cores=4 run=1 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.870 ms
+NORMCORES cores=4 run=2 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.870 ms
+NORMCORES cores=8 run=1 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.869 ms
+NORMCORES cores=8 run=2 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.869 ms
+NORMCORES cores=16 run=1 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.870 ms
+NORMCORES cores=16 run=2 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.870 ms
+NORMCORES cores=32 run=1 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.872 ms
+NORMCORES cores=32 run=2 layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.872 ms
+NORMCORES cores=4 run=1 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.077 ms
+NORMCORES cores=4 run=2 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.076 ms
+NORMCORES cores=8 run=1 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.076 ms
+NORMCORES cores=8 run=2 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.075 ms
+NORMCORES cores=16 run=1 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.077 ms
+NORMCORES cores=16 run=2 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.076 ms
+NORMCORES cores=32 run=1 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.078 ms
+NORMCORES cores=32 run=2 layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.079 ms

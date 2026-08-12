@@ -92,6 +92,30 @@ echo "=== 4/9  op-level candidate sweeps ==="
   python "$LOGS/probe_decode_micro.py" --section state
 } 2>&1 | grep -aE "^NORM|^TOPK|^GATE|^SDPA|^STATE|^SPLIT|^#" > "$LOGS/probe_decode_micro.txt"
 
+echo "=== 4b/9  whole-layer A/B for the sharded-norm core count ==="
+# Separate from the micro-probe because the op-level ladder and the layer-level result disagree: the
+# conversions each shard pays scale with the shard count and cancel the op gain (review round 6).
+{
+  echo "# Whole-layer traced decode against OptimizedDecoder.NORM_SHARD_CORES."
+  echo "# Command: python doc/optimized_decoder/logs/ab_norm_shard_cores.py"
+  echo "#"
+  echo "# Why this exists: the isolated NORM rows of probe_decode_micro.txt say 4 cores is fastest, and"
+  echo "# review round 6 found the shipped choice of 8 defended by a monotonicity claim the artifact"
+  echo "# contradicted and by an A/B that varies a different knob. Each sharded norm also pays a"
+  echo "# to_memory_config in and a sharded_to_interleaved out, and those scale with the shard count, so"
+  echo "# the op-level winner need not be the layer-level one. This measures the layer."
+  python "$LOGS/ab_norm_shard_cores.py"
+} 2>&1 | grep -aE "^NORMCORES|^#" > "$LOGS/ab_norm_shard_cores.txt"
+
+echo "=== 4c/9  whole-layer A/B for the routed gate/up in0_block_w cap ==="
+# Regenerable, unlike the other one-off ab_*.txt files: both arms are reachable at runtime by swapping the
+# cap table, so no variant of the implementation has to exist to measure it (work_log section 4.15).
+{
+  echo "# Whole-layer A/B for the routed gate/up in0_block_w cap (work_log section 4.15)."
+  echo "# Command: python doc/optimized_decoder/logs/ab_gate_up_in0_block_w.py"
+  python "$LOGS/ab_gate_up_in0_block_w.py"
+} 2>&1 | grep -aE "^GATEUPIBW|^#" > "$LOGS/ab_gate_up_in0_block_w.txt"
+
 echo "=== 5/9  OPT-007: BFP4 vs BFP8 projections on the real-weight PCC ladder ==="
 {
   echo "# OPT-007: BFP4 vs BFP8 dense projection weights, real-weight HF-golden PCC ladder."
@@ -137,7 +161,14 @@ echo "=== assert every figure quoted in any document exists in a committed artif
 # that were not - round 4 found a whole search table quoting a superseded run of its own probe. This is
 # the mechanical gate for that class, ported from the fused stage. It also re-hashes the sources against
 # source_manifest.txt, so a code edit after the evidence run fails here.
+# The audit measuring its own strength first: how often it ACCEPTS an arbitrary value of each figure class.
+# Committed, because round 5's finding was about the check rather than about any figure, and a rate that
+# rises later is the signal that the matching rules were weakened. It runs BEFORE the audit, because the
+# audit diffs this artifact and would otherwise report drift against a refresh the sweep had not done yet.
+python "$ART/audit_figures.py" --selftest > /dev/null
+
 python "$ART/audit_figures.py"
+
 
 echo "=== prove the generators reproduce from the COMMITTED tree, not just this worktree ==="
 # NOTE what this second run does and does not prove. `git archive` stamps every extracted file with the

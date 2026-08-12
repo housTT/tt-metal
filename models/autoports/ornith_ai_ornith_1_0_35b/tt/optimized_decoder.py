@@ -480,6 +480,24 @@ SPARSE_CORES_PER_ACTIVE = {"gate_up": 2, "down": 4}
 SPARSE_MIN_CORES = 8
 SPARSE_MAX_CORES = 32
 
+#: ``in0_block_w`` cap for the packed routed gate/up matmul, keyed by whether the call got more than the
+#: minimum core count — i.e. by the same active-expert bound that chooses the core count.
+#:
+#: The two tuned points want different values and the margins are not close, so one cap cannot serve both
+#: (``doc/optimized_decoder/logs/probe_sparse_matmul.txt``, and README §5.4's generated table checks the
+#: shipped row of every active-expert point against the sweep):
+#:
+#: * batch-1 decode, 8 active experts, 8 cores: a 32-tile inner block beats the whole tiled ``K`` by a
+#:   couple of percent, several times the measured spread.
+#: * a 32-token prefill group, ~162 active, 32 cores: the whole tiled ``K`` beats 32 tiles by roughly ten
+#:   percent — the opposite direction, and by a much larger margin.
+#:
+#: README §5.4's generated table carries both figures. Shipping one value therefore costs either a fraction
+#: of a percent of every decode step or several percent of every prefill window. Review round 6 found the
+#: single-cap version paying the decode side of that; keying the cap off the bound the layer already
+#: computes costs nothing and pays neither.
+SPARSE_GATE_UP_IN0_BLOCK_W = {False: 32, True: 64}
+
 
 def _sparse_cores(role: str, active_experts: int) -> int:
     """Target core count for ``role`` at an upper bound of ``active_experts`` active experts."""
@@ -1073,7 +1091,14 @@ class OptimizedMoE:
         # the selected BFP4/LoFi policy. Both roles improve monotonically with it and then flatten,
         # so each takes the largest legal divisor; gate/up at its 8-core decode geometry is the one
         # place where 32 edged out 64, by ~2 %, and that is inside the run-to-run spread.
-        self.gate_up_in0_block_w = _largest_divisor_at_most(config.dim // TILE, 64)
+        # `in0_block_w` per role, and for gate/up it depends on the ACTIVE-EXPERT BOUND exactly as the core
+        # count does — see SPARSE_GATE_UP_IN0_BLOCK_W. Review round 6 found the single-cap version costing
+        # 2.2 % of the largest decode op, beyond the measured spread, because the value that wins a
+        # 32-token prefill group loses a batch-1 decode step.
+        self.gate_up_in0_block_w = {
+            bound: _largest_divisor_at_most(config.dim // TILE, cap)
+            for bound, cap in SPARSE_GATE_UP_IN0_BLOCK_W.items()
+        }
         self.down_in0_block_w = _largest_divisor_at_most(config.moe_intermediate_size // TILE, 16)
         self._sparse_cfg_cache: dict[tuple, object] = {}
         self.output_tile = ttnn.Tile([TILE, TILE])
@@ -1122,6 +1147,7 @@ class OptimizedMoE:
     def _sparse_cfg(self, role: str, tokens: int, active_bound: int):
         """Cached sparse-matmul program config for ``role`` at this M and active-expert bound."""
         cores = _sparse_cores(role, active_bound)
+        gate_up_block_w = self.gate_up_in0_block_w[cores > SPARSE_MIN_CORES]
         key = (role, tokens, cores)
         cfg = self._sparse_cfg_cache.get(key)
         if cfg is None:
@@ -1131,7 +1157,7 @@ class OptimizedMoE:
                     2 * self.cfg.moe_intermediate_size,
                     self.cfg.dim,
                     cores=cores,
-                    in0_block_w=self.gate_up_in0_block_w,
+                    in0_block_w=gate_up_block_w,
                     grid=self.grid,
                 )
             else:
@@ -1932,11 +1958,20 @@ class OptimizedDecoder(LightweightModule):
     #: over *rows*, and a decode activation is a single tile of rows, so the interleaved form the
     #: fused stage used lands the whole 2048-wide norm on one core. Width-sharding the input and
     #: output and naming a ``LayerNormShardedMultiCoreProgramConfig`` moves it onto ``cores`` cores,
-    #: which cuts the norm's time by around a third; 16, 32 and 64 get progressively worse as the
-    #: per-core block shrinks, and 4 is inside the run-to-run spread of 8 — 8 is shipped because it is
-    #: the width the whole-layer A/B in ``logs/ab_norm_shard_width.txt`` was run at.
-    #: (``doc/optimized_decoder/logs/probe_decode_micro.txt``, ``NORM`` rows; README §5.5 and
-    #: ``doc/optimized_decoder/work_log.md`` §3.6 quote the sharded and unsharded times.)
+    #: which cuts the isolated norm's time by around a third.
+    #:
+    #: On the **isolated op** the ladder is monotonic — 4 cores is fastest and 8/16/32/64 get
+    #: progressively worse as the per-core block shrinks (``logs/probe_decode_micro.txt``, ``NORM`` rows,
+    #: now min-of-three with a reported ``spread=``). On the **whole layer** all of 4/8/16/32 land within a
+    #: few microseconds of each other and 8 is marginally best on both layer kinds
+    #: (``logs/ab_norm_shard_cores.txt``), because each sharded norm also pays a ``to_memory_config`` in
+    #: and a ``sharded_to_interleaved`` out and those scale with the shard count, cancelling the op-level
+    #: gain. The layer measurement is the decision, so 8 ships.
+    #:
+    #: Review round 6 found this comment claiming the ladder was monotonic *the other way* and citing
+    #: ``ab_norm_shard_width.txt``, which varies a different knob (which norms shard, not over how many
+    #: cores) and therefore could not support the claim. The 4- and 32-core arms had never been measured
+    #: whole-layer; ``ab_norm_shard_cores.txt`` exists because of that finding.
     NORM_SHARD_CORES = 8
 
     #: Narrowest activation that takes the sharded norm path. 0 means every decode-shaped norm
@@ -2530,9 +2565,10 @@ class OptimizedDecoder(LightweightModule):
         q/k/v is handed over as-is, so on Ornith — ``conv_dim`` 8192 split 2048/2048/4096, blocks
         4096 wide — v is exactly block 1 and needs no slice at all. That removes both the
         8192-wide concat of the conv output and the 4096-wide v slice the concatenated spelling
-        needed; doc/fused_decoder/work_log.md §4.4 has the ConcatDeviceOperation row it cost. The block/field boundaries are only guaranteed to line up that neatly for this
-        config, so the general case is still handled: a field spanning two blocks is concatenated
-        from its pieces.
+        needed; doc/fused_decoder/work_log.md §4.4 has the ConcatDeviceOperation row it cost.
+
+        The block/field boundaries are only guaranteed to line up that neatly for this config, so the
+        general case is still handled: a field spanning two blocks is concatenated from its pieces.
         """
         cfg = self.cfg
         bounds = [0, cfg.linear_q_dim, cfg.linear_q_dim + cfg.linear_k_dim, cfg.conv_dim]
@@ -2676,7 +2712,8 @@ class OptimizedDecoder(LightweightModule):
             # All three spellings of this head->token relayout were measured from a captured trace
             # (doc/fused_decoder/logs/probe_decode_micro.txt). nlp_concat_heads wins by more than an
             # order of magnitude for a prefill block but collapses onto one core at seq 1, where the
-            # plain permute is several times cheaper. All three agree exactly at seq 1 (`torch.equal`); above it
+            # plain permute is several times cheaper. All three agree exactly at seq 1
+            # (`torch.equal`); above it
             # only nlp_concat_heads and permute+reshape are equivalent (the flat relayout does not
             # transpose head<->token), which the same probe records.
             swapped = ttnn.permute(normed, (0, 2, 1, 3))
@@ -2695,8 +2732,8 @@ class OptimizedDecoder(LightweightModule):
         # non-finite values at EVERY magnitude, including |z| < 4. So an op-level A/B on matched
         # dtypes - which is what a naive probe writes - passes while the model breaks.
         # doc/fused_decoder/work_log.md §4.8 records both arms and the real-weight control.
-        # `ttnn.silu(z)` first keeps the
-        # activation in bfloat16 and the multiply mixed-but-unfused, which is exact.
+        # `ttnn.silu(z)` first keeps the activation in bfloat16 and the multiply mixed-but-unfused,
+        # which is exact.
         # bfloat16 out, not the float32 the mixed-dtype multiply would default to: the only consumer
         # is the output projection, whose weight is BFP8, and a float32 activation there costs both
         # the multiply's write and the matmul's read. Measured on the shipped path in
@@ -2777,9 +2814,10 @@ class OptimizedDecoder(LightweightModule):
         qk = ttnn.slice(heads, [0, 0, 0, 0], [b, 2 * nk, 1, dk])
         ttnn.deallocate(heads)
         if repeats > 1:
-            # L1, not the op's default: `repeat_interleave` lowers to untilize -> concat -> tilize,
-            # and with a DRAM intermediate the profiler shows a 23 us op-to-op stall in the traced
-            # replay before that tilize — the single largest gap in the linear decode window.
+            # L1, not the op's default: `repeat_interleave` lowers to untilize -> concat -> tilize, and
+            # the profiler shows the op-to-op stall in the traced replay before that tilize as the single
+            # largest gap in the linear decode window. README §7's generated itemisation carries its size
+            # for the shipped L1 path; the DRAM intermediate this replaced was worse.
             expanded = ttnn.repeat_interleave(qk, repeats, dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
             ttnn.deallocate(qk)
             qk = expanded

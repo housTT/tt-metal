@@ -126,7 +126,8 @@ Cumulative traced decode, both layer kinds, `logs/bench.py`, batch 1:
 | 11 | dense **prefill** projections take explicit 2D configs (§4.10) — prefill only | 0.858 | 1.093 |
 | 12 | recurrent-state matmul operands in L1 (review round 1, §3.9 item 2) | 0.857 | 1.074 |
 | 13 | GQA `repeat_interleave` output in L1 (§3.9 item 5) | 0.857 | 1.071 |
-| 14 | gated-DeltaNet output activation bfloat16 (§4.11) | **0.858** | **1.071** |
+| 14 | gated-DeltaNet output activation bfloat16 (§4.11) | 0.858 | 1.071 |
+| 15 | routed gate/up `in0_block_w` follows the active-expert bound (review round 6, §4.15) | **0.849** | **1.061** |
 
 Warmed 2048-token prefill over the same steps: 243.44 → 96.89 ms (`full_attention`) and
 257.73 → 102.94 ms (`linear_attention`). Step 5 is the one that matters for prefill and it went the
@@ -136,14 +137,14 @@ The shipped default is re-measured end to end after every change landed, and REA
 table is **generated** from that measurement
 ([`logs/ab_fused_vs_optimized.txt`](logs/ab_fused_vs_optimized.txt)) rather than transcribed here, so
 this log does not carry a second copy of it to go stale: ~2.5x prefill on both layer kinds and
-~1.9-2.1x on traced decode. `test_optimized_beats_fused_traced_decode` gates the decode direction in
+~1.9-2.2x on traced decode. `test_optimized_beats_fused_traced_decode` gates the decode direction in
 one process, in the delivered suite.
 
 Row 0's `linear_attention` figure is the **fused stage's own committed number**, measured in that
 stage's harness, quoted so this column starts where the previous stage left off. Re-measured in this
 stage's harness it is 2.06-2.07 ms, a few percent slower — harness and run-to-run spread. Every "before"
 figure the README quotes is this stage's own re-measurement, not row 0; against the fused stage's
-published figure the `linear_attention` decode speedup would read ~1.86x instead of ~1.93x.
+published figure the `linear_attention` decode speedup would read slightly lower than README §5.2's.
 
 The per-step figures in this column are the running total from one harness during development, and they
 are the one group of numbers in this stage that **no artifact can contain**: each row measures an
@@ -264,7 +265,8 @@ whole-layer A/B in `ab_norm_shard_width.txt` was run at.
 
 The 1D `mcast_in0` projection matmul that consumes the result needs an interleaved `in0` back, so
 each sharded norm pays one `to_memory_config` in and one `sharded_to_interleaved` out — about 3 µs
-for a 12 µs saving. Net **0.875 → 0.855** and **1.111 → 1.093 ms**.
+for a larger saving on the norm itself — README §5.5's generated knob table carries both times, from
+the probe. Net effect on the layer: rows 7→8 of §3's ladder.
 `test_no_layout_churn_in_measured_forward` budgets those conversions exactly (5 and 14 per decode
 step, from 1 and 6) and itemises each one.
 
@@ -599,6 +601,38 @@ the one op that dominates both windows, for 0.1 % of prefill and nothing at deco
 and the numbers are in the table so a later stage can revisit it with its own measurements rather than
 rediscovering the question.
 
+### 4.15 The routed gate/up `in0_block_w` — a phase-aware cap, taken
+
+This is the one change a review round found by *measurement* rather than by reading. Review round 6 forced
+README §5.4's generated sparse table to pin the shipped geometry — core count, orientation, output
+placement **and `in0_block_w`**, the last read out of the suite log rather than assumed — and the table
+immediately stopped calling the shipped batch-1 decode row "the measured winner". It is a couple of percent
+behind, several times the measured spread.
+
+The cause was a single divisor rule: `gate_up_in0_block_w = _largest_divisor_at_most(dim // TILE, 64)`, one
+value for every call. The sweep says the two tuned points want *opposite* values, and not by a little
+([`logs/probe_sparse_matmul.txt`](logs/probe_sparse_matmul.txt), at each point's own shipped core count,
+orientation and L1 output):
+
+| point | 32-tile inner block | whole tiled `K` (64) | winner |
+| --- | --- | --- | --- |
+| 8 active experts — batch-1 decode | faster by ~2 % | — | 32 |
+| ~162 active — a 32-token prefill group | — | faster by ~10 % | 64 |
+
+So one cap has to lose one of the two windows, and the shipped one was losing decode. `in0_block_w` is now
+keyed off the same active-expert bound that already chooses the core count
+(`SPARSE_GATE_UP_IN0_BLOCK_W`), which costs nothing and pays neither. Measured end to end, same harness,
+same weights and one process: about 7 us off a traced decode step on **both** layer kinds, with prefill
+unchanged — [`logs/ab_gate_up_in0_block_w.txt`](logs/ab_gate_up_in0_block_w.txt) has both arms, and it
+measures prefill too, because a decode win that cost prefill would not be a win. README §5.2's generated
+table carries the shipped level. `test_decode_runs_the_tuned_program_configs` and
+`test_prefill_runs_the_tuned_program_configs` both assert the geometry each phase now builds, so the two
+values cannot silently collapse back into one.
+
+Worth stating plainly: five rounds of fixing figures found no performance, and this round found close to a
+percent of decode — because the table was finally required to agree with the geometry the layer actually runs. That is
+the argument for mechanical agreement over careful proofreading, in one data point.
+
 ---
 
 ## 5. Hardware
@@ -787,8 +821,10 @@ What changed in the gate:
 2. **The per-op reports are out of the sourcing pool** (still checked for existence and freshness). They
    reach the documents only through a generated block, whose agreement with them `make_readme.py --check`
    establishes separately. Re-measuring the reviewer's experiment against the new rule: three-decimal
-   millisecond values fall from 1581/2000 to **18/2000**, one-decimal microsecond values from 794/2000 to
-   **382/2000**, byte counts to **0/3000**. The one-decimal class is the residual weakness and it is
+   millisecond values, one-decimal microsecond values and byte counts all fall sharply — the current rates
+   are in [`logs/audit_selftest.txt`](logs/audit_selftest.txt), regenerated by `run_evidence.sh` and diffed
+   by the audit, rather than quoted here where they would go stale. The one-decimal class is the residual
+   weakness and it is
    inherent — the probes genuinely print hundreds of distinct one-decimal microsecond values — so the
    docstring states the number rather than implying the check is airtight.
 3. **A figure is checked against the artifact its own paragraph cites**, when it cites one. Most of this
@@ -870,6 +906,72 @@ prefill config being unswept, now stated as such where the table is introduced; 
 note listing three of the four modelling errors; the `SLOW` row count read as exhaustive when it is a
 classifier threshold that flaps between replays; and the note in `run_evidence.sh` that the `git archive`
 run proves reproduction rather than freshness, because the archive stamps every file with the commit time.
+
+**Round 6** returned `more-work-needed` with seven items. Two matter more than the rest, and one of them is
+the first *performance* finding a review round has produced for this stage.
+
+* **P1 — the audit exempted every markdown-bold figure, which is how nearly all of them are written.** The
+  exponent exemption added in round 5 (`\*\*\s*-?[\d.]+`, for `head_k_dim ** -0.5`) also matched a markdown
+  **bold opener**, so it stripped the `**` *and the number* behind it. The reviewer proved it by injecting
+  a fabricated bold microsecond figure and a bold `1.07 %` — round 5's own P1 value — into the README and
+  watching the audit pass.
+  A second consequence: the `LABELLED` rules ran on the post-strip text, so all three of them matched
+  nothing at all across all 17 documents. The exemption now needs whitespace *after* the `**`, which
+  markdown bold never has; the injection is caught; and the labelled pass runs on the pre-strip text and
+  **reports how many claims it matched**, because a pass that silently matches nothing is not coverage. It
+  legitimately matches zero today — every such claim is inside a generated block — and the number says so.
+* **P1 — the generated sparse table did not pin the shipped geometry, and fixing it exposed a real
+  sub-percent decode win.** The lookup filtered on the core count and output placement only, took the minimum over
+  everything else, and so reported the shipped 8-active gate/up row as "the measured winner" at an
+  `in0_block_w` the layer does not run. With the geometry read out of the suite log — a run of the shipped
+  code — the row is 2.2 % *behind*, beyond the measured spread. That is not a documentation defect: the
+  shipped `in0_block_w` came from a single divisor rule, and the two tuned points want opposite values
+  (§4.15). Making the cap follow the active-expert bound, exactly as the core count already does, is worth
+  about 7 us of a traced decode step on both layer kinds at unchanged prefill
+  ([`logs/ab_gate_up_in0_block_w.txt`](logs/ab_gate_up_in0_block_w.txt)). Five review rounds of table-fixing found no performance; the sixth found this because
+  the table was finally forced to agree with the running layer.
+
+Three more findings were *claimed fixes from round 5 that never landed in the file*. Each had been written
+inside a multi-edit script that hit a late assertion and exited before writing, so the earlier edits in the
+same script were silently discarded while the transcript recorded success: README §7's limitation list was
+still `full_attention`-only, `check_generators` still trusted an exit code instead of diffing the summaries
+it rewrites, and the two harness scripts were still outside the audited document set. All three are in
+place now and verified by re-reading the file rather than by trusting the edit. **The process lesson is
+recorded here deliberately**: a claim that a fix landed is worth nothing without re-reading the artifact,
+and this stage produced three of them in one round.
+
+The remaining findings:
+
+* the audit's own `--selftest` artifact was **in the evidence pool it measures**, so the experiment was
+  self-referential and never converged — three consecutive runs produced three different files — and
+  `run_evidence.sh` never regenerated it. It is out of the pool, called by the sweep, diffed by
+  `check_generators`, and reproducible (verified by running it twice and diffing). Its rates are no longer
+  quoted in prose, where they had drifted into three mutually inconsistent statements of one measurement.
+* the selftest now also measures **two-digit integers**, which `ALLOWED_INT` exempts wholesale: that row
+  reads 1.0 by construction, which is the point — the size of the exemption belongs in the artifact rather
+  than in a reader's head.
+* `HISTORICAL` still exempted integers in `.py` documents; scoped to `work_log.md` like the decimal pass.
+* the norm-win figure was still quoted as "~12 µs" in the work log and "~9" in the README against the
+  generated table's own value; both now defer to the table.
+* the last absolute timing in the implementation (a "23 us" op-to-op stall) is gone, and three comment
+  residues from in-place edits — a duplicated half-line, two sentences jammed together, an un-reflowed
+  line — are fixed.
+* `make_readme.py`'s `realised()` mirrored the layer's core-target rule wrongly below 11 cores (latent: no
+  shipped role uses a sub-11-core grid), and nothing checked that its *other* mirrored constants still
+  match the implementation. `audit_figures.check_mirrored_constants` now parses them out of the source with
+  `ast` — no ttnn import — and I verified it catches an induced drift.
+
+**The sharded-norm core count (round 6's P2-6) was measured and the shipped value kept, for a corrected
+reason.** The reviewer was right that the isolated `NORM` rows contradicted the documented monotonicity
+claim, that the A/B cited in its defence varies a *different* knob, and that 4 and 32 cores had never been
+measured whole-layer. Both gaps are closed: the micro-probe's `NORM`, `TOPK`, `GATE`, `SPLIT` and `SDPA`
+sections now report a measured `spread=` like the matmul probes (round 5 had fixed only those), and with
+repeats the isolated ladder turns out to be *monotonic* — 4 fastest, then 8, 16, 32, 64 — so the earlier
+non-monotonicity was single-shot noise, which is exactly what a spread exists to reveal. The new
+whole-layer A/B ([`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt)) then shows all of 4/8/16/32
+landing within a few microseconds, with 8 marginally best on both layer kinds: each sharded norm also pays a
+`to_memory_config` in and a `sharded_to_interleaved` out, and those scale with the shard count, cancelling
+the op-level gain. 8 ships because the layer measurement says so, not because of the claim that was there.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

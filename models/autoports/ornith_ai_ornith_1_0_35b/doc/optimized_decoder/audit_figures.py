@@ -85,9 +85,16 @@ DOCS = [
     # the probe exists, and one of them was still quoting a pre-round-4 pair of percentages that no
     # artifact contained. A script is a document when it makes a claim about a measurement.
     *sorted(DOC.glob("logs/probe_*.py")),
+    DOC / "logs/ab_norm_shard_cores.py",
+    DOC / "logs/ab_gate_up_in0_block_w.py",
     DOC / "logs/bench.py",
     DOC / "tracy/perf_accounting.py",
     DOC / "watcher/census.py",
+    # The two hand-written harness scripts. They quote artifact sizes and thresholds rather than
+    # measurements today, but they are stage documents that make claims, and leaving them out left a route
+    # for a figure to be quoted in a file nothing checks.
+    DOC / "logs/run_evidence.sh",
+    DOC / "tracy/run_profiling.sh",
     *SOURCES,
 ]
 
@@ -117,6 +124,8 @@ ARTIFACTS = [
     DOC / "logs/ab_fused_vs_optimized.txt",
     DOC / "logs/ab_precision_policy.txt",
     DOC / "logs/ab_norm_shard_width.txt",
+    DOC / "logs/ab_norm_shard_cores.txt",
+    DOC / "logs/ab_gate_up_in0_block_w.txt",
     DOC / "logs/ab_state_l1.txt",
     DOC / "logs/ab_sdpa_decode_contract.txt",
     DOC / "logs/ab_gdn_out_activation.txt",
@@ -126,7 +135,6 @@ ARTIFACTS = [
     DOC / "logs/probe_decode_micro.txt",
     DOC / "logs/probe_projection_dtype.txt",
     DOC / "logs/probe_footprint.txt",
-    DOC / "logs/audit_selftest.txt",
     DOC / "tracy/perf_summary.json",
     DOC / "tracy/perf_accounting.txt",
     DOC / "watcher/census_summary.txt",
@@ -299,6 +307,10 @@ ALLOWED_INT = {
     # An upstream issue number, not a measurement: tt-metal #45943, cited by the sparse_matmul factory
     # itself at its `batch_nnz` runtime argument.
     "45943",
+    # Constants of the harness scripts themselves: the repo's 500 KB file-size limit and the sparse probe's
+    # `--active` ladder. Choices, not measurements.
+    "500000",
+    "64 162",
     # The two byte counts of that build-error message, for the same reason.
     "1684416",
     "1614848",
@@ -322,7 +334,9 @@ GENERATED_BLOCK = re.compile(r"<!-- generated:[a-z0-9-]+ -->.*?<!-- /generated:[
 #: Document *structure* rather than figures: markdown headings ("## 4. …", "### 4.11 …") and
 #: cross-references ("§4.11", "§5.3"). Stripped before scanning, because a section number is not a
 #: measurement and exempting each one by value would also exempt a real figure with those digits.
-SECTION = re.compile(r"(?m)^#{1,6}\s+\d+(?:\.\d+)*\.?\s|§\s?\d+(?:\.\d+)*")
+#: Also matches the spelled-out form ("section 4.15", "§4.15"), because a section reference is a reference
+#: however it is written and a shell comment cannot type "§" portably.
+SECTION = re.compile(r"(?m)^#{1,6}\s+\d+(?:\.\d+)*\.?\s|§\s?\d+(?:\.\d+)*|\bsection\s+\d+(?:\.\d+)*", re.IGNORECASE)
 
 #: RNG seeds, source line references and git object names. All are identifiers, not measurements.
 #: Rule and issue identifiers from the skills and trackers — ``OPT-013``, ``tt-metal #45943`` — which are
@@ -330,8 +344,20 @@ SECTION = re.compile(r"(?m)^#{1,6}\s+\d+(?:\.\d+)*\.?\s|§\s?\d+(?:\.\d+)*")
 RULE_ID = re.compile(r"\bOPT-\d+|#\d{4,6}\b")
 
 IDENTIFIER = re.compile(
-    # A mathematical exponent in prose, e.g. `head_k_dim ** -0.5` — an expression, not a measurement.
-    r"\*\*\s*-?[\d.]+"
+    # A mathematical exponent, e.g. `head_dim**-0.5` or `head_k_dim ** -0.5` — an expression, not a
+    # measurement.
+    #
+    # Distinguishing it from a markdown **bold opener** is delicate and got this wrong twice. The naive
+    # `\*\*\s*-?[\d.]+` matched the bold opener too, so it stripped the leading `**` AND the number of
+    # every bolded figure in these documents — which is how nearly all of them are written; review round 6
+    # proved it by injecting `**777.7 us**` into the README and watching the audit pass. Requiring a word
+    # character before the `**` did not fix it either, because `and **1.07 %**` also has one.
+    #
+    # The reliable discriminator is what follows the `**`: markdown bold opens with NO space before its
+    # content (`**1.07`), while a spaced exponent always has one (`** -0.5`). So two tight alternatives,
+    # and neither can match a bold opener:
+    r"\w\*\*-?[\d.]+"  # tight form: head_dim**-0.5
+    r"|\*\*\s+-?[\d.]+"  # spaced form: head_k_dim ** -0.5
     r"|(?:manual_)?seed\s*[=(]\s*\d+|\bseed=\d+|\.(?:cpp|hpp|py|cc|h|sh|json|md|txt|csv):\d+(?:-\d+)?"
     # Scientific notation is one literal; without this the exponent of "0.000e+00" reads as an integer.
     r"|\d+\.?\d*e[+-]?\d+"
@@ -391,6 +417,10 @@ HISTORICAL = {
     "2.06",
     "2.07",
     "1.86",
+    # Step 15 of the ladder: the decode figures of the revision immediately before round 6's in0_block_w
+    # change, quoted in §3 and §4.15 as the "before" of that step. The shipped level is README §5.2's.
+    "0.858",
+    "1.071",
     # Round 5's own record in §6: the row counts of the internally-inconsistent sparse artifact that a
     # re-run replaced, and the 1 MiB-fallback L1 budget round 1 found. Facts about superseded states.
     "1888",
@@ -646,22 +676,85 @@ def check_source_manifest() -> list:
 
 
 def check_generators() -> list:
-    """The README's generated blocks must equal what ``make_readme.py`` produces right now, and the
-    two summary artifacts must regenerate from their committed inputs."""
+    """Every generator must reproduce exactly what is committed.
+
+    ``make_readme.py --check`` compares the README itself. ``perf_accounting.py`` and ``census.py``
+    *rewrite* their summaries, so a non-zero exit is not enough: they succeed while writing different
+    content, and the audit's own run then repairs the file so that only a SECOND invocation would notice.
+    Review round 6 demonstrated that by corrupting ``perf_summary.json``, regenerating the README from it,
+    and watching this audit report zero problems. The bytes are snapshotted before and compared after.
+    """
     problems = []
     checks = [
-        (DOC / "logs/make_readme.py", ["--check"]),
-        (DOC / "tracy/perf_accounting.py", []),
-        (DOC / "watcher/census.py", []),
+        (DOC / "logs/make_readme.py", ["--check"], []),
+        (DOC / "tracy/perf_accounting.py", [], [DOC / "tracy/perf_summary.json"]),
+        (DOC / "watcher/census.py", [], [DOC / "watcher/census_summary.txt"]),
+        # The audit's own selftest, reproducible now that its artifact is out of the evidence pool, so it is
+        # diffed like any other generated summary. Round 6 found it neither regenerated by
+        # `run_evidence.sh` nor checked by anything, which left "a rate that rises means the matching rules
+        # got weaker" as an aspiration.
+        (DOC / "audit_figures.py", ["--selftest"], [DOC / "logs/audit_selftest.txt"]),
     ]
-    for script, extra in checks:
+    for script, extra, outputs in checks:
         if not script.is_file():
             problems.append(f"MISSING-SCRIPT  {script.relative_to(DOC)}")
             continue
+        before = {path: path.read_bytes() for path in outputs if path.is_file()}
         result = subprocess.run([sys.executable, str(script), *extra], capture_output=True, text=True, cwd=str(REPO))
         if result.returncode:
             problems.append(f"GENERATOR-FAILED  {script.name}")
             problems += [f"    {ln}" for ln in (result.stdout + result.stderr).strip().splitlines()[-6:]]
+        for path, original in before.items():
+            if path.read_bytes() != original:
+                problems.append(
+                    f"GENERATOR-DRIFT  {script.name} rewrote {path.name} with content that differs from "
+                    f"the committed version - the committed artifact is not what its generator produces"
+                )
+    return problems
+
+
+def check_mirrored_constants() -> list:
+    """``make_readme.py`` mirrors a few implementation rules; assert they still agree with the code.
+
+    ``block_sparse_search`` restates the routed core-count rule and the grid orientation, and
+    ``block_decode_search`` restates how a core target becomes a realised grid. Round 6 pointed out that
+    both drift silently if the layer changes — the generator would keep producing a confident table about a
+    geometry the layer no longer builds.
+
+    The constants are read out of the source with ``ast``, not imported: importing the implementation pulls
+    in ttnn, which is slow, prints allocator noise, and has no business running inside a documentation
+    audit.
+    """
+    import ast
+
+    source = ROOT / "tt/optimized_decoder.py"
+    if not source.is_file():
+        return ["MIRROR-SOURCE-MISSING  cannot read the implementation to check mirrored rules"]
+    try:
+        tree = ast.parse(source.read_text())
+    except SyntaxError as exc:
+        return [f"MIRROR-PARSE-FAILED  {exc}"]
+    found: dict = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name in {"SPARSE_CORES_PER_ACTIVE", "SPARSE_MIN_CORES", "SPARSE_MAX_CORES"}:
+                try:
+                    found[name] = ast.literal_eval(node.value)
+                except ValueError:
+                    pass
+    #: What make_readme.block_sparse_search assumes. Keep in step with that function.
+    expected = {"SPARSE_CORES_PER_ACTIVE": {"gate_up": 2, "down": 4}, "SPARSE_MIN_CORES": 8, "SPARSE_MAX_CORES": 32}
+    problems = []
+    for name, want in expected.items():
+        got = found.get(name)
+        if got is None:
+            problems.append(f"MIRRORED-RULE-MISSING  {name} not found in tt/optimized_decoder.py")
+        elif got != want:
+            problems.append(
+                f"MIRRORED-RULE-DRIFT  make_readme.block_sparse_search mirrors {name} as {want!r}, the "
+                f"implementation says {got!r}"
+            )
     return problems
 
 
@@ -671,23 +764,23 @@ def check_generators() -> list:
 #:   freshness evidence itself.
 #: * ``context_contract.json`` is a document that is also evidence; its figures are audited.
 #: * ``triage/`` is a capture of a *hardware incident* that a re-run must not reproduce on purpose.
-#: * The four ``ab_*.txt`` below are **one-off decision records**, not regenerable by
-#:   ``run_evidence.sh``: each needed a deliberate variant of the implementation (a different constant,
-#:   a different dtype on one multiply, a k-chunk the layer must not ship) that only exists long enough
-#:   to measure it. They are A/B *pairs* measured back to back in one process, so what they establish is
-#:   the sign and size of a **difference**, which does not go stale when unrelated code changes; their
-#:   absolute level belongs to the revision that produced them, and the shipped default's absolute level
-#:   is re-measured end to end on every run in ``ab_fused_vs_optimized.txt``. Documents quoting them must
+#: * The five ``ab_*.txt`` below are **one-off decision records**, not regenerable by
+#:   ``run_evidence.sh``: each needed a deliberate variant of the implementation (a different constant, a
+#:   different dtype on one multiply, a k-chunk the layer must not ship) that only exists long enough to
+#:   measure it. They are A/B *pairs* measured back to back in one process, so what they establish is the
+#:   sign and size of a **difference**, which does not go stale when unrelated code changes; their absolute
+#:   level belongs to the revision that produced them, and the shipped default's absolute level is
+#:   re-measured end to end on every run in ``ab_fused_vs_optimized.txt``. Documents quoting them must
 #:   quote the pair, not the level.
 EXEMPT_FROM_FRESHNESS = {
     "commit_record.txt",
-    "audit_selftest.txt",
     "context_contract.json",
     "source_manifest.txt",
     "tt-triage.txt",
     "triage-summary.txt",
     "ab_gdn_out_activation.txt",
     "ab_norm_shard_width.txt",
+    "ab_norm_shard_cores.txt",
     "ab_state_l1.txt",
     "ab_sdpa_decode_contract.txt",
 }
@@ -753,6 +846,11 @@ SELFTEST_CLASSES = [
     ("six-decimal PCC in 0.99..1", "f'{rnd.uniform(0.99, 1):.6f}'"),
     ("7-10 digit byte counts", "str(rnd.randint(10 ** 6, 10 ** 10))"),
     ("three-digit integers", "str(rnd.randint(100, 999))"),
+    # Deliberately included although ALLOWED_INT exempts this whole range: the rate makes the size of that
+    # exemption visible instead of implicit. A two-digit integer here is almost always a core count, a tile
+    # count or a section number — but a two-digit MICROSECOND figure is not, and the audit cannot tell them
+    # apart. That limit belongs in the artifact rather than in a reader's head.
+    ("two-digit integers (ALLOWED_INT exempts 12-99 wholesale)", "str(rnd.randint(12, 99))"),
 ]
 SELFTEST_SAMPLES = 2000
 SELFTEST_SEED = 7
@@ -769,8 +867,12 @@ def selftest() -> str:
     """
     import random
 
+    # NOT measuring a pool that contains the selftest's own previous output: it is a list of numbers, so
+    # including it makes the experiment self-referential and it never converges — round 6 measured exactly
+    # that, three consecutive runs producing three different files. `audit_selftest.txt` is therefore out of
+    # ARTIFACTS entirely, which also makes this reproducible enough for `check_generators` to diff.
     blobs = load(ARTIFACTS)
-    tokens = measured_tokens(blobs)
+    tokens = measured_tokens(blobs) | derived_from_artifacts(blobs)
     rnd = random.Random(SELFTEST_SEED)
     lines = [
         "# How often audit_figures.sourced() says yes to an ARBITRARY value of each figure class.",
@@ -779,7 +881,14 @@ def selftest() -> str:
         f"# pool: {len(blobs)} artifacts, {sum(len(v) for v in blobs.values())} chars, {len(tokens)} labelled tokens",
     ]
     for label, expression in SELFTEST_CLASSES:
-        hits = sum(1 for _ in range(SELFTEST_SAMPLES) if sourced(eval(expression, {"rnd": rnd}), tokens))  # noqa: S307
+        # Counts an ACCEPTANCE, which is what the gate actually does: sourced OR blanket-exempted. Without
+        # the exemptions in the predicate the two-digit row would read 0 % while every such figure passes.
+        hits = sum(
+            1
+            for _ in range(SELFTEST_SAMPLES)
+            for value in [eval(expression, {"rnd": rnd})]  # noqa: S307
+            if value in ALLOWED or value in ALLOWED_INT or sourced(value, tokens)
+        )
         lines.append(f"SELFTEST class={label!r} hits={hits} of={SELFTEST_SAMPLES} rate={hits / SELFTEST_SAMPLES:.4f}")
     return "\n".join(lines) + "\n"
 
@@ -792,10 +901,17 @@ def main() -> int:
         return 0
     all_blobs = load(ARTIFACTS)
     all_tokens = measured_tokens(all_blobs) | derived_from_artifacts(all_blobs)
+    #: Every labelled claim ("109 passed") the LABELLED rules actually matched. Reported, because a pass
+    #: that matches nothing is not coverage: round 6 found these rules dead for months because they ran on
+    #: text whose markdown had already been stripped. Today the count is legitimately low — every such
+    #: claim in the README is inside a generated block, and those are checked by `make_readme.py --check`
+    #: instead — but the number has to be visible for that to be a conclusion rather than an assumption.
+    labelled_checked: list = []
     problems = [f"MISSING-ARTIFACT  {p.relative_to(REPO)}" for p in ARTIFACTS + PER_OP_REPORTS if not exists(p)]
     problems += check_source_manifest()
     problems += check_suite_log_complete()
     problems += check_freshness()
+    problems += check_mirrored_constants()
     problems += check_generators()
     problems += check_derived(all_tokens)
 
@@ -819,7 +935,12 @@ def main() -> int:
             # ensure_ascii=False: with the default, "§4.8" is emitted as "\u00a74.8" and the section
             # stripper then leaves "74.8" behind as a phantom figure.
             body = _json.dumps(_json.loads(body).get("optimized_decoder", {}), indent=1, ensure_ascii=False)
-        text = IDENTIFIER.sub(" ", RULE_ID.sub(" ", SECTION.sub(" ", GENERATED_BLOCK.sub(" ", body))))
+        # Two texts: `text` has identifiers/sections/generated blocks stripped and is what the numeric
+        # passes scan; `labelled_text` keeps the markdown, because the LABELLED rules match a value
+        # TOGETHER WITH its label ("**109 passed**") and the strippers eat the markdown that surrounds it.
+        # Round 6 found the LABELLED pass matching nothing at all across all 17 documents for that reason.
+        labelled_text = GENERATED_BLOCK.sub(" ", body)
+        text = IDENTIFIER.sub(" ", RULE_ID.sub(" ", SECTION.sub(" ", labelled_text)))
         scope_blobs = {path: b for path, b in all_blobs.items() if path != doc}
         # Ratios computed from the A/B artifact count as being "in" it: a paragraph that cites
         # ab_fused_vs_optimized.txt and quotes a speedup is citing correctly.
@@ -859,13 +980,17 @@ def main() -> int:
                     continue
                 # A superseded figure may be quoted where a document RECORDS that it was wrong:
                 # work_log §6, and the code comments that explain why a generator now derives a value.
-                if value in HISTORICAL and (doc.name == "work_log.md" or doc.suffix == ".py"):
+                # Same rule as the decimal pass: only work_log.md, which is where a review finding gets
+                # recorded. Round 6 found this branch still admitting `.py` documents, so a generator or a
+                # probe could quote a superseded integer with no artifact behind it.
+                if value in HISTORICAL and doc.name == "work_log.md":
                     continue
                 if scoped is not None and sourced(value, tokens):
                     continue  # integers are too collision-prone to call a miscitation on
                 problems.append(f"UNSOURCED-INT  {doc.name}: {value}")
         for pattern, template in LABELLED:
-            for value in sorted(set(pattern.findall(text))):
+            for value in sorted(set(pattern.findall(labelled_text))):
+                labelled_checked.append(f"{doc.name}: {value.strip()}")
                 phrase = template.format(value.strip().replace(",", "").replace(" ", ""))
                 if not phrase_in_artifacts(phrase, scope_blobs):
                     problems.append(f"UNSOURCED-LABEL  {doc.name}: {phrase!r}")
@@ -876,7 +1001,8 @@ def main() -> int:
         f"checked {len(DOCS)} documents (including {len(SOURCES)} source files) against "
         f"{len(all_blobs)} artifacts, evaluated {len(DERIVED)} derived figures, re-ran the README "
         f"generator and both summary generators, and asserted every artifact is newer than the code "
-        f"and produced by its recorded hash: {len(problems)} problem(s)"
+        f"and produced by its recorded hash. Labelled claims matched outside generated blocks: "
+        f"{len(labelled_checked)}. {len(problems)} problem(s)"
     )
     return 1 if problems else 0
 

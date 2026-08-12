@@ -1,179 +1,179 @@
 # Non-matmul decode micro-probes.
 # grid 11x10
-SDPA cfg=default(None) us=1005.2 pcc_vs_default=1.000000
-SDPA cfg=grid=8x8 q_chunk=32 k_chunk=64 us=62.3 pcc_vs_default=0.999407
-SDPA cfg=grid=8x8 q_chunk=32 k_chunk=128 us=57.1 pcc_vs_default=0.999398
-SDPA cfg=grid=8x8 q_chunk=32 k_chunk=32 us=88.4 pcc_vs_default=1.000000
-SDPA cfg=grid=8x8 q_chunk=0 k_chunk=0 us=56.9 pcc_vs_default=0.999398
-SDPA cfg=grid=11x10 q_chunk=32 k_chunk=64 us=63.6 pcc_vs_default=0.999407
-SDPA cfg=grid=11x10 q_chunk=32 k_chunk=128 us=56.6 pcc_vs_default=0.999398
-SDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=90.4 pcc_vs_default=1.000000
-SDPA cfg=grid=11x10 q_chunk=0 k_chunk=0 us=56.4 pcc_vs_default=0.999398
-SDPA cfg=grid=8x4 q_chunk=32 k_chunk=64 us=61.2 pcc_vs_default=0.999407
-SDPA cfg=grid=8x4 q_chunk=32 k_chunk=128 us=55.9 pcc_vs_default=0.999398
-SDPA cfg=grid=8x4 q_chunk=32 k_chunk=32 us=87.3 pcc_vs_default=1.000000
-SDPA cfg=grid=8x4 q_chunk=0 k_chunk=0 us=55.8 pcc_vs_default=0.999398
-SDPA cfg=grid=4x8 q_chunk=32 k_chunk=64 us=63.1 pcc_vs_default=0.999407
-SDPA cfg=grid=4x8 q_chunk=32 k_chunk=128 us=59.7 pcc_vs_default=0.999398
-SDPA cfg=grid=4x8 q_chunk=32 k_chunk=32 us=87.2 pcc_vs_default=1.000000
-SDPA cfg=grid=4x8 q_chunk=0 k_chunk=0 us=59.3 pcc_vs_default=0.999398
+SDPA cfg=default(None) us=1004.7 spread=2.0 pcc_vs_default=1.000000
+SDPA cfg=grid=8x8 q_chunk=32 k_chunk=64 us=62.0 spread=0.4 pcc_vs_default=0.999407
+SDPA cfg=grid=8x8 q_chunk=32 k_chunk=128 us=57.0 spread=0.3 pcc_vs_default=0.999398
+SDPA cfg=grid=8x8 q_chunk=32 k_chunk=32 us=88.4 spread=0.2 pcc_vs_default=1.000000
+SDPA cfg=grid=8x8 q_chunk=0 k_chunk=0 us=56.8 spread=0.1 pcc_vs_default=0.999398
+SDPA cfg=grid=11x10 q_chunk=32 k_chunk=64 us=63.4 spread=0.2 pcc_vs_default=0.999407
+SDPA cfg=grid=11x10 q_chunk=32 k_chunk=128 us=56.4 spread=0.2 pcc_vs_default=0.999398
+SDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=90.4 spread=0.1 pcc_vs_default=1.000000
+SDPA cfg=grid=11x10 q_chunk=0 k_chunk=0 us=56.3 spread=0.3 pcc_vs_default=0.999398
+SDPA cfg=grid=8x4 q_chunk=32 k_chunk=64 us=61.1 spread=0.2 pcc_vs_default=0.999407
+SDPA cfg=grid=8x4 q_chunk=32 k_chunk=128 us=55.9 spread=0.3 pcc_vs_default=0.999398
+SDPA cfg=grid=8x4 q_chunk=32 k_chunk=32 us=87.4 spread=0.1 pcc_vs_default=1.000000
+SDPA cfg=grid=8x4 q_chunk=0 k_chunk=0 us=55.7 spread=0.4 pcc_vs_default=0.999398
+SDPA cfg=grid=4x8 q_chunk=32 k_chunk=64 us=62.8 spread=0.3 pcc_vs_default=0.999407
+SDPA cfg=grid=4x8 q_chunk=32 k_chunk=128 us=59.4 spread=0.2 pcc_vs_default=0.999398
+SDPA cfg=grid=4x8 q_chunk=32 k_chunk=32 us=87.3 spread=0.2 pcc_vs_default=1.000000
+SDPA cfg=grid=4x8 q_chunk=0 k_chunk=0 us=59.3 spread=1.1 pcc_vs_default=0.999398
 # grid 11x10
-NORM spelling=interleaved-default us=21.4
-NORM spelling=width-sharded cores=4(4x1) block_w=16 us=10.8 pcc=0.999983
-NORM spelling=width-sharded cores=8(8x1) block_w=8 us=13.2 pcc=0.999984
-NORM spelling=width-sharded cores=16(8x2) block_w=4 us=14.3 pcc=0.999983
-NORM spelling=width-sharded cores=32(8x4) block_w=2 us=12.2 pcc=0.999985
-NORM spelling=width-sharded cores=64(8x8) block_w=1 us=18.4 pcc=0.999983
-TOPK width=256 us=52.4
-TOPK width=512 us=97.1 indices_in_range=True
-TOPK width=1024 us=186.1 indices_in_range=True
-TOPK width=2048 us=363.2 indices_in_range=True
-TOPK width=4096 us=717.6 indices_in_range=True
-TOPK width=8192 us=149.5 indices_in_range=True
-TOPK width=16384 us=172.9 indices_in_range=True
-GATE spelling=topk-softmax-scatter us=101.2
-GATE spelling=topk-ge-where-softmax us=114.5 pcc=1.000000 max_abs_diff=0.000e+00
-SDPA cfg=default(None) us=1005.2 pcc_vs_default=1.000000
-SDPA cfg=grid=8x8 q_chunk=32 k_chunk=64 us=62.4 pcc_vs_default=0.999372
-SDPA cfg=grid=8x8 q_chunk=32 k_chunk=128 us=57.2 pcc_vs_default=0.999365
-SDPA cfg=grid=8x8 q_chunk=32 k_chunk=32 us=88.6 pcc_vs_default=1.000000
-SDPA cfg=grid=8x8 q_chunk=0 k_chunk=0 us=57.1 pcc_vs_default=0.999365
-SDPA cfg=grid=11x10 q_chunk=32 k_chunk=64 us=63.5 pcc_vs_default=0.999372
-SDPA cfg=grid=11x10 q_chunk=32 k_chunk=128 us=56.6 pcc_vs_default=0.999365
-SDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=90.6 pcc_vs_default=1.000000
-SDPA cfg=grid=11x10 q_chunk=0 k_chunk=0 us=56.4 pcc_vs_default=0.999365
-SDPA cfg=grid=8x4 q_chunk=32 k_chunk=64 us=61.1 pcc_vs_default=0.999372
-SDPA cfg=grid=8x4 q_chunk=32 k_chunk=128 us=55.9 pcc_vs_default=0.999365
-SDPA cfg=grid=8x4 q_chunk=32 k_chunk=32 us=87.7 pcc_vs_default=1.000000
-SDPA cfg=grid=8x4 q_chunk=0 k_chunk=0 us=55.7 pcc_vs_default=0.999365
-SDPA cfg=grid=4x8 q_chunk=32 k_chunk=64 us=63.0 pcc_vs_default=0.999372
-SDPA cfg=grid=4x8 q_chunk=32 k_chunk=128 us=59.5 pcc_vs_default=0.999365
-SDPA cfg=grid=4x8 q_chunk=32 k_chunk=32 us=87.5 pcc_vs_default=1.000000
-SDPA cfg=grid=4x8 q_chunk=0 k_chunk=0 us=59.4 pcc_vs_default=0.999365
-STATE role=read progcfg in0_block_w=1 grid=8x4 us=16.8
-STATE role=outer progcfg in0_block_w=1 grid=8x4 us=14.6
-STATE role=read progcfg in0_block_w=1 grid=11x10 us=14.4
-STATE role=outer progcfg in0_block_w=1 grid=11x10 us=12.6
-STATE role=read progcfg in0_block_w=2 grid=8x4 us=15.5
+NORM spelling=interleaved-default us=21.0 spread=0.2
+NORM spelling=width-sharded cores=4(4x1) block_w=16 us=8.7 spread=0.2 pcc=0.999983
+NORM spelling=width-sharded cores=8(8x1) block_w=8 us=13.0 spread=0.3 pcc=0.999984
+NORM spelling=width-sharded cores=16(8x2) block_w=4 us=14.5 spread=0.3 pcc=0.999983
+NORM spelling=width-sharded cores=32(8x4) block_w=2 us=16.5 spread=0.4 pcc=0.999985
+NORM spelling=width-sharded cores=64(8x8) block_w=1 us=23.7 spread=1.2 pcc=0.999983
+TOPK width=256 us=52.2 spread=0.1
+TOPK width=512 us=97.2 spread=0.0 indices_in_range=True
+TOPK width=1024 us=186.1 spread=0.1 indices_in_range=True
+TOPK width=2048 us=363.1 spread=0.0 indices_in_range=True
+TOPK width=4096 us=716.9 spread=0.1 indices_in_range=True
+TOPK width=8192 us=149.4 spread=0.2 indices_in_range=True
+TOPK width=16384 us=172.8 spread=0.2 indices_in_range=True
+GATE spelling=topk-softmax-scatter us=102.4 spread=5.4
+GATE spelling=topk-ge-where-softmax us=118.2 spread=0.6 pcc=1.000000 max_abs_diff=0.000e+00
+SDPA cfg=default(None) us=1005.2 spread=2.0 pcc_vs_default=1.000000
+SDPA cfg=grid=8x8 q_chunk=32 k_chunk=64 us=62.0 spread=0.3 pcc_vs_default=0.999372
+SDPA cfg=grid=8x8 q_chunk=32 k_chunk=128 us=57.0 spread=0.1 pcc_vs_default=0.999365
+SDPA cfg=grid=8x8 q_chunk=32 k_chunk=32 us=88.4 spread=0.1 pcc_vs_default=1.000000
+SDPA cfg=grid=8x8 q_chunk=0 k_chunk=0 us=56.8 spread=1.2 pcc_vs_default=0.999365
+SDPA cfg=grid=11x10 q_chunk=32 k_chunk=64 us=63.4 spread=0.3 pcc_vs_default=0.999372
+SDPA cfg=grid=11x10 q_chunk=32 k_chunk=128 us=56.5 spread=0.0 pcc_vs_default=0.999365
+SDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=91.3 spread=0.1 pcc_vs_default=1.000000
+SDPA cfg=grid=11x10 q_chunk=0 k_chunk=0 us=56.3 spread=0.2 pcc_vs_default=0.999365
+SDPA cfg=grid=8x4 q_chunk=32 k_chunk=64 us=61.0 spread=0.0 pcc_vs_default=0.999372
+SDPA cfg=grid=8x4 q_chunk=32 k_chunk=128 us=55.7 spread=0.3 pcc_vs_default=0.999365
+SDPA cfg=grid=8x4 q_chunk=32 k_chunk=32 us=87.4 spread=0.1 pcc_vs_default=1.000000
+SDPA cfg=grid=8x4 q_chunk=0 k_chunk=0 us=55.6 spread=0.3 pcc_vs_default=0.999365
+SDPA cfg=grid=4x8 q_chunk=32 k_chunk=64 us=62.8 spread=0.1 pcc_vs_default=0.999372
+SDPA cfg=grid=4x8 q_chunk=32 k_chunk=128 us=59.3 spread=0.2 pcc_vs_default=0.999365
+SDPA cfg=grid=4x8 q_chunk=32 k_chunk=32 us=87.3 spread=0.2 pcc_vs_default=1.000000
+SDPA cfg=grid=4x8 q_chunk=0 k_chunk=0 us=59.2 spread=0.2 pcc_vs_default=0.999365
+STATE role=read progcfg in0_block_w=1 grid=8x4 us=16.8 spread=0.1
+STATE role=outer progcfg in0_block_w=1 grid=8x4 us=14.5 spread=1.6
+STATE role=read progcfg in0_block_w=1 grid=11x10 us=14.3 spread=0.1
+STATE role=outer progcfg in0_block_w=1 grid=11x10 us=12.6 spread=0.0
+STATE role=read progcfg in0_block_w=2 grid=8x4 us=15.5 spread=0.1
 STATE role=outer progcfg in0_block_w=2 grid=8x4 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read progcfg in0_block_w=2 grid=11x10 us=14.1
+STATE role=read progcfg in0_block_w=2 grid=11x10 us=14.0 spread=0.1
 STATE role=outer progcfg in0_block_w=2 grid=11x10 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read progcfg in0_block_w=4 grid=8x4 us=14.9
+STATE role=read progcfg in0_block_w=4 grid=8x4 us=14.8 spread=0.1
 STATE role=outer progcfg in0_block_w=4 grid=8x4 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read progcfg in0_block_w=4 grid=11x10 us=14.8
+STATE role=read progcfg in0_block_w=4 grid=11x10 us=14.8 spread=0.0
 STATE role=outer progcfg in0_block_w=4 grid=11x10 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read fidelity=HiFi4/fp32acc grid=11x10 us=14.7 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=11x10 us=18.4
-STATE role=read fidelity=HiFi4/fp32acc grid=8x4 us=17.0 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=8x4 us=16.6
-STATE role=read fidelity=HiFi4/fp32acc grid=4x8 us=16.3 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=4x8 us=18.1
-STATE role=read fidelity=HiFi4/fp32acc grid=8x8 us=16.4 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=8x8 us=18.2
-STATE role=read fidelity=HiFi4/fp32acc grid=1x1 us=115.1 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=1x1 us=167.2
-STATE role=read fidelity=HiFi4 grid=11x10 us=14.8 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=11x10 us=17.9
-STATE role=read fidelity=HiFi4 grid=8x4 us=17.0 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=8x4 us=15.7
-STATE role=read fidelity=HiFi4 grid=4x8 us=16.4 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=4x8 us=17.8
-STATE role=read fidelity=HiFi4 grid=8x8 us=16.4 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=8x8 us=17.6
-STATE role=read fidelity=HiFi4 grid=1x1 us=114.3 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=1x1 us=167.9
-STATE role=read fidelity=HiFi2/fp32acc grid=11x10 us=14.8 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=11x10 us=18.3
-STATE role=read fidelity=HiFi2/fp32acc grid=8x4 us=16.8 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=8x4 us=16.7
-STATE role=read fidelity=HiFi2/fp32acc grid=4x8 us=16.3 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=4x8 us=18.1
-STATE role=read fidelity=HiFi2/fp32acc grid=8x8 us=16.4 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=8x8 us=18.1
-STATE role=read fidelity=HiFi2/fp32acc grid=1x1 us=111.9 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=1x1 us=167.4
-STATE role=read fidelity=HiFi2 grid=11x10 us=14.8 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=11x10 us=17.7
-STATE role=read fidelity=HiFi2 grid=8x4 us=16.9 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=8x4 us=15.7
-STATE role=read fidelity=HiFi2 grid=4x8 us=16.4 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=4x8 us=17.6
-STATE role=read fidelity=HiFi2 grid=8x8 us=16.4 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=8x8 us=17.4
-STATE role=read fidelity=HiFi2 grid=1x1 us=111.2 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=1x1 us=167.1
-STATE role=read fidelity=LoFi grid=11x10 us=14.9 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=11x10 us=17.7
-STATE role=read fidelity=LoFi grid=8x4 us=16.8 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=8x4 us=15.7
-STATE role=read fidelity=LoFi grid=4x8 us=16.6 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=4x8 us=17.5
-STATE role=read fidelity=LoFi grid=8x8 us=16.4 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=8x8 us=17.3
-STATE role=read fidelity=LoFi grid=1x1 us=110.6 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=1x1 us=167.2
-SPLIT spelling=packed-gate-up us=222.3
-SPLIT spelling=separate-gate-up us=297.8 pcc_vs_packed=1.000000
+STATE role=read fidelity=HiFi4/fp32acc grid=11x10 us=14.8 spread=0.0 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=11x10 us=18.1 spread=0.7
+STATE role=read fidelity=HiFi4/fp32acc grid=8x4 us=16.8 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=8x4 us=16.7 spread=0.1
+STATE role=read fidelity=HiFi4/fp32acc grid=4x8 us=16.3 spread=0.2 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=4x8 us=18.1 spread=0.1
+STATE role=read fidelity=HiFi4/fp32acc grid=8x8 us=16.3 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=8x8 us=18.1 spread=0.1
+STATE role=read fidelity=HiFi4/fp32acc grid=1x1 us=115.1 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=1x1 us=167.2 spread=0.0
+STATE role=read fidelity=HiFi4 grid=11x10 us=14.7 spread=0.1 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=11x10 us=17.8 spread=0.1
+STATE role=read fidelity=HiFi4 grid=8x4 us=16.9 spread=0.1 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=8x4 us=15.7 spread=0.1
+STATE role=read fidelity=HiFi4 grid=4x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=4x8 us=17.6 spread=0.1
+STATE role=read fidelity=HiFi4 grid=8x8 us=16.4 spread=0.1 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=8x8 us=17.6 spread=0.1
+STATE role=read fidelity=HiFi4 grid=1x1 us=114.2 spread=0.0 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=1x1 us=167.8 spread=0.0
+STATE role=read fidelity=HiFi2/fp32acc grid=11x10 us=14.8 spread=0.1 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=11x10 us=18.2 spread=0.1
+STATE role=read fidelity=HiFi2/fp32acc grid=8x4 us=16.9 spread=0.2 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=8x4 us=16.7 spread=0.0
+STATE role=read fidelity=HiFi2/fp32acc grid=4x8 us=16.4 spread=0.1 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=4x8 us=18.1 spread=0.1
+STATE role=read fidelity=HiFi2/fp32acc grid=8x8 us=16.5 spread=0.1 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=8x8 us=18.0 spread=0.2
+STATE role=read fidelity=HiFi2/fp32acc grid=1x1 us=111.9 spread=0.1 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=1x1 us=167.4 spread=0.1
+STATE role=read fidelity=HiFi2 grid=11x10 us=14.8 spread=0.1 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=11x10 us=17.7 spread=0.0
+STATE role=read fidelity=HiFi2 grid=8x4 us=16.9 spread=0.1 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=8x4 us=15.5 spread=0.2
+STATE role=read fidelity=HiFi2 grid=4x8 us=16.4 spread=0.1 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=4x8 us=17.4 spread=0.1
+STATE role=read fidelity=HiFi2 grid=8x8 us=16.4 spread=0.1 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=8x8 us=17.4 spread=0.0
+STATE role=read fidelity=HiFi2 grid=1x1 us=111.1 spread=0.0 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=1x1 us=167.1 spread=0.1
+STATE role=read fidelity=LoFi grid=11x10 us=14.8 spread=0.1 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=11x10 us=17.5 spread=0.3
+STATE role=read fidelity=LoFi grid=8x4 us=17.0 spread=0.2 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=8x4 us=15.5 spread=0.1
+STATE role=read fidelity=LoFi grid=4x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=4x8 us=17.4 spread=0.1
+STATE role=read fidelity=LoFi grid=8x8 us=16.4 spread=0.0 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=8x8 us=17.3 spread=0.1
+STATE role=read fidelity=LoFi grid=1x1 us=110.5 spread=0.1 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=1x1 us=167.2 spread=0.0
+SPLIT spelling=packed-gate-up us=221.9 spread=0.5
+SPLIT spelling=separate-gate-up us=298.0 spread=0.8 pcc_vs_packed=1.000000
 # grid 11x10
-STATE role=read progcfg in0_block_w=1 grid=8x4 us=17.4
-STATE role=outer progcfg in0_block_w=1 grid=8x4 us=14.6
-STATE role=read progcfg in0_block_w=1 grid=11x10 us=14.4
-STATE role=outer progcfg in0_block_w=1 grid=11x10 us=15.6
-STATE role=read progcfg in0_block_w=2 grid=8x4 us=15.6
+STATE role=read progcfg in0_block_w=1 grid=8x4 us=16.7 spread=0.9
+STATE role=outer progcfg in0_block_w=1 grid=8x4 us=14.6 spread=0.0
+STATE role=read progcfg in0_block_w=1 grid=11x10 us=14.4 spread=0.1
+STATE role=outer progcfg in0_block_w=1 grid=11x10 us=12.6 spread=0.2
+STATE role=read progcfg in0_block_w=2 grid=8x4 us=15.4 spread=0.1
 STATE role=outer progcfg in0_block_w=2 grid=8x4 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read progcfg in0_block_w=2 grid=11x10 us=14.0
+STATE role=read progcfg in0_block_w=2 grid=11x10 us=13.9 spread=0.2
 STATE role=outer progcfg in0_block_w=2 grid=11x10 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read progcfg in0_block_w=4 grid=8x4 us=14.9
+STATE role=read progcfg in0_block_w=4 grid=8x4 us=14.8 spread=0.1
 STATE role=outer progcfg in0_block_w=4 grid=8x4 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read progcfg in0_block_w=4 grid=11x10 us=15.0
+STATE role=read progcfg in0_block_w=4 grid=11x10 us=14.8 spread=0.1
 STATE role=outer progcfg in0_block_w=4 grid=11x10 FAILED TT_FATAL @ /home/ttuser/dev/ornith/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_ope
-STATE role=read fidelity=HiFi4/fp32acc grid=11x10 us=14.7 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=11x10 us=18.4
-STATE role=read fidelity=HiFi4/fp32acc grid=8x4 us=17.0 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=8x4 us=16.7
-STATE role=read fidelity=HiFi4/fp32acc grid=4x8 us=16.4 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=4x8 us=18.3
-STATE role=read fidelity=HiFi4/fp32acc grid=8x8 us=16.5 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=8x8 us=18.1
-STATE role=read fidelity=HiFi4/fp32acc grid=1x1 us=115.1 pcc_vs_shipped=1.000000
-STATE role=outer fidelity=HiFi4/fp32acc grid=1x1 us=167.1
-STATE role=read fidelity=HiFi4 grid=11x10 us=15.2 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=11x10 us=17.8
-STATE role=read fidelity=HiFi4 grid=8x4 us=17.0 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=8x4 us=15.8
-STATE role=read fidelity=HiFi4 grid=4x8 us=16.5 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=4x8 us=17.8
-STATE role=read fidelity=HiFi4 grid=8x8 us=16.7 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=8x8 us=17.7
-STATE role=read fidelity=HiFi4 grid=1x1 us=114.3 pcc_vs_shipped=0.999979
-STATE role=outer fidelity=HiFi4 grid=1x1 us=167.9
-STATE role=read fidelity=HiFi2/fp32acc grid=11x10 us=14.8 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=11x10 us=18.3
-STATE role=read fidelity=HiFi2/fp32acc grid=8x4 us=16.8 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=8x4 us=16.7
-STATE role=read fidelity=HiFi2/fp32acc grid=4x8 us=16.4 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=4x8 us=18.2
-STATE role=read fidelity=HiFi2/fp32acc grid=8x8 us=16.4 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=8x8 us=18.0
-STATE role=read fidelity=HiFi2/fp32acc grid=1x1 us=111.9 pcc_vs_shipped=0.999994
-STATE role=outer fidelity=HiFi2/fp32acc grid=1x1 us=167.3
-STATE role=read fidelity=HiFi2 grid=11x10 us=14.8 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=11x10 us=17.6
-STATE role=read fidelity=HiFi2 grid=8x4 us=16.9 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=8x4 us=15.6
-STATE role=read fidelity=HiFi2 grid=4x8 us=16.4 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=4x8 us=17.6
-STATE role=read fidelity=HiFi2 grid=8x8 us=16.4 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=8x8 us=17.5
-STATE role=read fidelity=HiFi2 grid=1x1 us=111.1 pcc_vs_shipped=0.999978
-STATE role=outer fidelity=HiFi2 grid=1x1 us=167.0
-STATE role=read fidelity=LoFi grid=11x10 us=14.8 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=11x10 us=17.5
-STATE role=read fidelity=LoFi grid=8x4 us=16.9 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=8x4 us=15.4
-STATE role=read fidelity=LoFi grid=4x8 us=16.2 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=4x8 us=17.5
-STATE role=read fidelity=LoFi grid=8x8 us=16.4 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=8x8 us=17.3
-STATE role=read fidelity=LoFi grid=1x1 us=110.5 pcc_vs_shipped=0.999889
-STATE role=outer fidelity=LoFi grid=1x1 us=167.2
+STATE role=read fidelity=HiFi4/fp32acc grid=11x10 us=14.6 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=11x10 us=18.2 spread=0.1
+STATE role=read fidelity=HiFi4/fp32acc grid=8x4 us=16.9 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=8x4 us=16.5 spread=0.1
+STATE role=read fidelity=HiFi4/fp32acc grid=4x8 us=16.3 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=4x8 us=18.1 spread=0.0
+STATE role=read fidelity=HiFi4/fp32acc grid=8x8 us=16.3 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=8x8 us=17.9 spread=0.1
+STATE role=read fidelity=HiFi4/fp32acc grid=1x1 us=115.0 spread=0.1 pcc_vs_shipped=1.000000
+STATE role=outer fidelity=HiFi4/fp32acc grid=1x1 us=167.2 spread=0.4
+STATE role=read fidelity=HiFi4 grid=11x10 us=14.7 spread=0.1 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=11x10 us=17.8 spread=0.1
+STATE role=read fidelity=HiFi4 grid=8x4 us=16.9 spread=0.0 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=8x4 us=15.6 spread=0.1
+STATE role=read fidelity=HiFi4 grid=4x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=4x8 us=17.4 spread=0.2
+STATE role=read fidelity=HiFi4 grid=8x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=8x8 us=17.5 spread=0.0
+STATE role=read fidelity=HiFi4 grid=1x1 us=114.1 spread=0.2 pcc_vs_shipped=0.999979
+STATE role=outer fidelity=HiFi4 grid=1x1 us=167.9 spread=1.1
+STATE role=read fidelity=HiFi2/fp32acc grid=11x10 us=14.7 spread=0.1 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=11x10 us=18.2 spread=0.1
+STATE role=read fidelity=HiFi2/fp32acc grid=8x4 us=16.8 spread=0.2 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=8x4 us=16.5 spread=0.1
+STATE role=read fidelity=HiFi2/fp32acc grid=4x8 us=16.3 spread=0.1 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=4x8 us=18.0 spread=0.1
+STATE role=read fidelity=HiFi2/fp32acc grid=8x8 us=16.4 spread=0.2 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=8x8 us=17.9 spread=0.3
+STATE role=read fidelity=HiFi2/fp32acc grid=1x1 us=111.8 spread=0.2 pcc_vs_shipped=0.999994
+STATE role=outer fidelity=HiFi2/fp32acc grid=1x1 us=167.4 spread=0.1
+STATE role=read fidelity=HiFi2 grid=11x10 us=14.7 spread=0.0 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=11x10 us=17.6 spread=0.0
+STATE role=read fidelity=HiFi2 grid=8x4 us=16.9 spread=0.0 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=8x4 us=15.4 spread=0.2
+STATE role=read fidelity=HiFi2 grid=4x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=4x8 us=17.4 spread=0.1
+STATE role=read fidelity=HiFi2 grid=8x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=8x8 us=17.4 spread=0.3
+STATE role=read fidelity=HiFi2 grid=1x1 us=111.1 spread=0.5 pcc_vs_shipped=0.999978
+STATE role=outer fidelity=HiFi2 grid=1x1 us=167.1 spread=0.5
+STATE role=read fidelity=LoFi grid=11x10 us=14.7 spread=0.1 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=11x10 us=17.6 spread=0.1
+STATE role=read fidelity=LoFi grid=8x4 us=16.8 spread=0.1 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=8x4 us=15.5 spread=0.1
+STATE role=read fidelity=LoFi grid=4x8 us=16.4 spread=0.1 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=4x8 us=17.4 spread=0.2
+STATE role=read fidelity=LoFi grid=8x8 us=16.3 spread=0.2 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=8x8 us=17.2 spread=0.3
+STATE role=read fidelity=LoFi grid=1x1 us=110.5 spread=0.2 pcc_vs_shipped=0.999889
+STATE role=outer fidelity=LoFi grid=1x1 us=167.2 spread=0.4

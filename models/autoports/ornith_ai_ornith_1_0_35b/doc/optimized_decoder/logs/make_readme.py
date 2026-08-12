@@ -312,10 +312,19 @@ def block_accounting():
         cells = [fmt.format(data[k][key]) for k, _ in KINDS]
         lines.append(f"| {label} | {cells[0]} | {cells[1]} |")
     lines.append("")
-    lines.append("Named limitations, in the order they cost time:")
+    lines.append(
+        "Named limitations, in the order they cost time. Stated **per layer kind**, because the two windows "
+        "differ — review rounds 2 and 6 both found this list rendering only the `full_attention` figures, "
+        "unlabelled, under a table that is per-kind, and under-reporting the kind with the *larger* "
+        "dispatch gap."
+    )
     lines.append("")
-    for item in data["full_attention"]["named_limitations"]:
-        lines.append(f"* {item}")
+    for kind, _ in KINDS:
+        lines.append("")
+        lines.append(f"`{kind}`:")
+        lines.append("")
+        for item in data[kind]["named_limitations"]:
+            lines.append(f"* {item}")
     return "\n".join(lines)
 
 
@@ -720,11 +729,17 @@ def block_decode_search():
             # reported a time measured on a different grid, and two on a DRAM output while the layer
             # ships L1. Both filters are explicit now.
             def realised(row):
+                """The core count the probe's *target* actually becomes, mirroring `mcast1d_config`.
+
+                A target of 11 or fewer builds a single row of that width; above 11 it fills whole 11-wide
+                rows. `11 * ceil(target/11)` alone reports 11 for a target of 8, which is wrong — no shipped
+                role uses a sub-11-core grid today, so this was latent, but the two rules must agree.
+                """
                 try:
                     target = int(row.get("cores"))
                 except (TypeError, ValueError):
                     return None
-                return 11 * -(-target // 11)
+                return target if target <= 11 else 11 * -(-target // 11)
 
             candidates = [
                 r
@@ -804,10 +819,14 @@ def block_sparse_search():
     rows and printing the literal string "as measured" for the other seven, four of which were 1-3 %
     behind the other rectangle of the same core count.
 
-    The shipped geometry is not read from a log here: unlike the decode configs, the *prefill* sparse
-    geometry is not logged by any test, so it is recomputed from the layer's own two rules — the
-    active-expert core target and the axis-filling orientation — which are restated in
-    ``SPARSE_CORES_PER_ACTIVE`` and ``_sparse_matmul_config``.
+    Round 6 then found the lookup *still* under-constrained: it filtered on the core count and the output
+    placement only, took the minimum over everything else, and so printed a time measured at an
+    ``in0_block_w`` the layer does not use — calling the shipped 8-active gate/up row "the measured winner"
+    at 153.3 us when the geometry it actually runs measures 156.7. The ``in0_block_w`` now comes from a run
+    of the shipped code: ``test_{decode,prefill}_runs_the_tuned_program_configs`` log both routed configs,
+    and ``in0_block_w`` is a function of ``K`` alone, so the logged value applies at every active count.
+    Everything else — ``per_core_N``, ``out_block_w``, ``out_subblock_w`` — follows from the core count and
+    ``Nt``, which the matched probe row already carries.
     """
     rows = probe_rows(LOGS / "probe_sparse_matmul.txt", "SPARSE")
     rows = [r for r in rows if r["us"] is not None and "active" in r]
@@ -826,6 +845,17 @@ def block_sparse_search():
     #: What the fused decoder's rule picked: the largest core count dividing Nt, per_core_N 1.
     FUSED_RULE = {"gate_up": ("32(8x4)", "16", "1"), "down": ("64(8x8)", "8", "1")}
 
+    #: The `in0_block_w` each routed role actually runs, read out of the suite log's own record of the
+    #: configs the layer built. Keyed by role, in the order the layer issues them (gate/up then down).
+    shipped_ibw: dict = {}
+    for line in read(LOGS / "pytest_full_suite.txt").splitlines():
+        if "decode sparse matmuls:" not in line:
+            continue
+        found = re.findall(r"in0_block_w=(\d+)", line.split("decode sparse matmuls:")[-1])
+        if len(found) >= 2:
+            shipped_ibw = {"gate_up": found[0], "down": found[1]}
+            break
+
     lines = [
         "| active experts | role | fused rule | best measured | shipped | shipped vs winner |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -839,7 +869,13 @@ def block_sparse_search():
             cores = max(8, min(32, max(1, active // K_PER_ROLE[role])))
             gx, gy = shipped_grid(cores)
             mine = min(
-                (r for r in pool if r.get("cores") == f"{cores}({gx}x{gy})" and r.get("mem") == "L1"),
+                (
+                    r
+                    for r in pool
+                    if r.get("cores") == f"{cores}({gx}x{gy})"
+                    and r.get("mem") == "L1"
+                    and r.get("in0_block_w") == shipped_ibw.get(role)
+                ),
                 key=lambda r: r["us"],
                 default=None,
             )
