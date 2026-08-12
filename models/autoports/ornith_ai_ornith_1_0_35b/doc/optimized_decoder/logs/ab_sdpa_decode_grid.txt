@@ -1,0 +1,35 @@
+# End-to-end A/B: decode SDPA grid, routed `down` sparse grid orientation.
+# Command: python doc/optimized_decoder/logs/ab_sdpa_decode_grid.py
+# End-to-end A/B for the two round-9 geometry candidates: SDPA decode grid, routed `down` grid
+# orientation. Arms alternate build-by-build; each arm's first build is discarded.
+# prefill_len=2048 decode_pos=2048 context=8192 runs=4 iters=32
+ABGRID knob=sdpa_grid arm=shipped-8x8 run=2 layer=3 (full_attention) decode(traced) wall/iter=0.888 ms sparse_grids=1-8,1-8
+ABGRID knob=sdpa_grid arm=candidate-8x4 run=2 layer=3 (full_attention) decode(traced) wall/iter=0.907 ms sparse_grids=1-8,1-8
+ABGRID knob=sdpa_grid arm=shipped-8x8 run=3 layer=3 (full_attention) decode(traced) wall/iter=0.893 ms sparse_grids=1-8,1-8
+ABGRID knob=sdpa_grid arm=candidate-8x4 run=3 layer=3 (full_attention) decode(traced) wall/iter=0.889 ms sparse_grids=1-8,1-8
+ABGRID knob=sdpa_grid arm=shipped-8x8 run=4 layer=3 (full_attention) decode(traced) wall/iter=0.889 ms sparse_grids=1-8,1-8
+ABGRID knob=sdpa_grid arm=candidate-8x4 run=4 layer=3 (full_attention) decode(traced) wall/iter=0.889 ms sparse_grids=1-8,1-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=2 layer=3 (full_attention) prefill(warmed) wall/iter=96.191 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=2 layer=3 (full_attention) decode(traced) wall/iter=0.880 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=row-8x4 run=2 layer=3 (full_attention) prefill(warmed) wall/iter=97.059 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=row-8x4 run=2 layer=3 (full_attention) decode(traced) wall/iter=0.880 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=3 layer=3 (full_attention) prefill(warmed) wall/iter=96.328 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=3 layer=3 (full_attention) decode(traced) wall/iter=0.907 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=row-8x4 run=3 layer=3 (full_attention) prefill(warmed) wall/iter=97.087 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=row-8x4 run=3 layer=3 (full_attention) decode(traced) wall/iter=0.906 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=4 layer=3 (full_attention) prefill(warmed) wall/iter=96.417 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=4 layer=3 (full_attention) decode(traced) wall/iter=0.880 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=row-8x4 run=4 layer=3 (full_attention) prefill(warmed) wall/iter=97.334 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=row-8x4 run=4 layer=3 (full_attention) decode(traced) wall/iter=0.906 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=2 layer=0 (linear_attention) prefill(warmed) wall/iter=102.120 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=2 layer=0 (linear_attention) decode(traced) wall/iter=1.080 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=row-8x4 run=2 layer=0 (linear_attention) prefill(warmed) wall/iter=103.026 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=row-8x4 run=2 layer=0 (linear_attention) decode(traced) wall/iter=1.081 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=3 layer=0 (linear_attention) prefill(warmed) wall/iter=102.204 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=3 layer=0 (linear_attention) decode(traced) wall/iter=1.081 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=row-8x4 run=3 layer=0 (linear_attention) prefill(warmed) wall/iter=102.999 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=row-8x4 run=3 layer=0 (linear_attention) decode(traced) wall/iter=1.094 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=4 layer=0 (linear_attention) prefill(warmed) wall/iter=102.626 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=shipped-column-4x8 run=4 layer=0 (linear_attention) decode(traced) wall/iter=1.081 ms sparse_grids=1-8,1-8,4-8,4-8
+ABGRID knob=down_orientation arm=row-8x4 run=4 layer=0 (linear_attention) prefill(warmed) wall/iter=103.000 ms sparse_grids=1-8,1-8,4-8,8-4
+ABGRID knob=down_orientation arm=row-8x4 run=4 layer=0 (linear_attention) decode(traced) wall/iter=1.081 ms sparse_grids=1-8,1-8,4-8,8-4

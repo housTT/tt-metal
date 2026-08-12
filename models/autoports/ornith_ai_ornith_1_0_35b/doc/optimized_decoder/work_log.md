@@ -292,14 +292,16 @@ unchanged on the prefill screen and across the whole delivered ladder.
 
 The fused decoder already passed an explicit `SDPAProgramConfig`; this stage checked what that is
 worth and what else the axis holds
-([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), `SDPA` rows, four grids × four chunk
-pairs at an 8192-token context under the shipped BFP8 paged cache):
+([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), `SDPA` rows, four grids × five chunk
+pairs at an 8192-token context under the shipped BFP8 paged cache, at the layer's own compute-kernel
+contract — which is to pass none, and which round 8 found this sweep violating):
 
-The ladder is in the artifact — 17 rows, four grids (`8x8`, `11x10`, `8x4`, `4x8`) against four chunk
-pairs (`q32 k64`, `q32 k128`, `q32 k32`, `q0 k0`) — and README §5.5's generated knob table quotes the
-three rows the decisions rest on: the op default, the shipped `8x8 / k64`, and the faster `k128`.
+The ladder is in the artifact — 22 rows per section, four grids (`8x8`, `11x10`, `8x4`, `4x8`) against five
+chunk pairs (`q32 k64`, `q32 k128`, `q32 k32`, `q0 k0`, `q0 k64`), plus one labelled arm carrying the rejected
+HiFi2/fp32-acc compute-kernel config so its cost stays visible — and README §5.5's generated knob table quotes
+the rows the decisions rest on.
 
-Two findings, both kept as evidence:
+Three findings, all kept as evidence:
 
 * the **op default is more than an order of magnitude slower** than any explicit config here, which is
   why the explicit one stays;
@@ -308,6 +310,37 @@ Two findings, both kept as evidence:
   the layer's decode PCC against the HF golden collapses to 0.02–0.92 at the paged contexts the
   delivered tests use. So the ~10 % the k128 row promises is rejected on correctness, and
   `k_chunk_size` is now pinned to `page_block_size` in code rather than to the literal 64.
+
+* the **grid is not a latency axis at all**, which took taking it to find out. `8x4` leads the shipped `8x8`
+  in both sections of [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — 60.0 vs 61.0 µs and
+  60.1 vs 61.1 µs, at spreads of 0.1–0.2 and identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
+  dead heat at the layer ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt): the shipped arm's
+  three builds are 0.888 / 0.893 / 0.889 ms and the candidate's 0.907 / 0.889 / 0.889 ms, i.e. the arms overlap
+  and the spread within one arm exceeds the difference between them, SDPA being ~2 % of a step). Review round 9
+  was right that nothing recorded which end of the axis shipped, so it was taken — and **the suite rejected
+  it**:
+
+  ```
+  TT_FATAL @ sdpa_decode_program_factory.cpp:191: num_cores_available >= B
+  test_decode_batch_above_head_split_limit[40-full_attention]  FAILED
+  test_decode_batch_above_head_split_limit[56-full_attention]  FAILED
+  ```
+
+  Flash-decode assigns **at least one core per batch row**, so a 32-core grid silently caps decode at batch 32
+  and the supported batch-40 and batch-56 cases die inside the op. The grid is not tuning; it is the largest
+  decode batch the layer can serve, and 8x8's 64 cores are chosen to cover the 56 the suite exercises. The
+  ~1 µs goes unclaimed for that reason, which is a better answer than round 9's finding asked for and a worse
+  one than the sweep suggested. `11x10` satisfies the bound too and is slower in the same probe (62.4 / 62.5
+  µs), so 8x8 is also the fastest grid that is *legal*, which is what the call site now says.
+
+  The guard is a test, not a comment: `test_decode_runs_the_tuned_program_configs` asserts
+  `grid cores >= LARGEST_SUPPORTED_DECODE_BATCH` rather than the literal `8x8`, so re-deriving "8x4 is a
+  microsecond faster" from the probe fails the suite instead of shipping. Nothing had asserted any field of
+  this config before round 9 — including `k_chunk_size == page_block_size`, whose violation is silent — which
+  is why an op-level sweep could argue against a capability bound for two rounds without contradiction.
+
+  The same A/B run also rejected the routed `down` orientation candidate (§4.14), so the harness is not a
+  rubber stamp: one file, two candidates measured, both rejected, for two different reasons.
 
 One further thing the same experiment caught: passing the *prefill* SDPA's compute-kernel config
 (HiFi2, `fp32_dest_acc_en=True`) to the decode op collapses decode PCC to 0.33 on a BFP8 paged
@@ -451,7 +484,7 @@ transcribed copy of them goes stale on every re-run, which is what review round 
 
 The shape of the decision: every BFP4 row clears the bar, so this is not a pass/fail rejection — it is
 an order-of-magnitude increase in layer error, leaving about a third of the headroom, in **one** layer of
-a 48-layer stack, bought for a low-single-digit percentage of one traced decode step and nothing at all
+a 40-layer stack, bought for a low-single-digit percentage of one traced decode step and nothing at all
 in prefill. The routed-expert BFP4 step this stage *did* take is the opposite trade: a much smaller
 error increase for a much larger share of decode.
 
@@ -606,27 +639,55 @@ The probe now reports a `spread=` per row (min of three repeats, max−min), bec
 claim without one. The spread is small — typically well under a microsecond — so the gaps are real, and
 README §5.4's generated table prints every one of them. What they are:
 
-| point | role | shipped orientation | other orientation | verdict |
+| point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — **the tuned batch-1 decode target** | gate/up | column | +19 µs worse | column wins by ~12 % |
-| 8 active | down | column | +19 µs worse | column wins by ~12 % |
-| ~162 active — a 32-token prefill group | gate/up | column | slower | **column wins** |
-| ~162 active | down | column | slower | **column wins** |
-| 32 and 64 active — decode batch 4 and 8, **not tuned** (README §9 item 5) | 3 of 4 rows | column | faster | row wins by 1.5–4 % |
+| 8 active — **the tuned batch-1 decode target** | gate/up | **219.3 µs** | 241.1 µs | column wins, ~10 % |
+| 8 active | down | **214.9 µs** | 239.4 µs | column wins, ~10 % |
+| ~162 active — a 32-token prefill group | gate/up | **570.0 µs** | 579.0 µs | column wins, beyond both spreads |
+| ~162 active | down | 346.3 µs | **342.4 µs** | *row* wins, beyond both spreads (0.8, 0.1) |
+| 64 active — decode batch 8, **not tuned** (README §9 item 5) | gate/up | **385.6 µs** | 387.7 µs | column wins, just outside the spreads |
+| 64 active | down | 291.3 µs | **290.6 µs** | row wins, inside the 1.0 µs spread |
 
-Rejected, and the arithmetic is the reason rather than the effort. **The shipped orientation wins at every
-tuned point**: decisively at batch-1 decode on both roles, and on both roles of a prefill group too. Review
-round 8 found this paragraph and the table above claiming it lost the prefill `down` row — the sign was
-inverted, and README §5.4's generated table had it right the whole time, which is the argument for
-generating tables. Where the row form wins is three of the four rows at 32 and 64 active experts, i.e.
-decode batch 4 and 8, which are supported for correctness and explicitly not tuned. Taking the row form
-where it wins
-cannot be done with a rule: the preference is not monotonic in the active count or the core count, and it
-*reverses for `down` at a fixed 8-core geometry* between 8 and 32 active experts, so it would need an
-orientation table keyed on (role, active count) fitted to eight measured points. That trade — over-fitting
-the one op that dominates both windows, for 0.1 % of prefill and nothing at decode — is not worth taking,
-and the numbers are in the table so a later stage can revisit it with its own measurements rather than
-rediscovering the question.
+One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
+shipped code really builds, under a key with no competing point: `down` reaches 32 cores only in prefill,
+because 64 active experts, the largest supported decode batch, realises 16. Review round 9 asked for exactly
+that rule, and it is a one-line rule: `("down", 32) -> row`.
+
+**So it was implemented and measured end to end, and it loses.**
+[`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt) alternates the two arms build-by-build with
+three timed builds each, discarding each arm's first:
+
+| layer kind | column (shipped) | row (candidate) | verdict |
+| --- | --- | --- | --- |
+| `full_attention` prefill | 96.191 / 96.328 / 96.417 ms | 97.059 / 97.087 / 97.334 ms | column faster, no overlap |
+| `linear_attention` prefill | 102.120 / 102.204 / 102.626 ms | 102.999 / 103.000 / 103.026 ms | column faster, no overlap |
+| traced decode, both kinds | 0.880 / 1.080 ms | 0.880 / 1.081 ms | unchanged; decode never builds this grid |
+
+Every timed build of the column arm beats every timed build of the row arm, on both layer kinds, by close to a
+millisecond — more than the whole op-level gap, in the opposite direction. The op-level advantage does not
+merely fail to survive — it
+**reverses**, and into a share of prefill an order of magnitude larger than the 64 expert groups of a
+2048-token prefill can account for from that op alone. The mechanism is not measured here and so is not
+claimed; the plausible reading is that the isolated probe holds `in0` still while the layer feeds `down` from
+the preceding `gate_up`'s output, and the two rectangles do not place that input the same way.
+
+Rejected, and now for a better reason than round 5's arithmetic: not "the gain is too small to be worth a
+special case" but "the gain is not there at the layer, and the layer is what ships". The generalisation worth
+keeping is the one this row cost three review rounds to learn — **an op-level microsecond is a hypothesis, not
+a result** — and this stage now settles every geometry that reaches a document with a whole-layer A/B.
+
+The 64-active `gate_up` row is a smaller lesson in the same direction. Round 9's review read it, correctly against the artifact
+it had, as the row winning by under a microsecond; re-measured from these bytes the *column* leads, by about as
+much. A sub-microsecond op gap at a spread of the same order is not a fact about the hardware, which is why the
+generated table in README §5.4 prints each row's own spread and why the inside-vs-beyond test is now made at
+the artifact's printed precision.
+
+For the record, the earlier states of this paragraph: round 5 found it claiming a universal column win, which
+the sweep never said; round 8 found the prefill `down` sign inverted; round 9 found round 8's correction
+inverted the *other* way, so the paragraph asserted a win the artifact contradicted. README §5.4's generated
+table read the artifact correctly in all three rounds. That is the argument for generating tables — and, since
+prose beside a correct table can still be wrong, for `audit_figures.py` checking the source comment and this
+file against the same artifact.
 
 ### 4.15 The routed gate/up `in0_block_w` — a phase-aware cap, taken
 
@@ -1128,6 +1189,88 @@ actually third on `linear_attention`; the unswept **prefill** SDPA config, now a
 measured share of the window rather than an omission; and the benign log noise a reader meets in the
 artifacts (`nanobind` teardown leak lines, `tt-perf-report`'s "Unclassified operation" warnings for this
 model's dedicated ops, and the `conv1d` capability probe's `TT_FATAL` bursts), now disclosed in README §1.
+
+**Round 9** returned `more-work-needed` with five items. Two were shipped-code findings — the first in three
+rounds — and the pattern in them is worth naming: **both were geometries where the op-level sweep and the
+shipped value disagreed and no document said so.** Round 9 is also the round where measuring a reviewer's
+own suggested fix reversed it.
+
+* **P1 — the routed `down` grid orientation, and a documentation sign that had now been wrong in two
+  directions.** Round 8 corrected the prefill `down` orientation row; round 9 found the correction had gone
+  *past* the artifact, so `work_log.md` §4.14, `README.md` §5.4's prose and the shipped source comment all
+  claimed the column form wins a row where the probe of the day had it losing by several times that row's
+  spread — while README §5.4's generated table printed the gap, the spread and the word "beyond" two lines
+  above the prose that denied it.
+  Round 9's required next step was to correct the signs and then either take the row rule or re-derive the
+  rejection. It was taken: `("down", 32) -> row` is a one-line rule, and `down` reaches 32 cores only in
+  prefill, so the key that made round 5's "not monotonic in either" objection right has exactly one shipped
+  point under it. Then it was measured end to end, and **it loses** — close to a millisecond of prefill on both
+  layer kinds, every timed build, the op-level gap reversing rather than shrinking
+  ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt)). Reverted, with §4.14 rewritten around the
+  layer measurement. The rejection is now on the ground that the candidate is slower, which is a fact, rather
+  than on arithmetic about whether a gain is worth a special case, which was a judgement — and which was
+  computed from an inverted sign twice.
+
+* **P2 — the decode SDPA grid was the swept loser, with nothing recording it.** True, and the fix taught the
+  stage something it had had backwards for eight rounds. `8x4` leads the shipped `8x8` by 0.8–1.0 µs at spreads
+  of 0.1–0.3 and identical PCC, and it costs none of the invariant the `q0/k0` candidate was rejected for, so
+  it was taken. The layer A/B called it a dead heat. **The suite then failed it**: flash-decode assigns one core
+  per batch row (`TT_FATAL(num_cores_available >= B)`, `sdpa_decode_program_factory.cpp:191`), so the 32-core
+  grid caps decode at batch 32 and the supported batch-40 and batch-56 cases die inside the op. The grid is not
+  a latency knob — it is the largest decode batch the layer can serve, 8x8's 64 cores cover the 56 the suite
+  exercises, and `11x10` clears the bound but is slower, so 8x8 is the fastest *legal* grid. Reverted, with
+  §3.8 rewritten around the constraint instead of the microsecond.
+
+  Two things are worth keeping from that. The reviewer's finding was correct and its suggested remedy was
+  wrong, which is only visible because the remedy was implemented and run rather than argued about — the same
+  shape as the `down` orientation above. And nothing had ever asserted *any* field of this config, which is how
+  an op-level sweep could argue against a capability bound for two rounds without contradiction; a new test now
+  pins the servable-batch relation (`grid cores >= LARGEST_SUPPORTED_DECODE_BATCH`, not the literal `8x8`, so
+  re-deriving the "free win" from the probe fails the suite) together with `k_chunk_size == page_block_size`,
+  the field whose violation is silent. Round 9 also found §3.8 still quoting "17 rows, four chunk pairs" after
+  round 8's own addition made it 22 and five.
+
+* **P2 — the checkpoint has 40 layers, not 48**, and the wrong count was the denominator of the compounding
+  argument that rejects the BFP4 projection candidate, which spelled the count out in words
+  and bet the decision on it. Five places: README twice plus the prose inside a *generated* block, `work_log.md`, and the
+  shipped source comment. The audit was structurally blind to it — two-digit integers are exempt wholesale, so
+  a wrong `48` is unsourceable-but-allowed, and a numeral written in words is not a number at all. Fixing five
+  strings is not the fix; the class is closed instead:
+  [`logs/model_facts.py`](logs/model_facts.py) writes the checkpoint's own shape constants as a labelled
+  artifact, `make_readme.py` reads the layer count from it rather than typing it, and
+  `audit_figures.check_model_facts` asserts every document's layer/expert/head claims against it, spelled-out
+  numerals included. Verified by injection: each of the five original phrasings fails the audit now.
+
+* **P2 — `check_freshness` still could not fail.** Round 5 made it return early when the source manifest
+  matched; round 8 made it *run* but downgrade a stale artifact to an advisory note when the manifest
+  matched — and the manifest matches in every tree that passes, so the gate's power was still exactly zero,
+  and the die-part-way scenario its own docstring names is a manifest-matching one. A stale artifact is a
+  problem now, with no escape: the manifest says the sources were not edited since they were hashed, which is
+  a different claim from "this artifact came out of the current sweep". The cost — touching a source without
+  changing its bytes fails until the sweep is re-run — is the correct way round, and it fired on this very
+  round's source edits before the sweep re-ran.
+
+* **P2 — `check_mirrored_constants` could not report a drift.** It re-bound `problems = []` *after* the
+  `make_readme.py` comparisons, so every append in them raised `UnboundLocalError` — round 8 asked for that
+  function to really read the generator, and it read it and then crashed instead of reporting. Fixed, verified
+  by injecting a wrong mirror (`MIRRORED-RULE-DRIFT`, not a traceback), and the orientation mirror the
+  docstring claimed is now actually checked: the generator's `shipped_grid` and the implementation must agree
+  on which axis fills first.
+
+Round 9's smaller concerns closed in the same pass: `ab_decode_harness.py` counted its discard per *layer*
+rather than per arm, so the shipped arm reported one repeat fewer than the candidate while three files claimed
+an equal count, and the arms ran in blocks rather than alternating — the same multi-build drift that file
+exists to characterise; both search tables decided inside-vs-beyond-the-spread in binary floats, so
+`388.2 - 387.4` printed as "beyond the ±0.8 µs spread", and the comparison is made at the artifact's own
+printed precision now; the dense table named a faster alternative's *time* without its geometry, which is
+half of what "the alternative is named" should mean; and `check_freshness_exemptions` had an empty second loop
+enforcing nothing, so only one direction of its stated biconditional was checked.
+
+Two things round 9 raised that are recorded rather than changed. The `q0/k0` SDPA candidate is correct and
+reproducibly 1–2 µs faster at the layer, and is rejected on the invariant-verifiability trade in §4.5 — so the
+goal's "beat the best correct candidate" is met on every axis except that one, by ~0.1 %, deliberately and in
+writing. And `logs/commit_record.txt` necessarily records the SHA of the commit *before* the one that records
+it; the file says so.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

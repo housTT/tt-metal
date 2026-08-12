@@ -201,7 +201,7 @@ DEFAULT_POLICY = PrecisionPolicy(
 #: **faster** on traced decode at unchanged prefill — README §4.2's generated policy-sweep table
 #: times it against the selected policy — and it is **not** selected, because on the same real-weight
 #: HF-golden ladder the delivered suite runs it costs an order of magnitude more layer error, leaving
-#: a third of the selected policy's margin above the 0.995 bar, in one layer of a 48-layer stack, for
+#: a third of the selected policy's margin above the 0.995 bar, in one layer of a 40-layer stack, for
 #: a low-single-digit percentage of one decode step. README §4.3 states the trade with both figures;
 #: `doc/optimized_decoder/logs/probe_projection_dtype.txt` is the whole ladder, both arms.
 BFP4_PROJECTION_POLICY = DEFAULT_POLICY.replace(name="bfp4-projections", proj_dtype=ttnn.bfloat4_b)
@@ -519,7 +519,13 @@ def _sparse_n_tiles(config, role: str) -> int:
 
 
 def _sparse_matmul_config(
-    m: int, n: int, k: int, *, cores: int = SPARSE_MIN_CORES, in0_block_w: int | None = None, grid=None
+    m: int,
+    n: int,
+    k: int,
+    *,
+    cores: int = SPARSE_MIN_CORES,
+    in0_block_w: int | None = None,
+    grid=None,
 ):
     """``MatmulMultiCoreReuseMultiCast1DProgramConfig`` for one sparse matmul shape.
 
@@ -539,29 +545,40 @@ def _sparse_matmul_config(
 
     cores = _largest_divisor_at_most(n_tiles, max(1, cores))
     per_core_n = n_tiles // cores
-    # Orientation: fill one grid axis first (a column, 1 x cores, widening to a rectangle when the
-    # target exceeds the axis). The axis length comes from the device rather than from a Blackhole
-    # constant.
+    # Orientation: fill one grid axis first (a column, 1 x cores, widening to a rectangle when the target
+    # exceeds the axis), with the axis length taken from the device rather than from a Blackhole constant.
+    # This is the shipped rule for every role and core count, and it is the *measured* choice, but only the
+    # end-to-end A/B below establishes that — the isolated op disagrees with the layer here, so the op rows
+    # alone would ship the wrong rectangle.
     #
-    # This is the measured winner *at the tuned target* and NOT at every point, which review round 5
-    # corrected — the earlier claim here was "a column beat the row form by 2-10 % at every geometry
-    # measured", and the sweep does not say that. With the spread now measured per row
-    # (`probe_sparse_matmul.txt`, `spread=`, typically well under a microsecond), the picture is:
+    # At the op (`probe_sparse_matmul.txt`, both rectangles back to back at the same in0_block_w and output
+    # placement, per-row `spread=`; README §5.4's generated table re-derives all of this from the artifact):
     #
-    # * batch-1 decode, 8 active experts, both roles: the column wins by ~19 us, i.e. ~12 %. This is the
-    #   geometry the stage tunes for and the margin is decisive.
-    # * a 32-token prefill group (~162 active): the column wins **both** roles. Review round 8 caught this
-    #   comment, and work_log §4.14, stating the `down` row with the sign inverted — the artifact has the
-    #   column ahead there too, and README §5.4's generated table said so all along.
-    # * decode batch 4 and 8 (32 and 64 active), which are supported for correctness but explicitly not
-    #   tuned (README §9 item 5): the row form wins by 1.5-3 % on three of four rows.
+    # * batch-1 decode, 8 active experts, both roles (the tuned decode point): the column wins by ~12 %.
+    #   Decisive, and the largest orientation effect anywhere in the sweep.
+    # * a 32-token prefill group, ~162 active, `gate_up`: the column wins by about 2 %.
+    # * the same group's `down`: the *row* wins, by half a percent, several times its measured spread. This is
+    #   the one shipped geometry where `down` reaches 32 cores at all - 64 active, the largest supported decode
+    #   batch, realises 16 - and the probe's 64-active/32-core `down` rows agree with it.
+    # * `gate_up` at 32 cores: the row is ahead at 64 active, i.e. the opposite sign from the same key's
+    #   prefill point above, where the column leads by an order of magnitude more.
     #
-    # Taking the row form where it wins would need an orientation table keyed on (role, active count) —
-    # the preference is not monotonic in either, and it reverses for `down` at a *fixed* 8-core geometry
-    # between 8 and 32 active experts — to buy ~0.1 % of prefill and nothing at all at the tuned decode
-    # point. Rejected on that arithmetic, with the numbers in README §5.4's generated table, which checks
-    # every row against the artifact including its orientation and prints the gap where the shipped
-    # choice is not the winner.
+    # So the op rows do argue for a `("down", 32) -> row` rule, and review round 9 asked for one. Taken and
+    # measured end to end (`logs/ab_sdpa_decode_grid.txt`, arms alternating build-by-build, three timed builds
+    # each), it **loses**: warmed prefill is slower on both layer kinds, every timed build of the row arm behind
+    # every build of the column arm, while traced decode is unchanged because decode never builds that grid. The
+    # op-level gap does not shrink at the layer, it reverses, and into a share of prefill that the expert groups
+    # of one prefill cannot explain by that op alone. The mechanism is not measured and is therefore not
+    # claimed; the plausible reading is that the isolated probe holds `in0` still while the layer feeds `down`
+    # from the preceding `gate_up`'s output, and the two rectangles do not place that input the same way.
+    # Rejected on the layer measurement, which is the number that ships. Exact figures: README §5.4's generated
+    # table for the op rows, work_log §4.14 for the A/B - deliberately not repeated here, because a comment
+    # cannot be regenerated when the sweep re-runs.
+    #
+    # Reviews 5, 8 and 9 all landed on this comment: it claimed a universal column win (round 5), then had
+    # the `down` sign inverted (round 8), then corrected past the artifact (round 9). The figures above are
+    # transcribed from README §5.4's generated table, which checks every row against the artifact including
+    # its orientation and prints the gap wherever the shipped choice is not the op-level winner.
     cy = min(cores, int(grid.y) if grid is not None else cores)
     while cores % cy:
         cy -= 1
@@ -1573,16 +1590,29 @@ class OptimizedDecoder(LightweightModule):
         #: than this one, which is why the fused stage's explicit config is kept rather than replaced
         #: by the default. README §5.5 quotes both times.
         #:
-        #: `doc/optimized_decoder/logs/probe_decode_micro.txt` (`SDPA` rows) sweeps four grids x four
-        #: chunk pairs at an 8192-token context under the shipped BFP8 paged cache. The k-chunk is
+        #: `doc/optimized_decoder/logs/probe_decode_micro.txt` (`SDPA` rows) sweeps four grids x five
+        #: chunk pairs at an 8192-token context under the shipped BFP8 paged cache, at this exact
+        #: compute-kernel contract (none: see below). The k-chunk is
         #: the only live axis there — a 128-token or unbounded chunk is a few microseconds faster than
         #: the shipped 64 in isolation, and 32 is markedly slower — but a k-chunk **larger than the
         #: 64-token paged block size is wrong**, not just risky: the isolated op agrees with itself
         #: (the probe's reference is the op default on the same page table, so it cannot see this),
         #: while the layer's decode PCC against the HF golden collapses far below the bar at the paged
         #: contexts the tests use (`logs/ab_sdpa_decode_contract.txt`). So 128 is rejected on
-        #: correctness with that evidence, and 64 — one k-chunk per page — stays. The grid is worth
-        #: under 2 % across 8x4 / 8x8 / 4x8 / 11x10, so it stays at the fused stage's.
+        #: correctness with that evidence, and 64 — one k-chunk per page — stays.
+        #:
+        #: The grid is the one axis of this config that is **not** a latency knob, and both the sweep and
+        #: review round 9 misread it. `8x4` is the measured winner across 8x4 / 8x8 / 4x8 / 11x10, about 1.5 %
+        #: ahead of this 8x8 at identical PCC, and at the layer the two are a dead heat because SDPA is ~2 % of
+        #: a decode step (`logs/ab_sdpa_decode_grid.txt`). Round 9 found nothing recorded that gap, which was
+        #: fair. Taking it was still wrong, and the suite is what said so: **flash-decode assigns at least one
+        #: core per batch row** (`TT_FATAL(num_cores_available >= B)`,
+        #: `sdpa_decode_program_factory.cpp:191`), so a 32-core grid caps decode at batch 32 and the supported
+        #: batch-40 and batch-56 cases die inside the op. The grid therefore encodes the largest decode batch
+        #: the layer can serve, and 8x8's 64 cores are chosen to cover the 56 the tests exercise - not for
+        #: latency, which is why that ~1.5 % goes unclaimed. 11x10 clears the bound too and is slower, so this
+        #: is also the fastest *legal* grid. `test_decode_runs_the_tuned_program_configs` asserts the relation
+        #: rather than the literal, so the "free win" cannot be re-taken by inspection.
         self.decode_sdpa_config = ttnn.SDPAProgramConfig(
             compute_with_storage_grid_size=ttnn.CoreCoord(8, 8),
             q_chunk_size=32,

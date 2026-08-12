@@ -11,6 +11,7 @@ kind can go unclassified.
 import collections
 import gzip
 import re
+import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -98,7 +99,20 @@ def main():
     # rather than a transcription, and so audit_figures.py can trace them.
     text = "\n".join(out) + "\n"
     (LOG.parent / "census_summary.txt").write_text(text)
-    print(text, end="")
+    # `--check` compares the committed summary instead of printing a new one: the sweep redirects this
+    # script's stdout into `census_summary.txt`, so "regenerate" and "verify" are the same command otherwise.
+    # Round 9 found the flag accepted and ignored.
+    unknown = [a for a in sys.argv[1:] if a != "--check"]
+    if unknown:
+        raise SystemExit(f"unknown argument(s): {unknown}; this script takes only --check")
+    if "--check" in sys.argv[1:]:
+        summary = _HERE / "census_summary.txt"
+        if not summary.is_file() or summary.read_text() != text:
+            print("census_summary.txt does not match what this script produces")
+            raise SystemExit(1)
+        print("census_summary.txt matches the artifacts")
+    else:
+        print(text, end="")
     assert not fatal, fatal[:5]
 
 

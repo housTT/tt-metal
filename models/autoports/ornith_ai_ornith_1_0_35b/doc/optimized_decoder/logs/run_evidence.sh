@@ -125,6 +125,21 @@ echo "=== 4d/9  layer-level spread, and what a reserved trace region does ==="
   python "$LOGS/ab_decode_harness.py"
 } 2>&1 | grep -aE "^HARNESS|^#" > "$LOGS/ab_decode_harness.txt"
 
+echo "=== 4e/9  end-to-end A/B for the two round-9 geometry candidates ==="
+# Round 9 found two shipped geometries on the losing side of their own op-level sweep: the decode SDPA grid
+# and the routed `down` grid orientation. Both are measured at the layer here, which is what settles them -
+# the orientation reverses between the op and the layer.
+{
+  echo "# End-to-end A/B: decode SDPA grid, routed \`down\` sparse grid orientation."
+  echo "# Command: python doc/optimized_decoder/logs/ab_sdpa_decode_grid.py"
+  python "$LOGS/ab_sdpa_decode_grid.py"
+} 2>&1 | grep -aE "^ABGRID|^#" > "$LOGS/ab_sdpa_decode_grid.txt"
+
+echo "=== 4f/9  the checkpoint's own shape constants, for the document audit ==="
+# Round 9 found five documents calling this a 48-layer model; it has 40, and the figure was the denominator
+# of a policy decision. The shapes are an artifact now so `audit_figures.check_model_facts` can enforce them.
+python "$LOGS/model_facts.py" 2>/dev/null > "$LOGS/model_facts.txt"
+
 echo "=== 5/9  OPT-007: BFP4 vs BFP8 projections on the real-weight PCC ladder ==="
 {
   echo "# OPT-007: BFP4 vs BFP8 dense projection weights, real-weight HF-golden PCC ladder."

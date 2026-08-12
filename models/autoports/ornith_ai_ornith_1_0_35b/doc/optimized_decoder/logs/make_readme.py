@@ -57,6 +57,20 @@ SPARSE_MIN_CORES_MIRROR = 8
 SPARSE_N_TILES_MIRROR = {"gate_up": 2 * 512 // 32, "down": 2048 // 32}
 
 
+def model_fact(name: str) -> int:
+    """One shape constant, read out of `logs/model_facts.txt` rather than typed.
+
+    Round 9 found this generator's prose stating the wrong layer count — 48, where the checkpoint has 40 — in a
+    *generated* block — so the block was reproducible and wrong together. Reading the artifact means the
+    generator cannot hold a stale opinion about the checkpoint's shape.
+    """
+    text = (LOGS / "model_facts.txt").read_text()
+    match = re.search(rf"^FACT {name}=(\d+)$", text, re.M)
+    if not match:
+        raise SystemExit(f"logs/model_facts.txt has no FACT {name}= row; run logs/model_facts.py")
+    return int(match.group(1))
+
+
 def _sparse_n_tiles_mirror(role: str) -> int:
     return SPARSE_N_TILES_MIRROR[role]
 
@@ -249,7 +263,8 @@ def block_bfp4_pcc():
     lines.append(
         f"Every BFP4 row clears the bar, so this is not a pass/fail rejection — it is a {error_cost} "
         f"increase in layer error for {saving} of one traced decode step and nothing in prefill, in one "
-        "layer of a 48-layer stack. The routed-expert BFP4 step this stage *did* take is the "
+        f"layer of a {model_fact('num_hidden_layers')}-layer stack. The routed-expert BFP4 step this stage "
+        "*did* take is the "
         'opposite trade. Rejected on that comparison, and shipped as `POLICIES["bfp4-projections"]` '
         "so `$datatype-sweep` can take it without rediscovering it. Full ladder: "
         "[`logs/probe_projection_dtype.txt`](logs/probe_projection_dtype.txt)."
@@ -789,32 +804,27 @@ def block_decode_search():
         # Re-check the shipped row against every 1D candidate for this role at the shipped output
         # placement, so "the sweep chose this grid" is asserted on regeneration. Round 5 found README
         # prose claiming "every smaller grid was measured too and lost" while a smaller grid was faster.
+        # The pool keeps whole rows, not just times: where the shipped row is behind, the reader needs the
+        # alternative's *geometry* to judge whether it is shippable, and round 9 found this naming only its
+        # time. `cores`/`in0_block_w`/`per_core_N` come straight off the winning probe row.
         pool = [
-            r["us"]
+            r
             for r in rows
             if r["us"] is not None
             and r.get("role") == role
             and r.get("family") == "mcast1d"
             and r.get("out") == shipped_out
         ]
-        winner = min(pool) if pool else None
+        winner_row = min(pool, key=lambda r: r["us"]) if pool else None
+        winner = winner_row["us"] if winner_row is not None else None
         # Per-row spread, matching block_sparse_search: the maximum over the whole role sweep was up to
         # 6 us on some roles, which let a genuine sub-microsecond gap read as "inside the spread".
-        winner_spread = (
-            max(
-                (
-                    float(r.get("spread") or 0)
-                    for r in rows
-                    if r["us"] is not None
-                    and r.get("role") == role
-                    and r.get("family") == "mcast1d"
-                    and r.get("out") == shipped_out
-                    and r["us"] == winner
-                ),
-                default=0.0,
-            )
-            if winner is not None
-            else 0.0
+        winner_spread = float(winner_row.get("spread") or 0) if winner_row is not None else 0.0
+        winner_geom = (
+            f"{winner_row.get('cores')} cores, `in0_block_w` {winner_row.get('in0_block_w')}, "
+            f"`per_core_N` {winner_row.get('per_core_N')}"
+            if winner_row is not None
+            else "—"
         )
         mine_spread = (
             max(
@@ -829,14 +839,18 @@ def block_decode_search():
             verdict = "—"
         elif mine <= winner + 1e-9:
             verdict = "**the measured winner**"
-        elif mine - winner <= spread:
-            verdict = f"+{mine - winner:.1f} µs against {winner:.1f}, inside the ±{spread:.1f} µs row spread"
+        elif round(mine - winner, 1) <= round(spread, 1):
+            verdict = (
+                f"+{mine - winner:.1f} µs against {winner:.1f} ({winner_geom}), inside the ±{spread:.1f} µs "
+                f"row spread"
+            )
         else:
             # Name the share of a decode step too: at these shapes a "beyond the spread" gap can still be a
             # few hundredths of a percent, and the reader should not have to divide to find that out.
             share = f", {100 * (mine - winner) / max(mine, 1e-9):.2f} % of this op"
             verdict = (
-                f"**+{mine - winner:.1f} µs** against {winner:.1f}, beyond the ±{spread:.1f} µs row " f"spread{share}"
+                f"**+{mine - winner:.1f} µs** against {winner:.1f} ({winner_geom}), beyond the "
+                f"±{spread:.1f} µs row spread{share}"
             )
         cells = [f"{heuristic:.1f} µs" if heuristic else "—", f"{sharded:.1f}" if sharded else "—"]
         lines.append(f"| `{role}` | 32×{k}×{n} | {cells[0]} | {cells[1]} | {shipped_cell} | {verdict} |")
@@ -967,7 +981,7 @@ def block_sparse_search():
                 )
                 if gap <= 1e-9:
                     verdict = "**the measured winner**"
-                elif gap <= spread:
+                elif round(gap, 1) <= round(spread, 1):
                     verdict = (
                         f"+{gap:.1f} µs (+{100 * gap / winner['us']:.1f} %), **inside the ±{spread:.1f} µs spread**"
                     )
@@ -1020,9 +1034,13 @@ def block_op_knobs():
     )
     sdpa_default = best(sdpa, cfg="default(None)")
     # `probe_rows` splits on the FIRST "=", so the grid arrives as cfg="grid=8x8", not as a `grid` key.
-    # Both SDPA rows below are pinned to the shipped 8x8 grid so the k-chunk comparison is the only axis.
+    # The k-chunk rows are pinned to the shipped grid so the chunk is the only axis, and the grid rows are
+    # pinned to the shipped chunk pair for the same reason. Both must track the layer: round 9 took 8x4 on the
+    # sweep's advice and these pins had to move, then the suite sent the grid back to 8x8 on a capability bound
+    # and they had to move back. A generated table can go stale against the code exactly like prose can.
     shipped_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="64")
     faster_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="128")
+    faster_grid_sdpa = best(sdpa, cfg="grid=8x4", k_chunk="64")
     topk_native = best(topk, width="256")
     topk_padded = best(topk, width="8192")
     packed = min((r["us"] for r in split if r["us"] is not None and "packed" in str(r.get("spelling"))), default=None)
@@ -1050,6 +1068,20 @@ def block_op_knobs():
             f"op default {cell(sdpa_default)}",
             f"**explicit config {cell(shipped_sdpa)}**",
             "taken; the default is more than an order of magnitude slower",
+        ),
+        (
+            "paged flash decode, grid",
+            f"8x4 {cell(faster_grid_sdpa)} — *faster in isolation*",
+            f"**8x8, 64 cores, {cell(shipped_sdpa)}**",
+            "**rejected on capability**: faster by "
+            + (
+                f"{shipped_sdpa - faster_grid_sdpa:.1f} µs"
+                if None not in (faster_grid_sdpa, shipped_sdpa)
+                else "a fraction of a microsecond"
+            )
+            + " in isolation and a dead heat at the layer (`ab_sdpa_decode_grid.txt`), but flash-decode needs "
+            "one core per batch row, so 32 cores cap decode at batch 32 and the supported batch-40/56 cases "
+            "die in the op — the grid sets the servable batch, not the latency",
         ),
         (
             "paged flash decode, `k_chunk` 128",

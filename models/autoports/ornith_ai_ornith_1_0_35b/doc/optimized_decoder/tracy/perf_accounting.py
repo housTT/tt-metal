@@ -26,6 +26,7 @@ import gzip
 import io
 import json
 import re
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -290,8 +291,21 @@ def main():
             f"roofline={roofline_us:.1f} us device={device_us:.1f} us e2e={e2e_us:.1f} us "
             f"roofline/device={roofline_us / device_us:.1%} gap={e2e_us - device_us:.1f} us"
         )
-    (HERE / "perf_summary.json").write_text(json.dumps(out, indent=2) + "\n")
-    print(f"wrote {HERE / 'perf_summary.json'}")
+    rendered = json.dumps(out, indent=2) + "\n"
+    target = HERE / "perf_summary.json"
+    # `--check` is read-only, because a flag named check that rewrites its own input is a trap: review round 9
+    # found both this script and census.py accepting the flag and regenerating anyway.
+    if "--check" in sys.argv[1:]:
+        if not target.is_file() or target.read_text() != rendered:
+            print(f"{target.name} does not match what this script produces")
+            raise SystemExit(1)
+        print(f"{target.name} matches the artifacts")
+        return
+    unknown = [a for a in sys.argv[1:] if a != "--check"]
+    if unknown:
+        raise SystemExit(f"unknown argument(s): {unknown}; this script takes only --check")
+    target.write_text(rendered)
+    print(f"wrote {target}")
 
 
 if __name__ == "__main__":

@@ -88,6 +88,8 @@ DOCS = [
     DOC / "logs/ab_norm_shard_cores.py",
     DOC / "logs/ab_gate_up_in0_block_w.py",
     DOC / "logs/ab_decode_harness.py",
+    DOC / "logs/ab_sdpa_decode_grid.py",
+    DOC / "logs/model_facts.py",
     DOC / "logs/bench.py",
     DOC / "tracy/perf_accounting.py",
     DOC / "watcher/census.py",
@@ -122,12 +124,14 @@ ARTIFACTS = [
     DOC / "logs/watcher_pytest.txt",
     DOC / "logs/commit_record.txt",
     DOC / "logs/source_manifest.txt",
+    DOC / "logs/model_facts.txt",
     DOC / "logs/ab_fused_vs_optimized.txt",
     DOC / "logs/ab_precision_policy.txt",
     DOC / "logs/ab_norm_shard_width.txt",
     DOC / "logs/ab_norm_shard_cores.txt",
     DOC / "logs/ab_gate_up_in0_block_w.txt",
     DOC / "logs/ab_decode_harness.txt",
+    DOC / "logs/ab_sdpa_decode_grid.txt",
     DOC / "logs/ab_state_l1.txt",
     DOC / "logs/ab_sdpa_decode_contract.txt",
     DOC / "logs/ab_gdn_out_activation.txt",
@@ -395,6 +399,14 @@ LABELLED = [
 #: artifact by construction, so they are permitted only in ``work_log.md``, which is where this stage
 #: records what each review round found.
 HISTORICAL = {
+    # --- Group 0: worked examples of a defect, quoted from the artifact that HAD it ----------------
+    # Round 9's float-noise finding is only legible with the two operands that produced it: the sparse
+    # search table printed "+0.8 us ... beyond the +-0.8 us spread" because 388.2 - 387.4 is 0.8000000000000114
+    # in binary. Both operands come from the probe *run of that round*, which the next sweep replaced, so no
+    # current artifact can contain them - and the pair is the evidence for a fix in the generator, not a claim
+    # about today's hardware. Work log only, like every other entry here.
+    "387.4",
+    "388.2",
     # --- Group 1: the development ladder in work_log §3 -------------------------------------------
     # One row per change, cumulative, from one harness during development. These are measurements of
     # *intermediate revisions of the code*, so by construction no artifact of the shipped revision can
@@ -757,10 +769,85 @@ def check_freshness_exemptions() -> list:
                 f"FRESHNESS-EXEMPTION-WRONG  {name} is exempt from the freshness rule, but "
                 f"logs/run_evidence.sh regenerates it - so its mtime is meaningful and it should be checked"
             )
-    for match in re.finditer(r'"\$LOGS/(ab_[a-z0-9_]+\.txt)"', body):
-        name = match.group(1)
-        if name in EXEMPT_FROM_FRESHNESS:
+    # The other half of the biconditional: an `ab_*` artifact the sweep does NOT write must be exempt, or
+    # `check_freshness` measures its mtime against sources that were never used to produce it. Round 9 found
+    # this loop present but empty - it matched the sweep's writes and then did nothing with them.
+    written = {m.group(1) for m in re.finditer(r'"\$LOGS/(ab_[a-z0-9_]+\.txt)"', body)}
+    for artifact in sorted((DOC / "logs").glob("ab_*.txt")):
+        if artifact.name not in written and artifact.name not in EXEMPT_FROM_FRESHNESS:
+            problems.append(
+                f"FRESHNESS-EXEMPTION-MISSING  logs/{artifact.name} is not written by logs/run_evidence.sh "
+                f"and is not in EXEMPT_FROM_FRESHNESS, so its mtime is checked against sources that did not "
+                f"produce it"
+            )
+    return problems
+
+
+#: Spelled-out numerals the documents actually use, so a claim written in words is checked like a digit.
+#: Deliberately small: the point is to cover the compounding argument's phrasing, not to build a parser.
+NUMERALS = {
+    "eight": 8,
+    "sixteen": 16,
+    "thirty-nine": 39,
+    "forty": 40,
+    "forty-seven": 47,
+    "forty-eight": 48,
+    "two-hundred-and-fifty-six": 256,
+}
+
+#: ``(pattern, fact)``: wherever a document makes this claim, the captured number must equal that fact from
+#: ``logs/model_facts.txt``. Patterns are deliberately narrow — each one is a phrasing the documents use to
+#: state a checkpoint shape, and a capture that is not a number at all is skipped rather than guessed at.
+FACT_CLAIMS = [
+    (r"([\w-]+)-layer stack", "num_hidden_layers"),
+    (r"([\w-]+)-layer PCC", "num_hidden_layers"),
+    (r"one layer of ([\w-]+)", "num_hidden_layers"),
+    (r"bet on the other ([\w-]+)", "num_layers_minus_one"),
+    (r"([\w-]+) routed experts", "num_experts"),
+    (r"top-(\d+) (?:experts|routing|routed)", "num_experts_per_tok"),
+    (r"([\w-]+) experts per token", "num_experts_per_tok"),
+]
+
+
+def check_model_facts() -> list:
+    """Documents must not contradict the checkpoint's own shape constants.
+
+    The class of defect this closes: ``ALLOWED_INT`` exempts every two-digit integer wholesale, because a
+    document legitimately quotes dozens of shape and config constants and sourcing each one against a log
+    would be noise. That exemption is why five documents could call this a 48-layer model — including the
+    prose of a *generated* block and a shipped source comment — while the checkpoint has 40 layers and the
+    figure was the denominator of a policy decision (README §4.3). Spelled-out numerals were invisible for a
+    second reason: they are not numbers.
+
+    So the shapes come from ``logs/model_facts.py`` as a committed artifact, and the phrasings the documents
+    use to state them are matched against it, in words or digits.
+    """
+    facts_path = DOC / "logs/model_facts.txt"
+    if not facts_path.is_file():
+        return ["MODEL-FACTS-MISSING  logs/model_facts.txt is absent; run logs/model_facts.py"]
+    facts = {m.group(1): int(m.group(2)) for m in re.finditer(r"^FACT (\w+)=(\d+)$", facts_path.read_text(), re.M)}
+    missing = [name for _, name in FACT_CLAIMS if name not in facts]
+    if missing:
+        return [f"MODEL-FACTS-INCOMPLETE  logs/model_facts.txt has no {sorted(set(missing))}"]
+    problems = []
+    for doc in DOCS:
+        if not doc.is_file() or doc.name == "audit_figures.py":
             continue
+        text = doc.read_text()
+        for pattern, fact in FACT_CLAIMS:
+            for match in re.finditer(pattern, text):
+                token = match.group(1).lower()
+                value = NUMERALS.get(token)
+                if value is None:
+                    if not token.isdigit():
+                        continue  # "the other rectangle", "top-k": a phrase, not a claim about a shape
+                    value = int(token)
+                if value != facts[fact]:
+                    problems.append(
+                        f'MODEL-FACT-WRONG  {doc.relative_to(REPO)}: "{match.group(0)}" says {value}, '
+                        f"the checkpoint's "
+                        f"{fact} is {facts[fact]} (logs/model_facts.txt)"
+                    )
     return problems
 
 
@@ -771,6 +858,13 @@ def check_mirrored_constants() -> list:
     ``block_decode_search`` restates how a core target becomes a realised grid. Round 6 pointed out that
     both drift silently if the layer changes — the generator would keep producing a confident table about a
     geometry the layer no longer builds.
+
+    Four things are checked, and the list is exhaustive on purpose because rounds 8 and 9 both found this
+    docstring describing checks that did not exist: the four sparse constants, the two named mirrors of them
+    in ``make_readme.py``, which grid axis each side fills first, and — by behaviour rather than by text —
+    that the generator's copy of ``_largest_divisor_at_most`` agrees with the implementation's on every
+    (Nt, target) pair the layer can reach. Round 9 also fixed the function re-binding ``problems`` after the
+    first block of comparisons, which made every finding in it an ``UnboundLocalError`` instead.
 
     The constants are read out of the source with ``ast``, not imported: importing the implementation pulls
     in ttnn, which is slow, prints allocator noise, and has no business running inside a documentation
@@ -814,6 +908,7 @@ def check_mirrored_constants() -> list:
     # reproduce the layer's target->realised core reduction without importing ttnn. Round 8 found the
     # docstrings claiming this function compared them when it only ever read the implementation. It reads
     # both now.
+    problems: list[str] = []
     mirrors = ROOT / "doc/optimized_decoder/logs/make_readme.py"
     if mirrors.is_file():
         text = mirrors.read_text()
@@ -844,7 +939,57 @@ def check_mirrored_constants() -> list:
                     f"MIRRORED-RULE-DRIFT  logs/make_readme.py SPARSE_N_TILES_MIRROR is {got!r}, the routed "
                     f"output widths give {want_tiles!r}"
                 )
-    problems = []
+    # The grid orientation itself: `make_readme.shipped_grid` fills the y axis first and the implementation
+    # must still do the same. Round 9 measured the transposed rectangle end to end and rejected it
+    # (`logs/ab_sdpa_decode_grid.txt`), so the two are expected to agree on the column form — but the whole
+    # point of a mirror check is that a later change to either side is caught rather than assumed.
+    if mirrors.is_file():
+        gen_fills_y = re.search(r"def shipped_grid\(cores\):\s*\n\s*cy = min\(cores, 10\)", mirrors.read_text())
+        impl_fills_y = re.search(
+            r"cy = min\(cores, int\(grid\.y\) if grid is not None else cores\)", source.read_text()
+        )
+        if bool(gen_fills_y) != bool(impl_fills_y):
+            problems.append(
+                "MIRRORED-RULE-DRIFT  the sparse grid orientation differs between tt/optimized_decoder.py "
+                f"(fills y first: {bool(impl_fills_y)}) and logs/make_readme.shipped_grid "
+                f"(fills y first: {bool(gen_fills_y)})"
+            )
+    # The target->realised core reduction: `make_readme.py` keeps its own `_largest_divisor_at_most` so it can
+    # reproduce the layer's geometry without importing ttnn, and round 9 pointed out that nothing tied the two
+    # together even though this docstring said so. Both are pure integer functions, so the mirror is checked by
+    # *behaviour*: each definition is extracted with `ast`, exec'd alone in an empty namespace — no ttnn, no
+    # module import — and the two are compared over every (Nt, target) pair the layer can reach.
+    if mirrors.is_file():
+
+        def _extract(text: str, fn: str):
+            for node in ast.parse(text).body:
+                if isinstance(node, ast.FunctionDef) and node.name == fn:
+                    ns: dict = {}
+                    exec(compile(ast.Module(body=[node], type_ignores=[]), "<mirror>", "exec"), ns)  # noqa: S102
+                    return ns[fn]
+            return None
+
+        impl_fn = _extract(source.read_text(), "_largest_divisor_at_most")
+        gen_fn = _extract(mirrors.read_text(), "_largest_divisor_at_most")
+        if impl_fn is None or gen_fn is None:
+            problems.append(
+                "MIRRORED-RULE-MISSING  _largest_divisor_at_most not found in "
+                f"{'tt/optimized_decoder.py' if impl_fn is None else 'logs/make_readme.py'}"
+            )
+        else:
+            disagree = [
+                (n, cap)
+                for n in (32, 64)  # the routed output widths in tiles
+                for cap in range(1, 129)
+                if impl_fn(n, cap) != gen_fn(n, cap)
+            ]
+            if disagree:
+                n, cap = disagree[0]
+                problems.append(
+                    f"MIRRORED-RULE-DRIFT  logs/make_readme._largest_divisor_at_most disagrees with the "
+                    f"implementation on {len(disagree)} (Nt, target) pairs, first ({n}, {cap}): "
+                    f"{gen_fn(n, cap)} vs {impl_fn(n, cap)}"
+                )
     for name, want in expected.items():
         got = found.get(name)
         if got is None:
@@ -910,12 +1055,18 @@ def check_freshness() -> list:
     part-way (``run_evidence.sh`` writes the manifest in step 0 and runs under ``set -e``) leaves a
     *matching* manifest beside artifacts from the previous revision, and only an mtime comparison sees that.
     So the pass runs unconditionally now.
-    #
-    Two consequences are handled rather than papered over. A ``git archive`` extraction stamps every file
+
+    Round 9 then found the same hole one step further in: round 8 kept the pass running but *downgraded* a
+    stale artifact to an advisory note whenever the manifest matched — and the manifest matches in every tree
+    that passes, so the pass still could not fail, and the exact scenario the docstring above names is a
+    manifest-matching one. A stale mtime is a **problem** now, with no manifest escape: the manifest says the
+    sources were not edited since they were hashed, which is a different statement from "this artifact came
+    out of the current sweep". The cost is that touching a source without changing its bytes fails the gate
+    until the sweep is re-run or the mtime restored, which is the correct way round.
+
+    One consequence is still handled rather than papered over: a ``git archive`` extraction stamps every file
     with the commit time, so ordering there is meaningless — the run is skipped when every artifact and
-    source share one mtime, which is the archive signature. And a content-preserving rewrite bumps an
-    mtime without changing bytes, so a *newer source with an unchanged hash* is reported as a warning that
-    names the manifest as the reason it is not an error.
+    source share one mtime, which is the archive signature.
     """
     problems = []
     newest = max(((p.stat().st_mtime, p) for p in SOURCES if p.is_file()), default=None)
@@ -932,7 +1083,6 @@ def check_freshness() -> list:
     }
     if len(stamps | {stamp}) <= 1:
         return []
-    manifest_ok = not check_source_manifest()
     for path in ARTIFACTS + PER_OP_REPORTS:
         exempt = path.name in EXEMPT_FROM_FRESHNESS or any(
             part in {"fused_decoder", "functional_decoder"} for part in path.parts
@@ -940,16 +1090,10 @@ def check_freshness() -> list:
         if exempt or not exists(path):
             continue
         if artifact_path(path).stat().st_mtime < stamp:
-            if manifest_ok:
-                # Bytes still hash to what the run recorded, so this is a touch or a content-preserving
-                # rewrite, not stale evidence. Collected as a NOTE and printed, but deliberately not a
-                # failure: the manifest is the stronger statement and it agrees.
-                NOTES.append(
-                    f"NOTE-ARTIFACT-MTIME  {path.name} predates {source.name}, but the source still hashes "
-                    f"to logs/source_manifest.txt, so the evidence was produced by these bytes"
-                )
-            else:
-                problems.append(f"STALE-ARTIFACT  {path.name} predates {source.name}")
+            problems.append(
+                f"STALE-ARTIFACT  {path.name} predates {source.name} - re-run logs/run_evidence.sh, or "
+                f"restore the mtime if the source was only touched"
+            )
     return problems
 
 
@@ -1052,6 +1196,7 @@ def main() -> int:
     problems += check_suite_log_complete()
     problems += check_freshness()
     problems += check_freshness_exemptions()
+    problems += check_model_facts()
     problems += check_mirrored_constants()
     problems += check_generators()
     problems += check_derived(all_tokens)

@@ -71,6 +71,12 @@ FULL_LAYER = 3
 LAYERS = (LINEAR_LAYER, FULL_LAYER)
 LAYER_IDS = {LINEAR_LAYER: "linear_attention", FULL_LAYER: "full_attention"}
 
+#: The largest decode batch this stage claims to serve (correctness, not latency), and the largest the suite
+#: exercises — see ``test_decode_batch_above_head_split_limit``. Two shipped decisions are bounded by it, so it
+#: is a named constant rather than a literal repeated in each place: the decode SDPA grid must have at least
+#: this many cores, because flash-decode assigns one per batch row.
+LARGEST_SUPPORTED_DECODE_BATCH = 56
+
 #: Acceptance bar inherited from the functional-decoder stage. The fusing stage is not allowed to
 #: lower it, and every measurement below clears it by more than an order of magnitude of error (the
 #: worst case in the shipped suite log is 0.999882, i.e. 1.2e-4 against the 5e-3 the bar allows).
@@ -1866,6 +1872,36 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
         )
     )
     assert len(sparse_calls) == 2, f"decode MoE is not the packed sparse pair: {sparse_calls}"
+    # The paged flash-decode config, for the layer kind that has one. Two of its three fields are load-bearing
+    # in different ways and neither was covered until review round 9 pointed at the gap: `k_chunk_size` must
+    # equal the paged block size, because a larger chunk keeps the *isolated op* self-consistent while the
+    # layer's PCC against the HF golden collapses (`logs/ab_sdpa_decode_contract.txt`) — a correctness
+    # invariant no PCC test here would attribute to this field; and the grid is the swept winner, one rectangle
+    # ahead of the fused stage's (`logs/probe_decode_micro.txt`, `logs/ab_sdpa_decode_grid.txt`).
+    if decoder.is_full_attention:
+        cfg = decoder.decode_sdpa_config
+        assert cfg is not None, "decode SDPA ran on the op default, which the probe measures >15x slower"
+        assert cfg.k_chunk_size == decoder.page_block_size, (
+            f"decode SDPA k_chunk_size={cfg.k_chunk_size} must equal the paged block size "
+            f"{decoder.page_block_size}: a larger chunk silently loses PCC at paged contexts"
+        )
+        assert cfg.q_chunk_size == 32, f"decode SDPA q_chunk_size={cfg.q_chunk_size}, expected the swept 32"
+        # The grid is asserted as a *relation*, not a literal, because it is not a latency choice: flash-decode
+        # assigns one core per batch row (`TT_FATAL(num_cores_available >= B)`,
+        # `sdpa_decode_program_factory.cpp:191`), so the grid is what caps the servable decode batch. Review
+        # round 9 took the swept-faster 32-core grid, and these two lines are what caught it — batches 40 and 56
+        # died inside the op. A future reader who re-derives "8x4 is 0.9 us faster" from the probe hits this.
+        grid = cfg.compute_with_storage_grid_size
+        cores = int(grid.x) * int(grid.y)
+        assert cores >= LARGEST_SUPPORTED_DECODE_BATCH, (
+            f"decode SDPA grid={grid} has {cores} cores, fewer than the largest supported decode batch "
+            f"{LARGEST_SUPPORTED_DECODE_BATCH}: flash-decode needs one core per batch row, so this grid "
+            f"silently caps decode batch at {cores}"
+        )
+        logger.info(
+            f"decode sdpa: grid={grid} q_chunk={cfg.q_chunk_size} k_chunk={cfg.k_chunk_size} "
+            f"page_block={decoder.page_block_size}"
+        )
     # The three float32 recurrent-state matmuls go through `ttnn.matmul`, not `ttnn.linear`, so the
     # spy above cannot see them. They are the rows `tt-perf-report` flagged `SLOW` with
     # `in0_block_w=1 is small`, and `_state_matmul_config` returns `None` (a silent `core_grid`

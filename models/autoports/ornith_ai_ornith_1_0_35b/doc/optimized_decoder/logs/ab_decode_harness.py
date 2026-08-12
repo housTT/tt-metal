@@ -130,19 +130,23 @@ def main():
         try:
             for layer_idx, kind in LAYERS.items():
                 sd = R.load_layer_state_dict(layer_idx)
-                first = True
-                for arm in ("shipped-q32-kpage", "candidate-q0-k0"):
-                    # `candidate-q0-k0` only differs on full_attention: the linear kind has no SDPA at all.
-                    if arm != "shipped-q32-kpage" and kind != "full_attention":
-                        continue
-                    for run in range(1, args.runs + 1):
+                # `candidate-q0-k0` only differs on full_attention: the linear kind has no SDPA at all.
+                arms = ("shipped-q32-kpage", "candidate-q0-k0") if kind == "full_attention" else ("shipped-q32-kpage",)
+                #: Discards are counted **per arm**, and the arms alternate build-by-build. Round 9 found this
+                #: loop discarding per *layer*, so the shipped arm reported one repeat fewer than the candidate
+                #: while the header claimed an equal count, and the arms ran in blocks — which is the same
+                #: multi-build-in-one-process effect this file exists to characterise, so a drift across the
+                #: process could have appeared as an arm difference.
+                seen = {arm: 0 for arm in arms}
+                for run in range(1, args.runs + 2):
+                    for arm in arms:
                         decoder, page_table = build(mesh, cfg, sd, layer_idx)
                         decoder.decode_sdpa_config = sdpa_arms(decoder)[arm]
                         ms = time_traced_decode(mesh, decoder, page_table, args.iters)
                         del decoder, page_table
-                        if first:
-                            first = False  # discard: first build+trace pays weight upload and compile
-                            continue
+                        seen[arm] += 1
+                        if seen[arm] == 1:
+                            continue  # discard: this arm's first build pays weight upload and compile
                         print(
                             f"HARNESS arm={arm} trace_region={region} run={run} layer={layer_idx} ({kind}) "
                             f"decode(traced) iters={args.iters} wall/iter={ms:.3f} ms",
