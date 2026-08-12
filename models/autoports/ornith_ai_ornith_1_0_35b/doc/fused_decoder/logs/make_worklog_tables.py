@@ -49,7 +49,13 @@ def rows():
         "a",
         "b",
     )
-    (scatter,) = grab(router, r"ROUTER scatter .*wall=(?P<w>[\d.]+) us/call", "w")
+    scatter, scatter_lo, scatter_hi = grab(
+        router,
+        r"ROUTER scatter .*wall=(?P<w>[\d.]+) us/call spread=\[(?P<lo>[\d.]+), (?P<hi>[\d.]+)\]",
+        "w",
+        "lo",
+        "hi",
+    )
     ch1, pr1, ur1 = grab(
         micro,
         r"CONCATHEADS seq=\s*1\s+nlp_concat_heads=\s*(?P<a>[\d.]+) us\s+permute\+reshape=\s*(?P<b>[\d.]+) us"
@@ -79,7 +85,13 @@ def rows():
     outer_t, outer_a = grab(
         micro, r"OUTER\s+transpose\+matmul=\s*(?P<a>[\d.]+) us\s+matmul\(transpose_a\)=\s*(?P<b>[\d.]+) us", "a", "b"
     )
-    (where,) = grab(router, r"ROUTER where\s+.*wall=(?P<w>[\d.]+) us/call", "w")
+    where, where_lo, where_hi = grab(
+        router,
+        r"ROUTER where\s+.*wall=(?P<w>[\d.]+) us/call spread=\[(?P<lo>[\d.]+), (?P<hi>[\d.]+)\]",
+        "w",
+        "lo",
+        "hi",
+    )
     (conv1d_ms,) = grab(conv, r"CONV1DTIME conv1d x2 @4096ch\s+(?P<t>[\d.]+) ms", "t")
     # "shipped-fallback", not "4-tap": round 14 found the probe timing a generic FIR (ttnn.mac, all
     # four taps sliced) rather than the fallback that actually ships, which overstated the arm.
@@ -165,7 +177,8 @@ def rows():
             "`topk -> ge(kth) -> where -> softmax(256)`, per decode call. "
             "(§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy "
             "and never timed.)",
-            f"{scatter} µs vs {where} µs",
+            f"{scatter} µs (spread {scatter_lo}-{scatter_hi}) vs {where} µs "
+            f"(spread {where_lo}-{where_hi}); the two ranges are disjoint",
             "`probe_router_and_reduce.txt`",
         ),
         (

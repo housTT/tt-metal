@@ -229,9 +229,17 @@ logit path is kept.
 
 `topk → ge(kth) → where → softmax(256)` avoids the scatter's three untilize round trips. Measured at
 the decode shape on real layer-0 router weights (`probe_router_and_reduce.txt`): **identical**
-accuracy (32/32 top-8 set match against a float64 reference, the same score L1 error) but
-**slower** per decode call (§4.12), because a 256-wide `where` + `softmax` in float32 costs more than
-the untilize/scatter chain it removes. Rejected on latency.
+accuracy (32/32 top-8 set match against a float64 reference, the same score L1 error) and **slower**
+per decode call (§4.12), because a 256-wide `where` + `softmax` in float32 costs more than the
+untilize/scatter chain it removes. Rejected on latency.
+
+That conclusion is right and the evidence for it used not to be. Review round 26 found the committed
+arm showing the candidate **1.9 % faster** — the opposite of what this section says — because each
+arm was a single 50-iteration sample, and at a couple of microseconds' separation the two swapped
+order between evidence runs. A latency claim in either direction needs a spread, which is what §4.6
+already quotes for the rope modes and what this probe now reports: five repeats per arm, and the two
+ranges are **disjoint** by a wide margin. So the rejection stands on a gap that is real rather than on
+a sample that happened to fall the right way, and §4.12 prints both ranges.
 
 ### 4.4 `ttnn.conv1d` at the full `conv_dim` — three distinct blockers, but a working split
 
@@ -614,15 +622,24 @@ from the op's own validation or kernel contract, not its documentation:
   weight read is genuinely the lever on the cost §5.4 and §8 item 1 call the floor: it would remove
   both the wasted expert FLOPs and the 256-wide `UnaryOpType::FILL` prologue.
 
-  The blocker is real but it is a **shape** one, and it is not the one that was written. The expert
-  index is supplied **per core**, as a `[1, 16]` tensor whose leading entry selects the expert, and
-  it applies to that core's whole `in0` M-tile — the unit test says so directly ("Create expert index
-  - select one random expert", "only uses the first index"). Ornith's router gives **every token**
-  its own top-8: a shipped 32-token group is one M-tile carrying 32 *different* expert sets. To use
-  this op the M-tile would have to be one token's rows with a uniform expert set, i.e. one launch per
-  (token, selected expert) — 2048 x 8 launches per prefill block where the shipped graph issues 64
-  `sparse_matmul`s. That is the same expert-major regrouping §4.10 rejects, reached from a different
-  direction, and it is a routing-algorithm change rather than a graph rewrite.
+  The blocker is real, it is a **launch-granularity** one, and round 26 corrected this paragraph's
+  first attempt at stating it. The `[1, 16]` index tile does **not** hold a single leading index:
+  `unified_kernels/dram_streaming_experts_matmul.hpp:198-203` reads
+  `expert_idx = index_ptr[index_offset + e]` for `e < selected_experts_k`, and the in-tree
+  `test_dram_streaming_matmul_with_all_experts` runs `num_experts=256, selected_experts_k=8, m=1` —
+  256 experts with **all eight selected experts in one launch**, single device. (The "only uses the
+  first index" phrasing an earlier revision quoted belongs to the sibling `..._indexed` test, which
+  is the `selected_experts_k=1` case.) Nor is the scheme expert-major: it is token-major with
+  DRAM-indexed weight reads, and it needs no gather-by-expert layout at all, so citing §4.10's
+  layout ground for it was also wrong.
+
+  What blocks it is `op.py`'s `Mt == 1` with `in0` **replicated** across the compute cores: one
+  launch covers a single M-tile under one shared expert set. Ornith's router gives every token its
+  own top-8, and a shipped 32-token group is one M-tile carrying 32 *different* sets — so the op
+  would need one launch **per token**, 2048 per prefill block against the 64 `sparse_matmul`s that
+  ship. That is a routing-algorithm change (batch one token per launch, or regroup tokens by shared
+  expert set) rather than a graph rewrite, which is why it belongs to the stage that owns the
+  routing algorithm.
 
   So the disposition is unchanged and the reasoning that supports it is now the op's own contract
   rather than a false claim about its arguments. It stays the right first thing for a stage that owns
@@ -674,12 +691,12 @@ made twenty of this file's inline probe figures stale, which is what prompted mo
 | --- | --- | --- |
 | §3.1, §4.1 — `sparse_matmul` with `fused_activation=SILU`: PCC(`silu(plain)`, "fused") | **0.853915** — the activation is silently ignored | `probe_fused_ops.txt` |
 | §3.1 — `nlp_concat_heads` vs `permute + reshape`, prefill at seq 2048 | 89.7 µs vs 1958.1 µs | `probe_decode_micro.txt` |
-| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 122.7 µs vs 120.4 µs | `probe_router_and_reduce.txt` |
+| §4.3 — router `scatter` (shipped) vs the threshold rewrite `topk -> ge(kth) -> where -> softmax(256)`, per decode call. (§4.2's `generalized_moe_gate` is a different candidate, rejected on bfloat16 accuracy and never timed.) | 99.9 µs (spread 98.9-102.6) vs 115.4 µs (spread 114.1-118.8); the two ranges are disjoint | `probe_router_and_reduce.txt` |
 | §3.1, §4.4 — `ttnn.conv1d` (2 × 4096 ch) vs the 4-tap FIR (8192 ch), 2048 tokens | 0.686 ms vs 2.489 ms | `probe_conv1d_and_norm.txt` |
 | §4.8 — DeltaNet output gate, SiLU separate (shipped) vs folded into the multiply, at the **real** `float32 x bfloat16` operand pairing, prefill shape | separate PCC 0.999996, 0 non-finite; folded **111 non-finite values** at the smallest magnitude tested | `probe_fused_ops.txt` |
 | §4.8 — the same fold with **matched** `bfloat16 x bfloat16` operands, i.e. what a naive op-level probe writes, and why it passes | separate PCC 0.999994 vs folded PCC 0.999994, both 0 non-finite | `probe_fused_ops.txt` |
-| §4.17 — expert-axis reduction with the router score applied to the down projection's **input** (shipped, §3.2) vs folded into the reduction by `deepseek_moe_fast_reduce_nc_fused`, both against a float64 reference and both paying the same down projection. This is the stage's primary ground for keeping the two ops separate: the fused form **is not faster here**, because §3.2 already moved the multiply onto the `moe_intermediate`-wide input. (The down projection is a dense `ttnn.matmul` stand-in for the shipped `sparse_matmul`, which cannot be reproduced standalone, so the absolute times are not a proxy for the §5 windows — the *difference* between the arms is what this measures.) | PCC 0.999995 at 2458.3 µs vs PCC 0.999996 at 2504.1 µs | `probe_router_and_reduce.txt` |
-| §4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair with per-group slices (shipped), 2048-token prefill | 2.930 ms vs 1.496 ms per MoE call | `probe_router_and_reduce.txt` |
+| §4.17 — expert-axis reduction with the router score applied to the down projection's **input** (shipped, §3.2) vs folded into the reduction by `deepseek_moe_fast_reduce_nc_fused`, both against a float64 reference and both paying the same down projection. This is the stage's primary ground for keeping the two ops separate: the fused form **is not faster here**, because §3.2 already moved the multiply onto the `moe_intermediate`-wide input. (The down projection is a dense `ttnn.matmul` stand-in for the shipped `sparse_matmul`, which cannot be reproduced standalone, so the absolute times are not a proxy for the §5 windows — the *difference* between the arms is what this measures.) | PCC 0.999995 at 2458.2 µs vs PCC 0.999996 at 2506.1 µs | `probe_router_and_reduce.txt` |
+| §4.16 — MoE per-group mask + score-operand rebuild (superseded) vs one whole-call pair with per-group slices (shipped), 2048-token prefill | 2.920 ms vs 1.494 ms per MoE call | `probe_router_and_reduce.txt` |
 | §4.15 — SiLU applied separately (shipped) vs folded into `Conv1dConfig(activation=…)`, one 4096-channel depthwise call over 2048 tokens | PCC 0.999990 at 0.373 ms vs PCC 0.825507 at 0.287 ms — the folded form is faster and **fails the 0.995 bar** | `probe_conv1d_and_norm.txt` |
 | §5 — conv history tail kept ROW_MAJOR (shipped) vs tilized, warmed 2048-token prefill | 257.04 ms vs 257.10 ms; tile-tail variant vs shipped: bitwise-equal | `probe_conv_tail.txt` |
 | §4.5 — RMSNorm interleaved (shipped) vs width-sharded over 8/16/32/64 cores | interleaved 21.4 µs, width-sharded x8 25.8 µs, width-sharded x16 28.5 µs, width-sharded x32 32.2 µs, width-sharded x64 45.4 µs | `probe_conv1d_and_norm.txt` |
@@ -1626,6 +1643,30 @@ Round 25 also noted that `audit_figures.py` does not audit the probe *scripts*, 
 stale comment could survive — a real gap, recorded here for the next stage rather than closed, since
 adding sources to the audited set changes what the freshness gate measures.
 
+### Round 26 — `more-work-needed`
+
+The twenty-sixth review reproduced every headline from the raw `*_ops.csv.gz` captures again — all
+four device times, the op-row counts, the per-op-code decode diffs closing on −26/−33, the `SLOW`
+sums and their absolute fall — confirmed the manifest and freshness gates, and found two rejected
+candidates whose recorded ground did not match the artifact beside it.
+
+| Finding | Fix |
+| --- | --- |
+| **P1** — §4.3 rejects the threshold-router rewrite "on latency", but the committed arm showed the candidate **1.9 % faster**, and `routing_weights`' docstring carried the same inverted claim. Each arm was a single 50-iteration sample, and at a couple of microseconds' separation the two had swapped order between evidence runs — so the section's ground was a sample, not a measurement. | the probe now runs **five repeats per arm and prints the spread**, the way §4.6 already did for the rope modes. With the spread, the shipped `scatter` is decisively faster and the two ranges are **disjoint** — so §4.3's conclusion and the docstring were right all along, and they now rest on evidence that will not flip. §4.12 prints both ranges. |
+| **P2** — §4.18's `dram_streaming_experts_matmul` blocker, rewritten only one round earlier, still misread the op: the `[1, 16]` index tile holds up to `selected_experts_k` indices rather than one leading index (`unified_kernels/dram_streaming_experts_matmul.hpp:198-203`), the in-tree `test_dram_streaming_matmul_with_all_experts` runs 256 experts with **all eight selected in one launch** on a single device, and the scheme is token-major, so citing §4.10's expert-major layout ground for it was wrong too. | corrected to the blocker that actually holds: `op.py`'s `Mt == 1` with a replicated `in0` means one launch covers one M-tile under **one shared expert set**, and Ornith routes per token — so it needs one launch per token, 2048 per prefill block against 64 `sparse_matmul`s. The launch-count claim drops from 2048x8 to 2048. |
+
+Round 26 also noted that three artifacts state three different tie-break rules for the two commit
+records, that `prefill_forward` validates `chunk_size % PREFILL_ALIGN` but not
+`chunk_size % page_block_size` on the per-call override (the constructor does validate it, and no
+legal value reaches the gap at the shipped defaults), and that the peer-merge of the two decode
+`rotary_embedding_hf` launches is unnamed in the catalogue with an upper bound of about one percent
+of the decode window. All three are recorded rather than closed.
+
+The pattern is now unmistakable and worth stating once: across rounds 23–26 every finding has been a
+*claim about a rejected candidate* that had drifted from the artifact beside it, and none has been a
+defect in the shipped graph or its measurements — which four consecutive reviewers have re-derived
+exactly from the raw captures.
+
 ---
 
 ## 8. Commit record
@@ -1634,7 +1675,7 @@ Repo `/home/ttuser/dev/ornith/tt-metal`, branch `agentic-research/hous/ornith-1.
 is **local**; nothing was pushed, and nothing outside
 `models/autoports/ornith_ai_ornith_1_0_35b/` is touched. The one unrelated dirty path in the
 worktree, `.agents/fast-models-fast-feedback.md`, is deliberately left untracked and is in none of
-these commits. `git log --oneline -10` shows all of them.
+these commits. `git log --oneline -11` shows all of them.
 
 | Commit | What it carries |
 | --- | --- |
@@ -1647,7 +1688,8 @@ these commits. `git log --oneline -10` shows all of them.
 | `be9e83d0ef1` | round 23's **first and partly wrong** answer: §4.17 added, but it rejected `deepseek_moe_fast_reduce_nc_fused` by reading the op's docstring. Documentation only. |
 | `f6cd9504e2f` | round 23's P1 re-answered by *running* the op, plus `test_moe_group_tokens_pcc` (the `groups > 1` MoE branch's first PCC coverage). Changed `tests/test_fused_decoder.py` and regenerated the whole chain — the suite is 97 cases from here. |
 | `35c3d584d76` | round 24's fixes: §4.17 restated on the committed ground, round 24's score-layout hypothesis refuted, §4.18 added, README §5.4's generator string corrected. |
-| `<this commit>` | round 25's fixes: §4.18's `dram_streaming_experts_matmul` rejection rewritten around the op's real contract (it *does* have an indexed expert read; the blocker is the per-core/per-M-tile expert index against per-token routing), the decode-rope validation misstatement corrected and its deferral replaced by the coupling to §4.6, the `FUSEDREDUCE` probe comment reconciled with §4.17, and the stale figure attribution in `logs/commit_record.txt` marked historical. Documentation and one probe comment only — no source file changed, so `f6cd9504e2f`'s evidence still describes the shipped code and `logs/source_manifest.txt` still matches it. **Every figure in README §2 and §5 comes from `f6cd9504e2f`'s `run_evidence.sh` pass.** |
+| `143edb3aacb` | round 25's fixes: §4.18's `dram_streaming_experts_matmul` rejection rewritten around the op's contract, the decode-rope validation misstatement corrected, the `FUSEDREDUCE` probe comment reconciled, the stale figure attribution marked historical. |
+| `<this commit>` | round 26's fixes: the router A/B now measures **five repeats per arm with a printed spread**, which settles §4.3 on disjoint ranges instead of on a single sample that had flipped between runs; §4.18's launch-granularity blocker corrected again (the index tile holds up to `selected_experts_k` indices, the scheme is token-major, and the blocker is `Mt == 1` with a replicated `in0`, so 2048 launches per prefill block rather than 2048x8). One probe script and the documents — no source file changed, so `f6cd9504e2f`'s evidence still describes the shipped code. **Every figure in README §2 and §5 comes from `f6cd9504e2f`'s `run_evidence.sh` pass**, except the `probe_router_and_reduce.txt` rows, which come from this commit's re-run of that one probe. |
 
 A commit cannot contain its own SHA, so the tip is written `<this commit>`. `logs/commit_record.txt`
 carries the same table; round 23 found the two had drifted apart in *both* directions across rounds

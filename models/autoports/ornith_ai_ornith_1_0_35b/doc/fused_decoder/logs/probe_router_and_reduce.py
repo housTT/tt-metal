@@ -97,15 +97,24 @@ def main():
                 sel |= got_set
             nonzero = int((got > 0).sum(-1).float().mean().item() * 100) / 100
             l1 = float((got.double() - ref_dense).abs().sum() / ref_dense.abs().sum())
-            start = time.time()
-            iters = 50
-            for _ in range(iters):
-                o = fn()
-            ttnn.synchronize_device(mesh)
-            per = (time.time() - start) / iters
+            # Repeats with a reported spread: review round 26 found §4.3 rejecting this candidate
+            # "on latency" off a single 50-iteration arm whose two sides had swapped order between
+            # evidence runs. A latency conclusion in EITHER direction needs the spread, the way §4.6
+            # quotes one for the rope modes.
+            iters, repeats = 50, 5
+            samples = []
+            for _ in range(repeats):
+                ttnn.synchronize_device(mesh)
+                start = time.time()
+                for _ in range(iters):
+                    o = fn()
+                ttnn.synchronize_device(mesh)
+                samples.append((time.time() - start) / iters)
+            per, lo, hi = sum(samples) / len(samples), min(samples), max(samples)
             print(
                 f"ROUTER {name:8s} set_match={match}/{TOKENS} mean_nonzero={nonzero} "
-                f"score_L1_rel={l1:.6f} wall={per * 1e6:.1f} us/call",
+                f"score_L1_rel={l1:.6f} wall={per * 1e6:.1f} us/call "
+                f"spread=[{lo * 1e6:.1f}, {hi * 1e6:.1f}] over {repeats} repeats of {iters}",
                 flush=True,
             )
 

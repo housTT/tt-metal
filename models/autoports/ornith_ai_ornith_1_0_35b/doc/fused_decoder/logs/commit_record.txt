@@ -65,14 +65,23 @@ updated in the same commit, and `git log` is the authority over either.
                section 4.17 had withdrawn in the same commit. Documentation and generators only: no
                source file changed, so f6cd9504e2f's evidence still describes the shipped code.
 
-  <tip>        round 25's fixes: section 4.18's dram_streaming_experts_matmul rejection rewritten
+  143edb3aacb  round 25's fixes: section 4.18's dram_streaming_experts_matmul rejection rewritten
                around the op's real contract - it DOES take an index_tensor and has a single-device
                256-expert test in tree, so the earlier "no sparsity argument" was wrong; the blocker
                is that the expert index is per core and applies to a whole M-tile, while Ornith
                routes per token. Also the decode-rope validation misstatement, the FUSEDREDUCE probe
                comment, and this file's stale figure attribution. Documentation only.
 
-A commit cannot contain its own SHA, so the tip is written as <tip> above; `git log --oneline -10`
+  <tip>        round 26's fixes: the router A/B probe now runs five repeats per arm and prints the
+               spread, which settles section 4.3 on disjoint ranges rather than on a single sample
+               that had flipped order between evidence runs (the shipped scatter is decisively
+               faster); and section 4.18's blocker corrected again - the index tile holds up to
+               selected_experts_k indices, not one, the scheme is token-major, and what blocks it is
+               Mt == 1 with a replicated in0, i.e. 2048 launches per prefill block rather than
+               2048x8. One probe script plus documents; no source file changed. probe_router_and_
+               reduce.txt is re-run here, every other artifact is still f6cd9504e2f's.
+
+A commit cannot contain its own SHA, so the tip is written as <tip> above; `git log --oneline -11`
 enumerates all of them.
 
 Two properties of the regenerating commits, recorded rather than left to be discovered:
