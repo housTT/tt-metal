@@ -79,20 +79,28 @@ def _bind(run, nnz, mesh):
     return call
 
 
-def time_op(fn, iters, warmup=3):
+def time_op(fn, iters, warmup=3, repeats=3):
+    """Min-of-``repeats`` mean-of-``iters`` microseconds, and the spread across repeats.
+
+    The spread is reported because this sweep's decisions turn on differences of a few percent — review
+    round 5 found the shipped grid *orientation* 1-3 % behind the other rectangle at four of eight
+    points, and without a spread there was no way to tell a real 2 % from noise. Now there is.
+    """
     for _ in range(warmup):
         out = fn()
         ttnn.deallocate(out)
     ttnn.synchronize_device(fn.mesh)
-    start = time.time()
-    for _ in range(iters):
-        # Freed inside the loop, not collected: an L1 output at these shapes is ~8 MB, so holding
-        # `iters` of them turns every L1 candidate into a bank-allocation failure and silently
-        # deletes the L1 arm of the sweep.
-        ttnn.deallocate(fn())
-    ttnn.synchronize_device(fn.mesh)
-    elapsed = (time.time() - start) / iters
-    return elapsed * 1e6
+    samples = []
+    for _ in range(repeats):
+        start = time.time()
+        for _ in range(iters):
+            # Freed inside the loop, not collected: an L1 output at these shapes is ~8 MB, so holding
+            # `iters` of them turns every L1 candidate into a bank-allocation failure and silently
+            # deletes the L1 arm of the sweep.
+            ttnn.deallocate(fn())
+        ttnn.synchronize_device(fn.mesh)
+        samples.append((time.time() - start) / iters * 1e6)
+    return min(samples), max(samples) - min(samples)
 
 
 def main():
@@ -101,6 +109,7 @@ def main():
     ap.add_argument("--act-dtype", default="bfloat8_b")
     ap.add_argument("--fidelity", default="LoFi")
     ap.add_argument("--iters", type=int, default=30)
+    ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--role", default="both", choices=["gate_up", "down", "both"])
     ap.add_argument(
         "--nnz",
@@ -219,18 +228,24 @@ def main():
                                     f"per_core_N={per_core_N} out_block_w={out_block_w} sub_w={sub_w} mem={mem_name}"
                                 )
                                 try:
-                                    us = time_op(run, args.iters)
+                                    us, spread = time_op(run, args.iters, repeats=args.repeats)
                                 except Exception as exc:  # noqa: BLE001 - illegal geometries are data
                                     print(f"SPARSE {tag} FAILED {str(exc).splitlines()[0][:110]}", flush=True)
                                     continue
-                                print(f"SPARSE {tag} nnz=inferred us={us:.1f}", flush=True)
+                                print(f"SPARSE {tag} nnz=inferred us={us:.1f} spread={spread:.1f}", flush=True)
                                 if args.nnz:
                                     # DANGEROUS: see --nnz's help. This wedged the device the one
                                     # time it was run; it is kept so the finding is reproducible, and
                                     # it is deliberately NOT part of run_evidence.sh.
                                     try:
-                                        us_static = time_op(_bind(run, args.active, mesh), args.iters)
-                                        print(f"SPARSE {tag} nnz={args.active} us={us_static:.1f}", flush=True)
+                                        us_static, sp_static = time_op(
+                                            _bind(run, args.active, mesh), args.iters, repeats=args.repeats
+                                        )
+                                        print(
+                                            f"SPARSE {tag} nnz={args.active} us={us_static:.1f} "
+                                            f"spread={sp_static:.1f}",
+                                            flush=True,
+                                        )
                                     except Exception as exc:  # noqa: BLE001
                                         print(
                                             f"SPARSE {tag} nnz={args.active} FAILED {str(exc).splitlines()[0][:90]}",

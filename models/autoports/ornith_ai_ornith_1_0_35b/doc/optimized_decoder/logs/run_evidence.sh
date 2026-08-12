@@ -23,6 +23,14 @@ LOGS="$ART/logs"
 # cannot prove this (a touch defeats them), and review round 4 found six probe artifacts predating a
 # source edit with nothing to show whether the edit was inert. `audit_figures.py` re-hashes these three
 # files and fails if the shipped bytes differ from the run's.
+# Normalise the sources with the repo's own pre-commit hooks BEFORE hashing them. The hooks rewrite
+# whitespace, line endings and `black` formatting at commit time, so a file hashed before they run is not
+# the file that gets committed — and `audit_figures.py` then correctly refuses the evidence as having been
+# produced by different bytes. Doing it here makes the run idempotent: hash what will actually ship.
+echo "=== 0a/9  normalise the sources with the pre-commit hooks, so the hashes are the shipped bytes ==="
+pre-commit run --files "$ROOT/tt/optimized_decoder.py" "$ROOT/tests/test_optimized_decoder.py" \
+  "$ROOT/tests/conftest.py" >/dev/null 2>&1 || true
+
 echo "=== 0/9  record the source hashes the evidence is produced from ==="
 {
   echo "# sha256 of the code every artifact in this directory was produced from."
@@ -95,7 +103,7 @@ echo "=== 6/9  measured per-layer device footprint, both policies, full context 
   echo "# Measured per-layer device footprint; sources doc/context_contract.json's footprint_change."
   echo "# Command: python doc/optimized_decoder/logs/probe_footprint.py"
   python "$LOGS/probe_footprint.py"
-} 2>&1 | grep -aE "^FOOTPRINT|^#" > "$LOGS/probe_footprint.txt"
+} 2>&1 | grep -aE "^FOOTPRINT|^DEVICE|^#" > "$LOGS/probe_footprint.txt"
 
 echo "=== 7/9  Tracy / tt-perf-report captures (separate runs, advice enabled) ==="
 bash "$ART/tracy/run_profiling.sh"
@@ -132,6 +140,10 @@ echo "=== assert every figure quoted in any document exists in a committed artif
 python "$ART/audit_figures.py"
 
 echo "=== prove the generators reproduce from the COMMITTED tree, not just this worktree ==="
+# NOTE what this second run does and does not prove. `git archive` stamps every extracted file with the
+# commit time, so audit_figures.py's freshness check (artifact newer than source) cannot fire there. This
+# run proves REPRODUCTION. Freshness is proved by the in-tree run above and, independently of any
+# timestamp, by the sha256 comparison against logs/source_manifest.txt, which the archive run also does.
 # Review round 3's P1: `make_readme.py --check` passed locally while one of its inputs was matched by
 # the repo's blanket `*.csv` ignore rule and had never been committed. Checking against
 # `git archive HEAD` is what catches that class of hole. Run it after committing.

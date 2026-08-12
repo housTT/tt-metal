@@ -96,7 +96,7 @@ Structural observations from the same read, which drove §3.1 and §3.4:
   this stage *adds* 8–12, all of them the sharded-norm boundary, and pays for them (§3.6).
 * **Host fallback**: none in the measured path, inherited and re-asserted.
 * **The 256-expert-wide intermediate chain** — fill → slice → slice → SwiGLU → score-multiply →
-  fill → reduce — is 613 µs/step, 38 % of the window, on a tensor where **8 of 256** expert slots
+  fill → reduce — is 38 % of the window, on a tensor where **8 of 256** expert slots
   are non-zero. Every one of those ops was in `ttnn.DRAM_MEMORY_CONFIG`. That is the single largest
   finding of the audit and §3.2 is its fix.
 * **The decode router routes the tile padding.** A batch-1 decode step runs the MoE on a 32-row
@@ -141,7 +141,7 @@ one process, in the delivered suite.
 
 Row 0's `linear_attention` figure is the **fused stage's own committed number**, measured in that
 stage's harness, quoted so this column starts where the previous stage left off. Re-measured in this
-stage's harness it is 2.06-2.07 ms, about 4 % slower — harness and run-to-run spread. Every "before"
+stage's harness it is 2.06-2.07 ms, a few percent slower — harness and run-to-run spread. Every "before"
 figure the README quotes is this stage's own re-measurement, not row 0; against the fused stage's
 published figure the `linear_attention` decode speedup would read ~1.86x instead of ~1.93x.
 
@@ -151,7 +151,7 @@ intermediate revision of the code that no longer exists, so a re-run cannot repr
 `audit_figures.py` exempts them by name, as the development ladder, only in this file. Where a step's own
 A/B was captured as an artifact it is linked from the section that describes it (§3.6, §3.9, §4.10,
 §4.11); the *shipped* numbers are always README §5.2's generated table. If you want to know what the
-decoder does today, read §5.2, not this column.
+decoder does today, read README §5.2, not this column.
 
 ### 3.1 Sparse-matmul geometry is a function of the *active* expert count
 
@@ -302,7 +302,7 @@ Two findings, both kept as evidence:
   why the explicit one stays;
 * a `k_chunk_size` **larger than the 64-token paged block size is wrong**, not merely risky. The
   isolated op cannot see it — the probe's reference is the op default on the same page table — but
-  the layer's decode PCC against the HF golden collapses to 0.02–0.91 at the paged contexts the
+  the layer's decode PCC against the HF golden collapses to 0.02–0.92 at the paged contexts the
   delivered tests use. So the ~10 % the k128 row promises is rejected on correctness, and
   `k_chunk_size` is now pinned to `page_block_size` in code rather than to the literal 64.
 
@@ -329,7 +329,7 @@ are fixed above rather than argued with, and two of them were real performance w
    Swept (`probe_decode_micro.py --section state`): the fidelity advice is worth <= 0.3 us per matmul
    and is rejected, but *"place input 0 in L1"* is worth **1.093 -> 1.074 ms** — 19 us, the largest
    single win of the round. The audit in §2 was `full_attention` only, which is how a 45 us/step
-   group in the *slower* layer kind went unranked; §5.5 of the README now covers both reports.
+   group in the *slower* layer kind went unranked; README §5.5 now covers both reports.
 3. **`nnz` was rejected on an inherited argument.** Measured instead; it wedged the device. §4.8.
 4. **The `gdn_out` probe used a bfloat16 in0 where the layer had float32.** §4.11.
 5. **The largest traced op-to-op stall was unclassified.** Attributed to the tilize inside
@@ -402,7 +402,7 @@ precision one, so it stays rejected on that ground.
 §3.8 has the sweep. Two candidates are faster in isolation and wrong in the layer, and the numbers
 that reject them are committed in
 [`logs/ab_sdpa_decode_contract.txt`](logs/ab_sdpa_decode_contract.txt): `k_chunk_size` 128 (~10 %
-faster standalone) drops the layer's decode PCC to 0.02-0.91, and passing the prefill compute-kernel
+faster standalone) drops the layer's decode PCC to 0.02-0.92, and passing the prefill compute-kernel
 config to the decode op drops it to 0.33. Both failures are invisible to a standalone probe, whose
 reference is the same op on the same page table. The shipped config keeps `k_chunk_size` pinned to
 `page_block_size` and passes no compute-kernel config. `SdpaDecode` is 17 µs/step, 2 % of the window.
@@ -410,7 +410,8 @@ reference is the same op on the same page table. The shipped config keeps `k_chu
 ### 4.6 BFP4 dense projection weights — measured, decision recorded in §5 of the README
 
 `proj_dtype = bfloat4_b` (packed attention in-projection, `o_proj`, packed DeltaNet in-projection,
-`out_proj`) is **faster**: 0.858 → 0.838 ms and 1.093 → 1.073 ms traced decode, prefill unchanged.
+`out_proj`) is **faster** on traced decode at unchanged prefill; README §4.2's generated table has both
+arms and §4.3 states the saving, computed from the same artifact.
 
 OPT-007 requires that trial on real weights and requires the accept/reject decision to rest on
 model-visible correctness, so it was decided on the **same HF-golden ladder the delivered suite
@@ -438,7 +439,7 @@ default in the same harness ([`logs/ab_precision_policy.txt`](logs/ab_precision_
 `pcc` column is the 2048-token real-weight prefill screen that runs in the same command; the
 `linear_attention` screen input is dominated by DeltaNet state accumulation, so its absolute value
 is not comparable to `full_attention`'s — what matters is the delta against the same input's
-baseline, and the fused decoder scores 0.994650 on it.
+baseline. README §4.2's generated table carries the screen value for every arm, from that artifact.
 
 The table is **generated** into README §4.2 from that artifact by
 [`logs/make_readme.py`](logs/make_readme.py) rather than transcribed here, so it cannot drift from
@@ -500,7 +501,7 @@ from `run_evidence.sh`, so the finding is reproducible by anyone willing to rese
 ### 4.9 The expert-major gathering path — assessed, rejected with a precise blocker
 
 `ttnn.experimental.deepseek_prefill.unified_routed_expert_moe` is the in-tree op that wants the
-expert-major layout the fused stage's §8 item 1 identified as the way to remove the
+expert-major layout `doc/fused_decoder/README.md` §8 item 1 identified as the way to remove the
 `num_experts`-wide intermediates. It is rejected on three specific grounds, not on effort:
 
 * it is a **prefill** op that launches one device program per local expert — 256 per MoE call here,
@@ -568,6 +569,36 @@ silent.
 * **`ttnn.sparse_matmul` `is_input_a_sparse`.** Already set on the down projection by the fused
   stage, and kept — the down projection consumes the expert-major activation.
 
+### 4.14 The sparse-matmul grid *orientation* — measured, rejected on arithmetic
+
+Review round 5 pointed out that `_sparse_matmul_config` fills one grid axis first (a column: 1×8, 2×8,
+4×8) while the probe measures both rectangles of each core count, and that the other orientation is faster
+at several points. It also pointed out that the code comment claimed the column form "beat the row form by
+2-10 % at every geometry measured", which the sweep does not say. Both were true.
+
+The probe now reports a `spread=` per row (min of three repeats, max−min), because a 1–3 % claim is not a
+claim without one. The spread is small — typically well under a microsecond — so the gaps are real, and
+README §5.4's generated table prints every one of them. What they are:
+
+| point | role | shipped orientation | other orientation | verdict |
+| --- | --- | --- | --- | --- |
+| 8 active — **the tuned batch-1 decode target** | gate/up | column | +19 µs worse | column wins by ~12 % |
+| 8 active | down | column | +19 µs worse | column wins by ~12 % |
+| ~162 active — a 32-token prefill group | gate/up | column | +9 µs worse | column wins |
+| ~162 active | down | column | −1.4 µs | row wins by 0.4 % |
+| 32 and 64 active — decode batch 4 and 8, **not tuned** (README §9 item 5) | 3 of 4 rows | column | −4.5 to −8.0 µs | row wins by 1.5–2.9 % |
+
+Rejected, and the arithmetic is the reason rather than the effort. At the tuned decode point the shipped
+orientation wins decisively on both roles. The only tuned point where it loses is `down` at a prefill
+group, by 1.4 µs of a pair of calls that between them are most of that group's device time — about
+**0.1 % of a prefill window**. Taking the row form where it wins
+cannot be done with a rule: the preference is not monotonic in the active count or the core count, and it
+*reverses for `down` at a fixed 8-core geometry* between 8 and 32 active experts, so it would need an
+orientation table keyed on (role, active count) fitted to eight measured points. That trade — over-fitting
+the one op that dominates both windows, for 0.1 % of prefill and nothing at decode — is not worth taking,
+and the numbers are in the table so a later stage can revisit it with its own measurements rather than
+rediscovering the question.
+
 ---
 
 ## 5. Hardware
@@ -612,11 +643,12 @@ items, all fixed:
   stage's own tables — restated to separate what the *model* dispatches from what three composite
   ops lower to, with their per-step cost;
 * the work log's own closing figures were a pre-fix run — that paragraph now defers to README §5.2's
-  generated table, and the 1.987-vs-2.065 fused-baseline difference is stated.
+  generated table, and the difference between the fused stage's published baseline and this stage's
+  re-measurement of it is stated (§3).
 
 Round 2's other concerns were addressed in the same pass: the `linear_attention` roofline now counts
 the recurrent state the way the other kind counts its KV read, the "same-process" method claim is
-corrected to name the test that actually is one, §5.4 says its core counts are program grids, the
+corrected to name the test that actually is one, README §5.4 says its core counts are program grids, the
 buffer-side L1 budget absorbs the ~6.5 % gap between `get_max_worker_l1_unreserved_size()` and the
 allocator's bank size, and the state-L1 win got its own `ab_*.txt`.
 
@@ -632,7 +664,7 @@ allocator's bank size, and the state-L1 win got its own `ab_*.txt`.
 * the generated advice table now covers **all four** committed reports rather than the two decode
   ones. That surfaced `place input 0 in L1` still open on three prefill rows; measured and rejected
   with numbers (an L1 `in0` is *slower* on `attn_in` and `gdn_in`, and worth ~3 µs on `shared_in` —
-  0.006 % of the prefill window), `probe_prefill_matmul.txt`;
+  a rounding error of the prefill window), `probe_prefill_matmul.txt`;
 * hand-written µs figures in this log, the README and the code docstrings were re-derived from the
   committed probe artifacts, which a later `run_evidence.sh` re-run had left behind — NORM, the state
   outer product, SPLIT, GATE, the fused sparse geometry and two DRAM-sharded rows. No decision
@@ -723,16 +755,121 @@ recorded here because each one is evidence that the gate was the right fix rathe
 4. **README §5.4 said the shipped sparse rule "reproduces the measured winner at all four points"**,
    and its own regenerated table showed gate/up at 8 active experts landing 2–3 % behind. The rule
    reproduces the winning *core count* everywhere; `in0_block_w` comes from a separate divisor rule and
-   is 2–3 % off at that one point, worth ~0.4 % of a traced step. Now stated, with the gap computed.
+   is 2–3 % off at that one point, a fraction of a percent of a traced step. Now stated, with the gap
+   computed from the probe.
 5. **The first attempt at deriving the prefill window composition was wrong by two orders of
    magnitude**: `op_device_time` matched op codes by substring, and `MatmulDeviceOperation` is a
    substring of `SparseMatmulDeviceOperation`, so the *dense* projections were credited with 82 % of a
-   window they are 0.8 % of. Matching is by prefix now, and the function says why.
+   window they are well under one percent of. Matching is by prefix now, and the function says why.
 6. **The op-to-op gap itemisation was reading the report wrong.** Its rows are one op *per replay*, not
    one aggregated row per op, so the first version reported 32 copies of each gap and a per-step total
    32× too large. Grouped by op code and divided by the replay count, the itemisation reconciles with
-   §7's dispatch gap — and it shows the float32 gate-promotion typecasts are the *largest* line item of
+   README §7's dispatch gap — and it shows the float32 gate-promotion typecasts are the *largest* line item of
    the `linear_attention` window, not the "two 6–8 µs gaps" the prose claimed.
+
+**Round 5** returned `more-work-needed` with seven items. It confirmed the round-4 structure holds
+mechanically — all four generators reproduce byte-identically in-tree and from `git archive HEAD`, and all
+six self-reported defects check out — and then made the finding that matters most in this stage's history:
+**the audit installed to stop figure drift was measurably permissive for exactly the figure class that had
+drifted.** The reviewer measured it, which is the right way to argue about a check: with the four
+multi-megabyte per-op `tt-perf-report` CSVs in the sourcing pool, `sourced()` returned true for **794 of
+2000** arbitrary one-decimal values and **1581 of 2000** arbitrary three-decimal millisecond values. A
+per-op report is thousands of durations; almost any plausible microsecond figure appears in it somewhere.
+Two live wrong figures had cleared the gate on exactly that route.
+
+What changed in the gate:
+
+1. **Sourcing is now a labelled-token test, not a substring test.** `measured_tokens` extracts every value
+   an artifact prints *as a measurement* — `us=`, `wall/iter=… ms`, `pcc=`, `bytes=`, a JSON key, a census
+   count, a table cell — and membership is an exact string match, so a two-decimal figure is no longer
+   "sourced" by a three-decimal measurement that merely starts with the same digits. That prefix match is
+   precisely how a wrong prefill percentage had survived.
+2. **The per-op reports are out of the sourcing pool** (still checked for existence and freshness). They
+   reach the documents only through a generated block, whose agreement with them `make_readme.py --check`
+   establishes separately. Re-measuring the reviewer's experiment against the new rule: three-decimal
+   millisecond values fall from 1581/2000 to **18/2000**, one-decimal microsecond values from 794/2000 to
+   **382/2000**, byte counts to **0/3000**. The one-decimal class is the residual weakness and it is
+   inherent — the probes genuinely print hundreds of distinct one-decimal microsecond values — so the
+   docstring states the number rather than implying the check is airtight.
+3. **A figure is checked against the artifact its own paragraph cites**, when it cites one. Most of this
+   stage's prose names its log, so most figures are now checked against one file of a few kilobytes. A
+   failure reads `MISCITED` rather than `UNSOURCED` when the value exists elsewhere in the pool, because
+   citing the wrong log and inventing a number are different defects.
+4. Smaller gate fixes, each of which had let something through: truncation-tolerance restricted to the
+   5+-decimal PCC class, since at four decimals it registered the two-decimal prefix of every
+   three-decimal timing and so re-created the prefix hole it was meant to close; `HISTORICAL` no longer
+   applies to code
+   comments, which had immediately hidden a live wrong claim in a generator; the integer pass scoped to
+   documents, since an integer in code is a shape; space-separated thousands read as one number;
+   scientific notation, mathematical exponents and rule identifiers (`OPT-013`) no longer read as figures;
+   the contract's scoped section dumped with `ensure_ascii=False`, which had been turning a section
+   reference into a phantom figure; both harness scripts added to the audited set; and
+   `check_generators` now diffs the summaries it rewrites instead of trusting their exit code.
+   `audit_figures.py --selftest` now measures the gate's own false-positive rate per figure class into
+   [`logs/audit_selftest.txt`](logs/audit_selftest.txt), so a later change that weakens the matching rules
+   shows up as a committed number moving rather than as nothing at all.
+
+The other six findings, all fixed:
+
+* **The generated dense-decode table attributed times measured on the wrong grid, and in three rows the
+  wrong output placement.** The lookup matched `(in0_block_w, per_core_N)` on the stated theory that
+  `per_core_N` pins the grid; it does not, because for a narrow output every core target from 24 to 110
+  gives `per_core_N` 1. It now matches the *realised* grid (`11 × ceil(target/11)`) and the shipped L1
+  output. This was round 4's own defect class inside round 4's fix.
+* **The generated sparse table checked one of its eight rows** and printed the literal "as measured" for
+  the other seven, four of which are 1–3 % behind the other rectangle of the same core count. Every row is
+  checked now — core count, `in0_block_w`, `per_core_N`, placement *and grid orientation* — and the gap is
+  printed when the shipped choice is not the winner. See §4.14 for what that gap turned out to be.
+* **The `Output subblock 1x1 is small` action rendered "against unmeasured"** and claimed a rejection for
+  a second row whose alternative the sweep never contains. Fixed, and the `router` row now says *not
+  expressible* — `Nt` is 8, so `per_core_N ≥ 2` needs ≤ 4 cores and the ladder starts at 8 — instead of
+  implying a measurement.
+* **README §4.3's BFP4 headline quoted a superseded A/B** that contradicted the generated table three
+  lines below it. Both figures were in the audit's own "found wrong, must not come back" list and passed
+  anyway, on the substring route. Now generated.
+* **"No run-varying timing is quoted in the implementation or its tests" was false** — six absolute
+  figures survived round 4's sweep, and three of them disagreed with each other about a single
+  measurement (the norm win, quoted as ~12, ~9 and 8.0 µs in three places, with one citing an artifact
+  that does not contain that arm at all). Removed; the claim is restated as *no absolute* timing, and the
+  audit checks every decimal in both files on every run.
+* **README §7's generated limitation list was `full_attention`-only and unlabelled**, under a per-kind
+  table — a partial regression of round 2's finding, in generated form. It is per-kind now.
+
+One hard-check gap round 5 listed is closed by a new test rather than by prose: **nothing asserted the
+*prefill* sparse-matmul geometry**, which is ~81 % of the prefill window's device time. Only the decode
+configs were logged and gated, so README §5.4's prefill sparse rows were recomputed from the layer's rules
+rather than read from a run of it. `test_prefill_runs_the_tuned_program_configs` now spies
+`ttnn.sparse_matmul` too and asserts that both routed calls of a 2048-token chunk carry a program config,
+write their `num_experts`-wide output to L1, and run on a **wide** grid — a prefill group activates most of
+the 256 experts, and applying the 8-core decode geometry here was measured at roughly 4x slower (§3.1). It
+logs 128 calls resolving to 2 distinct configs (`4-8`, `in0_block_w` 64 and 16), which is what the
+generated table's ~162-active rows describe.
+
+One more defect surfaced while closing round 5, and it is a *pipeline ordering* bug rather than a figure:
+`run_evidence.sh` hashed the sources **before** the repo's pre-commit hooks had normalised them. The hooks
+rewrite trailing whitespace, end-of-file newlines and `black` formatting at commit time, so the bytes the
+evidence measured were not the bytes that got committed, and `audit_figures.py` correctly refused the
+evidence as having been produced by a different revision — after a full two-hour sweep. The script now runs
+the hooks over the three source files as phase 0a, before writing the manifest, so a run hashes what will
+actually ship and is idempotent under commit. Relatedly, `check_freshness` now defers to the manifest's
+sha256 rather than to mtimes: a hash comparison strictly dominates a timestamp, it works inside a
+`git archive` extraction where every file carries the commit time, and it does not fire on a
+content-preserving rewrite. mtime ordering is reported only when the hashes actually disagree, where it
+usefully says which artifacts fall on the wrong side of the edit.
+
+A related correction to the audit itself: four of its own `DERIVED` entries were expressions over
+*hardcoded millisecond operands*, so the first re-measurement under them made every one of those operands
+vanish from the artifacts — this file's disease, reproduced inside the file meant to cure it. The headline
+speedup ratios are computed from `ab_fused_vs_optimized.txt` at audit time now (`derived_from_artifacts`),
+at the precisions a document might quote, so they cannot go stale.
+
+Round 5's other concerns closed in the same pass: the garbled `work_log.md` fragment round 3's edit left in
+`_gdn_out`'s comment; the checklist's claim that both routed matmuls run `BF16 x BFP4` (the down projection
+reads the BFP8 expert activation, which is the policy working, and the row now says so); the router's
+prefill config being unswept, now stated as such where the table is introduced; the contract's footprint
+note listing three of the four modelling errors; the `SLOW` row count read as exhaustive when it is a
+classifier threshold that flaps between replays; and the note in `run_evidence.sh` that the `git archive`
+run proves reproduction rather than freshness, because the archive stamps every file with the commit time.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

@@ -482,9 +482,10 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     # The eight-to-twelve new conversions are this stage's own, and they are the price of the norm
     # win, not churn: ``ttnn.rms_norm`` parallelises over rows, so an interleaved decode norm (one
     # tile of rows) runs on a single core, and the 1D ``mcast_in0`` projection matmul that consumes
-    # the result needs an interleaved ``in0`` back. The pair costs ~3 us and saves ~12 per residual
-    # norm; ``doc/optimized_decoder/logs/probe_decode_micro.txt`` (``NORM`` rows) and
-    # ``ab_norm_shard_width.txt`` carry both halves of that trade.
+    # the result needs an interleaved ``in0`` back. The conversions cost less than the norm saves;
+    # ``doc/optimized_decoder/logs/probe_decode_micro.txt``'s ``NORM`` rows carry the interleaved and
+    # width-sharded times (README §5.5 quotes them), and ``ab_norm_shard_width.txt`` is a different
+    # question — whether the narrow head-dim norms should shard too — not this trade.
     #
     # NOTHING here scales with the sequence. It used to, in the fused stage: the MoE mask was
     # rebuilt per 32-token expert group, so the budget was `11 + groups` and reached 75 at seq 2048.
@@ -1790,7 +1791,8 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
     """Every dense decode projection must run under its tuned program config, not ttnn's heuristic.
 
     The tuned configs are the whole content of the dense-matmul optimization: without them the
-    ``o_proj``/``gdn_out`` role alone costs ~48 us per decode step more. A `None` program config on
+    ``o_proj``/``gdn_out`` role alone costs tens of microseconds per decode step more (README §5.4's
+    generated table has the per-role times). A `None` program config on
     one of these call sites is therefore a silent regression that no PCC test can see, so this
     records what ``ttnn.linear`` was actually called with, and separately asserts that the routed
     experts' sparse matmuls carry a program config and put their intermediates in L1.
@@ -1904,14 +1906,21 @@ def test_prefill_runs_the_tuned_program_configs(mesh_device, layer_idx):
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
 
     calls: list = []
+    sparse_calls: list = []
     real_linear = ttnn.linear
+    real_sparse = ttnn.sparse_matmul
 
     def spy(*args, **kwargs):
         calls.append((int(args[1].shape[-2]), int(args[1].shape[-1]), kwargs.get("program_config")))
         return real_linear(*args, **kwargs)
 
+    def sparse_spy(*args, **kwargs):
+        sparse_calls.append((kwargs.get("program_config"), kwargs.get("memory_config")))
+        return real_sparse(*args, **kwargs)
+
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(ttnn, "linear", spy)
+    monkeypatch.setattr(ttnn, "sparse_matmul", sparse_spy)
     try:
         ttnn.deallocate(
             decoder.prefill_forward(
@@ -1939,6 +1948,42 @@ def test_prefill_runs_the_tuned_program_configs(mesh_device, layer_idx):
             f"per_core_M={cfg.per_core_M} per_core_N={cfg.per_core_N}"
             for k, n, cfg in calls
         )
+    )
+
+    # The routed-expert sparse matmuls of a PREFILL pass. Gated here because they are ~81 % of the
+    # prefill window's device time — by far the largest item in it — and until review round 5 nothing
+    # asserted their geometry at all: only the decode configs were logged and checked, so README §5.4's
+    # prefill sparse rows were recomputed from the layer's rules rather than read from a run of it.
+    #
+    # Both calls must carry a config and write their num_experts-wide output to L1, and the geometry must
+    # be the *prefill* one: a 32-token group activates far more than num_experts_per_tok experts, so
+    # `_active_expert_bound` should push the core target to its SPARSE_MAX_CORES ceiling rather than the
+    # 8-core decode geometry. Applying the decode geometry to a prefill group was measured at roughly 4x
+    # slower (work_log §3.1), which is the mistake this asserts against.
+    assert len(sparse_calls) >= 2, f"expected at least the gate/up and down routed matmuls: {sparse_calls}"
+    for cfg, mem in sparse_calls:
+        assert cfg is not None, "routed-expert prefill sparse matmul ran without a program config"
+        assert (
+            mem is not None and mem.buffer_type == ttnn.BufferType.L1
+        ), f"routed-expert prefill sparse matmul writes its num_experts-wide output to {mem}"
+        grid = cfg.compute_with_storage_grid_size
+        cores = int(grid.x) * int(grid.y)
+        assert cores >= 16, (
+            f"routed-expert prefill sparse matmul runs on {cores} cores ({grid}); a 2048-token prefill "
+            f"chunk activates most of the 256 experts, so the active-expert rule must pick a wide grid — "
+            f"the 8-core decode geometry is ~4x slower here (work_log §3.1)"
+        )
+        assert cfg.in0_block_w >= 16, f"prefill sparse matmul has in0_block_w={cfg.in0_block_w}"
+    # De-duplicated: a 2048-token chunk makes one call per 32-token MoE group, so the raw list is 128
+    # copies of two configs and would put a 6 KB line in the suite log for no extra information.
+    distinct = dict.fromkeys(
+        f"grid={cfg.compute_with_storage_grid_size} in0_block_w={cfg.in0_block_w} "
+        f"per_core_N={cfg.per_core_N} out_block_w={cfg.out_block_w} sub_w={cfg.out_subblock_w}"
+        for cfg, _ in sparse_calls
+    )
+    logger.info(
+        f"prefill sparse matmuls layer={layer_idx} ({LAYER_IDS[layer_idx]}): {len(sparse_calls)} calls, "
+        f"{len(distinct)} distinct: " + ", ".join(distinct)
     )
     del decoder
 

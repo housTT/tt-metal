@@ -67,15 +67,24 @@ def largest_divisor_at_most(value, cap):
     return 1
 
 
-def time_call(mesh, fn, iters, warmup=3):
+def time_call(mesh, fn, iters, warmup=3, repeats=3):
+    """Min-of-``repeats`` mean-of-``iters`` microseconds, and the spread across repeats.
+
+    These rows differ by fractions of a microsecond and the shipped geometry is chosen from them, so the
+    spread is measured rather than assumed: review round 5 pointed out that five of the seven shipped
+    dense roles sit 0.2-0.3 us behind another candidate, which is only meaningful against a spread.
+    """
     for _ in range(warmup):
         ttnn.deallocate(fn())
     ttnn.synchronize_device(mesh)
-    start = time.time()
-    for _ in range(iters):
-        ttnn.deallocate(fn())
-    ttnn.synchronize_device(mesh)
-    return (time.time() - start) / iters * 1e6
+    samples = []
+    for _ in range(repeats):
+        start = time.time()
+        for _ in range(iters):
+            ttnn.deallocate(fn())
+        ttnn.synchronize_device(mesh)
+        samples.append((time.time() - start) / iters * 1e6)
+    return min(samples), max(samples) - min(samples)
 
 
 def mcast1d_config(grid, cores, m, k, n, fp32_acc, in0_block_w=None):
@@ -152,6 +161,7 @@ def main():
     ap.add_argument("--fidelity", default="HiFi2")
     ap.add_argument("--fp32-acc", action="store_true")
     ap.add_argument("--iters", type=int, default=20)
+    ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--roles", default="")
     ap.add_argument("--families", default="default,mcast1d,dram_sharded")
     ap.add_argument("--in0-blocks", default="32", help="comma-separated in0_block_w caps for mcast1d")
@@ -191,7 +201,8 @@ def main():
 
             if "default" in families:
                 print(
-                    f"DENSE role={name} m={m} k={k} n={n} family=default us={time_call(mesh, default, args.iters):.1f}",
+                    f"DENSE role={name} m={m} k={k} n={n} family=default "
+                    + "us={:.1f} spread={:.1f}".format(*time_call(mesh, default, args.iters, repeats=args.repeats)),
                     flush=True,
                 )
 
@@ -209,7 +220,13 @@ def main():
 
                         tag = f"DENSE role={name} m={m} k={k} n={n} family=mcast1d cores={cores} in0_block_w={cfg.in0_block_w} per_core_N={cfg.per_core_N} out={mem_name}"
                         try:
-                            print(f"{tag} us={time_call(mesh, run, args.iters):.1f}", flush=True)
+                            print(
+                                f"{tag} "
+                                + "us={:.1f} spread={:.1f}".format(
+                                    *time_call(mesh, run, args.iters, repeats=args.repeats)
+                                ),
+                                flush=True,
+                            )
                         except Exception as exc:  # noqa: BLE001 - illegal geometries are data
                             print(f"{tag} FAILED {str(exc).splitlines()[0][:100]}", flush=True)
             ttnn.deallocate(w)
@@ -247,7 +264,11 @@ def main():
                         )
 
                     try:
-                        print(f"{tag} us={time_call(mesh, run, args.iters):.1f}", flush=True)
+                        print(
+                            f"{tag} "
+                            + "us={:.1f} spread={:.1f}".format(*time_call(mesh, run, args.iters, repeats=args.repeats)),
+                            flush=True,
+                        )
                     except Exception as exc:  # noqa: BLE001
                         print(f"{tag} FAILED {str(exc).splitlines()[0][:100]}", flush=True)
                     ttnn.deallocate(x_sh)

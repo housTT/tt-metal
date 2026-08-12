@@ -230,8 +230,9 @@ def main():
         sparse_us, sparse_share = op_device_time(report_csv, "SparseMatmul", DECODE_REPLAYS)
         topk_us, topk_share = op_device_time(report_csv, "TopK", DECODE_REPLAYS)
         # The prefill window's composition, which README §5.4 and work_log §4.10 quote to say why the
-        # dense-projection work is worth ~0.4 % of prefill: the window is overwhelmingly routed-expert
-        # sparse_matmul. Measured here so those two percentages have a source.
+        # dense-projection program-config work is worth only a fraction of a percent of prefill end to
+        # end: the window is overwhelmingly routed-expert sparse_matmul. Measured here so that claim has
+        # a source instead of a hand-typed percentage.
         prefill_csv = base / "prefill_perf_report.csv"
         prefill_shares = {}
         if prefill_csv.is_file() or prefill_csv.with_suffix(".csv.gz").is_file():

@@ -153,6 +153,15 @@ def main():
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), l1_small_size=24576, trace_region_size=0)
     print(f"# Measured per-layer device footprint at the full {CONTEXT}-token context, batch 1.")
     print("# Padded volume x element size of every device tensor a built layer holds.")
+    # The device facts every L1 budget in the implementation is computed against. Reported here because
+    # they are quoted in the documents and had no artifact: review round 1's finding was that the L1 size
+    # was being read from an attribute that does not exist, so the number itself is load-bearing.
+    grid = mesh.compute_with_storage_grid_size()
+    print(
+        f"DEVICE arch={mesh.arch()} worker_grid={grid.x}x{grid.y} "
+        f"worker_l1_unreserved_bytes={ttnn.get_max_worker_l1_unreserved_size()}",
+        flush=True,
+    )
     totals, problems = {}, []
     try:
         for layer_idx in LAYERS:

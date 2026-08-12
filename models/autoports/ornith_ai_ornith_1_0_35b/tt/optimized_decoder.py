@@ -14,10 +14,11 @@ Measured on one Blackhole ``p300c``, real checkpoint weights, batch 1, against t
 built in the same process on the same device (``doc/optimized_decoder/logs/bench.py``): roughly
 **2.5x** warmed 2048-token prefill and **1.9-2.1x** warmed traced decode on both layer kinds.
 
-**No run-varying timing is quoted anywhere in this module or its tests, on purpose.** Three review
-rounds of this stage closed on "the figures are re-derived" and each next re-run made a hand-written
-microsecond figure in a docstring stale again, so the numbers live only where a generator or an audit
-keeps them true: the README's headline table is spliced from
+**No absolute run-varying timing is quoted anywhere in this module or its tests, on purpose.** Four
+review rounds of this stage closed on "the figures are re-derived" and each next re-run made a
+hand-written microsecond figure in a docstring stale again — round 5 still found six here, three of them
+disagreeing with each other about a single measurement — so the numbers live only where a generator or an
+audit keeps them true: the README's headline table is spliced from
 ``doc/optimized_decoder/logs/ab_fused_vs_optimized.txt`` by ``logs/make_readme.py``, and
 ``doc/optimized_decoder/audit_figures.py`` asserts that every figure quoted in any of this stage's
 documents exists in a committed artifact. What the comments below carry instead is the *decision*,
@@ -507,9 +508,28 @@ def _sparse_matmul_config(
 
     cores = _largest_divisor_at_most(n_tiles, max(1, cores))
     per_core_n = n_tiles // cores
-    # A column (1 x cores) beat the row form by 2-10 % at every geometry measured; fall back to a
-    # rectangle when the target does not fit one grid axis. The axis length comes from the device
-    # rather than from a Blackhole constant.
+    # Orientation: fill one grid axis first (a column, 1 x cores, widening to a rectangle when the
+    # target exceeds the axis). The axis length comes from the device rather than from a Blackhole
+    # constant.
+    #
+    # This is the measured winner *at the tuned target* and NOT at every point, which review round 5
+    # corrected — the earlier claim here was "a column beat the row form by 2-10 % at every geometry
+    # measured", and the sweep does not say that. With the spread now measured per row
+    # (`probe_sparse_matmul.txt`, `spread=`, typically well under a microsecond), the picture is:
+    #
+    # * batch-1 decode, 8 active experts, both roles: the column wins by ~19 us, i.e. ~12 %. This is the
+    #   geometry the stage tunes for and the margin is decisive.
+    # * a 32-token prefill group (~162 active): the column wins by ~9 us on gate/up and loses by ~1.4 us
+    #   on down. Net ~0.1 % of a prefill window.
+    # * decode batch 4 and 8 (32 and 64 active), which are supported for correctness but explicitly not
+    #   tuned (README §9 item 5): the row form wins by 1.5-3 % on three of four rows.
+    #
+    # Taking the row form where it wins would need an orientation table keyed on (role, active count) —
+    # the preference is not monotonic in either, and it reverses for `down` at a *fixed* 8-core geometry
+    # between 8 and 32 active experts — to buy ~0.1 % of prefill and nothing at all at the tuned decode
+    # point. Rejected on that arithmetic, with the numbers in README §5.4's generated table, which checks
+    # every row against the artifact including its orientation and prints the gap where the shipped
+    # choice is not the winner.
     cy = min(cores, int(grid.y) if grid is not None else cores)
     while cores % cy:
         cy -= 1
@@ -1921,8 +1941,8 @@ class OptimizedDecoder(LightweightModule):
 
     #: Narrowest activation that takes the sharded norm path. 0 means every decode-shaped norm
     #: does, including the 256-wide Q/K head-dim norms. Restricting it to the 2048-wide residual
-    #: norms was measured as well, on the theory that two conversions would cost more than a 5 us
-    #: norm saves; it is reproducibly 2-3 us *worse* on ``full_attention`` and identical on
+    #: norms was measured as well, on the theory that two conversions would cost more than the narrow
+    #: norm saves; it is reproducibly *worse* on ``full_attention`` and identical on
     #: ``linear_attention`` (which has no Q/K norm), so the simpler contract is also the faster one.
     #: ``doc/optimized_decoder/logs/ab_norm_shard_width.txt`` has both arms, two runs each.
     NORM_SHARD_MIN_WIDTH = 0
@@ -2673,8 +2693,9 @@ class OptimizedDecoder(LightweightModule):
         # operands the folded and separate forms agree to PCC 0.999996 with zero non-finite outputs
         # at every |z| tested, and with the real float32 x bfloat16 pairing the folded form emits
         # non-finite values at EVERY magnitude, including |z| < 4. So an op-level A/B on matched
-        # dtypes - which is what a naive probe writes - passes while the model breaks; work_log.md
-        # doc/fused_decoder/work_log.md §4.8 records both arms and the real-weight control. `ttnn.silu(z)` first keeps the
+        # dtypes - which is what a naive probe writes - passes while the model breaks.
+        # doc/fused_decoder/work_log.md §4.8 records both arms and the real-weight control.
+        # `ttnn.silu(z)` first keeps the
         # activation in bfloat16 and the multiply mixed-but-unfused, which is exact.
         # bfloat16 out, not the float32 the mixed-dtype multiply would default to: the only consumer
         # is the output projection, whose weight is BFP8, and a float32 activation there costs both
@@ -2851,7 +2872,8 @@ class OptimizedDecoder(LightweightModule):
         nv, dk = cfg.linear_num_value_heads, cfg.linear_key_head_dim
         # The per-step *vectors* are small ([B, HV, 1, D] float32 = 16 KB at batch 1) and every one
         # of them is consumed immediately, so they live in L1; `tt-perf-report` asks for exactly this
-        # on the three state matmul rows ("place input 0 in L1"), and it is worth 19 us/step.
+        # on the three state matmul rows ("place input 0 in L1"), and it is the larger of that A/B's two
+        # wins (`doc/optimized_decoder/logs/ab_state_l1.txt` has both arms).
         # `self.recurrent_state` stays in DRAM: it is the persistent per-batch carry that trace
         # replay writes in place, and its address has to survive the whole capture.
         step_mem = ttnn.L1_MEMORY_CONFIG

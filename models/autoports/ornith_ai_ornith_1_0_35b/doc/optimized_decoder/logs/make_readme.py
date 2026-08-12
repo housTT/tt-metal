@@ -96,8 +96,8 @@ def block_headline(rows):
         ):
             b, a = rows[("before", kind, phase)], rows[("after", kind, phase)]
             # Quote each phase at the precision its artifact records: bench.py prints prefill wall time
-            # to 2 decimals and traced decode to 3. Mixing them made the "before" decode column read
-            # 2.06 where the artifact says 2.064.
+            # to 2 decimals and traced decode to 3. Mixing them truncated the "before" decode column by a
+            # digit, so it disagreed with the artifact it is generated from.
             dp = 2 if phase == "prefill" else 3
             lines.append(
                 f"| `{kind}` {label} | {b[0]:.{dp}f} ms / {b[1]:.1f} {unit} | "
@@ -472,6 +472,28 @@ def block_prefill_search():
     return "\n".join(lines)
 
 
+def prefill_dense_share() -> str:
+    """The dense-`Matmul` share of the prefill window, as a range across the layer kinds.
+
+    Read from ``tracy/perf_summary.json``, which ``perf_accounting.py`` computes by matching op codes by
+    prefix. Round 5 found this quoted as a hand-typed value here - from an earlier run, wrong by a third,
+    inside the action prose of a *generated* block, which is exactly the place round 4 was supposed to
+    have emptied of hand-typed figures.
+    """
+    path = TRACY / "perf_summary.json"
+    if not path.is_file():
+        return "an unmeasured share"
+    data = json.loads(path.read_text())
+    shares = [
+        data[kind]["prefill_window_composition"]["dense_matmul_share"]
+        for kind, _ in KINDS
+        if (data.get(kind) or {}).get("prefill_window_composition")
+    ]
+    if not shares:
+        return "an unmeasured share"
+    return f"{min(shares):.2%}" if max(shares) - min(shares) < 5e-5 else f"{min(shares):.2%}-{max(shares):.2%}"
+
+
 def advice_actions() -> dict:
     """What this stage did about each distinct `tt-perf-report` advice item, keyed by a substring of the
     advice text.
@@ -504,9 +526,44 @@ def advice_actions() -> dict:
             best(prefill, role=role, in0_block_w=ibw, grid="11x10", in0="L1"),
             best(prefill, role=role, family="place-in0-L1"),
         )
+
     # "Output subblock 1x1 is small": the per_core_N >= 2 alternative for the two rows that keep 1x1.
-    sub_alt = best(dense, role="shared_in", family="mcast1d", cores="16", per_core_N="2", out="L1")
-    sub_shipped = best(dense, role="shared_in", family="mcast1d", cores="88", per_core_N="1", out="L1")
+    # The two rows that keep a 1x1 output subblock, and the per_core_N >= 2 alternative for each. Looked
+    # up by the *realised* grid, and reported as "not expressible" rather than "unmeasured" where the
+    # sweep has no such candidate: `router` has Nt = 8, so a per_core_N >= 2 config would need <= 4 cores
+    # and the ladder starts at 8. Round 5 found the previous lookup keyed on a core count the probe never
+    # emits, which rendered the shipped side of the comparison as the word "unmeasured".
+    def subblock_pair(role, shipped_cores):
+        shipped_us = min(
+            (
+                r["us"]
+                for r in dense
+                if r["us"] is not None
+                and r.get("role") == role
+                and r.get("family") == "mcast1d"
+                and r.get("out") == "L1"
+                and r.get("per_core_N") == "1"
+                and r.get("cores")
+                and 11 * -(-int(r["cores"]) // 11) == shipped_cores
+            ),
+            default=None,
+        )
+        alt = min(
+            (
+                r["us"]
+                for r in dense
+                if r["us"] is not None
+                and r.get("role") == role
+                and r.get("family") == "mcast1d"
+                and r.get("out") == "L1"
+                and r.get("per_core_N") not in (None, "1")
+            ),
+            default=None,
+        )
+        return shipped_us, alt
+
+    sub_shipped, sub_alt = subblock_pair("shared_in", 88)
+    router_shipped, router_alt = subblock_pair("router", 33)
 
     def us(value, digits=1):
         return "unmeasured" if value is None else f"{value:.{digits}f} µs"
@@ -527,6 +584,7 @@ def advice_actions() -> dict:
         verdicts.append(f"`{role}` {direction} ({l1:.1f} against {dram:.1f}){cost}")
     #: The best case for the advice across the roles where it helps at all: largest saving, and what
     #: that same role must pay to get it.
+    dense_share = prefill_dense_share()
     gains = [
         (dram - l1, place, role)
         for role, (dram, l1, place) in l1_arm.items()
@@ -557,13 +615,13 @@ def advice_actions() -> dict:
                 if best_case
                 else "So it is a net loss on every role"
             )
-            + " — before counting that the whole dense group is 1.07 % of the prefill window, and that "
+            + f" — before counting that the whole dense group is {dense_share} of the prefill window, and that "
             'the two arms of the widest role swap order between runs, which is what "inside the '
             'spread" looks like. `probe_prefill_matmul.txt` `in0=DRAM`, `in0=L1` and '
             "`family=place-in0-L1` rows."
         ),
         "in0_block_w=1 is small": (
-            "**Taken.** The five dense *prefill* rows got explicit 2D configs with `in0_block_w` 8/16 "
+            "**Taken.** Every dense *prefill* projection got an explicit 2D config with `in0_block_w` 8/16 "
             "(§5.4), and the three recurrent-state rows got an explicit "
             "`MatmulMultiCoreReuseProgramConfig` — that family does expose `in0_block_w`, unlike the "
             f"`core_grid` spelling the fused stage used: 2 for the two reads ({us(read_cfg)} against "
@@ -578,8 +636,16 @@ def advice_actions() -> dict:
             "for the float32 state that is the model's exact carry between steps."
         ),
         "Output subblock 1x1 is small": (
-            "**Tried, rejected with measurement** — the `per_core_N` ≥ 2 alternative is slower for both "
-            f"rows (`shared_in` {us(sub_alt)} against {us(sub_shipped)}, §5.4)."
+            "**Tried on the row where it is expressible, rejected with measurement.** `shared_in`: the "
+            f"`per_core_N` ≥ 2 alternative measures {us(sub_alt)} against {us(sub_shipped)} for the "
+            "shipped `per_core_N` 1 at the same output placement — slower, because at 32 rows of M these "
+            "are bandwidth-bound rather than block-bound. `router`: "
+            + (
+                f"{us(router_alt)} against {us(router_shipped)}."
+                if router_alt is not None
+                else f"**not expressible** — `Nt` is 8, so `per_core_N` ≥ 2 needs ≤ 4 cores and the "
+                f"sweep's core ladder starts at 8; the shipped row is {us(router_shipped)}."
+            )
         ),
         "use HiFi4 with BF16 activations": (
             "**Rejected with measurement** — the reverse direction of §4.2's fidelity sweep; HiFi4 is "
@@ -587,8 +653,10 @@ def advice_actions() -> dict:
         ),
         "HiFi2 may also work": (
             "**Rejected on purpose** (the router row): the matmul is under 10 µs and its output decides "
-            "*which experts run*. The fused stage measured bfloat16 routing agreeing with float32 on "
-            "only 99.8 % / 95.5 % of top-8 sets, so this group stays BF16/HiFi4/fp32-accumulate."
+            "*which experts run*. The preceding stages measured bfloat16 routing agreeing with float32 on "
+            "only 99.8 % / 95.5 % of top-8 sets "
+            "(`doc/functional_decoder/logs/router_precision_ab.txt`), so this group stays "
+            "BF16/HiFi4/fp32-accumulate."
         ),
         "look good": (
             "**Not advice** — `tt-perf-report` printing that a row's `in0_block_w` and output subblock "
@@ -624,9 +692,13 @@ def block_decode_search():
     """
     rows = probe_rows(LOGS / "probe_dense_matmul.txt", "DENSE")
     shipped = shipped_configs("decode")
+    #: Where the shipped decode projections put their output. `_decode_1d_matmul_config`'s callers hand
+    #: the dense decode results to L1, so the L1 arm of the sweep is the comparable one.
+    shipped_out = "L1"
     lines = [
-        "| role | shape M×K×N | ttnn heuristic | best DRAM-sharded | **shipped 1D `mcast_in0`** |",
-        "| --- | --- | --- | --- | --- |",
+        "| role | shape M×K×N | ttnn heuristic | best DRAM-sharded | **shipped 1D `mcast_in0`** | "
+        "vs the whole 1D sweep |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for role, kind, k, n in DECODE_ROLES:
         cfg = shipped.get((kind, k, n), "")
@@ -638,12 +710,34 @@ def block_decode_search():
         if grid and ibw and pcn:
             cores = int(grid.group(1)) * int(grid.group(2))
             grid_s = f"{grid.group(1)}×{grid.group(2)}"
-            # Matched on (in0_block_w, per_core_N), NOT on the probe's `cores=` field: that field is the
-            # *target* core count the sweep asked for, and both the probe and the layer then reduce it to
-            # a grid whose width divides Nt. `per_core_N` is what survives that reduction, and it
-            # determines the realised grid, so the pair identifies the geometry exactly while `cores`
-            # would not match (target 96 becomes the 11x9 = 99-core grid the layer reports).
-            mine = best(rows, role=role, family="mcast1d", in0_block_w=ibw.group(1), per_core_N=pcn.group(1))
+
+            # Match the geometry the layer actually runs. The probe's `cores=` field is the *target* it
+            # asked for; both the probe and the layer then round it up to a full 11-wide grid, so the
+            # realised core count is `11 * ceil(target / 11)` — target 80 and 96 both become the shipped
+            # 11x8 = 88 and 11x9 = 99. Review round 5 found the first version matching on
+            # (in0_block_w, per_core_N) alone on the theory that `per_core_N` pins the grid: it does not,
+            # because for a narrow output every target from 24 to 110 yields `per_core_N` 1, so three rows
+            # reported a time measured on a different grid, and two on a DRAM output while the layer
+            # ships L1. Both filters are explicit now.
+            def realised(row):
+                try:
+                    target = int(row.get("cores"))
+                except (TypeError, ValueError):
+                    return None
+                return 11 * -(-target // 11)
+
+            candidates = [
+                r
+                for r in rows
+                if r["us"] is not None
+                and r.get("role") == role
+                and r.get("family") == "mcast1d"
+                and r.get("in0_block_w") == ibw.group(1)
+                and r.get("per_core_N") == pcn.group(1)
+                and r.get("out") == shipped_out
+                and realised(r) == cores
+            ]
+            mine = min((r["us"] for r in candidates), default=None)
             shipped_cell = (
                 f"**{mine:.1f} µs** — {cores} cores ({grid_s}), `in0_block_w` {ibw.group(1)}, "
                 f"`per_core_N` {pcn.group(1)}"
@@ -655,8 +749,36 @@ def block_decode_search():
             )
         else:
             mine, shipped_cell = None, "**not found in the suite log**"
+        # Re-check the shipped row against every 1D candidate for this role at the shipped output
+        # placement, so "the sweep chose this grid" is asserted on regeneration. Round 5 found README
+        # prose claiming "every smaller grid was measured too and lost" while a smaller grid was faster.
+        pool = [
+            r["us"]
+            for r in rows
+            if r["us"] is not None
+            and r.get("role") == role
+            and r.get("family") == "mcast1d"
+            and r.get("out") == shipped_out
+        ]
+        winner = min(pool) if pool else None
+        spread = max(
+            (
+                float(r.get("spread") or 0)
+                for r in rows
+                if r["us"] is not None and r.get("role") == role and r.get("family") == "mcast1d"
+            ),
+            default=0.0,
+        )
+        if mine is None or winner is None:
+            verdict = "—"
+        elif mine <= winner + 1e-9:
+            verdict = "**the measured winner**"
+        elif mine - winner <= spread:
+            verdict = f"+{mine - winner:.1f} µs, inside the ±{spread:.1f} µs spread of this role's sweep"
+        else:
+            verdict = f"**+{mine - winner:.1f} µs** against {winner:.1f}, beyond the ±{spread:.1f} µs spread"
         cells = [f"{heuristic:.1f} µs" if heuristic else "—", f"{sharded:.1f}" if sharded else "—"]
-        lines.append(f"| `{role}` | 32×{k}×{n} | {cells[0]} | {cells[1]} | {shipped_cell} |")
+        lines.append(f"| `{role}` | 32×{k}×{n} | {cells[0]} | {cells[1]} | {shipped_cell} | {verdict} |")
     lost = [
         role
         for role, _, _, _ in DECODE_ROLES
@@ -676,73 +798,90 @@ def block_decode_search():
 def block_sparse_search():
     """The routed-expert ``sparse_matmul`` geometry sweep, per active-expert count, from the probe.
 
-    The shipped geometry is read out of the suite log's ``decode sparse matmuls`` line, and the table
-    reports, per (active count, role): the strongest candidate the fused decoder's rule would have
-    picked, the best measured geometry, and whether the shipped rule reproduces it.
+    **Every** row is checked against the artifact — the shipped core count, ``in0_block_w``,
+    ``per_core_N``, output placement *and grid orientation* — and the gap is printed wherever the shipped
+    choice is not the measured winner. Review round 5 found the previous version checking one of eight
+    rows and printing the literal string "as measured" for the other seven, four of which were 1-3 %
+    behind the other rectangle of the same core count.
+
+    The shipped geometry is not read from a log here: unlike the decode configs, the *prefill* sparse
+    geometry is not logged by any test, so it is recomputed from the layer's own two rules — the
+    active-expert core target and the axis-filling orientation — which are restated in
+    ``SPARSE_CORES_PER_ACTIVE`` and ``_sparse_matmul_config``.
     """
     rows = probe_rows(LOGS / "probe_sparse_matmul.txt", "SPARSE")
-    missing = [r for r in rows if "active" not in r]
-    actives = sorted({int(r["active"]) for r in rows if "active" in r})
-    #: What the fused decoder's rule ("largest core count dividing Nt, per_core_N 1") selects.
+    rows = [r for r in rows if r["us"] is not None and "active" in r]
+    missing = [r for r in probe_rows(LOGS / "probe_sparse_matmul.txt", "SPARSE") if "active" not in r]
+    actives = sorted({int(r["active"]) for r in rows})
+    #: The layer's rules, mirrored: cores = clamp(active / k, 8, 32) with k = 2 for gate/up and 4 for
+    #: down, then the grid fills one axis first (cy = largest divisor of cores that is <= 10).
+    K_PER_ROLE = {"gate_up": 2, "down": 4}
+
+    def shipped_grid(cores):
+        cy = min(cores, 10)
+        while cores % cy:
+            cy -= 1
+        return cores // cy, cy
+
+    #: What the fused decoder's rule picked: the largest core count dividing Nt, per_core_N 1.
     FUSED_RULE = {"gate_up": ("32(8x4)", "16", "1"), "down": ("64(8x8)", "8", "1")}
-    shipped_line = ""
-    for line in read(LOGS / "pytest_full_suite.txt").splitlines():
-        if "decode sparse matmuls:" in line:
-            shipped_line = line.split("decode sparse matmuls:")[-1].strip()
-            break
-    shipped = {}
-    for role, item in zip(("gate_up", "down"), shipped_line.split(",")):
-        grid = re.search(r"grid=(\d+)-(\d+)", item)
-        ibw = re.search(r"in0_block_w=(\d+)", item)
-        pcn = re.search(r"per_core_N=(\d+)", item)
-        if grid and ibw and pcn:
-            shipped[role] = (int(grid.group(1)) * int(grid.group(2)), ibw.group(1), pcn.group(1))
+
     lines = [
-        "| active experts | role | fused rule's geometry | best measured | shipped |",
-        "| --- | --- | --- | --- | --- |",
+        "| active experts | role | fused rule | best measured | shipped | shipped vs winner |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for active in actives:
         for role in ("gate_up", "down"):
-            pool = [r for r in rows if r["us"] is not None and r.get("role") == role and r.get("active") == str(active)]
+            pool = [r for r in rows if r.get("role") == role and r.get("active") == str(active)]
             if not pool:
                 continue
             winner = min(pool, key=lambda r: r["us"])
-            cores, ibw, pcn = FUSED_RULE[role]
-            fused = best(rows, role=role, active=str(active), cores=cores, in0_block_w=ibw, per_core_N=pcn)
-            best_cell = (
-                f"**{winner['us']:.1f} µs** — {winner['cores']}, `in0_block_w` {winner['in0_block_w']}, "
-                f"`per_core_N` {winner['per_core_N']}, {winner['mem']}"
+            cores = max(8, min(32, max(1, active // K_PER_ROLE[role])))
+            gx, gy = shipped_grid(cores)
+            mine = min(
+                (r for r in pool if r.get("cores") == f"{cores}({gx}x{gy})" and r.get("mem") == "L1"),
+                key=lambda r: r["us"],
+                default=None,
             )
-            note = "as measured"
-            if active == min(actives) and role in shipped:
-                s_cores, s_ibw, s_pcn = shipped[role]
-                s_us = best(
-                    rows,
-                    role=role,
-                    active=str(active),
-                    in0_block_w=s_ibw,
-                    per_core_N=s_pcn,
+            cfg, ibw, pcn = FUSED_RULE[role]
+            fused = best(rows, role=role, active=str(active), cores=cfg, in0_block_w=ibw, per_core_N=pcn)
+            spread = max(float(winner.get("spread") or 0), float((mine or {}).get("spread") or 0))
+            if mine is None:
+                verdict = "**no probe row at the shipped geometry**"
+                mine_cell = "—"
+            else:
+                gap = mine["us"] - winner["us"]
+                mine_cell = (
+                    f"**{mine['us']:.1f} µs** — {cores} cores ({gx}x{gy}), `in0_block_w` "
+                    f"{mine['in0_block_w']}, `per_core_N` {mine['per_core_N']}"
                 )
-                same = f"{s_cores}(" in (winner["cores"] or "") and winner["in0_block_w"] == s_ibw
-                note = f"{s_cores} cores, `in0_block_w` {s_ibw}, `per_core_N` {s_pcn}"
-                if same:
-                    note += " — **the measured winner**"
-                elif s_us:
-                    # Not the winner: say by how much, rather than leaving a bare number next to a
-                    # bolded best. `in0_block_w` is chosen by a divisor rule in the layer, so a small
-                    # loss here is a deliberate simplification and has to be visible as one.
-                    gap = 100 * (s_us - winner["us"]) / winner["us"]
-                    note += f" — {s_us:.1f} µs, **{gap:+.1f} %** against the winner"
+                if gap <= 1e-9:
+                    verdict = "**the measured winner**"
+                elif gap <= spread:
+                    verdict = (
+                        f"+{gap:.1f} µs (+{100 * gap / winner['us']:.1f} %), **inside the ±{spread:.1f} µs spread**"
+                    )
+                else:
+                    verdict = (
+                        f"**+{gap:.1f} µs (+{100 * gap / winner['us']:.1f} %)**, beyond the ±{spread:.1f} µs spread"
+                    )
             lines.append(
-                f"| {active} | {role.replace('_', '/')} | "
-                f"{f'{fused:.1f} µs' if fused else '—'} | {best_cell} | {note} |"
+                f"| {active} | {role.replace('_', '/')} | {f'{fused:.1f} µs' if fused else '—'} | "
+                f"**{winner['us']:.1f} µs** — {winner['cores']}, `in0_block_w` {winner['in0_block_w']}, "
+                f"`per_core_N` {winner['per_core_N']}, {winner['mem']} | {mine_cell} | {verdict} |"
             )
+    lines.append("")
+    lines.append(
+        "`spread` is the max-minus-min of three repeats of the same measurement, so a gap smaller than it "
+        "is not a result. The 8-active rows are the tuned batch-1 decode target; ~162 is a 32-token "
+        "prefill group; 32 and 64 are decode batch 4 and 8, supported for correctness and explicitly not "
+        "tuned (§9 item 5)."
+    )
     if missing:
         lines.append("")
         lines.append(
-            f"**{len(missing)} of {len(rows)} probe rows carry no `active=` field** and are excluded: "
-            "they were produced by an earlier revision of the probe. Re-run `logs/run_evidence.sh` to "
-            "regenerate the artifact with all sections from one script."
+            f"**{len(missing)} probe rows carry no `active=` field** and are excluded: they were produced "
+            "by an earlier revision of the probe. Re-run `logs/run_evidence.sh`."
         )
     return "\n".join(lines)
 
@@ -788,7 +927,10 @@ def block_op_knobs():
             "residual RMSNorm",
             f"interleaved (one core) {cell(interleaved)}",
             f"**width-sharded on 8 cores {cell(sharded)}**",
-            "taken; the two conversions it adds cost ~3 µs against ~9 saved",
+            "taken; it saves "
+            + (f"{interleaved - sharded:.1f} µs" if None not in (interleaved, sharded) else "more")
+            + " per norm and adds two layout conversions, which the whole-layer A/B in "
+            "`ab_norm_shard_width.txt` shows to be the smaller of the two",
         ),
         (
             "paged flash decode",
