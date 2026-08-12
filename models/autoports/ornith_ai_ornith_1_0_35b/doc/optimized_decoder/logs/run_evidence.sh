@@ -103,4 +103,17 @@ echo "=== fill the README's generated blocks from the artifacts above ==="
 python "$LOGS/make_readme.py"
 python "$LOGS/make_readme.py" --check
 
+echo "=== prove the generators reproduce from the COMMITTED tree, not just this worktree ==="
+# Review round 3's P1: `make_readme.py --check` passed locally while one of its inputs was matched by
+# the repo's blanket `*.csv` ignore rule and had never been committed. Checking against
+# `git archive HEAD` is what catches that class of hole. Run it after committing.
+tree=$(mktemp -d)
+git archive HEAD | tar -x -C "$tree"
+( cd "$tree" \
+  && python "$LOGS/make_readme.py" --check \
+  && python "$ART/tracy/perf_accounting.py" > /dev/null \
+  && python "$ART/watcher/census.py" > /dev/null )
+rm -rf "$tree"
+echo "committed-tree reproduction OK"
+
 echo "=== done ==="

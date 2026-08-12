@@ -71,10 +71,17 @@ run_one() {
   # drop it for decode; the per-op `_perf_report.csv` is what every table and the accounting read.
   gzip -f "$ART/$kind/${phase}_ops.csv"
   if [ "$phase" = "decode" ]; then rm -f "$ART/$kind/${phase}_ops.csv.gz"; fi
-  # Same limit: the human-readable decode tables and the two big console logs are committed gzipped,
-  # and every generator in this stage reads `foo.txt` or `foo.txt.gz`.
-  for big in "$ART/$kind/${phase}_perf_report.txt" "$ART/$kind/${phase}_perf_report.summary.txt" \
-             "$ART/$kind/${phase}_perf_report.csv"; do
+  # Every CSV is gzipped UNCONDITIONALLY, not just the ones over the 500 KB hook limit: the repo's
+  # .gitignore has a blanket `*.csv`, so a report CSV left uncompressed is silently not committed and
+  # the generators that read it stop reproducing from a clean checkout. Review round 3 found exactly
+  # that on `full_attention/decode_perf_report.csv` (477 600 B - under the size threshold, so it was
+  # never gzipped, so it was never committed). `.csv.gz` is not matched by the ignore rule.
+  for f in "$ART/$kind"/*.csv; do
+    [ -f "$f" ] && gzip -9 -f "$f"
+  done
+  # Same 500 KB limit for the human-readable tables; every generator here reads `foo.txt` or
+  # `foo.txt.gz`.
+  for big in "$ART/$kind/${phase}_perf_report.txt" "$ART/$kind/${phase}_perf_report.summary.txt"; do
     if [ -f "$big" ] && [ "$(stat -c%s "$big")" -gt 500000 ]; then gzip -9 -f "$big"; fi
   done
 

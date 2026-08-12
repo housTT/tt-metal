@@ -106,6 +106,14 @@ def main():
                 f"us={timeit(mesh, lambda: ttnn.linear(x, w, compute_kernel_config=ckc), args.iters):.1f}",
                 flush=True,
             )
+            # `tt-perf-report` raises "place input 0 in L1" on three of these rows in both committed
+            # prefill reports. The activation is 8 MB at 2048x2048 bfloat16, which L1 can hold, so the
+            # advice is measured rather than argued about: same config, in0 in L1 instead of DRAM.
+            x_l1 = None
+            try:
+                x_l1 = ttnn.to_memory_config(x, ttnn.L1_MEMORY_CONFIG)
+            except Exception as exc:  # noqa: BLE001 - a refusal is the answer
+                print(f"PREFILLMM role={name} in0=L1 FAILED-place {str(exc).splitlines()[0][:90]}", flush=True)
             for gx, gy in ((grid.x, grid.y), (8, 8), (8, 10)):
                 if gx > grid.x or gy > grid.y:
                     continue
@@ -116,15 +124,22 @@ def main():
                         f"in0_block_w={cfg.in0_block_w} per_core_M={cfg.per_core_M} per_core_N={cfg.per_core_N} "
                         f"sub={cfg.out_subblock_h}x{cfg.out_subblock_w}"
                     )
-                    try:
-                        us = timeit(
-                            mesh,
-                            lambda cfg=cfg: ttnn.linear(x, w, compute_kernel_config=ckc, program_config=cfg),
-                            args.iters,
-                        )
-                        print(f"{tag} us={us:.1f}", flush=True)
-                    except Exception as exc:  # noqa: BLE001 - illegal geometries are data
-                        print(f"{tag} FAILED {str(exc).splitlines()[0][:100]}", flush=True)
+                    for in0_name, in0 in (("DRAM", x), ("L1", x_l1)):
+                        if in0 is None:
+                            continue
+                        try:
+                            us = timeit(
+                                mesh,
+                                lambda cfg=cfg, in0=in0: ttnn.linear(
+                                    in0, w, compute_kernel_config=ckc, program_config=cfg
+                                ),
+                                args.iters,
+                            )
+                            print(f"{tag} in0={in0_name} us={us:.1f}", flush=True)
+                        except Exception as exc:  # noqa: BLE001 - illegal geometries are data
+                            print(f"{tag} in0={in0_name} FAILED {str(exc).splitlines()[0][:90]}", flush=True)
+            if x_l1 is not None:
+                ttnn.deallocate(x_l1)
             ttnn.deallocate(x)
             ttnn.deallocate(w)
     finally:

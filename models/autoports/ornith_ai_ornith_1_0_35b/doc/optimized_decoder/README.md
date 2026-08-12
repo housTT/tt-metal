@@ -7,10 +7,10 @@ supported, and is materially faster in both phases.
 <!-- generated:headline -->
 | Window | before (fused) | after (optimized) | speedup |
 | --- | --- | --- | --- |
-| `linear_attention` prefill, 2048 tokens | 257.86 ms / 7942.2 tok/s | **102.070 ms / 20064.9 tok/s** | **2.53x** |
-| `linear_attention` decode, traced | 2.06 ms / 484.3 steps/s | **1.069 ms / 935.8 steps/s** | **1.93x** |
-| `full_attention` prefill, 2048 tokens | 243.62 ms / 8406.6 tok/s | **96.340 ms / 21257.3 tok/s** | **2.53x** |
-| `full_attention` decode, traced | 1.83 ms / 546.6 steps/s | **0.857 ms / 1167.4 steps/s** | **2.13x** |
+| `linear_attention` prefill, 2048 tokens | 257.88 ms / 7941.5 tok/s | **102.120 ms / 20055.1 tok/s** | **2.53x** |
+| `linear_attention` decode, traced | 2.06 ms / 484.7 steps/s | **1.070 ms / 934.9 steps/s** | **1.93x** |
+| `full_attention` prefill, 2048 tokens | 243.56 ms / 8408.7 tok/s | **96.350 ms / 21256.3 tok/s** | **2.53x** |
+| `full_attention` decode, traced | 1.83 ms / 546.5 steps/s | **0.857 ms / 1167.2 steps/s** | **2.14x** |
 <!-- /generated:headline -->
 
 * Implementation: [`tt/optimized_decoder.py`](../../tt/optimized_decoder.py) — self-contained; it
@@ -27,15 +27,22 @@ supported, and is materially faster in both phases.
 
 Hardware: 1×1 Blackhole mesh (`p300c`, 11×10 compute grid).
 
-**Artifact sizes.** This repo's pre-commit hook rejects files over 500 KB, so the four large logs are
-committed **gzipped** — the pytest suite log, the watcher console log, the 4 MB watcher log and the
-two `linear_attention`/`full_attention` decode perf reports. Every generator here
-(`logs/make_readme.py`, `tracy/perf_accounting.py`, `watcher/census.py`) reads `foo.txt` or
-`foo.txt.gz` transparently, so `--check` and the census reproduce from the committed form. The raw
-`decode_ops.csv.gz` Tracy dumps are **not** committed: they are 620–720 KB each even gzipped, they are
-what `$optimize` explicitly lists as not worth copying back, and the per-op `decode_perf_report.csv`
-that every table and the accounting actually read is committed in full. `tracy/run_profiling.sh`
-regenerates them.
+**Artifact sizes and the committed set.** Two repo rules shape what is on disk here. The pre-commit
+hook rejects files over 500 KB, so the three big text logs (the pytest suite log, the watcher console
+log and the 4 MB watcher log) and the two decode perf-report tables are committed **gzipped**. And
+`.gitignore` carries a blanket `*.csv`, so **every** report CSV is gzipped unconditionally — not just
+the ones over the size limit — because a plain `.csv` here is silently not committed at all. Review
+round 3 found exactly that hole: `full_attention/decode_perf_report.csv` was 477 600 B, under the
+gzip threshold, and therefore absent from the commit while `make_readme.py --check` still passed
+against the working tree. `run_evidence.sh` now ends by re-running all three generators against
+`git archive HEAD`, which is the check that catches it.
+
+Every generator (`logs/make_readme.py`, `tracy/perf_accounting.py`, `watcher/census.py`) reads
+`foo.ext` or `foo.ext.gz` transparently, and `perf_accounting.py` now *fails* rather than writing a
+partial summary when an input is missing. The raw `decode_ops.csv.gz` Tracy dumps are the one thing
+deliberately not committed: 620–720 KB each even gzipped, and exactly what `$optimize` lists as not
+worth copying back. The per-op `decode_perf_report.csv.gz` that every table and the accounting read
+*is* committed, for both layer kinds; `tracy/run_profiling.sh` regenerates the raw dumps.
 
 ---
 
@@ -85,7 +92,7 @@ pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_optimized_decoder.py
 ```
 
 <!-- generated:suite-result -->
-**109 passed** in 566.41 s.
+**109 passed** in 569.11 s.
 <!-- /generated:suite-result -->
 
 Log: [`logs/pytest_full_suite.txt.gz`](logs/pytest_full_suite.txt.gz). The `long` (262144-token) cases are
@@ -266,10 +273,10 @@ committed table.
 <!-- generated:perf-result -->
 | Layer kind | Phase | before | after | speedup |
 | --- | --- | --- | --- | --- |
-| `linear_attention` | prefill, 2048 tokens | 257.860 ms | **102.070 ms** | **2.53x** (−60.4 %) |
-| `linear_attention` | decode, traced (32 replays) | 2.065 ms | **1.069 ms** | **1.93x** (−48.2 %) |
-| `full_attention` | prefill, 2048 tokens | 243.620 ms | **96.340 ms** | **2.53x** (−60.5 %) |
-| `full_attention` | decode, traced (32 replays) | 1.829 ms | **0.857 ms** | **2.13x** (−53.1 %) |
+| `linear_attention` | prefill, 2048 tokens | 257.880 ms | **102.120 ms** | **2.53x** (−60.4 %) |
+| `linear_attention` | decode, traced (32 replays) | 2.063 ms | **1.070 ms** | **1.93x** (−48.1 %) |
+| `full_attention` | prefill, 2048 tokens | 243.560 ms | **96.350 ms** | **2.53x** (−60.4 %) |
+| `full_attention` | decode, traced (32 replays) | 1.830 ms | **0.857 ms** | **2.14x** (−53.2 %) |
 <!-- /generated:perf-result -->
 
 ### 5.3 Where the decode window goes
@@ -277,23 +284,23 @@ committed table.
 <!-- generated:decode-breakdown -->
 | Op code | `linear_attention` µs/step | `full_attention` µs/step | launches/step (`full`) |
 | --- | --- | --- | --- |
-| `SparseMatmulDeviceOperation` | 265.7 | 267.7 | 2 |
-| `MatmulDeviceOperation` | 154.9 | 98.5 | 5 |
+| `SparseMatmulDeviceOperation` | 265.8 | 267.7 | 2 |
+| `MatmulDeviceOperation` | 154.7 | 98.8 | 5 |
 | `BinaryNgDeviceOperation` | 148.2 | 99.8 | 8 |
 | `UnaryDeviceOperation` | 87.3 | 75.4 | 4 |
 | `SliceDeviceOperation` | 48.5 | 45.6 | 15 |
 | `TopKDeviceOperation` | 48.4 | 48.4 | 1 |
-| `UntilizeWithUnpaddingDeviceOperation` | 26.2 | 23.3 | 3 |
+| `UntilizeWithUnpaddingDeviceOperation` | 26.3 | 23.3 | 3 |
 | `ReshapeViewDeviceOperation` | 26.2 | 3.7 | 1 |
-| `LayerNormDeviceOperation` | 23.4 | 19.5 | 4 |
-| `DeepseekMoEFastReduceNCDeviceOperation` | 22.2 | 22.2 | 1 |
+| `LayerNormDeviceOperation` | 23.3 | 19.5 | 4 |
+| `DeepseekMoEFastReduceNCDeviceOperation` | 22.3 | 22.2 | 1 |
 | `FillPadDeviceOperation` | 9.8 | 19.6 | 4 |
-| `SdpaDecodeDeviceOperation` | — | 17.4 | 1 |
-| `TernaryDeviceOperation` | 17.1 | — | 0 |
+| `SdpaDecodeDeviceOperation` | — | 17.5 | 1 |
+| `TernaryDeviceOperation` | 17.0 | — | 0 |
 | `PermuteDeviceOperation` | 11.3 | 11.5 | 1 |
 | `CopyDeviceOperation` | 11.3 | — | 0 |
 | `TypecastDeviceOperation` | 10.1 | 3.5 | 2 |
-| **total device time** | **952.0** | **834.7** | |
+| **total device time** | **952.0** | **835.2** | |
 <!-- /generated:decode-breakdown -->
 
 ### 5.4 Dominant matmul search tables
@@ -309,8 +316,8 @@ width, and output placement, under the selected BFP4/LoFi policy, at four active
 
 | active experts | role | fused geometry | best measured | shipped |
 | --- | --- | --- | --- | --- |
-| 8 (batch-1 decode) | gate/up | 32 cores, `per_core_N` 1, 1×1 block — 262 µs | **8 cores (1×8), `in0_block_w` 32, `per_core_N` 4, `out_block_w` 4, `sub_w` 4, L1 — 153.4 µs** | 8 cores, `in0_block_w` 64 (2 % of 32, inside the spread) |
-| 8 | down | 64 cores, `per_core_N` 1 — ~291 µs | **8 cores (1×8), `in0_block_w` 16, `per_core_N` 8, `out_block_w` 8, `sub_w` 8, L1 — 152.8 µs** | as measured |
+| 8 (batch-1 decode) | gate/up | 32 cores, `per_core_N` 1, 1×1 block, `in0_block_w` 16 — **255.3 µs** | **8 cores (1×8), `in0_block_w` 32, `per_core_N` 4, `out_block_w` 4, `sub_w` 4, L1 — 153.4 µs** | 8 cores, `in0_block_w` 64 (2 % of 32, inside the spread) |
+| 8 | down | 64 cores, `per_core_N` 1, `in0_block_w` 8 — **333.1 µs** | **8 cores (1×8), `in0_block_w` 16, `per_core_N` 8, `out_block_w` 8, `sub_w` 8, L1 — 152.8 µs** | as measured |
 | 32 | gate/up | — | 16 cores (8×2), `in0_block_w` 64, `per_core_N` 2 — 288.7 µs | as measured |
 | 32 | down | — | 8 cores, `per_core_N` 8 — 234.0 µs | as measured |
 | 64 | gate/up | — | 32 cores (4×8), `per_core_N` 1 — 387.3 µs | as measured |
@@ -333,8 +340,8 @@ fidelity ([`logs/probe_dense_matmul.txt`](logs/probe_dense_matmul.txt)):
 | `gdn_in` | 32×2048×12352 | 76.1 | 94.5 | **73.5** — 110 cores (11×10), `in0_block_w` 8, `per_core_N` 4 |
 | `gdn_out` | 32×4096×2048 | 75.6 | 34.3 | **shipped: 33 cores (11×3), `in0_block_w` 8, `per_core_N` 2** — 26.4 µs in the probe, 25 µs in the layer |
 | `shared_in` | 32×2048×1056 | 32.3 | 14.4 | **9.4** — 88 cores (11×8), `in0_block_w` 32, `per_core_N` 1 |
-| `shared_down` | 32×512×2048 | 16.2 | 17.1 | **9.3** — 55 cores (11×5), `in0_block_w` 16, `per_core_N` 2 |
-| `router` (BF16/HiFi4/fp32 acc) | 32×2048×256 | 27.4 | 17.1 | **9.2** — 33 cores (11×3), `in0_block_w` 32, `per_core_N` 1 |
+| `shared_down` | 32×512×2048 | 16.2 | 14.2 | **9.3** — 55 cores (11×5), `in0_block_w` 16, `per_core_N` 2 |
+| `router` (BF16/HiFi4/fp32 acc) | 32×2048×256 | 27.4 | 13.2 | **9.2** — 33 cores (11×3), `in0_block_w` 32, `per_core_N` 1 |
 
 The core counts above are the **program grid** the config names, not the number of cores that end up
 with work: `shared_in` names 88 and 33 of them get an output tile, `router` names 33 and 8 do, and
@@ -389,21 +396,21 @@ it is generated now — and the row it under-counted, `place input 0 in L1` on t
 projection, is one of the two the stage then closed.)
 
 <!-- generated:advice -->
-| Advice | `linear` /step | `full` /step | Rows it is raised on | Action |
-| --- | --- | --- | --- | --- |
-| *use HiFi4 with BF16 activations* | 4.00 | 4.00 | `MatmulDeviceOperation 32 x 2048 x 1056`, `MatmulDeviceOperation 32 x 2048 x 12352`, `MatmulDeviceOperation 32 x 2048 x 9216` … | **Rejected with measurement** — the reverse direction of §4.2's fidelity sweep; HiFi4 is what the fused decoder had and it is slower at equal correctness. |
-| *look good* | 3.12 | 1.00 | `MatmulDeviceOperation 32 x 4096 x 2048`, `MatmulDeviceOperation 32 x 512 x 2048`, `MatmulDeviceOperation b={32} x 32 x 128 x 128` | **Not advice** — `tt-perf-report` printing that a row's `in0_block_w` and output subblock are already what it would have suggested. Kept in the table so the generator cannot silently drop a line it does not recognise. |
-| *DRAM-sharded program config* | 1.88 | 2.00 | `MatmulDeviceOperation 32 x 2048 x 12352`, `MatmulDeviceOperation 32 x 2048 x 9216`, `MatmulDeviceOperation 32 x 4096 x 2048` | **Tried, rejected with measurement** — loses on all seven dense roles, even without its activation-reshard cost (§5.4). |
-| *HiFi2 is sufficient* | 2.00 | 0.00 | `MatmulDeviceOperation b={32} x 32 x 128 x 128` | **Tried, rejected with measurement** on the recurrent-state rows: HiFi2 is 14.6 µs against 14.9 for the shipped HiFi4 + fp32-accumulate and LoFi is 14.7 — ≤0.3 µs per matmul, under 0.1 % of the window, for the float32 state that is the model's exact carry between steps. |
-| *Output subblock 1x1 is small* | 2.00 | 2.00 | `MatmulDeviceOperation 32 x 2048 x 1056`, `MatmulDeviceOperation 32 x 2048 x 256` | **Tried, rejected with measurement** — the `per_core_N` ≥ 2 alternative is slower for both rows (`shared_in` 11.5 vs 9.4 µs, §5.4). |
-| *nnz=std::nullopt* | 2.00 | 2.00 | `SparseMatmulDeviceOperation active=?/256 x 32 ` | **Reporting limitation, not advice.** `nnz` is inferred at runtime because pinning it wedged the device (§9 item 3); the report cannot model DRAM/FLOP utilisation for those rows, so this stage measures their share of device time instead. |
-| *HiFi2 may also work* | 1.00 | 1.00 | `MatmulDeviceOperation 32 x 2048 x 256` | **Rejected on purpose** (the router row): the matmul is 9 µs and its output decides *which experts run*. The fused stage measured bfloat16 routing agreeing with float32 on only 99.8 % / 95.5 % of top-8 sets, so this group stays BF16/HiFi4/fp32-accumulate. |
+| Advice | `linear` decode | `full` decode | `linear` prefill | `full` prefill | Rows it is raised on | Action |
+| --- | --- | --- | --- | --- | --- | --- |
+| *nnz=std::nullopt* | 2.00 | 2.00 | 128 | 128 | `SparseMatmulDeviceOperation active=?/256 x 3 (de)`, `SparseMatmulDeviceOperation active=?/256 x 3 (pr)` | **Reporting limitation, not advice.** `nnz` is inferred at runtime because pinning it wedged the device (§9 item 3); the report cannot model DRAM/FLOP utilisation for those rows, so this stage measures their share of device time instead. |
+| *use HiFi4 with BF16 activations* | 4.00 | 4.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 9216 (pr)` … | **Rejected with measurement** — the reverse direction of §4.2's fidelity sweep; HiFi4 is what the fused decoder had and it is slower at equal correctness. |
+| *look good* | 3.09 | 1.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 9216 (pr)` … | **Not advice** — `tt-perf-report` printing that a row's `in0_block_w` and output subblock are already what it would have suggested. Kept in the table so the generator cannot silently drop a line it does not recognise. |
+| *DRAM-sharded program config* | 1.91 | 2.00 | 0 | 0 | `MatmulDeviceOperation 32 x 2048 x 12352 (de)`, `MatmulDeviceOperation 32 x 2048 x 9216 (de)`, `MatmulDeviceOperation 32 x 4096 x 2048 (de)` | **Tried, rejected with measurement** — loses on all seven dense roles, even without its activation-reshard cost (§5.4). |
+| *HiFi2 is sufficient* | 2.00 | 0.00 | 0 | 0 | `MatmulDeviceOperation b={32} x 32 x 128 x 12 (de)` | **Tried, rejected with measurement** on the recurrent-state rows: HiFi2 is 14.6 µs against 14.9 for the shipped HiFi4 + fp32-accumulate and LoFi is 14.7 — ≤0.3 µs per matmul, under 0.1 % of the window, for the float32 state that is the model's exact carry between steps. |
+| *Output subblock 1x1 is small* | 2.00 | 2.00 | 1 | 1 | `MatmulDeviceOperation 2048 x 2048 x 256 (pr)`, `MatmulDeviceOperation 32 x 2048 x 1056 (de)`, `MatmulDeviceOperation 32 x 2048 x 256 (de)` | **Tried, rejected with measurement** — the `per_core_N` ≥ 2 alternative is slower for both rows (`shared_in` 11.5 vs 9.4 µs, §5.4). |
+| *HiFi2 may also work* | 1.00 | 1.00 | 1 | 1 | `MatmulDeviceOperation 2048 x 2048 x 256 (pr)`, `MatmulDeviceOperation 32 x 2048 x 256 (de)` | **Rejected on purpose** (the router row): the matmul is 9 µs and its output decides *which experts run*. The fused stage measured bfloat16 routing agreeing with float32 on only 99.8 % / 95.5 % of top-8 sets, so this group stays BF16/HiFi4/fp32-accumulate. |
+| *place input 0 in L1* | 0.00 | 0.00 | 3 | 3 | `MatmulDeviceOperation 2048 x 2048 x 1056 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 12352 (pr)`, `MatmulDeviceOperation 2048 x 2048 x 256 (pr)` … | **Taken for decode, measured and rejected for prefill.** Decode: the two residual norms, the three float32 recurrent-state matmuls (worth 19 µs/step) and the shared expert's SwiGLU product all hand their result to L1, each size-gated so a large batch still uses DRAM — the item is now raised 0 times in both decode reports. The head-dim norms are the one decode exception and cannot move: `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q outside DRAM. Prefill: still raised on three rows, and measured — an L1 `in0` is *slower* on the two that matter (`attn_in` 471.7 vs 459.5 µs, `gdn_in` 654.7 vs 647.0) and worth ~3 µs on `shared_in`, i.e. 0.006 % of a 96 ms prefill window. `probe_prefill_matmul.txt` `in0=DRAM`/`in0=L1` rows. |
 
-Advice items this stage **closed** — raised in the pre-optimization reports and no longer raised in either committed one:
+Advice items **no longer raised in any of the four committed reports**:
 
 | Advice (no longer raised) | What closed it |
 | --- | --- |
-| *place input 0 in L1* | **Taken on every row it was raised for.** The two residual norms, the three float32 recurrent-state matmuls (worth 19 µs/step) and the shared expert's SwiGLU product all hand their result to L1 now, each size-gated so a large prefill batch still uses DRAM. The head-dim norms are the one exception and cannot: `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q outside DRAM. |
 | *in0_block_w=1 is small* | **Taken.** The five dense *prefill* rows got explicit 2D configs with `in0_block_w` 8/16 (§5.4), and the three recurrent-state rows got an explicit `MatmulMultiCoreReuseProgramConfig` — that family does expose `in0_block_w`, unlike the `core_grid` spelling the fused stage used: 2 for the two reads (13.9 vs 14.7 µs) and 1 for the `transpose_a` outer product, where `Kt` is 1 tile so 2 and 4 are rejected by the op (12.6 vs 20.4 µs). `probe_decode_micro.txt` `STATE progcfg` rows. |
 <!-- /generated:advice -->
 
@@ -428,8 +435,9 @@ dispatch, **exactly** rather than as an upper bound, and the test itemises every
 Prefill is unchanged from the fused decoder. Decode rises from 1 and 6 by exactly the sharded-norm
 boundary: one `to_memory_config` in and one `sharded_to_interleaved` out per width-sharded norm —
 two norms on `linear_attention`, four on `full_attention` (it also norms the Q and K head dims).
-That pair costs ~3 µs and saves ~12 per residual norm (§3 of the work log), and nothing in either
-budget scales with the sequence length, which is the property the two prefill columns test.
+That pair costs ~3 µs and saves ~9 per residual norm — 22.4 µs interleaved against 13.7 width-sharded
+on 8 cores, from the committed `probe_decode_micro.txt` — and nothing in either budget scales with the
+sequence length, which is the property the two prefill columns test.
 
 The model itself dispatches **no** explicit `tilize`, `untilize`, `reshard`, `to_torch` or
 `from_torch` in either measured path — the `tilize`/`untilize` entry points are watched by the test
@@ -498,7 +506,7 @@ test subset. Exact command, subset rationale and classification:
 [`watcher/CLASSIFICATION.md`](watcher/CLASSIFICATION.md).
 
 <!-- generated:watcher-result -->
-**59 passed** in 333.48 s. The 66,587 lines of the watcher log are fully accounted for by a disjoint census, and a fatal-class grep (asserts, invalid NOC coordinates or addresses, CB out-of-bounds, L1/stack overflow, sanitizer, corruption, hang/deadlock) returns **0 matches**. Watcher recorded a stack watermark on 10 dump(s); the tightest leaves 1332 bytes free.
+**59 passed** in 328.13 s. The 65,509 lines of the watcher log are fully accounted for by a disjoint census, and a fatal-class grep (asserts, invalid NOC coordinates or addresses, CB out-of-bounds, L1/stack overflow, sanitizer, corruption, hang/deadlock) returns **0 matches**. Watcher recorded a stack watermark on 5 dump(s); the tightest leaves 1332 bytes free.
 
 Artifacts: [`watcher/watcher_log.txt`](watcher/watcher_log.txt), [`watcher/census_summary.txt`](watcher/census_summary.txt), console log [`logs/watcher_pytest.txt`](logs/watcher_pytest.txt).
 <!-- /generated:watcher-result -->
@@ -537,10 +545,15 @@ Artifacts: [`watcher/watcher_log.txt`](watcher/watcher_log.txt), [`watcher/censu
    reporting upstream: the documented on-device validation does not fire at these shapes.
 4. **DRAM-sharded decode matmuls lose here**, on every dense role, even measured without their
    activation-reshard cost, because the op pins its compute grid to the 8 DRAM banks. Table in §5.
-5. **Decode program configs apply up to 8 tile rows of activation** (batch ≤ 8 at one tile per batch
-   entry) and the sharded decode norms up to 4. Above that both fall back to the shapes the fused
-   decoder used, which is correct but untuned; batch-1 single-user latency is this stage's target
-   and larger batches are covered for *correctness* up to 56.
+5. **Three batch thresholds, all documented rather than discovered.** The dense decode program
+   configs apply up to 8 tile rows of activation (batch ≤ 8 at one tile per batch entry); the sharded
+   decode norms up to 4; and the recurrent-state program configs up to **batch 3**, because the
+   batched non-mcast op parallelises over `batch * num_value_heads` blocks and 32 of those per batch
+   row fill an 11×10 grid at 3. Above each threshold the layer falls back to the shape the fused
+   decoder used — correct but untuned. Batch-1 single-user latency is this stage's target; larger
+   batches are covered for *correctness* up to 56, not for latency. The MoE's L1 placement has a
+   fourth, orthogonal bound (`EXPERT_L1_MAX_CALL_TOKENS`, one prefill chunk of tokens per MoE call),
+   which the shared expert now shares.
 6. **Prefill is not traced**, as in the fused and functional stages. Only decode is captured and
    replayed.
 7. **The `linear_attention` prefill still selects its depthwise-conv path by probing at

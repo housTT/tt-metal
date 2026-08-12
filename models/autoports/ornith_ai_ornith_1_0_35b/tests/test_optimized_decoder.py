@@ -1840,6 +1840,32 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, monkeypat
         )
     )
     assert len(sparse_calls) == 2, f"decode MoE is not the packed sparse pair: {sparse_calls}"
+    # The three float32 recurrent-state matmuls go through `ttnn.matmul`, not `ttnn.linear`, so the
+    # spy above cannot see them. They are the rows `tt-perf-report` flagged `SLOW` with
+    # `in0_block_w=1 is small`, and `_state_matmul_config` returns `None` (a silent `core_grid`
+    # fallback) on any shape or grid it cannot serve — exactly the failure mode review round 1 found
+    # for the prefill 2D config. Assert the config directly for the layer kind that has them.
+    if not decoder.is_full_attention:
+        for role, expected_block_w in (("read", 2), ("outer", 1)):
+            cfg = decoder._state_matmul_config(role, 1)
+            assert cfg is not None, f"recurrent-state {role} matmul fell back to the core_grid spelling"
+            assert isinstance(cfg, ttnn.MatmulMultiCoreReuseProgramConfig), f"{role}: {type(cfg)}"
+            assert cfg.in0_block_w == expected_block_w, (
+                f"recurrent-state {role} matmul has in0_block_w={cfg.in0_block_w}, expected "
+                f"{expected_block_w} (2 is the measured winner for the reads; the transpose_a outer "
+                f"product has a single tiled-K tile so 1 is the only legal value)"
+            )
+            logger.info(
+                f"state matmul {role}: grid={cfg.compute_with_storage_grid_size} "
+                f"in0_block_w={cfg.in0_block_w} per_core_M={cfg.per_core_M} per_core_N={cfg.per_core_N} "
+                f"sub={cfg.out_subblock_h}x{cfg.out_subblock_w}"
+            )
+        # And the documented bound: above batch 3 the block count outgrows the grid and the config is
+        # deliberately dropped (README §9 item 5).
+        assert decoder._state_matmul_config("read", 4) is None, (
+            "the recurrent-state config must drop above the batch its block count fits, or the op "
+            "fails at validation instead of falling back"
+        )
     for cfg, mem in sparse_calls:
         assert cfg is not None, "routed-expert sparse matmul ran without a program config"
         assert mem is not None and mem.buffer_type == ttnn.BufferType.L1, (

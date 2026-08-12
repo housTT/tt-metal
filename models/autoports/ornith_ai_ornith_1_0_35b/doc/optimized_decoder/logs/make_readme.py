@@ -287,11 +287,15 @@ ADVICE_ACTIONS = {
         "activation-reshard cost (§5.4)."
     ),
     "place input 0 in L1": (
-        "**Taken on every row it was raised for.** The two residual norms, the three float32 "
-        "recurrent-state matmuls (worth 19 µs/step) and the shared expert's SwiGLU product all hand "
-        "their result to L1 now, each size-gated so a large prefill batch still uses DRAM. The "
-        "head-dim norms are the one exception and cannot: "
-        "`paged_scaled_dot_product_attention_decode` rejects a non-sharded Q outside DRAM."
+        "**Taken for decode, measured and rejected for prefill.** Decode: the two residual norms, the "
+        "three float32 recurrent-state matmuls (worth 19 µs/step) and the shared expert's SwiGLU "
+        "product all hand their result to L1, each size-gated so a large batch still uses DRAM — the "
+        "item is now raised 0 times in both decode reports. The head-dim norms are the one decode "
+        "exception and cannot move: `paged_scaled_dot_product_attention_decode` rejects a non-sharded "
+        "Q outside DRAM. Prefill: still raised on three rows, and measured — an L1 `in0` is *slower* "
+        "on the two that matter (`attn_in` 471.7 vs 459.5 µs, `gdn_in` 654.7 vs 647.0) and worth "
+        "~3 µs on `shared_in`, i.e. 0.006 % of a 96 ms prefill window. "
+        "`probe_prefill_matmul.txt` `in0=DRAM`/`in0=L1` rows."
     ),
     "in0_block_w=1 is small": (
         "**Taken.** The five dense *prefill* rows got explicit 2D configs with `in0_block_w` 8/16 "
@@ -333,49 +337,53 @@ ADVICE_ACTIONS = {
 
 
 def block_advice():
-    """Every distinct advice item in both committed decode reports, with per-step counts and rows."""
-    per_kind = {}
-    for kind, _ in KINDS:
-        path = TRACY / kind / "decode_perf_report.csv"
-        counts, rows = {}, {}
+    """Every distinct advice item in **all four** committed reports, with per-window counts and rows.
+
+    Decode counts are per traced step (32 replays); prefill counts are per pass. Review round 3 found
+    this table scoped to the two decode reports while an item was still open on three prefill rows.
+    """
+    windows = [
+        ("linear_attention", "decode", 32),
+        ("full_attention", "decode", 32),
+        ("linear_attention", "prefill", 1),
+        ("full_attention", "prefill", 1),
+    ]
+    counts, rows = {}, {}
+    for kind, phase, replays in windows:
+        path = TRACY / kind / f"{phase}_perf_report.csv"
         with open_csv(path) as handle:
             for row in csv.DictReader(handle):
-                for item in (row.get("Advice") or "").split("•"):
+                for item in (row.get("Advice") or "").split("\u2022"):
                     item = item.strip().lstrip("- ").strip()
                     if not item:
                         continue
                     key = next((k for k in ADVICE_ACTIONS if k in item), item[:48])
-                    counts[key] = counts.get(key, 0) + 1
-                    rows.setdefault(key, set()).add(row["OP Code"][:46])
-        per_kind[kind] = (counts, rows)
-    # Sorted by (descending count, name): a set's iteration order is not stable across processes, so
-    # ties have to break on the name or `--check` sees a different table than the last write did.
-    keys = sorted(
-        set(per_kind["linear_attention"][0]) | set(per_kind["full_attention"][0]),
-        key=lambda k: (-max(per_kind[kk][0].get(k, 0) for kk, _ in KINDS), k),
-    )
+                    counts.setdefault(key, {})[(kind, phase)] = counts.setdefault(key, {}).get((kind, phase), 0) + 1
+                    rows.setdefault(key, set()).add(f"{row['OP Code'][:44]} ({phase[:2]})")
+    keys = sorted(counts, key=lambda k: (-max(counts[k].values()), k))
+    header = " | ".join(f"`{kind.split('_')[0]}` {phase}" for kind, phase, _ in windows)
     lines = [
-        "| Advice | `linear` /step | `full` /step | Rows it is raised on | Action |",
-        "| --- | --- | --- | --- | --- |",
+        f"| Advice | {header} | Rows it is raised on | Action |",
+        "| --- | " + " | ".join(["---"] * len(windows)) + " | --- | --- |",
     ]
     for key in keys:
         cells = []
-        for kind, _ in KINDS:
-            cells.append(f"{per_kind[kind][0].get(key, 0) / 32:.2f}")
-        ops = sorted(per_kind["linear_attention"][1].get(key, set()) | per_kind["full_attention"][1].get(key, set()))
+        for kind, phase, replays in windows:
+            n = counts[key].get((kind, phase), 0)
+            cells.append(f"{n / replays:.2f}" if replays > 1 else str(n))
+        ops = sorted(rows[key])
         op_cell = ", ".join(f"`{o}`" for o in ops[:3]) + (" …" if len(ops) > 3 else "")
         action = ADVICE_ACTIONS.get(key, "**unclassified — this stage did not act on it**")
-        lines.append(f"| *{key}* | {cells[0]} | {cells[1]} | {op_cell} | {action} |")
+        lines.append(f"| *{key}* | {' | '.join(cells)} | {op_cell} | {action} |")
     closed = [k for k in ADVICE_ACTIONS if k not in keys]
     if closed:
-        lines.append("")
-        lines.append(
-            "Advice items this stage **closed** — raised in the pre-optimization reports and no longer "
-            "raised in either committed one:"
-        )
-        lines.append("")
-        lines.append("| Advice (no longer raised) | What closed it |")
-        lines.append("| --- | --- |")
+        lines += [
+            "",
+            "Advice items **no longer raised in any of the four committed reports**:",
+            "",
+            "| Advice (no longer raised) | What closed it |",
+            "| --- | --- |",
+        ]
         for key in closed:
             lines.append(f"| *{key}* | {ADVICE_ACTIONS[key]} |")
     return "\n".join(lines)

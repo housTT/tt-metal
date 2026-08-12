@@ -131,8 +131,10 @@ def main():
         report_csv = base / "decode_perf_report.csv"
         run_log = base / "decode_tracy_run.txt"
         if not (report_csv.is_file() or report_csv.with_suffix(".csv.gz").is_file()):
-            print(f"skip {kind}: {report_csv} missing")
-            continue
+            # Fail, do not skip: skipping left a partial perf_summary.json behind, which is the
+            # artifact README §7 is generated from. Review round 3 found the `full_attention` report
+            # CSV missing from the commit and this script quietly halving the accounting.
+            raise SystemExit(f"{report_csv} (or .gz) is missing - refusing to write a partial accounting")
         weights = WEIGHTS[kind] + SHARED_WEIGHTS
         weight_bytes = sum(count * DTYPE_BYTES[dtype] for _, count, dtype in weights)
         kv_bytes = 0.0

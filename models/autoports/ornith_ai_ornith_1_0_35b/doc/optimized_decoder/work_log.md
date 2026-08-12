@@ -166,7 +166,7 @@ BFP4/LoFi policy, at four active-expert counts. The winner moves with the active
 | 64 | 32 cores (4×8), `in0_block_w` 64, `per_core_N` 1 | **387.3** | 16 cores (8×2), `in0_block_w` 16, `per_core_N` 4 | **277.5** |
 | 162 (a 32-token prefill group) | 32 cores (4×8), `in0_block_w` 64, `per_core_N` 1 | **576.3** | 32 cores (8×4), `in0_block_w` 16, `per_core_N` 2 | **345.3** |
 
-For reference, the fused stage's geometry at 8 active experts is 262 µs (gate/up) and ~291 µs
+For reference, the fused stage's geometry at 8 active experts is 255.3 µs (gate/up) and 333.1 µs
 (down), so the decode-shaped winner is ~40 % faster; and at 162 active experts the *8-core* geometry
 is roughly 4× slower than the 32-core one, which is exactly what step 5 in the table above shows —
 decode fell 20 % and prefill rose 71 % when the decode geometry was applied unconditionally.
@@ -254,9 +254,11 @@ settings rather than inheriting the BFP8/HiFi2 sweep.
 
 `ttnn.rms_norm` parallelises over rows, and a decode activation is one tile of rows, so the
 interleaved form the fused stage used puts the whole 2048-wide norm on **one core**:
-21.4 µs. Width-sharding input and output over 8 cores with an explicit
-`LayerNormShardedMultiCoreProgramConfig` takes it to **9.3 µs** (`probe_decode_micro.py`, `NORM`
-rows; 4 and 8 cores tie, 16/32/64 get progressively worse as the per-core block shrinks).
+22.4 µs. Width-sharding input and output over 8 cores with an explicit
+`LayerNormShardedMultiCoreProgramConfig` takes it to **13.7 µs** (`probe_decode_micro.py`, `NORM`
+rows; 4 cores measures 13.2 and 8 cores 13.7, and 16/32/64 get progressively worse as the per-core
+block shrinks - 8 is shipped because it is the value the whole-layer A/B in
+`ab_norm_shard_width.txt` was run at, and the two are inside the spread).
 
 The 1D `mcast_in0` projection matmul that consumes the result needs an interleaved `in0` back, so
 each sharded norm pays one `to_memory_config` in and one `sharded_to_interleaved` out — about 3 µs
@@ -358,8 +360,8 @@ activation reshard outside the timed region:
 | `gdn_in` | 94.5 µs | 73.5 µs |
 | `gdn_out` | 34.3 µs | 26.2 µs |
 | `shared_in` | 14.4 µs | 9.4 µs |
-| `shared_down` | 17.1 µs | 9.3 µs |
-| `router` | 17.1 µs | 9.2 µs |
+| `shared_down` | 14.2 µs | 9.3 µs |
+| `router` | 13.2 µs | 9.2 µs |
 
 The reason is structural rather than a tuning miss: the op pins its compute grid to the DRAM banks,
 so 8 wide-shard cores compete with a 22–110-core multicast grid on shapes this skinny.
@@ -370,8 +372,8 @@ matmuls"). It is kept in the probe so the comparison is re-runnable, not deleted
 ### 4.2 Splitting the packed gate/up pair — rejected on measurement (OPT-010)
 
 Under the new BFP4/LoFi policy and the tuned 8-core geometry, the packed `N = 2·I` sparse matmul plus
-its two unpacking slices and the fused-SiLU multiply costs **212.1 µs**; the separate `N = I` pair
-plus the same multiply costs **288.3 µs** (`probe_decode_micro.py`, `SPLIT` rows; the two produce
+its two unpacking slices and the fused-SiLU multiply costs **222.3 µs**; the separate `N = I` pair
+plus the same multiply costs **297.9 µs** (`probe_decode_micro.py`, `SPLIT` rows; the two produce
 identical output, PCC 1.000000). Packed stays. The split candidate loses because halving `N` halves
 the usable output block: at `N = 512` the same 8-core grid gives `per_core_N` 2 instead of 4, and
 two launches pay the per-expert loop twice.
@@ -384,7 +386,7 @@ the window. Its multi-core path needs a power-of-two width of at least 8192, and
 
 | reduced width | µs | indices still < 256 |
 | --- | --- | --- |
-| **256** (shipped) | **52.3** | — |
+| **256** (shipped) | **52.4** | — |
 | 512 | 97.1 | yes |
 | 1024 | 186.2 | yes |
 | 2048 | 363.2 | yes |
@@ -401,7 +403,7 @@ the number; the single-core `topk` remains a named limitation.
 The scatter internally untilizes its input, index and source and retilizes the result, ~34 µs/step.
 `topk → ge(kth) → where(-inf) → softmax(256)` produces the *bit-identical* dense vector (max
 absolute difference 0.000e+00 over the probe's inputs) without any of that, so it was re-measured
-under this stage's regime rather than inherited from the fused stage's rejection: **134.4 µs against 119.5 µs** for the whole chain. Still slower. Rejected again, now with this stage's own number.
+under this stage's regime rather than inherited from the fused stage's rejection: **118.7 µs against 104.5 µs** for the whole chain. Still slower. Rejected again, now with this stage's own number.
 
 `ttnn.experimental.deepseek.moe.generalized_moe_gate` fuses the whole gate into one kernel but is
 bfloat16-only; the fused stage measured bfloat16 routing logits agreeing with float32 on only

@@ -16,10 +16,10 @@ tag=+shared-expert-swiglu-in-l1 (shipped)    layer=0 (linear_attention) decode(t
 # Op-level detail is in probe_decode_micro.txt (`STATE` rows), which sweeps 5 fidelity/accumulate
 # combinations x 5 core grids for both roles, and then the explicit
 # MatmulMultiCoreReuseProgramConfig arm at in0_block_w 1/2/4:
-#   read  : core_grid 14.7 us -> progcfg in0_block_w=2 13.9 us   (1 -> 14.6, 4 -> 14.8)
-#   outer : core_grid 20.4 us -> progcfg in0_block_w=1 12.6 us   (2 and 4 rejected by the op: with
+#   read  : core_grid 14.7-14.8 us -> progcfg in0_block_w=2 14.0 us  (1 -> 14.2-14.4, 4 -> 14.8)
+#   outer : core_grid 18.2 us -> progcfg in0_block_w=1 12.6-12.7 us (2 and 4 rejected by the op: with
 #           transpose_a the tiled K is 1 tile, so 1 is the only legal value)
-# Fidelity: HiFi2 14.6 / LoFi 14.7 against HiFi4+fp32acc 14.9 on the read role, i.e. <=0.3 us for the
+# Fidelity: HiFi2 and LoFi are within 0.3 us of HiFi4+fp32acc on the read role, i.e. immaterial for the
 # float32 state that is the model's exact carry between steps. Rejected on that.
 #
 # The last row is 2 us above the row before it, which is inside the run-to-run spread of this

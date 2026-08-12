@@ -1081,8 +1081,15 @@ class OptimizedMoE:
         return cached
 
     def _fits_l1(self, nbytes: float):
-        """``L1_MEMORY_CONFIG`` when ``nbytes`` fits the expert L1 budget, else DRAM."""
-        return self.expert_mem_config if nbytes <= self.expert_l1_budget else ttnn.DRAM_MEMORY_CONFIG
+        """``L1_MEMORY_CONFIG`` when ``nbytes`` fits the expert L1 budget, else DRAM.
+
+        Both conditions, same as :meth:`_expert_mem`: the tensor's own size *and* the whole MoE
+        call's token count. The second is not redundant — what changes with the call is how much L1
+        the surrounding activations are already holding, which is why an 8-token-per-group budget
+        that fits in isolation still refuses at a batch-32 prefill.
+        """
+        fits = nbytes <= self.expert_l1_budget and self._call_tokens <= EXPERT_L1_MAX_CALL_TOKENS
+        return self.expert_mem_config if fits else ttnn.DRAM_MEMORY_CONFIG
 
     def _active_expert_bound(self, valid_tokens) -> int:
         """Upper bound on the experts one group can activate, from its real token count."""
@@ -1131,7 +1138,7 @@ class OptimizedMoE:
         99.8 %/95.5 % top-8 set agreement it is rejected against is the functional stage's measured
         bfloat16-vs-float32 router A/B, applied to it because it is bfloat16-only — and a
         ``ge(kth) → where → softmax(256)`` threshold rewrite, which *was* timed and is slower at these
-        shapes at identical accuracy (work_log.md §4.3, §4.12).
+        shapes at identical accuracy (doc/fused_decoder/work_log.md §4.3, §4.12).
         """
         logits = ttnn.linear(
             x,
@@ -1901,7 +1908,7 @@ class OptimizedDecoder(LightweightModule):
     #: over *rows*, and a decode activation is a single tile of rows, so the interleaved form the
     #: fused stage used lands the whole 2048-wide norm on one core. Width-sharding the input and
     #: output and naming a ``LayerNormShardedMultiCoreProgramConfig`` moves it onto ``cores`` cores:
-    #: 21.3 -> 9.4 us at 4 or 8 cores, rising again above that as the per-core block shrinks
+    #: 22.4 -> 13.7 us at 8 cores (13.2 at 4), rising again above that as the per-core block shrinks
     #: (``doc/optimized_decoder/logs/probe_decode_micro.txt``, ``NORM`` rows).
     NORM_SHARD_CORES = 8
 
@@ -2363,7 +2370,7 @@ class OptimizedDecoder(LightweightModule):
         nor a 4096-wide re-slice is needed. The SiLU is applied separately rather than through
         ``Conv2dConfig(activation=...)``: folding it is faster but not correct on this depthwise
         conv. Measured at Ornith's own shapes in ``doc/fused_decoder/logs/probe_conv1d_and_norm.txt``
-        (``CONV1DACT`` rows) and recorded in ``work_log.md`` §4.15;
+        (``CONV1DACT`` rows) and recorded in ``doc/fused_decoder/work_log.md`` §4.15;
         ``models/demos/blackhole/qwen36/tt/gdn/tp.py:367`` reports the same for its conv.
         """
         rm = ttnn.DRAM_MEMORY_CONFIG
@@ -2434,7 +2441,7 @@ class OptimizedDecoder(LightweightModule):
         ``prim::ternary(ADDCMUL)`` LLK whenever the broadcast is valid and no input is block-float,
         which holds for both of these call sites, while ``mac`` is unconditionally
         ``add(multiply(...))``. The swap cost one extra device op per tap on the *decode* conv, which
-        is the traced path, so it was reverted. ``work_log.md`` §4.14.
+        is the traced path, so it was reverted. ``doc/fused_decoder/work_log.md`` §4.14.
         """
         t = int(qkv.shape[1])
         kernel = self.cfg.linear_conv_kernel_dim
@@ -2496,7 +2503,7 @@ class OptimizedDecoder(LightweightModule):
         q/k/v is handed over as-is, so on Ornith — ``conv_dim`` 8192 split 2048/2048/4096, blocks
         4096 wide — v is exactly block 1 and needs no slice at all. That removes both the
         8192-wide concat of the conv output and the 4096-wide v slice the concatenated spelling
-        needed; work_log.md §4.4 has the ConcatDeviceOperation row it cost. The block/field boundaries are only guaranteed to line up that neatly for this
+        needed; doc/fused_decoder/work_log.md §4.4 has the ConcatDeviceOperation row it cost. The block/field boundaries are only guaranteed to line up that neatly for this
         config, so the general case is still handled: a field spanning two blocks is concatenated
         from its pieces.
         """
@@ -2660,7 +2667,7 @@ class OptimizedDecoder(LightweightModule):
         # at every |z| tested, and with the real float32 x bfloat16 pairing the folded form emits
         # non-finite values at EVERY magnitude, including |z| < 4. So an op-level A/B on matched
         # dtypes - which is what a naive probe writes - passes while the model breaks; work_log.md
-        # §4.8 records both arms and the real-weight control. `ttnn.silu(z)` first keeps the
+        # doc/fused_decoder/work_log.md §4.8 records both arms and the real-weight control. `ttnn.silu(z)` first keeps the
         # activation in bfloat16 and the multiply mixed-but-unfused, which is exact.
         # bfloat16 out, not the float32 the mixed-dtype multiply would default to: the only consumer
         # is the output projection, whose weight is BFP8, and a float32 activation there costs both
@@ -2770,14 +2777,16 @@ class OptimizedDecoder(LightweightModule):
         round 2 found:
 
         * ``read`` (``q @ h`` and ``k @ h``): ``Mt`` 1, ``Kt`` 4, ``Nt`` 4. ``in0_block_w`` 2 measures
-          13.9 us against 14.7 for the ``core_grid`` spelling and 14.6/14.8 at 1/4.
+          14.0 us against 14.7-14.8 for the ``core_grid`` spelling, 14.2-14.4 at 1 and 14.8 at 4.
         * ``outer`` (``k^T @ delta``, ``transpose_a=True``): ``Mt`` 4, ``Kt`` **1**, ``Nt`` 4, so 1 is
           the only legal ``in0_block_w`` — 2 and 4 are rejected by the op. It measures 12.6 us
           against 20.4 for the ``core_grid`` spelling, which is the larger win of the two.
 
         The op parallelises over ``batch * M-blocks * N-blocks`` and that product must fit the worker
-        grid, so above a decode batch the grid can hold the config is dropped and the ``core_grid``
-        spelling is used instead. ``doc/optimized_decoder/logs/probe_decode_micro.txt`` (``STATE``
+        grid. With ``num_value_heads`` 32 blocks per batch row that means **decode batch 3 or less** on
+        an 11x10 grid; above it the config is dropped and the ``core_grid`` spelling the fused decoder
+        used is what runs. Batch 1 is the tuned single-user target and larger batches stay correct
+        (tested to 56) but untuned, which README §9 item 5 records alongside the other two thresholds. ``doc/optimized_decoder/logs/probe_decode_micro.txt`` (``STATE``
         rows) has both arms.
         """
         cfg = self.cfg
@@ -2822,7 +2831,8 @@ class OptimizedDecoder(LightweightModule):
 
         Mirrors HF ``torch_recurrent_gated_delta_rule``: L2-normalise Q/K, scale Q by
         ``head_k_dim ** -0.5``, decay the state, read ``k @ h``, write the ``beta``-weighted delta
-        outer product, then read ``q @ h``. Everything stays in DRAM float32 so the state is exact.
+        outer product, then read ``q @ h``. The state stays float32 in DRAM so the carry between steps is exact; the per-step vectors
+        live in L1 (see the placement comment in the body).
 
         The L2 norm is ``rms_norm(x, eps/K) * K**-0.5`` (the idiom from
         ``models/experimental/gated_attention_gated_deltanet``), and Q's ``K**-0.5`` scale is folded
@@ -2836,12 +2846,12 @@ class OptimizedDecoder(LightweightModule):
         # on the three state matmul rows ("place input 0 in L1"), and it is worth 19 us/step.
         # `self.recurrent_state` stays in DRAM: it is the persistent per-batch carry that trace
         # replay writes in place, and its address has to survive the whole capture.
-        dram = ttnn.L1_MEMORY_CONFIG
+        step_mem = ttnn.L1_MEMORY_CONFIG
         # The delta outer product is *state-shaped*, not vector-shaped: [B, HV, DK, DV] float32 is
         # 2 MiB at batch 1 but 64 MiB at batch 32, which L1 refuses outright
         # (`bank_manager.cpp:462`). Size-gate it rather than assume the batch.
         outer_bytes = b * nv * dk * cfg.linear_value_head_dim * 4
-        outer_mem = dram if outer_bytes <= self._l1_budget else ttnn.DRAM_MEMORY_CONFIG
+        outer_mem = step_mem if outer_bytes <= self._l1_budget else ttnn.DRAM_MEMORY_CONFIG
         eps = 1e-6
 
         # HF's torch_recurrent_gated_delta_rule applies `scale = 1/sqrt(head_k_dim)` to q. The
@@ -2849,22 +2859,22 @@ class OptimizedDecoder(LightweightModule):
         # head) factor), but the chunked prefill op applies the same scale internally, so dropping
         # it would make prefill and decode disagree on the intermediate `o`.
         q_n = ttnn.rms_norm(q, epsilon=eps / dk)
-        q_row = ttnn.typecast(ttnn.multiply(q_n, dk**-1.0, memory_config=dram), ttnn.float32)
+        q_row = ttnn.typecast(ttnn.multiply(q_n, dk**-1.0, memory_config=step_mem), ttnn.float32)
         ttnn.deallocate(q_n)
         k_n = ttnn.rms_norm(k, epsilon=eps / dk)
-        k_row = ttnn.typecast(ttnn.multiply(k_n, dk**-0.5, memory_config=dram), ttnn.float32)
+        k_row = ttnn.typecast(ttnn.multiply(k_n, dk**-0.5, memory_config=step_mem), ttnn.float32)
         ttnn.deallocate(k_n)
 
         v_row = ttnn.typecast(v, ttnn.float32)
         beta_b = ttnn.reshape(beta, [b, nv, 1, 1])
-        decay = ttnn.exp(ttnn.reshape(g, [b, nv, 1, 1]), memory_config=dram)
+        decay = ttnn.exp(ttnn.reshape(g, [b, nv, 1, 1]), memory_config=step_mem)
 
         state = self.recurrent_state
         ttnn.multiply(state, decay, output_tensor=state)
         ttnn.deallocate(decay)
 
-        v_read = self._state_matmul(k_row, state, "read", b, memory_config=dram)
-        delta = ttnn.multiply(ttnn.subtract(v_row, v_read, memory_config=dram), beta_b, memory_config=dram)
+        v_read = self._state_matmul(k_row, state, "read", b, memory_config=step_mem)
+        delta = ttnn.multiply(ttnn.subtract(v_row, v_read, memory_config=step_mem), beta_b, memory_config=step_mem)
         ttnn.deallocate(v_read)
         ttnn.deallocate(v_row)
         # `beta_b` is deliberately not freed here: it is a reshape of the caller's `beta`, and
@@ -2877,7 +2887,7 @@ class OptimizedDecoder(LightweightModule):
         ttnn.add(state, outer, output_tensor=state)
         ttnn.deallocate(outer)
 
-        out = self._state_matmul(q_row, state, "read", b, memory_config=dram)
+        out = self._state_matmul(q_row, state, "read", b, memory_config=step_mem)
         ttnn.deallocate(q_row)
         return out
 
