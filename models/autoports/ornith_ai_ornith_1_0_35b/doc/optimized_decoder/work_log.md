@@ -734,4 +734,6 @@ recorded here because each one is evidence that the gate was the right fix rathe
    §7's dispatch gap — and it shows the float32 gate-promotion typecasts are the *largest* line item of
    the `linear_attention` window, not the "two 6–8 µs gaps" the prose claimed.
 
-Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt). Local commits only; nothing is pushed.
+Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
+that proves the committed tree reproduces every generator and passes the figure audit. Local commits
+only; nothing is pushed.
