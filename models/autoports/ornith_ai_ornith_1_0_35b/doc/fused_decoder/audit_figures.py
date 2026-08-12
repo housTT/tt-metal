@@ -164,6 +164,11 @@ HISTORICAL = {
     # the finding was; the shipped figures are the current probe's, in §3.1 and §4.4.
     "3.326",
     "0.539",
+    # The router A/B as it read before round 27 added the pre-loop device sync: the scatter arm was
+    # absorbing already-queued work. §4.3 quotes both to record what the measurement bug cost, and
+    # they must not come back as a claim about the shipped probe.
+    "122.7",
+    "120.4",
     # Round 19's P1: the shape of the truncated suite log it rejected. 70 PASSED and 93 collected are
     # both live figures elsewhere, but the node-id count is only ever quoted to describe that defect,
     # and it must not come back as a claim about a shipped run.

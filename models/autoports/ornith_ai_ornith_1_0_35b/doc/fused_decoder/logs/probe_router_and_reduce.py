@@ -97,10 +97,12 @@ def main():
                 sel |= got_set
             nonzero = int((got > 0).sum(-1).float().mean().item() * 100) / 100
             l1 = float((got.double() - ref_dense).abs().sum() / ref_dense.abs().sum())
-            # Repeats with a reported spread: review round 26 found §4.3 rejecting this candidate
-            # "on latency" off a single 50-iteration arm whose two sides had swapped order between
-            # evidence runs. A latency conclusion in EITHER direction needs the spread, the way §4.6
-            # quotes one for the rope modes.
+            # Repeats with a reported spread, and a sync BEFORE the timed region. Review round 26
+            # found §4.3 rejecting this candidate "on latency" off a single 50-iteration arm whose
+            # two sides had swapped order between evidence runs; round 27 diagnosed the cause as the
+            # missing pre-loop sync — the first arm timed (scatter) was absorbing already-queued
+            # work, which cost it ~19 %. A latency conclusion in EITHER direction needs both the
+            # sync and a spread, the way §4.6 quotes one for the rope modes.
             iters, repeats = 50, 5
             samples = []
             for _ in range(repeats):

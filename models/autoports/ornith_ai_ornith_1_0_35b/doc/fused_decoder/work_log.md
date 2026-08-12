@@ -234,12 +234,19 @@ per decode call (§4.12), because a 256-wide `where` + `softmax` in float32 cost
 untilize/scatter chain it removes. Rejected on latency.
 
 That conclusion is right and the evidence for it used not to be. Review round 26 found the committed
-arm showing the candidate **1.9 % faster** — the opposite of what this section says — because each
-arm was a single 50-iteration sample, and at a couple of microseconds' separation the two swapped
-order between evidence runs. A latency claim in either direction needs a spread, which is what §4.6
-already quotes for the rope modes and what this probe now reports: five repeats per arm, and the two
-ranges are **disjoint** by a wide margin. So the rejection stands on a gap that is real rather than on
-a sample that happened to fall the right way, and §4.12 prints both ranges.
+arm showing the candidate **1.9 % faster** — the opposite of what this section says. Round 27 then
+diagnosed *why*, and the cause is worth recording because it is a measurement bug rather than noise:
+the old loop called `ttnn.synchronize_device` only **after** the timed region, never before it, so
+whichever arm ran first absorbed whatever work was already queued. `scatter` runs first, and it is
+the arm that moved — 122.7 → 99.9 µs once a pre-loop sync was added, against `where`'s 120.4 →
+115.4 µs. The bias ran *against* the shipped choice, so correcting it strengthens the original
+disposition rather than rescuing it.
+
+The probe now syncs before each sample and reports five repeats per arm, which is the spread §4.6
+already quotes for the rope modes. The two ranges are **disjoint** by a wide margin, so the rejection
+rests on a real gap rather than on a sample that happened to fall the right way, and §4.12 prints
+both. The arms themselves were never touched: `git diff` between the two commits shows them
+byte-identical, only the timing loop changed.
 
 ### 4.4 `ttnn.conv1d` at the full `conv_dim` — three distinct blockers, but a working split
 
@@ -1667,6 +1674,27 @@ The pattern is now unmistakable and worth stating once: across rounds 23–26 ev
 defect in the shipped graph or its measurements — which four consecutive reviewers have re-derived
 exactly from the raw captures.
 
+### Round 27 — `clean-pass`
+
+The twenty-seventh review re-derived the stage from the raw evidence rather than from this log: all
+four device kernel times out of the `*_ops.csv.gz` captures, the op-row counts, the per-op-code
+decode diffs, the `SLOW` counts and shares, the MoE shares, every PCC cell in README §2, the four
+layout budgets the suite asserts exactly (12/12, 3/3, 1, 6), the watcher census and its zero
+fatal-class lines, and the 97-case suite. Every figure reproduced. **No required work.** It verified
+both round-26 findings as genuinely closed, not merely re-worded.
+
+It did leave one observation, and it is the more interesting half of round 26's P1. The reason the
+router arms had swapped order between evidence runs was not sampling noise: the old loop called
+`ttnn.synchronize_device` only *after* the timed region and never before it, so whichever arm ran
+first absorbed whatever device work was already queued. `scatter` runs first, and `scatter` is the
+arm that moved once the pre-loop sync was added. §4.3 now records that mechanism instead of
+attributing the flip to variance — the bias ran *against* the shipped choice, which is why the
+conclusion survived it. The two superseded figures are quoted there as history and are declared in
+`audit_figures.py`'s `HISTORICAL` set so they can never be re-sourced as a claim about a shipped run.
+
+That closes the review sequence: 26 rounds of `more-work-needed`, then a `clean-pass` in which an
+independent reviewer reproduced every headline number from the captures.
+
 ---
 
 ## 8. Commit record
@@ -1675,7 +1703,7 @@ Repo `/home/ttuser/dev/ornith/tt-metal`, branch `agentic-research/hous/ornith-1.
 is **local**; nothing was pushed, and nothing outside
 `models/autoports/ornith_ai_ornith_1_0_35b/` is touched. The one unrelated dirty path in the
 worktree, `.agents/fast-models-fast-feedback.md`, is deliberately left untracked and is in none of
-these commits. `git log --oneline -11` shows all of them.
+these commits. `git log --oneline -12` shows all of them.
 
 | Commit | What it carries |
 | --- | --- |
@@ -1689,7 +1717,8 @@ these commits. `git log --oneline -11` shows all of them.
 | `f6cd9504e2f` | round 23's P1 re-answered by *running* the op, plus `test_moe_group_tokens_pcc` (the `groups > 1` MoE branch's first PCC coverage). Changed `tests/test_fused_decoder.py` and regenerated the whole chain — the suite is 97 cases from here. |
 | `35c3d584d76` | round 24's fixes: §4.17 restated on the committed ground, round 24's score-layout hypothesis refuted, §4.18 added, README §5.4's generator string corrected. |
 | `143edb3aacb` | round 25's fixes: §4.18's `dram_streaming_experts_matmul` rejection rewritten around the op's contract, the decode-rope validation misstatement corrected, the `FUSEDREDUCE` probe comment reconciled, the stale figure attribution marked historical. |
-| `<this commit>` | round 26's fixes: the router A/B now measures **five repeats per arm with a printed spread**, which settles §4.3 on disjoint ranges instead of on a single sample that had flipped between runs; §4.18's launch-granularity blocker corrected again (the index tile holds up to `selected_experts_k` indices, the scheme is token-major, and the blocker is `Mt == 1` with a replicated `in0`, so 2048 launches per prefill block rather than 2048x8). One probe script and the documents — no source file changed, so `f6cd9504e2f`'s evidence still describes the shipped code. **Every figure in README §2 and §5 comes from `f6cd9504e2f`'s `run_evidence.sh` pass**, except the `probe_router_and_reduce.txt` rows, which come from this commit's re-run of that one probe. |
+| `c3f710b2c1a` | round 26's fixes: the router A/B now measures **five repeats per arm with a printed spread**, which settles §4.3 on disjoint ranges instead of on a single sample that had flipped between runs; §4.18's launch-granularity blocker corrected again (the index tile holds up to `selected_experts_k` indices, the scheme is token-major, and the blocker is `Mt == 1` with a replicated `in0`, so 2048 launches per prefill block rather than 2048x8). One probe script and the documents — no source file changed, so `f6cd9504e2f`'s evidence still describes the shipped code. **Every figure in README §2 and §5 comes from `f6cd9504e2f`'s `run_evidence.sh` pass**, except the `probe_router_and_reduce.txt` rows, which come from `c3f710b2c1a`'s re-run of that one probe. |
+| `<this commit>` | round 27's `clean-pass` recorded (§7), plus the one observation it left: §4.3 now attributes the router-arm flip to the **missing pre-loop `ttnn.synchronize_device`** rather than to sampling noise, and the two superseded figures are declared `HISTORICAL` in `audit_figures.py` so they cannot be re-sourced as a claim about a shipped run. Documents plus one probe comment — no source file changed and no artifact re-run, so every figure is still `f6cd9504e2f`'s bar `probe_router_and_reduce.txt`'s. |
 
 A commit cannot contain its own SHA, so the tip is written `<this commit>`. `logs/commit_record.txt`
 carries the same table; round 23 found the two had drifted apart in *both* directions across rounds
