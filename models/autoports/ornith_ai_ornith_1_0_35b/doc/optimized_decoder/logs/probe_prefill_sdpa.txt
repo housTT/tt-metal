@@ -2,21 +2,21 @@
 # Command: python doc/optimized_decoder/logs/probe_prefill_sdpa.py
 # Prefill chunked-SDPA sweep at one 2048-token chunk, 16 q heads / 2 kv, head_dim 256, causal, bfloat16 on a 11x10 grid.
 # Reference for `pcc_vs_default` is the op's own default program config, 40-layer checkpoint's shapes.
-PREFILLSDPA cfg=default(None) us=1631.7 spread=37.4 pcc_vs_default=1.000000
-PREFILLSDPA cfg=bf16-kv q_chunk=64 k_chunk=64 us=1487.3 spread=8.6
-PREFILLSDPA cfg=bf16-kv q_chunk=128 k_chunk=128 us=935.6 spread=5.0
+PREFILLSDPA cfg=default(None) us=1629.6 spread=33.6 pcc_vs_default=1.000000
+PREFILLSDPA cfg=bf16-kv q_chunk=64 k_chunk=64 us=1484.6 spread=11.0
+PREFILLSDPA cfg=bf16-kv q_chunk=128 k_chunk=128 us=941.0 spread=13.4
 PREFILLSDPA cfg=bf16-kv q_chunk=256 k_chunk=256 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
-PREFILLSDPA cfg=grid=11x10 q_chunk=64 k_chunk=64 us=954.6 spread=11.0 pcc_vs_default=0.999952
-PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=128 us=670.2 spread=4.5 pcc_vs_default=0.999945
-PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=256 us=478.7 spread=5.0 pcc_vs_default=0.999955
+PREFILLSDPA cfg=grid=11x10 q_chunk=64 k_chunk=64 us=955.8 spread=26.7 pcc_vs_default=0.999952
+PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=128 us=668.8 spread=20.7 pcc_vs_default=0.999945
+PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=256 us=488.8 spread=3.8 pcc_vs_default=0.999955
 PREFILLSDPA cfg=grid=11x10 q_chunk=512 k_chunk=512 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
-PREFILLSDPA cfg=grid=11x10 q_chunk=64 k_chunk=128 us=975.1 spread=16.0 pcc_vs_default=0.999945
-PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=64 us=747.7 spread=12.4 pcc_vs_default=0.999952
-PREFILLSDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=1633.4 spread=31.7 pcc_vs_default=1.000000
-PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=128 us=551.2 spread=11.9 pcc_vs_default=0.999945
-PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=64 us=722.2 spread=16.0 pcc_vs_default=0.999952
-PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=256 us=694.3 spread=15.3 pcc_vs_default=0.999955
+PREFILLSDPA cfg=grid=11x10 q_chunk=64 k_chunk=128 us=981.6 spread=21.2 pcc_vs_default=0.999945
+PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=64 us=747.2 spread=43.9 pcc_vs_default=0.999952
+PREFILLSDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=1625.1 spread=31.2 pcc_vs_default=1.000000
+PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=128 us=558.9 spread=39.8 pcc_vs_default=0.999945
+PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=64 us=722.6 spread=17.6 pcc_vs_default=0.999952
+PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=256 us=693.8 spread=16.5 pcc_vs_default=0.999955
 PREFILLSDPA cfg=grid=11x10 q_chunk=512 k_chunk=128 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
 PREFILLSDPA cfg=grid=11x10 q_chunk=512 k_chunk=256 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
-PREFILLSDPA cfg=grid=8x8 q_chunk=64 k_chunk=64 us=917.9 spread=12.9 pcc_vs_default=0.999952
-PREFILLSDPA cfg=grid=8x4 q_chunk=64 k_chunk=64 us=1424.6 spread=26.2 pcc_vs_default=0.999952
+PREFILLSDPA cfg=grid=8x8 q_chunk=64 k_chunk=64 us=921.7 spread=15.3 pcc_vs_default=0.999952
+PREFILLSDPA cfg=grid=8x4 q_chunk=64 k_chunk=64 us=1426.9 spread=21.2 pcc_vs_default=0.999952

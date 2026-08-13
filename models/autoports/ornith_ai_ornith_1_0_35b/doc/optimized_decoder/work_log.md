@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.4 µs** | 172.2 µs | **column** wins by 18.8 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **152.7 µs** | 172.0 µs | **column** wins by 19.3 µs, beyond the ±0.5 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.2 µs** | 578.9 µs | **column** wins by 10.7 µs, beyond the ±1.0 µs spread |
-| 162 active | down | 343.2 µs | **341.7 µs** | **row** wins by 1.5 µs, beyond the ±1.0 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.7 µs | **column** wins by 2.2 µs, beyond the ±1.0 µs spread |
-| 64 active | down | 284.8 µs | **280.4 µs** | **row** wins by 4.4 µs, beyond the ±0.4 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.1 µs | **column** wins by 18.8 µs, beyond the ±0.6 µs spread |
+| 8 active | down | **152.6 µs** | 172.1 µs | **column** wins by 19.5 µs, beyond the ±0.3 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **571.2 µs** | 579.4 µs | **column** wins by 8.2 µs, beyond the ±4.6 µs spread |
+| 162 active | down | 346.1 µs | **342.1 µs** | **row** wins by 4.0 µs, beyond the ±1.2 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 388.0 µs | **column** wins by 2.5 µs, beyond the ±0.3 µs spread |
+| 64 active | down | 284.7 µs | **277.6 µs** | **row** wins by 7.1 µs, beyond the ±1.3 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -858,7 +858,7 @@ vLLM or serving process was started at any point.
 
 ## 6. Review rounds and checkpoint
 
-Seventeen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
+Eighteen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
 
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
@@ -1663,18 +1663,22 @@ while this section had no entries for the two rounds that found shipped-code wor
 first now has the test it needed: a decoder built under the shipped policy but handed a bfloat16 cache must resolve
 a legal chunk *and* prefill a full chunk with it.
 
-**Round 17** returned `more-work-needed` with one item and two concerns, and the item is the clearest example in
-the stage of why an op-level number is not a decision. `DECODE_MATMUL_GEOMETRY` shipped `shared_in` at a target of
-80 — an 88-core grid for a projection whose `Nt` is 33 tiles — where the probe measures 32 (a 33-core grid)
-several microseconds faster, beyond that row's spread, while this table's own docstring claimed every entry was
-the measured winner and README §5.4's prose called the ladder "flat enough" there. The ladder is not flat: the
-24/32/64 targets and the 48/80/96/110 targets sit in two clearly separated groups.
+**Round 17** returned `more-work-needed` with one item and two concerns. `DECODE_MATMUL_GEOMETRY` shipped
+`shared_in` at a target of 80 — an 88-core grid for a projection whose `Nt` is 33 tiles, so 55 of those cores
+never receive an output tile — and round 17 read the probe as showing the 33-core grid several microseconds
+faster, beyond that row's spread, while the table's docstring claimed every entry was the measured winner.
 
-Taken, and the layer says something different from the probe *again*: alternating four timed runs, traced decode
-is **unchanged** to the microsecond on both layer kinds. So it ships as the swept winner at no measured layer cost
-— not as a win — for the same reason the SDPA grid does. Where an op-level gap and a layer measurement disagree,
-the layer is what ships; and a table whose docstring says "measured winner" should not contain an entry its own
-artifact refutes.
+Changed to 32, and then **round 18 found the justification wrong**, which is worth recording as carefully as the
+change itself. Re-derived from the committed artifact, the `shared_in` ladder at the shipped `in0_block_w` is flat
+within noise across every target from 24 to 110 — and the slower band round 17 cited belongs to the
+`in0_block_w=8` rows, which are flat across core count as well. There was no core-count split to be on the wrong
+side of. The layer A/B had already said as much: four alternating timed runs, traced decode unchanged to the
+microsecond on both kinds.
+
+So the entry stays at 32 for a structural reason rather than a measured one — it names exactly `Nt` cores instead
+of 88 — and both the code comment and README §5.4 now say that. Two rounds spent on a constant that does not move
+the layer is not wasted if the outcome is that the file no longer contains a measurement claim its own artifact
+refutes; that claim is the thing this stage exists to prevent.
 
 The concern worth acting on immediately was mine, from round 15. `_router_zeros_for` kept **one** persistent
 scatter target and replaced it when the shape changed. The routing-logits shape is stable for every batch up to 32
@@ -1683,6 +1687,28 @@ other would have scattered into a freed buffer — silently wrong routing weight
 have caught it because every trace site in the suite uses one batch. It is keyed by shape and never freed now.
 That is a hazard this stage introduced two rounds ago while removing two ops, found by reading rather than by
 failing, which is the argument for the review rounds continuing past the point where the gates are green.
+
+**Round 18** returned `more-work-needed` with three items and said plainly that closing them would pass the
+stage. All three came from round 17's own change, and the first is the one that matters: the justification
+round 17 wrote for retargeting `shared_in` was **refuted by the artifact it cited**. Re-derived from the committed
+probe, that role's core ladder is flat within noise at the shipped `in0_block_w`, and the slower band round 17 read
+as a core-count split belongs to a different `in0_block_w` arm entirely. §4.20 above records the correction; the
+entry stays at 32 on the structural ground that it names exactly `Nt` cores, and the code comment says so instead
+of claiming a win.
+
+Two smaller ones with the same shape: README quoted the pre-round-17 core count two lines below a generated table
+that printed the new one, and §5.4 claimed `test_decode_runs_the_tuned_program_configs` asserted the core count,
+`per_core_N` and output subblock when it asserted neither the grid nor `per_core_N`. The second is now true rather
+than narrowed: the test derives each role's target from `DECODE_MATMUL_GEOMETRY`, reproduces the layer's own
+axis-filling rule, and asserts the realised grid and that `per_core_N` covers every output tile. Writing it caught
+a defect in itself immediately — `o_proj` and `gdn_out` are both 4096x2048 with *different* targets, so a
+shape-keyed map is wrong and the key needs the layer kind — which is a fair advertisement for asserting a rule
+rather than a literal.
+
+Also corrected: two magnitude words that had drifted from their artifacts ("tens of microseconds" for a ~7 µs
+whole-layer A/B, and "a couple of percent" for a figure that is a fraction of one), and the second of the two
+`in1_bytes` fallbacks, which round 17 fixed in one lookup and left at bfloat16's 2.0 in the other — the direction
+that under-models and lets program construction throw.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

@@ -685,11 +685,17 @@ DECODE_MATMUL_GEOMETRY = {
     "o_proj": (16, 16),
     "gdn_in": (110, 8),
     "gdn_out": (24, 8),
-    # 32, not 80: `Nt` is 33 tiles, so a target above that names cores with no output tile, and the sweep is
-    # not flat about it - 24/32/64 measure ~9.7-9.8 us and 48/80/96/110 measure ~12.8-13.3 at the same
-    # in0_block_w, per_core_N and output placement. Review round 17 found the shipped 80 was the slow side of
-    # that split by 3.1 us, beyond the row's own spread, while this table's docstring claimed every entry was
-    # the measured winner. Confirmed at the layer before shipping, the way §4.14 requires of any op-level gap.
+    # 32, not 80, and the reason is structural rather than measured. `Nt` is 33 tiles, so a target of 80 names an
+    # 88-core grid in which 55 cores never receive an output tile, while 32 realises 11x3 = 33 - exactly one core
+    # per tile. At the shipped `in0_block_w` the op ladder is **flat within noise** across every target from 24 to
+    # 110 (9.5-10.2 us, and the 32-core row carries the widest spread of the lot), and the whole-layer A/B is
+    # unchanged to the microsecond, so this is not a latency claim.
+    #
+    # Review round 17 changed this entry on a claim of a 3.1 us op-level win, and round 18 found that claim wrong:
+    # the 12.8-13.3 band it cited is the `in0_block_w=8` rows, which are flat across core count too, not a
+    # core-count split. Both targets are defensible on the measurements; this one is kept because naming exactly
+    # `Nt` cores is the honest spelling of what the op can use, and because README §5.4's generated table then has
+    # no row whose shipped geometry differs from the sweep's winner by more than that row's own spread.
     "shared_in": (32, 32),
     "shared_down": (48, 16),
     "router": (32, 32),
@@ -956,7 +962,7 @@ class _ProjectionConfigs:
                     int(n),
                     fp32_acc=fp32_acc,
                     l1_per_core=self.l1_per_core,
-                    in1_bytes=self.in1_bytes.get(role, 2.0),
+                    in1_bytes=self.in1_bytes.get(role, _UNKNOWN_DTYPE_BYTES),
                 )
             return self._cache[key]
         m_tiles = max(1, (int(rows) + TILE - 1) // TILE)

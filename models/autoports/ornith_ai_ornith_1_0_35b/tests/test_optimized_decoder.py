@@ -58,6 +58,7 @@ import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.reference import hf_reference as R
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     CONV1D_CHANNELS,
+    DECODE_MATMUL_GEOMETRY,
     DECODE_MATMUL_IN0_TILE_BUDGET,
     DECODE_MATMUL_MAX_M_TILES,
     DEFAULT_PREFILL_CHUNK,
@@ -89,6 +90,24 @@ LARGEST_SUPPORTED_DECODE_BATCH = 56
 #: ``per_core_M`` is one tile at every supported batch, which is the distinction
 #: ``test_decode_runs_the_tuned_program_configs`` asserts against the four token-mixer roles.
 MOE_DECODE_SHAPES = {(2048, 1056), (512, 2048), (2048, 256)}
+
+#: ``(layer kind, K, N) -> role`` for the dense decode matmuls the spy sees, so the test can look each one's
+#: shipped target up in `DECODE_MATMUL_GEOMETRY` and assert the grid the layer built from it. The layer kind is
+#: part of the key because `o_proj` and `gdn_out` are both 4096x2048 and have **different** targets (16 and 24):
+#: the first draft of this map assumed one entry served both, and the assertion caught it immediately, which is
+#: the assertion doing its job before it ever guarded a regression.
+_DECODE_ROLE_BY_SHAPE = {
+    ("full_attention", 2048, 9216): "attn_in",
+    ("full_attention", 4096, 2048): "o_proj",
+    ("linear_attention", 2048, 12352): "gdn_in",
+    ("linear_attention", 4096, 2048): "gdn_out",
+    ("full_attention", 2048, 1056): "shared_in",
+    ("linear_attention", 2048, 1056): "shared_in",
+    ("full_attention", 512, 2048): "shared_down",
+    ("linear_attention", 512, 2048): "shared_down",
+    ("full_attention", 2048, 256): "router",
+    ("linear_attention", 2048, 256): "router",
+}
 
 #: Acceptance bar inherited from the functional-decoder stage. This stage is not allowed to lower it, and every
 #: measurement below clears it by more than an order of magnitude of error - the worst PCC anywhere in the shipped
@@ -2033,6 +2052,24 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         assert cfg.per_core_M == rows, (
             f"dense decode matmul {k}x{n} has per_core_M={cfg.per_core_M} at batch {decode_batch}, expected "
             f"{rows}: the token-mixer roles run on [batch, 1, dim] and the MoE roles on padded token rows"
+        )
+        # The realised geometry, not just the inner block. README §5.4 said these were asserted while only
+        # `in0_block_w` and `per_core_M` were, which is how review round 17 could change a core-count entry on a
+        # misread of the probe and round 18 have to catch it by re-deriving the artifact. `DECODE_MATMUL_GEOMETRY`
+        # is the source of truth; this pins what the layer builds from it.
+        target, _ = DECODE_MATMUL_GEOMETRY[_DECODE_ROLE_BY_SHAPE[(LAYER_IDS[layer_idx], k, n)]]
+        cols = min(int(mesh_device.compute_with_storage_grid_size().x), target)
+        expected_rows = -(-target // cols) if cols else 1
+        assert (int(cfg.compute_with_storage_grid_size.x), int(cfg.compute_with_storage_grid_size.y)) == (
+            cols,
+            expected_rows,
+        ), (
+            f"dense decode matmul {k}x{n} built grid {cfg.compute_with_storage_grid_size} from target {target}; "
+            f"the rule fills the x axis first, so it must be {cols}x{expected_rows}"
+        )
+        assert cfg.per_core_N * cols * expected_rows >= -(-n // 32), (
+            f"dense decode matmul {k}x{n} has per_core_N={cfg.per_core_N} on "
+            f"{cols * expected_rows} cores, which cannot cover {-(-n // 32)} output tiles"
         )
         assert cfg.in0_block_w <= max(1, DECODE_MATMUL_IN0_TILE_BUDGET // rows), (
             f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w} at batch {decode_batch}, above the "
