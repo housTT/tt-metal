@@ -685,7 +685,12 @@ DECODE_MATMUL_GEOMETRY = {
     "o_proj": (16, 16),
     "gdn_in": (110, 8),
     "gdn_out": (24, 8),
-    "shared_in": (80, 32),
+    # 32, not 80: `Nt` is 33 tiles, so a target above that names cores with no output tile, and the sweep is
+    # not flat about it - 24/32/64 measure ~9.7-9.8 us and 48/80/96/110 measure ~12.8-13.3 at the same
+    # in0_block_w, per_core_N and output placement. Review round 17 found the shipped 80 was the slow side of
+    # that split by 3.1 us, beyond the row's own spread, while this table's docstring claimed every entry was
+    # the measured winner. Confirmed at the layer before shipping, the way §4.14 requires of any op-level gap.
+    "shared_in": (32, 32),
     "shared_down": (48, 16),
     "router": (32, 32),
 }
@@ -732,6 +737,13 @@ _DTYPE_BYTES = {
     ttnn.bfloat4_b: 0.5625,
     ttnn.float32: 4.0,
 }
+
+#: What an unknown weight dtype is modelled at when sizing `in1` circular buffers. 4.0 rather than bfloat16's 2.0
+#: because the only direction that matters is *under*-modelling: too small a number declares a program legal that
+#: then throws at construction, which is how `POLICIES["fused-parity"]` was unable to prefill for the whole stage
+#: until review round 14. Every shipped policy's weight dtypes are in the table above; this is the guard for a
+#: policy someone adds later.
+_UNKNOWN_DTYPE_BYTES = 4.0
 
 #: Fraction of the device's total worker L1 the routed-expert intermediates may occupy at their
 #: peak. They are ``num_experts`` wide, so their size scales with the MoE call's token count: the
@@ -917,7 +929,9 @@ class _ProjectionConfigs:
         #: Bytes per element of each role's **weight**, so the 2D prefill config's L1 model sizes that role's
         #: `in1` circular buffers for the tensor it actually reads under the policy that is running.
         self.in1_bytes = {
-            role: _DTYPE_BYTES.get(getattr(policy, field, None), 2.0) if policy is not None else 2.0
+            role: _DTYPE_BYTES.get(getattr(policy, field, None), _UNKNOWN_DTYPE_BYTES)
+            if policy is not None
+            else _UNKNOWN_DTYPE_BYTES
             for role, field in DECODE_MATMUL_WEIGHT_FIELD.items()
         }
         self._cache: dict[tuple, object] = {}
@@ -1210,9 +1224,8 @@ class OptimizedMoE:
         }
         self.down_in0_block_w = _largest_divisor_at_most(config.moe_intermediate_size // TILE, 16)
         self._sparse_cfg_cache: dict[tuple, object] = {}
-        #: Persistent all-zero scatter target for the router, decode only. See `_router_zeros_for`.
-        self._router_zeros = None
-        self._router_zeros_shape: tuple | None = None
+        #: Persistent all-zero scatter targets for the router, keyed by decode shape. See `_router_zeros_for`.
+        self._router_zeros: dict[tuple, object] = {}
         self.output_tile = ttnn.Tile([TILE, TILE])
 
     def _expert_mem(self, tokens: int):
@@ -1301,12 +1314,15 @@ class OptimizedMoE:
         shape = tuple(int(d) for d in logits.shape)
         if not self._decode_phase:
             return ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
-        if self._router_zeros is None or self._router_zeros_shape != shape:
-            if self._router_zeros is not None:
-                ttnn.deallocate(self._router_zeros)
-            self._router_zeros = ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
-            self._router_zeros_shape = shape
-        return self._router_zeros
+        # Keyed by shape and never freed. The first version replaced the buffer when the shape changed, which is
+        # a trace hazard rather than a leak: the logits shape is `[1, 1, align_up(batch, 32), num_experts]`, so it
+        # is stable for every batch up to 32 but changes at the supported 40 and 56, and a decode trace captured
+        # at one of those shapes would replay a scatter into a freed buffer - silently wrong routing weights, not
+        # an error. Review round 17 raised it before any test could. One tensor per distinct decode shape is at
+        # most a few kilobytes and the decoder holds them for its lifetime.
+        if shape not in self._router_zeros:
+            self._router_zeros[shape] = ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
+        return self._router_zeros[shape]
 
     # ---------------- router ----------------
     def routing_weights(self, x):

@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.3 µs | **column** wins by 19.0 µs, beyond the ±0.7 µs spread |
-| 8 active | down | **152.9 µs** | 171.9 µs | **column** wins by 19.0 µs, beyond the ±0.5 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.0 µs** | 579.3 µs | **column** wins by 11.3 µs, beyond the ±0.6 µs spread |
-| 162 active | down | 343.3 µs | **341.8 µs** | **row** wins by 1.5 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.4 µs | **column** wins by 2.0 µs, beyond the ±0.7 µs spread |
-| 64 active | down | 284.6 µs | **278.0 µs** | **row** wins by 6.6 µs, beyond the ±0.7 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.4 µs** | 172.2 µs | **column** wins by 18.8 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.7 µs** | 172.0 µs | **column** wins by 19.3 µs, beyond the ±0.5 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.2 µs** | 578.9 µs | **column** wins by 10.7 µs, beyond the ±1.0 µs spread |
+| 162 active | down | 343.2 µs | **341.7 µs** | **row** wins by 1.5 µs, beyond the ±1.0 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.7 µs | **column** wins by 2.2 µs, beyond the ±1.0 µs spread |
+| 64 active | down | 284.8 µs | **280.4 µs** | **row** wins by 4.4 µs, beyond the ±0.4 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -858,7 +858,7 @@ vLLM or serving process was started at any point.
 
 ## 6. Review rounds and checkpoint
 
-Fifteen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
+Seventeen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
 
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
@@ -1662,6 +1662,27 @@ called this "the fusing stage"; and §4.19 above still described round 15's dead
 while this section had no entries for the two rounds that found shipped-code work. All three are fixed, and the
 first now has the test it needed: a decoder built under the shipped policy but handed a bfloat16 cache must resolve
 a legal chunk *and* prefill a full chunk with it.
+
+**Round 17** returned `more-work-needed` with one item and two concerns, and the item is the clearest example in
+the stage of why an op-level number is not a decision. `DECODE_MATMUL_GEOMETRY` shipped `shared_in` at a target of
+80 — an 88-core grid for a projection whose `Nt` is 33 tiles — where the probe measures 32 (a 33-core grid)
+several microseconds faster, beyond that row's spread, while this table's own docstring claimed every entry was
+the measured winner and README §5.4's prose called the ladder "flat enough" there. The ladder is not flat: the
+24/32/64 targets and the 48/80/96/110 targets sit in two clearly separated groups.
+
+Taken, and the layer says something different from the probe *again*: alternating four timed runs, traced decode
+is **unchanged** to the microsecond on both layer kinds. So it ships as the swept winner at no measured layer cost
+— not as a win — for the same reason the SDPA grid does. Where an op-level gap and a layer measurement disagree,
+the layer is what ships; and a table whose docstring says "measured winner" should not contain an entry its own
+artifact refutes.
+
+The concern worth acting on immediately was mine, from round 15. `_router_zeros_for` kept **one** persistent
+scatter target and replaced it when the shape changed. The routing-logits shape is stable for every batch up to 32
+and changes at the supported 40 and 56, so a decode trace captured at one of those shapes and replayed after the
+other would have scattered into a freed buffer — silently wrong routing weights, not an error, and no test would
+have caught it because every trace site in the suite uses one batch. It is keyed by shape and never freed now.
+That is a hazard this stage introduced two rounds ago while removing two ops, found by reading rather than by
+failing, which is the argument for the review rounds continuing past the point where the gates are green.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits
