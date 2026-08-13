@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.1 µs | **column** wins by 18.8 µs, beyond the ±0.6 µs spread |
-| 8 active | down | **152.6 µs** | 172.1 µs | **column** wins by 19.5 µs, beyond the ±0.3 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **571.2 µs** | 579.4 µs | **column** wins by 8.2 µs, beyond the ±4.6 µs spread |
-| 162 active | down | 346.1 µs | **342.1 µs** | **row** wins by 4.0 µs, beyond the ±1.2 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 388.0 µs | **column** wins by 2.5 µs, beyond the ±0.3 µs spread |
-| 64 active | down | 284.7 µs | **277.6 µs** | **row** wins by 7.1 µs, beyond the ±1.3 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.2 µs | **column** wins by 18.9 µs, beyond the ±0.6 µs spread |
+| 8 active | down | **152.9 µs** | 171.5 µs | **column** wins by 18.6 µs, beyond the ±0.3 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **570.9 µs** | 579.3 µs | **column** wins by 8.4 µs, beyond the ±0.7 µs spread |
+| 162 active | down | 345.3 µs | **342.2 µs** | **row** wins by 3.1 µs, beyond the ±1.0 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.6 µs** | 387.5 µs | **column** wins by 1.9 µs, beyond the ±0.8 µs spread |
+| 64 active | down | 284.7 µs | **277.6 µs** | **row** wins by 7.1 µs, beyond the ±1.1 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -787,7 +787,7 @@ the grid, so a *larger* `q_chunk` means fewer pairs and lower occupancy: at thei
 only about a fifth of it, and they measured 256 substantially slower — occupancy-bound, and their inherited value
 was already optimal. (Their figures are theirs, measured on their model, so they are described here rather than
 quoted as if this stage's artifacts contained them.) At this stage's 16 heads the same formula saturates the grid at every chunk below 256 and still puts 256
-at 58 %, yet 256 is nearly three times *faster* than 64. Both are consistent: occupancy binds until the grid
+at 58 %, yet 256 is about twice as *fast* as 64. Both are consistent: occupancy binds until the grid
 fills, and past that only per-core efficiency moves. The rule that survives both shapes is "raise occupancy until
 the grid fills, then raise the chunk"; the rule that would have hurt either of us is "smaller `q_chunk` is
 better", which is what an occupancy model alone suggests.
@@ -858,7 +858,7 @@ vLLM or serving process was started at any point.
 
 ## 6. Review rounds and checkpoint
 
-Eighteen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
+Nineteen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
 
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
@@ -1672,8 +1672,8 @@ Changed to 32, and then **round 18 found the justification wrong**, which is wor
 change itself. Re-derived from the committed artifact, the `shared_in` ladder at the shipped `in0_block_w` is flat
 within noise across every target from 24 to 110 — and the slower band round 17 cited belongs to the
 `in0_block_w=8` rows, which are flat across core count as well. There was no core-count split to be on the wrong
-side of. The layer A/B had already said as much: four alternating timed runs, traced decode unchanged to the
-microsecond on both kinds.
+side of. The layer A/B had already said as much: four alternating timed runs moved traced decode by nothing
+measurable on either kind.
 
 So the entry stays at 32 for a structural reason rather than a measured one — it names exactly `Nt` cores instead
 of 88 — and both the code comment and README §5.4 now say that. Two rounds spent on a constant that does not move
@@ -1709,6 +1709,31 @@ Also corrected: two magnitude words that had drifted from their artifacts ("tens
 whole-layer A/B, and "a couple of percent" for a figure that is a fraction of one), and the second of the two
 `in1_bytes` fallbacks, which round 17 fixed in one lookup and left at bfloat16's 2.0 in the other — the direction
 that under-models and lets program construction throw.
+
+**Round 19** returned `more-work-needed` with three items, all documentation fidelity, and all of one kind:
+a magnitude word that was true of an older artifact and never re-derived after the artifact changed.
+
+The prefill-SDPA ratio is the clearest. "Nearly three times slower" was *correct* when round 14 wrote it — the
+probe then measured bfloat16 K/V with no compute-kernel config. Round 15 rewrote that probe to the shipped
+contract, the 64-arm's time dropped by a third, and the ratio has been about two ever since, through four rounds
+including round 18's explicit sweep for exactly this kind of drift. It is stated as measured now, and the
+implementation's docstring carries no ratio at all — a ratio moves on every re-run, and README §1 already says
+this file quotes no run-varying absolute.
+
+That invariant is the second item, and it is the sharper one: round 18's own replacement text for the `shared_in`
+comment reintroduced two absolute microsecond bands into the implementation, one round after the round convened
+to remove exactly that. Both are gone; the entry's argument is structural and needs no figures. A stated
+invariant is only worth what the next edit respects, and this stage has now broken this one twice and repaired
+it twice.
+
+Third, README §5.4 claimed the shipped row's output block/subblock were asserted. Round 18 closed two thirds of
+that sentence (the grid and `per_core_N`) and left the last third overclaiming. Rather than narrow the sentence,
+the assertion now exists: the output subblock follows deterministically from `per_core_N`, the M tiles and the
+dest-register budget, so the test derives it and asserts it, and the sentence is true as written.
+
+Also corrected: `SPARSE_CORES_PER_ACTIVE`'s docstring said the 8-core form is ~4x slower at the prefill group
+where the artifact has always said about twice; and the `shared_in` entry's layer A/B, which was run in the loop
+but never committed as an artifact, no longer reads as though a committed measurement backs it.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

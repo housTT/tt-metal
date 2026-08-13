@@ -511,7 +511,7 @@ class OrnithFusedRope(LightweightModule):
 #: ``active_experts`` K-sweeps per output block, so the useful core count tracks the *active* expert
 #: count, not ``Nt``: at 8 active experts (batch-1 decode) eight cores with ``per_core_N`` 4/8 and
 #: matching output blocks beat the 32/64-core 1x1 form by ~40 %, while at ~162 (a 32-token prefill
-#: group, the expected distinct union of 256 draws from 256 experts) the 8-core form is ~4x slower.
+#: group, the expected distinct union of 256 draws from 256 experts) the 8-core form is roughly twice as slow.
 #:
 #: ``doc/optimized_decoder/logs/probe_sparse_matmul.txt`` sweeps grid, ``in0_block_w``, output
 #: block/subblock width and output placement at 8 / 32 / 64 / 162 active experts under the selected
@@ -688,11 +688,13 @@ DECODE_MATMUL_GEOMETRY = {
     # 32, not 80, and the reason is structural rather than measured. `Nt` is 33 tiles, so a target of 80 names an
     # 88-core grid in which 55 cores never receive an output tile, while 32 realises 11x3 = 33 - exactly one core
     # per tile. At the shipped `in0_block_w` the op ladder is **flat within noise** across every target from 24 to
-    # 110 (9.5-10.2 us, and the 32-core row carries the widest spread of the lot), and the whole-layer A/B is
-    # unchanged to the microsecond, so this is not a latency claim.
+    # 110, and a whole-layer A/B moved nothing measurable, so this is not a latency claim. No figures here: README
+    # §1 states as an invariant that this file quotes no run-varying absolute timing, and round 18's replacement
+    # text broke that invariant within one round of the round that existed to enforce it. The ladder is in
+    # `logs/probe_dense_matmul.txt` and README §5.4's generated table reads it.
     #
     # Review round 17 changed this entry on a claim of a 3.1 us op-level win, and round 18 found that claim wrong:
-    # the 12.8-13.3 band it cited is the `in0_block_w=8` rows, which are flat across core count too, not a
+    # the slower band it cited is the `in0_block_w=8` arm, which varies little across core count itself, not a
     # core-count split. Both targets are defensible on the measurements; this one is kept because naming exactly
     # `Nt` cores is the honest spelling of what the op can use, and because README §5.4's generated table then has
     # no row whose shipped geometry differs from the sweep's winner by more than that row's own spread.
@@ -2357,8 +2359,9 @@ class OptimizedDecoder(LightweightModule):
 
         The cap is `PREFILL_SDPA_CHUNK`, measured rather than inherited. This config was the one knob the stage
         shipped unswept - README §9 item 7 disclosed it as a real gap and review round 14 called that deferred
-        work, correctly - and sweeping it (`logs/probe_prefill_sdpa.txt`) found the fused stage's 64 nearly three
-        times slower than 256 at the shipped 2048-token chunk. The clamps below are contract, not tuning:
+        work, correctly - and sweeping it (`logs/probe_prefill_sdpa.txt`) found the fused stage's 64 markedly
+        slower than the 256 shipped here; work_log §4.19 reads the ladder, which is where a ratio belongs because
+        a re-run moves it and a comment cannot be regenerated. The clamps below are contract, not tuning:
         `q_chunk` has to divide a non-zero resume offset, and neither chunk may exceed the physical length.
 
         The wide-cache clamp reads the **attached cache's own dtype**, not `policy.kv_cache_dtype`. Those two can

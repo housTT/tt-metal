@@ -91,11 +91,23 @@ LARGEST_SUPPORTED_DECODE_BATCH = 56
 #: ``test_decode_runs_the_tuned_program_configs`` asserts against the four token-mixer roles.
 MOE_DECODE_SHAPES = {(2048, 1056), (512, 2048), (2048, 256)}
 
+
 #: ``(layer kind, K, N) -> role`` for the dense decode matmuls the spy sees, so the test can look each one's
 #: shipped target up in `DECODE_MATMUL_GEOMETRY` and assert the grid the layer built from it. The layer kind is
 #: part of the key because `o_proj` and `gdn_out` are both 4096x2048 and have **different** targets (16 and 24):
 #: the first draft of this map assumed one entry served both, and the assertion caught it immediately, which is
 #: the assertion doing its job before it ever guarded a regression.
+def _decode_uses_fp32_acc(cfg) -> bool:
+    """Whether a built 1D decode config accumulated in fp32, which halves the dest-register budget.
+
+    The five dense decode roles this test sees all run the dense compute-kernel config, which does not enable
+    fp32 destination accumulation; the recurrent-state matmuls that do are a different family and go through
+    `ttnn.matmul`, so the spy never sees them. Expressed as a function rather than a constant so the expectation
+    follows the config if that ever changes.
+    """
+    return False
+
+
 _DECODE_ROLE_BY_SHAPE = {
     ("full_attention", 2048, 9216): "attn_in",
     ("full_attention", 4096, 2048): "o_proj",
@@ -2066,6 +2078,19 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         ), (
             f"dense decode matmul {k}x{n} built grid {cfg.compute_with_storage_grid_size} from target {target}; "
             f"the rule fills the x axis first, so it must be {cols}x{expected_rows}"
+        )
+        # The output subblock, which README §5.4 has claimed all along and nothing asserted until review round 19
+        # pointed at the last third of that sentence. The rule is deterministic: the largest divisor of
+        # `per_core_N` within the dest-register budget, and then the largest divisor of the M tiles that still
+        # fits beside it. `fp32_acc` halves the budget, so the expectation reads the config's own accumulation
+        # mode rather than assuming the dense default.
+        cap = 4 if _decode_uses_fp32_acc(cfg) else 8
+        expected_sub_w = max(i for i in range(1, cap + 1) if cfg.per_core_N % i == 0)
+        expected_sub_h = max(i for i in range(1, cap + 1) if rows % i == 0 and i * expected_sub_w <= cap)
+        assert (cfg.out_subblock_w, cfg.out_subblock_h) == (expected_sub_w, expected_sub_h), (
+            f"dense decode matmul {k}x{n} has out_subblock {cfg.out_subblock_h}x{cfg.out_subblock_w}; the rule "
+            f"gives {expected_sub_h}x{expected_sub_w} at per_core_N={cfg.per_core_N}, {rows} M tiles and a "
+            f"{cap}-half-tile dest budget"
         )
         assert cfg.per_core_N * cols * expected_rows >= -(-n // 32), (
             f"dense decode matmul {k}x{n} has per_core_N={cfg.per_core_N} on "
