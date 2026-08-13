@@ -7,13 +7,13 @@ and both were measured only at the op. Round 9's finding was not that either is 
 shipped value was the *swept loser* with no document recording the gap. An op-level microsecond does not
 have to survive at the layer, so this measures the layer:
 
-**SDPA decode grid.** `probe_decode_micro.txt` puts `8x4` ahead of the shipped `8x8` by 0.8-1.0 us in both
+**SDPA decode grid.** `probe_decode_micro.txt` puts `8x4` about a microsecond ahead of the shipped `8x8` in both
 sections at the shipped chunk pair and compute-kernel contract, at identical PCC. Only `full_attention` has an
 SDPA at all. This arm measures a dead heat, and the candidate is rejected for a reason no timing harness could
 have found: flash-decode assigns one core per batch row (`TT_FATAL(num_cores_available >= B)`), so 32 cores cap
 decode at batch 32 and the supported batch-40/56 cases die inside the op. The arm is kept because "the swept
 winner buys nothing at the layer even before it breaks a capability" is the complete answer, and because a
-future reader will find the same 0.9 us in the probe.
+future reader will find the same microsecond in the probe.
 
 **Routed `down` grid orientation.** `probe_sparse_matmul.txt` puts the row rectangle `8x4` ahead of the
 shipped column `4x8` by 1.6 us at the ~162-active prefill group, the only shipped geometry where `down`

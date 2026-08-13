@@ -494,17 +494,30 @@ def shipped_configs(phase: str) -> dict:
     transcription of the constants. Round 4's P1 was a search table disagreeing with the running layer;
     keying the table off this line is what makes that disagreement impossible to write down.
     """
+    # Pinned to the batch-1 line, and order-independent. The config test is parametrised over batches now
+    # (round 11), so the log carries one line per batch and they differ: at batch 5 `o_proj`'s in0_block_w is
+    # 8 rather than 16, because the in0 budget is divided by the tile rows. Round 12 found this loop keeping
+    # the *last* line, so §5.4 named the batch-5 geometry as shipped and reported the batch-1 winner as a gap
+    # the tuned target does not have. These tables describe the tuned batch-1 target, so they say so.
     out = {}
+    seen_batches = set()
     for line in read(LOGS / "pytest_full_suite.txt").splitlines():
         if f"{phase} dense matmuls layer=" not in line:
             continue
+        batch_m = re.search(r"batch=(\d+)", line)
+        if batch_m:
+            seen_batches.add(batch_m.group(1))
+            if batch_m.group(1) != "1":
+                continue
         kind_m = re.search(r"layer=\d+ \((\w+)\)", line)
         if not kind_m:
             continue
         for item in line.split(":")[-1].split(","):
             m = re.search(r"(\d+)x(\d+) (grid=\S+ in0_block_w=\d+.*)", item.strip())
             if m:
-                out[(kind_m.group(1), int(m.group(1)), int(m.group(2)))] = m.group(3).strip()
+                # setdefault, not assignment: with the pin above this sees only batch 1, but a log written
+                # before the pin existed carries several lines, and last-write-wins is what made round 12's P1.
+                out.setdefault((kind_m.group(1), int(m.group(1)), int(m.group(2))), m.group(3).strip())
     return out
 
 
@@ -1312,19 +1325,21 @@ def block_watcher_result():
             f"**{fatal.group(1)} matches**."
         )
     stack = re.search(r"minimum stack headroom:\s*(\d+) bytes free over (\d+) detail", census)
-    summaries = re.search(r"^\s*(\d+)\s+stack usage summary\s*$", census, re.M)
-    dumps = re.search(r"^dumps: (\d+)$", census, re.M)
+
+    def fact(name: str) -> str:
+        found = re.search(rf"^{name}: (\d+)$", census, re.M)
+        return found.group(1) if found else "?"
+
     if stack:
-        # The census counts *detail lines* - one per RISC processor of the core that recorded a watermark -
-        # not dumps, and the generator used to re-render that count as "dump(s)". Review round 11 caught it:
-        # the evidence is one summary inside one dump, five processors, so the tightest figure is a single
-        # sample rather than the floor of five. Firmware only emits a summary where it recorded a watermark,
-        # so the breadth is not this stage's choice, but the sentence has to say which is which.
+        # Every field here is a *counted* fact from the census, not one count reused as another. Round 11 found
+        # this sentence rendering the detail-line count as a dump count; round 12 found the replacement
+        # rendering the same count as a processor count and claiming one reporting core where the log has two.
+        # The tightest figure is a minimum over all the detail lines, which is what it now says.
         text += (
-            f" Watcher recorded a stack watermark in {summaries.group(1) if summaries else '?'} of its "
-            f"{dumps.group(1) if dumps else '?'} dumps, across {stack.group(2)} RISC processors of the one "
-            f"core that reported; the tightest leaves {stack.group(1)} bytes free, which is that single "
-            f"sample rather than a measured floor across the run."
+            f" Watcher recorded a stack watermark in {fact('stack summaries')} of its {fact('dumps')} dumps, "
+            f"across {fact('stack processors per summary')} RISC processors on each of "
+            f"{fact('stack reporting cores')} cores; the tightest of those {stack.group(2)} samples leaves "
+            f"{stack.group(1)} bytes free."
         )
     return (
         text + "\n\nArtifacts: [`watcher/watcher_log.txt.gz`](watcher/watcher_log.txt.gz), "
@@ -1442,6 +1457,34 @@ TOPOLOGY_AUDIT = {
             ),
         ),
         (
+            "MatmulDeviceOperation 32 x 2048 x 1056",
+            "`MatmulDeviceOperation 32 x 2048 x 1056`",
+            (
+                "the shared expert's packed gate/up projection",
+                "explicit config; BFP8 weights",
+                "**explicit config + BFP8 taken** (§3.5); it also shares the MoE's L1 bound",
+            ),
+        ),
+        (
+            "UntilizeWithUnpaddingDeviceOperation",
+            "`UntilizeWithUnpadding` (all launches)",
+            (
+                "the untilize half of three composite calls: the router scatter, the GQA head expansion and "
+                "the `topk` index readback",
+                "no tile-native form at these shapes",
+                "**itemised, not removed** — README §6 splits it per call",
+            ),
+        ),
+        (
+            "NLPCreateQKVHeadsDecodeDeviceOperation",
+            "`NLPCreateQKVHeadsDecodeDeviceOperation`",
+            (
+                "the dedicated QKV head split",
+                "inherited from the fused stage",
+                "unchanged; falls back to the functional spelling above 32 users",
+            ),
+        ),
+        (
             "SdpaDecodeDeviceOperation",
             "`SdpaDecodeDeviceOperation`",
             (
@@ -1526,7 +1569,16 @@ def fused_op_totals(kind: str) -> dict:
 
 
 def topology_time(kind: str, code: str) -> str:
-    """One cell of the audit table: a single op code, or a ``+``-joined chain summed as one."""
+    """One cell of the audit table: a single op code, or a ``+``-joined set of op codes summed as one.
+
+    The sum is over **every launch of those op codes in the step**, which is the right unit for this table —
+    §2 ranks what a step spends per op code, and an op code is what a later change removes or replaces. Round
+    12 pointed out that two rows were *labelled* as if they named a single call: the head-expansion row's op
+    codes are also used by the router's scatter, so this figure is not what one `repeat_interleave` costs. The
+    labels say "all launches" now, and README §6's generated block carries the per-call figures. Those two rows
+    could not be summed positionally in any case — the relayout's `ReshapeView` and `Permute` launches sit 68
+    ops apart in the step.
+    """
     totals = fused_op_totals(kind)
     parts = code.split("+")
     if any(p not in totals for p in parts):
@@ -1622,6 +1674,11 @@ def _shipped_sparse_ibw() -> dict:
     # "no probe row at the shipped geometry".
     for phase, marker in (("narrow", "decode sparse matmuls"), ("wide", "prefill sparse matmuls")):
         for line in read(LOGS / "pytest_full_suite.txt").splitlines():
+            # Same batch pin as `shipped_configs`: the decode line is logged per batch now, and only batch 1 is
+            # the tuned target these tables describe. The `break` below made this correct by ordering alone.
+            batch_m = re.search(r"batch=(\d+)", line)
+            if batch_m and batch_m.group(1) != "1":
+                continue
             if marker not in line:
                 continue
             found = re.findall(r"in0_block_w=(\d+)", line[line.index(marker) :])
@@ -1756,10 +1813,27 @@ def block_topology_audit(kind: str) -> str:
         else ("| Op code | µs/step | What it is | Action |")
     )
     rule = "| --- | --- | --- | --- | --- | --- |" if ranked else "| --- | --- | --- | --- |"
+    # Ordered by the generated time, not by the order the rows are listed in: the `Rank` column and the prose's
+    # "sorted by device time" described the hand-written list, and round 12 found the two had drifted apart.
+    entries = [(label, rest, float(topology_time(kind, code))) for code, label, rest in TOPOLOGY_AUDIT[kind]]
+    entries.sort(key=lambda e: -e[2])
     lines = [head, rule]
-    for index, (code, label, rest) in enumerate(TOPOLOGY_AUDIT[kind], start=1):
-        cells = ([str(index)] if ranked else []) + [label, topology_time(kind, code), *rest]
+    for index, (label, rest, us) in enumerate(entries, start=1):
+        cells = ([str(index)] if ranked else []) + [label, f"{us:.1f}", *rest]
         lines.append("| " + " | ".join(cells) + " |")
+    # What the table does not list, disclosed rather than left for a reader to notice: round 12 found three op
+    # codes above this table's smallest row missing, with no stated inclusion rule. Those three are rows now,
+    # and everything below them is this line, so the column accounts for the whole step.
+    totals = fused_op_totals(kind)
+    listed = {part for code, _, _ in TOPOLOGY_AUDIT[kind] for part in code.split("+")}
+    rest_codes = {k: v for k, v in totals.items() if k not in listed}
+    floor = min(us for _, _, us in entries)
+    cells = ([""] if ranked else []) + [
+        f"*the other {len(rest_codes)} op codes, each under {floor:.1f} µs/step*",
+        f"{sum(rest_codes.values()):.1f}",
+        *(["—"] * len(entries[0][1])),
+    ]
+    lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 

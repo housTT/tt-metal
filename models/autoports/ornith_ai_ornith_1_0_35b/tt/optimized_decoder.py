@@ -557,9 +557,11 @@ def _sparse_matmul_config(
     # * batch-1 decode, 8 active experts, both roles (the tuned decode point): the column wins by ~12 %.
     #   Decisive, and the largest orientation effect anywhere in the sweep.
     # * a 32-token prefill group, ~162 active, `gate_up`: the column wins by about 2 %.
-    # * the same group's `down`: the *row* wins, by half a percent, several times its measured spread. This is
-    #   the one shipped geometry where `down` reaches 32 cores at all - 64 active, the largest supported decode
-    #   batch, realises 16 - and the probe's 64-active/32-core `down` rows agree with it.
+    # * the same group's `down`: the *row* wins, by half a percent, several times its measured spread. Among the
+    #   *tuned* geometries this is the only one where `down` reaches 32 cores - the largest tuned decode batch,
+    #   8, gives a 64-expert bound and realises 16 - though an untuned decode batch of 32 or more saturates the
+    #   active bound at 256 and reaches 32 cores too. Review round 12 corrected this comment, which said 64
+    #   active was the largest supported decode batch rather than the largest tuned one.
     # * `gate_up` at 32 cores: the row is ahead at 64 active, i.e. the opposite sign from the same key's
     #   prefill point above, where the column leads by an order of magnitude more.
     #
@@ -1602,7 +1604,7 @@ class OptimizedDecoder(LightweightModule):
         #: correctness with that evidence, and 64 — one k-chunk per page — stays.
         #:
         #: The grid is the one axis of this config that is **not** a latency knob, and both the sweep and
-        #: review round 9 misread it. `8x4` is the measured winner across 8x4 / 8x8 / 4x8 / 11x10, about 1.5 %
+        #: review round 9 misread it. `8x4` is the measured winner across 8x4 / 8x8 / 4x8 / 11x10, a microsecond
         #: ahead of this 8x8 at identical PCC, and at the layer the two are a dead heat because SDPA is ~2 % of
         #: a decode step (`logs/ab_sdpa_decode_grid.txt`). Round 9 found nothing recorded that gap, which was
         #: fair. Taking it was still wrong, and the suite is what said so: **flash-decode assigns at least one
@@ -1610,7 +1612,7 @@ class OptimizedDecoder(LightweightModule):
         #: `sdpa_decode_program_factory.cpp:191`), so a 32-core grid caps decode at batch 32 and the supported
         #: batch-40 and batch-56 cases die inside the op. The grid therefore encodes the largest decode batch
         #: the layer can serve, and 8x8's 64 cores are chosen to cover the 56 the tests exercise - not for
-        #: latency, which is why that ~1.5 % goes unclaimed. 11x10 clears the bound too and is slower, so this
+        #: latency, which is why that microsecond goes unclaimed. 11x10 clears the bound too and is slower, so this
         #: is also the fastest *legal* grid. `test_decode_runs_the_tuned_program_configs` asserts the relation
         #: rather than the literal, so the "free win" cannot be re-taken by inspection.
         self.decode_sdpa_config = ttnn.SDPAProgramConfig(

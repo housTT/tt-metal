@@ -65,14 +65,18 @@ step, `full_attention`, sorted by device time — this is the table the whole st
 | 2 | `SparseMatmul active=?/256 x 32 x 512 x 2048` | 343.8 | routed-expert down | same | **all four taken** |
 | 3 | `UnaryDeviceOperation` | 270.1 | ~99 % `UnaryOpType::FILL` — `sparse_matmul` zeroing its 256-expert-wide output | move the output to L1; halve its dtype | **taken** (§3.2, §3.3) |
 | 4 | `BinaryNgDeviceOperation` | 139.8 | SwiGLU multiply + router-score multiply, both over the 256-expert axis | L1 + BFP8 intermediates | **taken** (§3.2, §3.3) |
-| 5 | `MatmulDeviceOperation 32 x 4096 x 2048` | 73.9 | `o_proj` — flagged `SLOW`, 23.2 % of DRAM bandwidth | explicit decode program config; DRAM-sharded | **explicit 1D config taken**, DRAM-sharded measured and rejected (§4.1) |
-| 6 | `SliceDeviceOperation` | 109.3 | mostly the two slices that unpack the packed gate/up output | split the pair instead; L1 + BFP8 | **packed kept** (§4.2), L1+BFP8 taken |
-| 7 | `MatmulDeviceOperation 32 x 2048 x 9216` | 95.6 | packed attention in-projection | explicit config; BFP8/BFP4 weights | **BFP8 + explicit config taken**, BFP4 measured (§4.6) |
-| 8 | `TopKDeviceOperation` | 48.3 | router top-8 over 256 experts, single core | pad to the multi-core width; replace the gate op | **both measured and rejected** (§4.3, §4.4) |
+| 5 | `SliceDeviceOperation` | 109.3 | mostly the two slices that unpack the packed gate/up output | split the pair instead; L1 + BFP8 | **packed kept** (§4.2), L1+BFP8 taken |
+| 6 | `MatmulDeviceOperation 32 x 2048 x 9216` | 95.6 | packed attention in-projection | explicit config; BFP8/BFP4 weights | **BFP8 + explicit config taken**, BFP4 measured (§4.6) |
+| 7 | `DeepseekMoEFastReduceNC` | 92.0 | expert-axis reduction over the 256-wide down output | L1 + BFP8 input | **taken** |
+| 8 | `MatmulDeviceOperation 32 x 4096 x 2048` | 73.9 | `o_proj` — flagged `SLOW`, 23.2 % of DRAM bandwidth | explicit decode program config; DRAM-sharded | **explicit 1D config taken**, DRAM-sharded measured and rejected (§4.1) |
 | 9 | `LayerNormDeviceOperation` | 51.0 | four RMSNorms; the two residual ones run on **one core** | width-sharded L1 + `LayerNormShardedMultiCoreProgramConfig` | **taken** (§3.6) |
-| 10 | `MatmulDeviceOperation 32 x 2048 x 256` | 25.5 | router projection, 8 cores, 9.4 % of DRAM bandwidth | explicit config | **taken** (§3.5) |
-| 11 | `DeepseekMoEFastReduceNC` | 92.0 | expert-axis reduction over the 256-wide down output | L1 + BFP8 input | **taken** |
-| 12 | `SdpaDecodeDeviceOperation` | 17.6 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
+| 10 | `TopKDeviceOperation` | 48.3 | router top-8 over 256 experts, single core | pad to the multi-core width; replace the gate op | **both measured and rejected** (§4.3, §4.4) |
+| 11 | `MatmulDeviceOperation 32 x 2048 x 1056` | 31.3 | the shared expert's packed gate/up projection | explicit config; BFP8 weights | **explicit config + BFP8 taken** (§3.5); it also shares the MoE's L1 bound |
+| 12 | `MatmulDeviceOperation 32 x 2048 x 256` | 25.5 | router projection, 8 cores, 9.4 % of DRAM bandwidth | explicit config | **taken** (§3.5) |
+| 13 | `UntilizeWithUnpadding` (all launches) | 23.3 | the untilize half of three composite calls: the router scatter, the GQA head expansion and the `topk` index readback | no tile-native form at these shapes | **itemised, not removed** — README §6 splits it per call |
+| 14 | `NLPCreateQKVHeadsDecodeDeviceOperation` | 19.3 | the dedicated QKV head split | inherited from the fused stage | unchanged; falls back to the functional spelling above 32 users |
+| 15 | `SdpaDecodeDeviceOperation` | 17.6 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
+|  | *the other 18 op codes, each under 17.6 µs/step* | 105.8 | — | — | — |
 <!-- /generated:topology-audit-full -->
 
 `linear_attention` shares the whole MoE and the norms with the table above; what differs is the
@@ -87,6 +91,7 @@ mixer, and its own top items (from the same capture set, per traced step) are:
 | `ReshapeViewDeviceOperation` + `PermuteDeviceOperation` | 44.2 | the one-shot head-major relayout of the conv output | inherited from the fused stage, which already reduced it from three round trips to one |
 | `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` | 36.2 | `repeat_interleave`'s GQA head expansion | output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation |
 | `TernaryDeviceOperation` | 23.6 | the `addcmul` conv-tap accumulation | inherited; the fused stage measured `addcmul` against `mac` and kept it |
+| *the other 20 op codes, each under 23.6 µs/step* | 1629.8 | — | — |
 <!-- /generated:topology-audit-linear -->
 
 Structural observations from the same read, which drove §3.1 and §3.4:
@@ -319,7 +324,7 @@ Three findings, all kept as evidence:
   `k_chunk_size` is now pinned to `page_block_size` in code rather than to the literal 64.
 
 * the **grid is not a latency axis at all**, which took taking it to find out. `8x4` leads the shipped `8x8`
-  in both sections of [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — 60.0 vs 61.0 µs and
+  in both sections of [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — 60.1 vs 61.1 µs and
   60.1 vs 61.1 µs, at spreads of 0.1–0.2 and identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
   dead heat at the layer ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt); README §5.1's
   generated table carries every build of both arms, and the difference between the arms is smaller than one
@@ -468,7 +473,7 @@ Round 8 then asked the two questions that settle it, and both are now measured r
   ordering is not a property of the configuration. That is why the figures live in a generated block now and why
   the rejection below rests on the invariant rather than on either ordering. The advantage is real but exists
   only in the isolated op
-  ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), 56.5 against 61.0 µs). Worth stating plainly:
+  ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), 56.7 against 61.0 µs). Worth stating plainly:
   my first instinct here was right and I talked myself out of it on one run of a harness whose own repeats
   disagree by more than the effect.
 
@@ -655,17 +660,18 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.9 µs** | 172.3 µs | **column** wins by 18.4 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **153.0 µs** | 171.9 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **571.0 µs** | 579.2 µs | **column** wins by 8.2 µs, beyond the ±1.0 µs spread |
-| 162 active | down | 343.0 µs | **341.5 µs** | row nominally ahead, inside the ±1.6 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.2 µs** | 387.6 µs | **column** wins by 2.4 µs, beyond the ±0.2 µs spread |
-| 64 active | down | 286.6 µs | **277.8 µs** | **row** wins by 8.8 µs, beyond the ±1.2 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.5 µs | **column** wins by 19.0 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.6 µs** | 171.8 µs | **column** wins by 19.2 µs, beyond the ±1.0 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **571.0 µs** | 578.6 µs | **column** wins by 7.6 µs, beyond the ±1.2 µs spread |
+| 162 active | down | 346.2 µs | **344.5 µs** | **row** wins by 1.7 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.2 µs** | 387.3 µs | **column** wins by 2.1 µs, beyond the ±0.9 µs spread |
+| 64 active | down | 284.6 µs | **278.1 µs** | **row** wins by 6.5 µs, beyond the ±0.7 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
 shipped code really builds, under a key with no competing point: `down` reaches 32 cores only in prefill,
-because 64 active experts, the largest supported decode batch, realises 16. Review round 9 asked for exactly
+because the largest *tuned* decode batch, 8, gives a 64-expert bound that realises 16 — an untuned decode batch
+of 32 or more saturates the bound at 256 and does reach 32 cores, which review round 12 corrected here. Review round 9 asked for exactly
 that rule, and it is a one-line rule: `("down", 32) -> row`.
 
 **So it was implemented and measured end to end, and it loses.**
@@ -1069,7 +1075,7 @@ repeats the isolated ladder turns out to be *monotonic* — 4 fastest, then 8, 1
 non-monotonicity was single-shot noise, which is exactly what a spread exists to reveal. The new
 whole-layer A/B ([`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt)) then shows all of 4/8/16/32
 landing inside the layer harness's own run-to-run band, so it does not rank them. In the committed run the four
-arms span 0.869 to 0.871 ms on `full_attention` and 1.075 to 1.079 ms on `linear_attention` — a couple of
+arms span barely more than a microsecond on either layer kind — a couple of
 microseconds, with 8 nominally first on both. The *previous* run of the same file put 8 last on
 `linear_attention`, which is the point: this artifact resolves nothing, and any ranking read out of it is a
 reading of that run's noise. Review round 11 found this paragraph, the source comment and the A/B
@@ -1353,9 +1359,11 @@ The suggestion to add a decode batch in 5..8 was declined here on the grounds th
 `[1, 1, padded_tokens, dim]`; the four token-mixer roles (`attn_in`, `o_proj`, `gdn_in`, `gdn_out`) are called
 on `[batch, 1, dim]`, so `_physical_rows` returns `32 * batch` and **`per_core_M == batch`**. Simulating
 `_ProjectionConfigs.get` properly gives **eight** distinct tuned signatures over batches 1-8 — batch 5 is where
-`o_proj`'s `in0_block_w` drops from 16 to 8, because `DECODE_MATMUL_IN0_TILE_BUDGET // 5` is 12 — and batches 13
-upward build **no** tuned mixer config at all, since `m_tiles > DECODE_MATMUL_MAX_M_TILES`. So the suite's
-13/32/40/56 cases were never covering a second class of tuned config; they were covering the fallback.
+`o_proj`'s `in0_block_w` drops from 16 to 8, because `DECODE_MATMUL_IN0_TILE_BUDGET // 5` is 12 — and batch **9**
+upward builds no tuned mixer config at all, since `m_tiles > DECODE_MATMUL_MAX_M_TILES`. The three MoE roles are
+the other convention and stay tuned at every supported batch. So the suite's 13/32/40/56 cases were never
+covering a second class of tuned mixer config; they were covering the fallback. (This paragraph said "13 upward"
+until review round 12 drove the real selector and found the boundary one batch above the band, not five.)
 
 Two things follow, and both are done rather than argued. The coverage is real, so batches **5 and 8** are added
 to `test_batched_prefill_decode_pcc` (PCC at both, both layer kinds) and
@@ -1426,6 +1434,46 @@ Adding those arms also caught a latent generator defect of the class rounds 5-10
 *subset* of a row's fields, so the new arms — which carry an extra labelled field and are faster — satisfied
 every key the "shipped arm" lookup used, and would have quietly become the shipped figure in three README rows.
 `best()` takes an `absent=` list now, and the plain SDPA arms declare what they must not carry.
+
+**Round 12** returned `more-work-needed` with five items, four of them inside round 11's own fixes — which is
+the seventh consecutive round where the previous round's fix contained the next round's defect, and worth
+stating plainly rather than treating as bad luck: every one of those fixes replaced a *transcribed* figure with
+a *derived* one, and the derivations were what needed reviewing.
+
+* **P1 — README §5.4 named the batch-5 `o_proj` geometry as shipped.** Round 11 parametrised the config test
+  over batches 1 and 5, which added a second `decode dense matmuls` line to the suite log; `shipped_configs`
+  took the **last** line, so the table described batch 5's `in0_block_w` 8 and then reported the batch-1 winner
+  as a gap the tuned target does not have. The row reads "the measured winner" again. Both suite-log lookups
+  are pinned to `batch=1` explicitly now — the test logs the batch — and the assignment is `setdefault`, so
+  neither order nor a log written before the pin can decide it. Note what made this findable: round 11's own
+  asymmetry, where the sparse lookup `break`s on the first line and the dense one kept the last.
+* **P2 — "13 upward build none" was wrong in both directions.** Driving the real selector: the four token-mixer
+  roles stop at **batch 9**, and the three MoE roles never stop, because their activation is reshaped to one
+  tile of rows. So batches 9-12 were described as tuned when the mixer roles are not, and 13+ as untuned when
+  the MoE roles still are. Corrected in README §9 item 5 and above. The class is closed rather than the
+  instance: `test_documented_batch_thresholds` now asserts the boundary against the built layer, keyed on
+  `DECODE_MATMUL_MAX_M_TILES` rather than on a literal, for both layer kinds. Every threshold in that item is a
+  one- or two-digit integer, which the figure audit exempts from sourcing wholesale — this was the one class of
+  claim in the stage with nothing checking it, and it had produced a live wrong claim.
+* **P2 — work_log §2's generated audit tables had a rank order contradicting their own times**, because the
+  `Rank` column came from the hand-written list order while the times came from the capture, and two rows were
+  labelled as single *calls* while summing op codes across the step. Rows are ordered by the generated time
+  now; the two multi-code rows say "all launches" and README §6's generated block carries the per-call figures;
+  and the three op codes above the table's smallest row that were silently missing are rows, with a disclosed
+  remainder line for everything below — the same shape §5.3 and §7 already had.
+* **P2 — README §8's watcher sentence rendered the stack detail-line count as a processor count** and asserted
+  one reporting core where the log has two. Round 11 had rendered the same count as a *dump* count; the lesson
+  is that one number was being reused for three different questions. `census.py` emits `stack summaries`,
+  `stack processors per summary` and `stack reporting cores` as counted facts now, and the sentence reads them.
+* **P2 — §9 item 8 claimed no measured candidate is faster at the layer**, which the committed harness artifact
+  contradicts in the candidate's favour on every paired build of this sweep. Restated as "not *reliably*
+  faster": the arms have now swapped order between sweeps in both directions, inside each arm's own span. The
+  rejection is unchanged and rests on the `k_chunk == page_block_size` invariant.
+
+Also corrected: the claim, in three places including the shipped source comment, that 64 active experts is
+"the largest supported decode batch". It is the largest *tuned* one — an untuned decode batch of 32 or more
+saturates the active bound at 256 and does reach 32 `down` cores. The orientation rule was rejected on a
+whole-layer A/B, so nothing rides on it, but it was used to argue the rule had no competing point.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

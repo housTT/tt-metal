@@ -58,8 +58,10 @@ import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.reference import hf_reference as R
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     CONV1D_CHANNELS,
+    DECODE_MATMUL_MAX_M_TILES,
     DEFAULT_PREFILL_CHUNK,
     PREFILL_ALIGN,
+    TILE,
     OptimizedDecoder,
     num_blocks_for_context,
 )
@@ -921,6 +923,47 @@ def test_batched_decode_ragged_positions(mesh_device, layer_idx, batch):
         value = pcc(goldens[user], out[user : user + 1])
         logger.info(f"optimized ragged-position decode batch={batch} user={user} pos={length} PCC={value:.6f}")
         assert value > PCC_BAR, f"user {user} at position {length}: PCC {value} <= {PCC_BAR}"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_documented_batch_thresholds(mesh_device, layer_idx):
+    """The batch thresholds README §9 item 5 documents must be the ones the layer actually applies.
+
+    Every one of those thresholds is a two-digit or single-digit integer in prose, which the figure audit
+    exempts from sourcing wholesale — so they are the one class of claim in this stage that nothing checked.
+    Review round 12 found one of them wrong in both directions ("13 upward build none", where the token-mixer
+    roles stop at 9 and the MoE roles never stop), after round 10 had already declined test coverage on a
+    related mis-derivation. Asserting them against the built layer is the cheap mechanical closure.
+
+    The two activation conventions are the substance: the four token-mixer roles are called on
+    ``[batch, 1, dim]``, so ``per_core_M == batch`` and the tuned config stops one past the 8-tile cap; the
+    three MoE roles are called on ``[1, 1, align_up(tokens, 32), dim]``, so they stay tuned at every batch.
+    """
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
+    configs = decoder.proj_cfgs
+    mixer_role = "attn_in" if decoder.is_full_attention else "gdn_in"
+    k, n = decoder.cfg.dim, int(decoder.w[mixer_role].shape[-1])
+
+    def mixer(batch):
+        return configs.get(mixer_role, rows=batch * TILE, k=k, n=n, decode=True, fp32_acc=False)
+
+    top = DECODE_MATMUL_MAX_M_TILES
+    assert mixer(top) is not None, "the tuned decode configs must cover the top of the documented band"
+    assert mixer(top + 1) is None, (
+        f"batch {top + 1} must fall back: DECODE_MATMUL_MAX_M_TILES is {top} and per_core_M == batch for the "
+        f"token-mixer roles, so one more tile row exceeds the band README §9 item 5 documents"
+    )
+    for batch in (1, 5, top):
+        assert mixer(batch) is not None, f"batch {batch} is inside the documented band and must be tuned"
+    # The MoE convention: one tile of rows per call regardless of batch, so these never fall back.
+    router = configs.get("router", rows=TILE, k=decoder.cfg.dim, n=decoder.cfg.num_experts, decode=True, fp32_acc=False)
+    assert router is not None, "the MoE roles run on padded token rows and must stay tuned at every batch"
+    logger.info(
+        f"documented thresholds layer={layer_idx} ({LAYER_IDS[layer_idx]}): mixer tuned through batch {top}, "
+        f"none at {top + 1}; MoE roles tuned regardless of batch"
+    )
+    del decoder
 
 
 @pytest.mark.parametrize("layer_idx", [FULL_LAYER], ids=lambda i: LAYER_IDS[i])
@@ -1878,7 +1921,7 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         assert isinstance(cfg, ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig), f"{k}x{n}: {type(cfg)}"
         assert cfg.in0_block_w >= 2, f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w}"
     logger.info(
-        f"decode dense matmuls layer={layer_idx} ({LAYER_IDS[layer_idx]}): "
+        f"decode dense matmuls layer={layer_idx} ({LAYER_IDS[layer_idx]}) batch={decode_batch}: "
         + ", ".join(
             f"{k}x{n} grid={cfg.compute_with_storage_grid_size} in0_block_w={cfg.in0_block_w} "
             f"per_core_N={cfg.per_core_N} sub={cfg.out_subblock_h}x{cfg.out_subblock_w}"
@@ -1904,7 +1947,7 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         # assigns one core per batch row (`TT_FATAL(num_cores_available >= B)`,
         # `sdpa_decode_program_factory.cpp:191`), so the grid is what caps the servable decode batch. Review
         # round 9 took the swept-faster 32-core grid, and these two lines are what caught it — batches 40 and 56
-        # died inside the op. A future reader who re-derives "8x4 is 0.9 us faster" from the probe hits this.
+        # died inside the op. A future reader who re-derives "8x4 is faster" from the probe hits this assertion.
         grid = cfg.compute_with_storage_grid_size
         cores = int(grid.x) * int(grid.y)
         assert cores >= LARGEST_SUPPORTED_DECODE_BATCH, (
@@ -1968,7 +2011,7 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
             f"work_log §4.15)"
         )
     logger.info(
-        "decode sparse matmuls: "
+        f"decode sparse matmuls batch={decode_batch}: "
         + ", ".join(
             f"grid={cfg.compute_with_storage_grid_size} in0_block_w={cfg.in0_block_w} "
             f"per_core_N={cfg.per_core_N} out_block_w={cfg.out_block_w} sub_w={cfg.out_subblock_w}"

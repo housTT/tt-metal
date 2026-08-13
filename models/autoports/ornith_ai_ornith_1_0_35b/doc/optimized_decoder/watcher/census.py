@@ -47,6 +47,10 @@ LEGEND_PREFIXES = (
 )
 
 
+#: The core a stack-usage detail line belongs to, e.g. "on core 14-3".
+CORE = re.compile(r"on core \d+-\d+")
+
+
 def classify(line: str) -> str:
     if re.match(r"^Device \d", line):
         # One line per core per dump, carrying that core's status string - not one header per dump. Review
@@ -98,10 +102,16 @@ def main():
         # here would read as "no overflow" when it actually means "not measured".
         out.append("stack headroom: not reported in this log (no 'bytes free' lines)")
 
-    # A labelled dump count, because the `dump banner` bucket counts two lines per dump (an opening and a
-    # completion) and README §8 needs the denominator for "a watermark in 1 of N dumps". Round 11 found that
-    # sentence quoting a detail-line count as a dump count.
+    # Three labelled counts README §8 needs, because every one of them has been inferred wrongly from another:
+    # round 11 found the sentence quoting a detail-line count as a dump count, and round 12 found the
+    # replacement quoting the same count as a processor count and asserting one reporting core where the log
+    # has two. Each is now counted directly and named.
     out.append(f"dumps: {sum(1 for line in lines if re.match(r'^Dump #[0-9]+ at', line))}")
+    summaries = [line for line in lines if "Stack usage summary" in line]
+    details = [line for line in lines if "highest stack usage" in line]
+    out.append(f"stack summaries: {len(summaries)}")
+    out.append(f"stack processors per summary: {len(details) // len(summaries) if summaries else 0}")
+    out.append(f"stack reporting cores: {len({m.group(0) for m in (CORE.search(d) for d in details) if m})}")
 
     fatal = [line for line in lines if FATAL.search(line)]
     out.append(f"fatal-class matches: {len(fatal)}")
