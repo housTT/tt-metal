@@ -139,11 +139,20 @@ Cumulative traced decode, both layer kinds, `logs/bench.py`, batch 1:
 | 12 | recurrent-state matmul operands in L1 (review round 1, §3.9 item 2) | 0.857 | 1.074 |
 | 13 | GQA `repeat_interleave` output in L1 (§3.9 item 5) | 0.857 | 1.071 |
 | 14 | gated-DeltaNet output activation bfloat16 (§4.11) | 0.858 | 1.071 |
-| 15 | routed gate/up `in0_block_w` follows the active-expert bound (review round 6, §4.15) | **0.849** | **1.061** |
+| 15 | routed gate/up `in0_block_w` follows the active-expert bound (review round 6, §4.15) | 0.849 | 1.061 |
+| 16 | two float32 promotions folded into the producing multiply (review round 14, §4.19) | 0.849 | 1.044 |
+| 17 | the router's zero scatter-target hoisted out of the trace (review round 15, §4.19) | **0.846** | **1.038** |
+
+Rows 16 and 17 are `linear_attention`-weighted for the same reason: the folded promotions are in the
+recurrent-state path, which only that kind runs, and the hoisted target is shared by both but is a larger
+share of the longer step. The shipped level is README §5.2's generated table, always — this ladder records
+the path, and its rows are measurements of intermediate revisions that no artifact of the shipped code can
+contain.
 
 Warmed 2048-token prefill over the same steps: 243.44 → 96.89 ms (`full_attention`) and
-257.73 → 102.94 ms (`linear_attention`). Step 5 is the one that matters for prefill and it went the
-wrong way first — see §3.1.
+257.73 → 102.94 ms (`linear_attention`) by step 15, and lower again after rounds 14 and 15 moved the routed
+`in0` into L1 and made the prefill SDPA chunk reachable — README §5.2 has the shipped figures. Step 5 is
+the one that matters for prefill and it went the wrong way first — see §3.1.
 
 The shipped default is re-measured end to end after every change landed, and README §5.2's headline
 table is **generated** from that measurement
@@ -666,12 +675,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.3 µs | **column** wins by 19.1 µs, beyond the ±1.4 µs spread |
-| 8 active | down | **152.6 µs** | 171.9 µs | **column** wins by 19.3 µs, beyond the ±1.0 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.5 µs** | 580.1 µs | **column** wins by 11.6 µs, beyond the ±1.3 µs spread |
-| 162 active | down | 343.2 µs | **341.7 µs** | **row** wins by 1.5 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **386.2 µs** | 387.8 µs | column nominally ahead, inside the ±2.3 µs spread |
-| 64 active | down | 285.3 µs | **278.4 µs** | **row** wins by 6.9 µs, beyond the ±1.2 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **154.0 µs** | 172.3 µs | **column** wins by 18.3 µs, beyond the ±1.3 µs spread |
+| 8 active | down | **152.8 µs** | 171.9 µs | **column** wins by 19.1 µs, beyond the ±0.4 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **569.9 µs** | 582.0 µs | **column** wins by 12.1 µs, beyond the ±1.4 µs spread |
+| 162 active | down | 343.3 µs | **342.0 µs** | **row** wins by 1.3 µs, beyond the ±0.9 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **386.3 µs** | 388.3 µs | column nominally ahead, inside the ±5.0 µs spread |
+| 64 active | down | 284.9 µs | **277.3 µs** | **row** wins by 7.6 µs, beyond the ±1.2 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the

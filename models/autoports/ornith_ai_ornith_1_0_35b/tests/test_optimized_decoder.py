@@ -63,6 +63,9 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     DEFAULT_PREFILL_CHUNK,
     POLICIES,
     PREFILL_ALIGN,
+    PREFILL_SDPA_CHUNK,
+    PREFILL_SDPA_CHUNK_DEFAULT,
+    PREFILL_SDPA_CHUNK_WIDE_CACHE,
     TILE,
     OptimizedDecoder,
     num_blocks_for_context,
@@ -954,6 +957,42 @@ def test_every_shipped_policy_prefills_at_the_shipped_chunk(mesh_device, layer_i
     source = default_weight_source()
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, policy=POLICIES[policy_name])
     assert decoder.policy is POLICIES[policy_name], "the requested policy must reach the built layer"
+    # The RESOLVED program config, not just "it ran". Review round 15 found `PREFILL_SDPA_CHUNK` keyed on fields
+    # that no shipped policy matched, so every lookup missed, every policy silently took the conservative
+    # fallback, and the optimization the documents claimed was never in the binary. A legality table whose
+    # fallback is *legal* cannot be gated by a build-and-run test: 64 works everywhere, so nothing failed. This
+    # asserts the value the layer actually resolves for this policy against the table, and that the table has an
+    # entry at all — a policy falling through to the default is a policy nobody measured.
+    if decoder.is_full_attention:
+        assert policy_name in PREFILL_SDPA_CHUNK, (
+            f"policy {policy_name} has no PREFILL_SDPA_CHUNK entry, so it silently takes the conservative "
+            f"fallback {PREFILL_SDPA_CHUNK_DEFAULT}: every shipped policy must be measured, not defaulted"
+        )
+        resolved = decoder._prefill_sdpa_config(0, DEFAULT_PREFILL_CHUNK)
+        assert resolved.q_chunk_size == PREFILL_SDPA_CHUNK[policy_name], (
+            f"policy {policy_name} resolved q_chunk={resolved.q_chunk_size}, table says "
+            f"{PREFILL_SDPA_CHUNK[policy_name]}"
+        )
+        assert resolved.k_chunk_size == PREFILL_SDPA_CHUNK[policy_name], (
+            f"policy {policy_name} resolved k_chunk={resolved.k_chunk_size}, table says "
+            f"{PREFILL_SDPA_CHUNK[policy_name]}"
+        )
+        # And an override that widens the cache without changing the policy name must clamp: this is the exact
+        # case phase 3 of the sweep caught after round 15's fix keyed the table on the name alone.
+        wide = decoder.policy.replace(kv_cache_dtype=ttnn.bfloat16)
+        widened = OptimizedDecoder._prefill_sdpa_config(
+            type("_P", (), {"policy": wide, "device": decoder.device})(), 0, DEFAULT_PREFILL_CHUNK
+        )
+        assert widened.q_chunk_size <= PREFILL_SDPA_CHUNK_WIDE_CACHE, (
+            f"policy {policy_name} with a bfloat16 cache resolved q_chunk={widened.q_chunk_size}, above the "
+            f"{PREFILL_SDPA_CHUNK_WIDE_CACHE} that builds with a wide cache"
+        )
+        # And the resume-offset contract: a chunk starting at 128 must divide 128.
+        resumed = decoder._prefill_sdpa_config(128, DEFAULT_PREFILL_CHUNK)
+        assert 128 % resumed.q_chunk_size == 0, (
+            f"policy {policy_name} resolved q_chunk={resumed.q_chunk_size} at a 128-token resume offset, which "
+            f"the op requires to divide the offset"
+        )
     out = decoder.prefill_forward(
         to_device(mesh_device, make_activations(1, DEFAULT_PREFILL_CHUNK, seed=131)), page_table=page_table
     )

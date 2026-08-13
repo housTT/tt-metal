@@ -71,7 +71,7 @@
         56
       ],
       "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (functional stage: PCC 0.999895 - 0.999975; the fused stage's own range is in doc/fused_decoder/README.md §2.4, generated from its run). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid.",
-      "tested_batches_note": "1/4/13/32 are the functional stage's; 40 and 56 are added by the fused stage to cover the two fallbacks its dedicated decode ops need (nlp_create_qkv_heads_decode above 32 users, paged_fused_update_cache above 2*batch cores). Review round 11 added 5 and 8: per_core_M equals the batch for the four token-mixer roles, so every batch from 1 to 8 is a distinct tuned decode config class and 5 is where o_proj's in0_block_w narrows."
+      "tested_batches_note": "1/4/13/32 are the functional stage's; 40 and 56 are added by the fused stage to cover the two fallbacks its dedicated decode ops need (nlp_create_qkv_heads_decode above 32 users, paged_fused_update_cache above 2*batch cores). Review round 11 added 5 and 8: per_core_M equals the batch for the four token-mixer roles, so every batch from 1 to 8 is a distinct tuned decode config class and 5 is where o_proj's in0_block_w narrows. Batches 5 and 8 are asserted by the OPTIMIZED stage's suite only: they were added there because per_core_M equals the batch for the token-mixer roles, which is a property of the optimized decoder's tuned configs and not of the fused decoder, whose suite parametrises 4 and 32. So the fused_decoder.capability_note's 'every capability row is re-asserted by the identically named fused test' holds for every row that existed when it was written and not for these two - review round 15 caught the list growing under a claim that did not grow with it."
     }
   },
   "capacity_evidence": {
@@ -88,11 +88,12 @@
       "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 2 B",
       "moe_shared_and_router_weights": 7340032,
       "full_attention_projection_weights": 54525952,
-      "linear_attention_projection_weights": 67436544,
+      "linear_attention_projection_weights": 67371008,
       "deltanet_recurrent_state_batch1": 2097152,
       "deltanet_conv_state_batch1": 49152,
       "worst_case_layer_total": 2276982784,
-      "worst_case_layer_total_note": "2.12 GiB for a full_attention layer at the full 262144 context including its paged KV cache; 7% of the measured 31.75 GiB, so no DRAM-driven reduction is required. A linear_attention layer is smaller (no KV cache; 2 MiB recurrent + 48 KiB conv state per batch row)."
+      "worst_case_layer_total_note": "2.12 GiB for a full_attention layer at the full 262144 context including its paged KV cache; 7% of the measured 31.75 GiB, so no DRAM-driven reduction is required. A linear_attention layer is smaller (no KV cache; 2 MiB recurrent + 48 KiB conv state per batch row).",
+      "linear_attention_projection_weights_note": "Measured by doc/optimized_decoder/logs/probe_footprint.py under the fused-parity policy, which is the dtype set this capacity row describes. The figure here was 67436544 until review round 15 - 65536 B (64 KiB) above the measurement, from the hand-modelled arithmetic that predated the probe, and undisclosed where the sibling shared/router row's discrepancy was disclosed. The optimized policy's own figure for the same tensors is 35790848; this row is the fused-parity baseline the capacity argument is made against."
     }
   },
   "fused_decoder": {

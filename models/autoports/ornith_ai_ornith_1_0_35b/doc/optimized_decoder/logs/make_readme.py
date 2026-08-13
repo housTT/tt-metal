@@ -776,6 +776,21 @@ def advice_actions() -> dict:
                 else f"**not expressible** — `Nt` is 8, so `per_core_N` ≥ 2 needs ≤ 4 cores and the "
                 f"sweep's core ladder starts at 8; the shipped row is {us(router_shipped)}."
             )
+            + " The item is raised far more often on the **routed prefill** gate/up row than on either dense "
+            "row — its shipped 32-core geometry forces a 1x1 subblock — and that row is answered by §5.4's "
+            "generated sparse table: at the ~162-active prefill point the `sub_w` ≥ 2 candidates are measured "
+            "and lose. Round 15 found this cell citing only the two dense rows."
+        ),
+        # Keyed on the shorter substring both spellings share. The reports raise "Use HiFi2 or HiFi4 with BF16
+        # activations for improved..." on the two ROUTED rows and "...use HiFi4 with BF16 activations" on the
+        # dense ones; round 15 found the routed variant matching no key and rendering "unclassified - this stage
+        # did not act on it" on the largest op of both windows, one round after the stage stopped suppressing
+        # that advice. Both are answered by the same sweep.
+        "HiFi2 or HiFi4 with BF16 activations": (
+            "**Rejected with measurement**, on the routed rows this is raised for: §4.2's generated policy sweep "
+            "times `expert_fidelity=HiFi2` against the shipped LoFi at identical PCC and it is slower — the "
+            "routed matmuls are bandwidth-bound at BFP4 weights, so raising fidelity buys accuracy the 0.995 bar "
+            "does not need and costs time. The dense-projection direction of the same item is the row below."
         ),
         "use HiFi4 with BF16 activations": (
             "**Rejected with measurement** — the reverse direction of §4.2's fidelity sweep; HiFi4 is "
@@ -1703,6 +1718,95 @@ def composite_chain_us(kind: str, codes: tuple) -> float:
     raise SystemExit(f"README §6: no consecutive {codes} chain in the {kind} decode capture")
 
 
+#: What each test this stage ADDS pins, authored. The key set is checked against the test files themselves, so a
+#: test added without a row - or a row for a test that is not actually new - fails `make_readme.py --check`.
+#: Review round 15 found the hand-written version listing seven of nine and naming one the fused stage also has.
+ADDED_TEST_ROWS = {
+    "test_optimized_matches_fused": "optimized vs fused PCC at seq 1 / 130 / 300, prefill and decode",
+    "test_precision_policy_reaches_the_device_tensors": (
+        "every weight tensor and the KV cache hold the dtype the policy names (OPT-013, code half)"
+    ),
+    "test_decode_runs_the_tuned_program_configs": (
+        "all five dense decode matmuls carry a tuned 1D config, at the `per_core_M` and in0-budget their "
+        "activation convention implies; both routed sparse matmuls carry theirs and keep their intermediates "
+        "in L1; and the decode SDPA's grid covers the largest servable batch while its k-chunk equals the "
+        "paged block size"
+    ),
+    "test_prefill_runs_the_tuned_program_configs": (
+        "every dense prefill projection carries its tuned 2D config (nothing else notices a `None`), and both "
+        "routed sparse matmuls carry the wide-phase geometry"
+    ),
+    "test_padded_rows_do_not_route": (
+        "the decode MoE's tile-padding rows add no experts to the sparsity, and removing that masking changes "
+        "the expert count"
+    ),
+    "test_optimized_beats_fused_traced_decode": (
+        "the optimized traced decode is faster than the fused one, same process, same device, same weights"
+    ),
+    "test_optimized_path_is_used": (
+        "the dedicated fused ops are dispatched and the functional decoder dispatches none of them beyond the "
+        "three the implementations share, so the assertions cannot pass vacuously"
+    ),
+    "test_documented_batch_thresholds": (
+        "the batch thresholds README §9 item 5 documents are the ones the layer applies, keyed on "
+        "`DECODE_MATMUL_MAX_M_TILES` rather than on a literal, for both activation conventions"
+    ),
+    "test_every_shipped_policy_prefills_at_the_shipped_chunk": (
+        "every entry in `POLICIES` builds and prefills a full chunk, and resolves the prefill SDPA chunk its "
+        "table names - a policy that falls through to the conservative default is a policy nobody measured"
+    ),
+}
+
+
+def block_added_tests() -> str:
+    """§2.5's table, with its key set asserted against the two stages' test files.
+
+    The completeness check is the point: the hand-written table drifted to seven of nine added tests within two
+    rounds of adding them, and a table of tests is exactly the kind of list a reader trusts to be complete.
+    """
+    import ast as _ast
+
+    def names(path):
+        return {
+            node.name
+            for node in _ast.parse(read(path)).body
+            if isinstance(node, _ast.FunctionDef) and node.name.startswith("test_")
+        }
+
+    added = names(ROOT.parent.parent / "tests/test_optimized_decoder.py") - names(
+        ROOT.parent.parent / "tests/test_fused_decoder.py"
+    )
+    missing, extra = added - set(ADDED_TEST_ROWS), set(ADDED_TEST_ROWS) - added
+    if missing or extra:
+        raise SystemExit(
+            f"README §2.5's table is out of step with the test files: no row for {sorted(missing)}; "
+            f"rows for tests the fused stage also has {sorted(extra)}"
+        )
+    lines = ["| Test | What it pins |", "| --- | --- |"]
+    for name in sorted(added):
+        lines.append(f"| `{name}` | {ADDED_TEST_ROWS[name]} |")
+    return "\n".join(lines)
+
+
+def block_unclassified_ops() -> str:
+    """Which op codes each committed `tt-perf-report` console log calls unclassified.
+
+    Hand-written, this named six codes and matched exactly one of the four files: nine distinct codes appear
+    across them, two of the six appear in only one file, and three real ones were missing. Review round 15 found
+    it, and it is the enumeration a reader checks a console log against, so it is generated from the logs.
+    """
+    rows = ["| report | op codes `tt-perf-report` does not classify |", "| --- | --- |"]
+    for kind, _ in KINDS:
+        for phase in ("prefill", "decode"):
+            path = TRACY / kind / f"{phase}_perf_report.console.txt"
+            if not path.is_file():
+                continue
+            codes = sorted({m for m in re.findall(r"Unclassified operation '([A-Za-z]+)", read(path))})
+            pretty = ", ".join(f"`{c.replace('DeviceOperation', '').replace('Operation', '')}`" for c in codes)
+            rows.append(f"| `{kind}` / {phase} | {pretty or '—'} |")
+    return "\n".join(rows)
+
+
 def block_composite_chains() -> str:
     rows = ["| Composite op | Chain, in dispatch order | µs/step |", "| --- | --- | --- |"]
     for label, (kind, codes) in COMPOSITE_CHAINS.items():
@@ -1971,6 +2075,8 @@ def main():
         "accounting": block_accounting(),
         "watcher-result": block_watcher_result(),
         "composite-chains": block_composite_chains(),
+        "unclassified-ops": block_unclassified_ops(),
+        "added-tests": block_added_tests(),
         "layer-ab": block_layer_ab(),
     }
     # work_log §2's operation-topology audit is generated too, from the *fused* stage's capture: round 10

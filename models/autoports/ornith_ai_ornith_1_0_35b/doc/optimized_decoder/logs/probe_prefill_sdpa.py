@@ -79,14 +79,29 @@ def main():
                 mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
             )
 
+        # At the SHIPPED contract: K and V carry the policy's cache dtype (BFP8 under `optimized`, which is what
+        # the committed report's row shows as `BF16, BFP8 => BF16`), and every arm runs the layer's own SDPA
+        # compute-kernel config. Review round 15 found the first version of this probe measuring bfloat16 K/V with
+        # no compute-kernel config - so its "bfloat16 cache" arms were duplicates of its baseline and none of them
+        # ran the fp32 destination accumulation that is exactly the L1 axis the shipped table encodes. The one
+        # difference that remains, and cannot be removed here, is that the layer calls the *paged chunked* op
+        # against its cache while this calls the contiguous one: the shapes and the program config are the same,
+        # the cache indirection is not.
+        ckc = ttnn.init_device_compute_kernel_config(
+            mesh.arch(),
+            math_fidelity=ttnn.MathFidelity.HiFi2,
+            math_approx_mode=False,
+            fp32_dest_acc_en=True,
+            packer_l1_acc=False,
+        )
         q = dev(torch.randn(1, HEADS, args.chunk, HEAD_DIM, generator=gen) * 0.1)
-        k = dev(torch.randn(1, KV_HEADS, args.chunk, HEAD_DIM, generator=gen) * 0.1)
-        v = dev(torch.randn(1, KV_HEADS, args.chunk, HEAD_DIM, generator=gen) * 0.1)
+        k = dev(torch.randn(1, KV_HEADS, args.chunk, HEAD_DIM, generator=gen) * 0.1, dtype=ttnn.bfloat8_b)
+        v = dev(torch.randn(1, KV_HEADS, args.chunk, HEAD_DIM, generator=gen) * 0.1, dtype=ttnn.bfloat8_b)
 
         def run(program_config=None):
             def fn():
                 return ttnn.transformer.scaled_dot_product_attention(
-                    q, k, v, is_causal=True, program_config=program_config
+                    q, k, v, is_causal=True, program_config=program_config, compute_kernel_config=ckc
                 )
 
             return fn
@@ -162,7 +177,7 @@ def main():
         def run16(program_config):
             def fn():
                 return ttnn.transformer.scaled_dot_product_attention(
-                    q, k16, v16, is_causal=True, program_config=program_config
+                    q, k16, v16, is_causal=True, program_config=program_config, compute_kernel_config=ckc
                 )
 
             return fn

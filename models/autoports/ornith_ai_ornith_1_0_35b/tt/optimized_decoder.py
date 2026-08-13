@@ -208,22 +208,41 @@ BFP4_PROJECTION_POLICY = DEFAULT_POLICY.replace(name="bfp4-projections", proj_dt
 
 POLICIES = {p.name: p for p in (FUSED_PARITY_POLICY, DEFAULT_POLICY, BFP4_PROJECTION_POLICY)}
 
-#: Chunked-SDPA `q_chunk`/`k_chunk` for **prefill**, keyed on the KV-cache dtype and whether the SDPA
-#: accumulates in fp32, because the choice is bounded by L1 rather than by speed. `logs/probe_prefill_sdpa.txt`
-#: sweeps the whole ladder at the shipped chunk - eighteen arms, square and asymmetric, across grids - and
-#: work_log §4.19 reads it; the figures live there rather than here because a comment cannot be regenerated when
-#: the sweep re-runs. What matters at this call site: the inherited value was far from the winner, the winner is
-#: bounded above by program placement rather than by diminishing returns, and the key below is a *legality*
-#: table. Shipping one value for every policy turned `POLICIES["fused-parity"]` into a `TT_THROW` at program
-#: construction, which phase 3 of `run_evidence.sh` caught on the first sweep after the change.
+#: Chunked-SDPA `q_chunk`/`k_chunk` for **prefill**, keyed by **policy name**, because the bound is L1 legality
+#: and legality depends on the whole policy rather than on any one field of it.
+#: `logs/probe_prefill_sdpa.txt` sweeps the ladder and work_log §4.19 reads it; the figures live there because a
+#: comment cannot be regenerated when the sweep re-runs. What matters here is the shape of the result: the
+#: inherited 64 is far from the winner, the winner is bounded above by program placement rather than by
+#: diminishing returns, and the entries below are *measured legality*, not tuning.
+#:
+#: Review round 14 keyed this on `(kv_cache_dtype, sdpa_fp32_acc)` and round 15 found the table **dead**: every
+#: shipped policy sets `sdpa_fp32_acc=True`, both keys carried `False`, so every lookup missed and the layer
+#: silently kept the inherited 64 while three documents claimed otherwise. Two lessons are baked in here. The key
+#: is the policy's own name, so a miss is a *new* policy rather than a field nobody checked; and
+#: `test_every_shipped_policy_prefills_at_the_shipped_chunk` asserts the **resolved** value per policy, because a
+#: legality table whose fallback is universally legal cannot be gated by a build-and-run test - which is exactly
+#: how a dead table survived a full sweep, a 123-case suite and the figure audit.
+#:
+#: `fused-parity` takes the inherited 64 on measurement, not on caution: at 128 it throws
+#: `TT_THROW: Statically allocated circular buffers ... grow to ... beyond max L1`, because bfloat16 weights and a
+#: bfloat16 cache leave less room than the same chunk needs under the shipped BFP8 policy.
 PREFILL_SDPA_CHUNK = {
-    (ttnn.bfloat8_b, False): 256,
-    (ttnn.bfloat16, False): 128,
+    "optimized": 256,
+    "bfp4-projections": 256,
+    "fused-parity": 64,
 }
 
-#: What an unmeasured combination gets: the fused stage's value, the only one every policy here has been shown to
-#: build. Deliberately conservative - a too-large chunk is not slow, it is a `TT_THROW` at program construction.
+#: What an unlisted policy gets: the fused stage's value, the only one every policy here has been shown to build.
+#: Deliberately conservative - a too-large chunk is not slow, it is a `TT_THROW` at program construction.
 PREFILL_SDPA_CHUNK_DEFAULT = 64
+
+#: Ceiling for any policy whose KV cache is wider than BFP8. The entries above are keyed by policy name, which is
+#: what makes a miss visible - but a `--set kv_cache_dtype=...` override changes the dtypes *without* changing the
+#: name, and the phase-3 policy sweep is what caught that: `optimized` with a bfloat16 cache resolved 256 and threw
+#: at program construction. So the name gives the measured value and the cache dtype clamps it. 128 is the largest
+#: that builds with a bfloat16 cache under the shipped weight dtypes; `fused-parity` is below this ceiling anyway
+#: because its own entry is 64.
+PREFILL_SDPA_CHUNK_WIDE_CACHE = 128
 
 #: Where the routed gate/up matmul's `in0` lives. L1 is the shipped choice and the measured one
 #: (`logs/ab_routed_in0.txt`); DRAM is what the slice inherited before review round 14 surfaced
@@ -645,6 +664,22 @@ def _sparse_matmul_config(
 #: That matches what ``models/demos/blackhole/qwen36`` reports for Blackhole decode matmuls: the op
 #: pins the compute grid to the 8 DRAM banks, and 8 wide-shard cores lose to a large mcast grid on
 #: shapes this skinny. §Dense in the README carries the whole table.
+#: Which policy field holds each role's **weight** dtype. The 2D prefill config's L1 model sizes `in1` from it,
+#: so the model has to know that the shared expert's weights are `shared_dtype` and the router's are
+#: `router_dtype`, not `proj_dtype`. Review round 14 made the model dtype-aware but wired one dtype for all seven
+#: roles; round 15 pointed out that leaves two groups mis-sized under two of the three shipped policies - latent
+#: today because those roles' modelled totals stay well inside L1, and exactly the defect round 14 fixed for the
+#: dense projections, left in place for the rest.
+DECODE_MATMUL_WEIGHT_FIELD = {
+    "attn_in": "proj_dtype",
+    "o_proj": "proj_dtype",
+    "gdn_in": "proj_dtype",
+    "gdn_out": "proj_dtype",
+    "shared_in": "shared_dtype",
+    "shared_down": "shared_dtype",
+    "router": "router_dtype",
+}
+
 DECODE_MATMUL_GEOMETRY = {
     "attn_in": (96, 8),
     "o_proj": (16, 16),
@@ -876,12 +911,15 @@ class _ProjectionConfigs:
     pass is not a host round trip, and a captured trace only ever replays the resulting matmul.
     """
 
-    def __init__(self, mesh_device, in1_bytes: float = _DTYPE_BYTES[ttnn.bfloat8_b]):
+    def __init__(self, mesh_device, policy=None):
         self.grid = mesh_device.compute_with_storage_grid_size()
         self.l1_per_core = _worker_l1_bytes()
-        #: The weight dtype's bytes per element, so the 2D prefill config's L1 model sizes the `in1` circular
-        #: buffers for the policy that is actually running rather than for BFP8 alone.
-        self.in1_bytes = in1_bytes
+        #: Bytes per element of each role's **weight**, so the 2D prefill config's L1 model sizes that role's
+        #: `in1` circular buffers for the tensor it actually reads under the policy that is running.
+        self.in1_bytes = {
+            role: _DTYPE_BYTES.get(getattr(policy, field, None), 2.0) if policy is not None else 2.0
+            for role, field in DECODE_MATMUL_WEIGHT_FIELD.items()
+        }
         self._cache: dict[tuple, object] = {}
 
     def get(self, role: str, rows: int, k: int, n: int, *, fp32_acc: bool, decode: bool = True):
@@ -904,7 +942,7 @@ class _ProjectionConfigs:
                     int(n),
                     fp32_acc=fp32_acc,
                     l1_per_core=self.l1_per_core,
-                    in1_bytes=self.in1_bytes,
+                    in1_bytes=self.in1_bytes.get(role, 2.0),
                 )
             return self._cache[key]
         m_tiles = max(1, (int(rows) + TILE - 1) // TILE)
@@ -1116,7 +1154,7 @@ class OptimizedMoE:
         self.w = weights
         self.group_tokens = group_tokens
         self.policy = policy
-        self.proj_cfgs = _ProjectionConfigs(mesh_device, _DTYPE_BYTES.get(policy.proj_dtype, 2.0))
+        self.proj_cfgs = _ProjectionConfigs(mesh_device, policy)
         #: See :attr:`OptimizedDecoder._decode_phase`.
         self._decode_phase = False
 
@@ -1172,6 +1210,9 @@ class OptimizedMoE:
         }
         self.down_in0_block_w = _largest_divisor_at_most(config.moe_intermediate_size // TILE, 16)
         self._sparse_cfg_cache: dict[tuple, object] = {}
+        #: Persistent all-zero scatter target for the router, decode only. See `_router_zeros_for`.
+        self._router_zeros = None
+        self._router_zeros_shape: tuple | None = None
         self.output_tile = ttnn.Tile([TILE, TILE])
 
     def _expert_mem(self, tokens: int):
@@ -1249,6 +1290,24 @@ class OptimizedMoE:
             self._sparse_cfg_cache[key] = cfg
         return cfg
 
+    def _router_zeros_for(self, logits):
+        """The all-zero bfloat16 scatter target for :meth:`routing_weights`, persistent in decode.
+
+        Decode replays a fixed shape inside a trace region, so the target is allocated once and reused: no
+        `zeros_like`, no `typecast`, and nothing written from the host inside the trace. Prefill's shape varies
+        per call, so it keeps the per-call spelling. `ttnn.scatter` is out-of-place, so reuse is safe - the tensor
+        is read as the base and never mutated.
+        """
+        shape = tuple(int(d) for d in logits.shape)
+        if not self._decode_phase:
+            return ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
+        if self._router_zeros is None or self._router_zeros_shape != shape:
+            if self._router_zeros is not None:
+                ttnn.deallocate(self._router_zeros)
+            self._router_zeros = ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
+            self._router_zeros_shape = shape
+        return self._router_zeros
+
     # ---------------- router ----------------
     def routing_weights(self, x):
         """Dense routing weights ``[1, 1, tokens, num_experts]`` (bfloat16, zeros off-selection).
@@ -1282,13 +1341,17 @@ class OptimizedMoE:
         )
         values, indices = ttnn.topk(logits, k=self.cfg.num_experts_per_tok, dim=-1, sorted=True)
         weights = ttnn.softmax(values, dim=-1, numeric_stable=True, compute_kernel_config=self.dense_ckc)
-        # `ttnn.zeros_like(logits, dtype=...)` would remove this typecast - review round 14 raised it as one of
-        # three foldable typecasts, and in isolation it IS 12.6 us cheaper than the pair (17.9 -> 5.3 us).
-        # It is illegal here: with a dtype argument the op materialises the tensor with a HOST WRITE, and
-        # decode runs inside a trace region, so `test_perf_decode_traced` dies on
-        # `TT_FATAL: Writes are not supported during trace capture`. The typecast form dispatches a device op
-        # and traces. Kept, with that as the reason rather than as an untried candidate.
-        zeros = ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
+        # The scatter target. `ttnn.scatter` is out-of-place, decode shapes are fixed inside a trace, and this
+        # tensor is all zeros every step - so it is allocated ONCE at build time and reused, which removes both
+        # the `zeros_like` and the `typecast` from the step entirely. Review round 14 tried the obvious spelling
+        # (`zeros_like(logits, dtype=...)`) and hit `TT_FATAL: Writes are not supported during trace capture`,
+        # because with a dtype argument the op materialises via a host write; round 15 pointed out - correctly -
+        # that a first API error is not a rejection, and that the persistent-tensor pattern this file already
+        # uses for the RoPE tables, `batch_idxs` and `pos_ramp` is the adaptation that was never tried.
+        #
+        # Only the decode path can use it: prefill's token count varies per call, so its target is built per
+        # call at the shape that call needs. `_router_zeros` is None until a decode shape is first seen.
+        zeros = self._router_zeros_for(logits)
         dense = ttnn.scatter(zeros, dim=-1, index=indices, src=ttnn.typecast(weights, ttnn.bfloat16))
         ttnn.deallocate(logits)
         ttnn.deallocate(values)
@@ -1702,7 +1765,7 @@ class OptimizedDecoder(LightweightModule):
         # per-head matmuls across it (measured in doc/fused_decoder/logs/probe_decode_micro.txt).
         grid = mesh_device.compute_with_storage_grid_size()
         self.full_core_grid = ttnn.CoreGrid(y=grid.y, x=grid.x)
-        self.proj_cfgs = _ProjectionConfigs(mesh_device, _DTYPE_BYTES.get(policy.proj_dtype, 2.0))
+        self.proj_cfgs = _ProjectionConfigs(mesh_device, policy)
         self._norm_shard_cache: dict[tuple, tuple] = {}
         #: Bytes of worker L1 a single decode-path intermediate may occupy. Same fraction and same
         #: source as the MoE's expert budget.
@@ -2272,9 +2335,9 @@ class OptimizedDecoder(LightweightModule):
         times slower than 256 at the shipped 2048-token chunk. The two clamps below are contract, not tuning:
         `q_chunk` has to divide a non-zero resume offset, and neither chunk may exceed the physical length.
         """
-        qk = PREFILL_SDPA_CHUNK.get(
-            (self.policy.kv_cache_dtype, bool(self.policy.sdpa_fp32_acc)), PREFILL_SDPA_CHUNK_DEFAULT
-        )
+        qk = PREFILL_SDPA_CHUNK.get(self.policy.name, PREFILL_SDPA_CHUNK_DEFAULT)
+        if self.policy.kv_cache_dtype is not ttnn.bfloat8_b:
+            qk = min(qk, PREFILL_SDPA_CHUNK_WIDE_CACHE)
         if chunk_start_idx:
             qk = min(qk, chunk_start_idx & -chunk_start_idx)
         qk = min(qk, phys_len)

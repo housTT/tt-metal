@@ -421,6 +421,12 @@ HISTORICAL = {
     # contain them and re-running cannot reproduce them - the intermediate states no longer exist. They
     # are the record of the path taken, they are quoted only in the work log, and the section says so.
     # The SHIPPED level is README §5.2's generated table, always.
+    # Rows 15-17 of §3's ladder: the traced-decode level at three intermediate revisions. 0.849 and 1.061 were
+    # the shipped values until review round 14's folds and round 15's hoist moved them, so no artifact of the
+    # shipped code contains them any more - which is what this list is for.
+    "0.849",
+    "1.061",
+    "1.044",
     "1.987",
     "1.691",
     "1.909",
