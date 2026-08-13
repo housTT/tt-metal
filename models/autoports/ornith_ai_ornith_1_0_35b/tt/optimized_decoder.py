@@ -1618,7 +1618,7 @@ class OptimizedMoE:
                 # `_routed_experts` reads `dense_routing` only to build what it was not given, and
                 # for the whole-call mask on its `groups > 1` branch. With both kwargs supplied that
                 # leaves exactly one reader — the `span > TILE` branch — so slicing it at the shipped
-                # 32-token group would dispatch a device op nothing reads. Round 22 found 64 of them
+                # 32-token group would dispatch a device op nothing reads. The fused stage's review found 64 of them
                 # per 2048-token prefill.
                 scores = ttnn.slice(dense, [0, 0, start, 0], [1, 1, start + span, E]) if span > TILE else None
                 group_mask = ttnn.slice(all_masks, [0, start // TILE, 0, 0], [1, (start + span) // TILE, 1, E])
@@ -1997,8 +1997,12 @@ class OptimizedDecoder(LightweightModule):
         """Allocate and attach a paged KV cache ``[num_blocks, n_kv_heads, page_block_size, head_dim]``.
 
         ``dtype`` defaults to the precision policy's ``kv_cache_dtype`` rather than to bfloat16, so a
-        caller that does not name one gets the cache the measured path was tuned for. Naming one
-        still wins, which is what the cache-dtype A/B uses.
+        caller that does not name one gets the cache the measured path was tuned for. Naming one still wins, and
+        it then **diverges from the policy** - which is why `_prefill_sdpa_config` resolves its chunk from the
+        attached cache rather than from `policy.kv_cache_dtype`. §4.2's cache-dtype A/B does *not* come through
+        here: it goes through `bench.py --set kv_cache_dtype=...`, which replaces the policy, so this argument had
+        no coverage at all until review round 16 pointed out that the two mechanisms disagree about which dtype
+        the layer is running.
         """
         dtype = self.policy.kv_cache_dtype if dtype is None else dtype
         if not self.is_full_attention:
@@ -2332,11 +2336,20 @@ class OptimizedDecoder(LightweightModule):
         The cap is `PREFILL_SDPA_CHUNK`, measured rather than inherited. This config was the one knob the stage
         shipped unswept - README §9 item 7 disclosed it as a real gap and review round 14 called that deferred
         work, correctly - and sweeping it (`logs/probe_prefill_sdpa.txt`) found the fused stage's 64 nearly three
-        times slower than 256 at the shipped 2048-token chunk. The two clamps below are contract, not tuning:
+        times slower than 256 at the shipped 2048-token chunk. The clamps below are contract, not tuning:
         `q_chunk` has to divide a non-zero resume offset, and neither chunk may exceed the physical length.
+
+        The wide-cache clamp reads the **attached cache's own dtype**, not `policy.kv_cache_dtype`. Those two can
+        differ: `allocate_kv_cache(dtype=...)` and `attach_kv_cache` set the real cache without touching the
+        policy, which is a documented, supported route - the contract says a caller who wants the old cache can
+        name it. Review round 15 keyed this on the policy field and round 16 pointed out that left the public API
+        resolving 256 against a bfloat16 cache, which is the combination work_log §4.19 records throwing at
+        program construction. `_cache_fill_tensor` already read the cache, so the two halves of the same
+        question now answer it the same way.
         """
+        cache_dtype = self.k_cache.dtype if self.k_cache is not None else self.policy.kv_cache_dtype
         qk = PREFILL_SDPA_CHUNK.get(self.policy.name, PREFILL_SDPA_CHUNK_DEFAULT)
-        if self.policy.kv_cache_dtype is not ttnn.bfloat8_b:
+        if cache_dtype is not ttnn.bfloat8_b:
             qk = min(qk, PREFILL_SDPA_CHUNK_WIDE_CACHE)
         if chunk_start_idx:
             qk = min(qk, chunk_start_idx & -chunk_start_idx)

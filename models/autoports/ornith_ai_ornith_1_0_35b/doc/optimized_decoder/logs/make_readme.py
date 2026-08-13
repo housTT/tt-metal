@@ -1570,6 +1570,19 @@ TOPOLOGY_AUDIT = {
             ),
         ),
         (
+            "FillPadDeviceOperation",
+            "`FillPadDeviceOperation`",
+            (
+                "op-contract padding: `_pad_dim` widens K and V to a tile for `paged_fused_update_cache`, and the "
+                "MoE pads a 1-row decode activation to a 32-row tile",
+                "none — both pads are what the ops require of their inputs",
+                "**unchanged, and irreducible at this layer**: removing either means an op that accepts the "
+                "unpadded shape. It grew slightly against the fused baseline because the optimized path pads at "
+                "narrower dtypes on more of its tensors; review round 16 pointed out it had no disposition "
+                "anywhere, having fallen into this table's remainder row",
+            ),
+        ),
+        (
             "SdpaDecodeDeviceOperation",
             "`SdpaDecodeDeviceOperation`",
             (

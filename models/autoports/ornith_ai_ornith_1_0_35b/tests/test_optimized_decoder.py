@@ -90,9 +90,11 @@ LARGEST_SUPPORTED_DECODE_BATCH = 56
 #: ``test_decode_runs_the_tuned_program_configs`` asserts against the four token-mixer roles.
 MOE_DECODE_SHAPES = {(2048, 1056), (512, 2048), (2048, 256)}
 
-#: Acceptance bar inherited from the functional-decoder stage. The fusing stage is not allowed to
-#: lower it, and every measurement below clears it by more than an order of magnitude of error (the
-#: worst case in the shipped suite log is 0.999882, i.e. 1.2e-4 against the 5e-3 the bar allows).
+#: Acceptance bar inherited from the functional-decoder stage. This stage is not allowed to lower it, and every
+#: measurement below clears it by more than an order of magnitude of error - the worst PCC anywhere in the shipped
+#: suite log is 0.999840, i.e. 1.6e-4 of error against the 5e-3 the bar allows. Review round 16 found this comment
+#: quoting 0.999882 and calling this "the fusing stage": both were copied from `test_fused_decoder.py`, and that
+#: figure is the *fused* stage's poisoned-free-pool decode PCC, which appears nowhere in this stage's log.
 PCC_BAR = 0.995
 
 #: Bar for optimized-vs-fused agreement. The two implementations are not bit-identical and are not
@@ -196,6 +198,7 @@ def build_decoder(
     prefill_chunk: int = DEFAULT_PREFILL_CHUNK,
     num_blocks: int | None = None,
     cls=OptimizedDecoder,
+    kv_cache_dtype=None,
     **kwargs,
 ):
     """Construct the layer, allocate its paged cache / recurrent state, and build a page table.
@@ -215,7 +218,9 @@ def build_decoder(
     )
     blocks_per_user = num_blocks if num_blocks is not None else num_blocks_for_context(max_context)
     total_blocks = blocks_per_user * batch
-    decoder.allocate_kv_cache(total_blocks)
+    # `kv_cache_dtype` goes to `allocate_kv_cache`, not to the constructor: it is the public route for a
+    # caller who wants a cache that differs from the policy, and `_prefill_sdpa_config` has to notice it.
+    decoder.allocate_kv_cache(total_blocks, dtype=kv_cache_dtype)
     decoder.allocate_state(batch)
     page_table = None
     if decoder.is_full_attention:
@@ -977,16 +982,28 @@ def test_every_shipped_policy_prefills_at_the_shipped_chunk(mesh_device, layer_i
             f"policy {policy_name} resolved k_chunk={resolved.k_chunk_size}, table says "
             f"{PREFILL_SDPA_CHUNK[policy_name]}"
         )
-        # And an override that widens the cache without changing the policy name must clamp: this is the exact
-        # case phase 3 of the sweep caught after round 15's fix keyed the table on the name alone.
-        wide = decoder.policy.replace(kv_cache_dtype=ttnn.bfloat16)
-        widened = OptimizedDecoder._prefill_sdpa_config(
-            type("_P", (), {"policy": wide, "device": decoder.device})(), 0, DEFAULT_PREFILL_CHUNK
+        # And the same clamp through the PUBLIC api: `allocate_kv_cache(dtype=...)` sets the real cache without
+        # touching the policy, so a decoder built under the shipped policy but given a bfloat16 cache must still
+        # resolve a legal chunk. Round 16 found the clamp keyed on the policy field, which left this route
+        # resolving 256 against a wide cache - the combination that throws at program construction.
+        wide_decoder, wide_page_table, _ = build_decoder(
+            mesh_device, layer_idx, source, policy=POLICIES[policy_name], kv_cache_dtype=ttnn.bfloat16
         )
-        assert widened.q_chunk_size <= PREFILL_SDPA_CHUNK_WIDE_CACHE, (
-            f"policy {policy_name} with a bfloat16 cache resolved q_chunk={widened.q_chunk_size}, above the "
-            f"{PREFILL_SDPA_CHUNK_WIDE_CACHE} that builds with a wide cache"
-        )
+        if wide_decoder.is_full_attention:
+            assert wide_decoder.k_cache.dtype == ttnn.bfloat16, "the explicit cache dtype must reach the cache"
+            resolved_wide = wide_decoder._prefill_sdpa_config(0, DEFAULT_PREFILL_CHUNK)
+            assert resolved_wide.q_chunk_size <= PREFILL_SDPA_CHUNK_WIDE_CACHE, (
+                f"policy {policy_name} with an explicitly bfloat16 cache resolved "
+                f"q_chunk={resolved_wide.q_chunk_size}, above the {PREFILL_SDPA_CHUNK_WIDE_CACHE} that builds"
+            )
+            # And it has to actually prefill: the clamp exists because the larger chunk throws here.
+            ttnn.deallocate(
+                wide_decoder.prefill_forward(
+                    to_device(mesh_device, make_activations(1, DEFAULT_PREFILL_CHUNK, seed=137)),
+                    page_table=wide_page_table,
+                )
+            )
+        del wide_decoder
         # And the resume-offset contract: a chunk starting at 128 must divide 128.
         resumed = decoder._prefill_sdpa_config(128, DEFAULT_PREFILL_CHUNK)
         assert 128 % resumed.q_chunk_size == 0, (

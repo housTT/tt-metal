@@ -76,7 +76,8 @@ step, `full_attention`, sorted by device time — this is the table the whole st
 | 13 | `UntilizeWithUnpadding` | 23.3 | the untilize half of three composite calls: the router scatter, the GQA head expansion and the `topk` index readback | no tile-native form at these shapes | **itemised, not removed** — README §6 splits it per call |
 | 14 | `NLPCreateQKVHeadsDecodeDeviceOperation` | 19.3 | the dedicated QKV head split | inherited from the fused stage | unchanged; falls back to the functional spelling above 32 users |
 | 15 | `SdpaDecodeDeviceOperation` | 17.6 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
-|  | *the other 18 op codes, each under 17.6 µs/step* | 105.8 | — | — | — |
+| 16 | `FillPadDeviceOperation` | 14.8 | op-contract padding: `_pad_dim` widens K and V to a tile for `paged_fused_update_cache`, and the MoE pads a 1-row decode activation to a 32-row tile | none — both pads are what the ops require of their inputs | **unchanged, and irreducible at this layer**: removing either means an op that accepts the unpadded shape. It grew slightly against the fused baseline because the optimized path pads at narrower dtypes on more of its tensors; review round 16 pointed out it had no disposition anywhere, having fallen into this table's remainder row |
+|  | *the other 17 op codes, each under 14.8 µs/step* | 91.0 | — | — | — |
 <!-- /generated:topology-audit-full -->
 
 `linear_attention` shares the whole MoE and the norms with the table above; what differs is the
@@ -340,7 +341,7 @@ Three findings, all kept as evidence:
   table prints the pair and the gap, which is the fourth time this paragraph has had to stop quoting them by
   hand: rounds 5, 8, 9 and 13 each found the transcription wrong or stale, the last of them quoting one section's
   8x4 time against the other section's 8x8 time and understating the spread the gap has to clear (one of those
-  8x4 rows carries a 0.9 µs spread against a 0.8 µs gap). Identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
+  8x4 rows carries a spread comparable to the gap being claimed). Identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
   dead heat at the layer ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt); README §5.1's
   generated table carries every build of both arms, and the difference between the arms is smaller than one
   arm's own span, SDPA being ~2 % of a step). Review round 9 was right that nothing recorded which end of the
@@ -356,8 +357,9 @@ Three findings, all kept as evidence:
   and the supported batch-40 and batch-56 cases die inside the op. The grid is not tuning; it is the largest
   decode batch the layer can serve, and 8x8's 64 cores are chosen to cover the 56 the suite exercises. The
   ~1 µs goes unclaimed for that reason, which is a better answer than round 9's finding asked for and a worse
-  one than the sweep suggested. `11x10` satisfies the bound too and is slower in the same probe (62.4 / 62.5
-  µs), so 8x8 is also the fastest grid that is *legal*, which is what the call site now says.
+  one than the sweep suggested. `11x10` satisfies the bound too and is slower in the same probe, so 8x8 is also
+  the fastest grid that is *legal*, which is what the call site now says — README §5.5's generated knob table
+  prints every grid's time, so this paragraph does not carry a second copy to go stale.
 
   The guard is a test, not a comment: `test_decode_runs_the_tuned_program_configs` asserts
   `grid cores >= LARGEST_SUPPORTED_DECODE_BATCH` rather than the literal `8x8`, so re-deriving "8x4 is a
@@ -488,7 +490,8 @@ Round 8 then asked the two questions that settle it, and both are now measured r
   ordering is not a property of the configuration. That is why the figures live in a generated block now and why
   the rejection below rests on the invariant rather than on either ordering. The advantage is real but exists
   only in the isolated op
-  ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), 56.7 against 61.0 µs). Worth stating plainly:
+  ([`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt), where it is several microseconds ahead of the
+  shipped arm at the op). Worth stating plainly:
   my first instinct here was right and I talked myself out of it on one run of a harness whose own repeats
   disagree by more than the effect.
 
@@ -675,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **154.0 µs** | 172.3 µs | **column** wins by 18.3 µs, beyond the ±1.3 µs spread |
-| 8 active | down | **152.8 µs** | 171.9 µs | **column** wins by 19.1 µs, beyond the ±0.4 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **569.9 µs** | 582.0 µs | **column** wins by 12.1 µs, beyond the ±1.4 µs spread |
-| 162 active | down | 343.3 µs | **342.0 µs** | **row** wins by 1.3 µs, beyond the ±0.9 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **386.3 µs** | 388.3 µs | column nominally ahead, inside the ±5.0 µs spread |
-| 64 active | down | 284.9 µs | **277.3 µs** | **row** wins by 7.6 µs, beyond the ±1.2 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.3 µs | **column** wins by 19.0 µs, beyond the ±0.7 µs spread |
+| 8 active | down | **152.9 µs** | 171.9 µs | **column** wins by 19.0 µs, beyond the ±0.5 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.0 µs** | 579.3 µs | **column** wins by 11.3 µs, beyond the ±0.6 µs spread |
+| 162 active | down | 343.3 µs | **341.8 µs** | **row** wins by 1.5 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.4 µs | **column** wins by 2.0 µs, beyond the ±0.7 µs spread |
+| 64 active | down | 284.6 µs | **278.0 µs** | **row** wins by 6.6 µs, beyond the ±0.7 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -742,9 +745,16 @@ repeats per arm, and README §5.5's generated advice row prints the outcome:
 **A shipped policy that could not run, found by shipping the SDPA change.** Raising the prefill SDPA chunk made
 phase 3 of the sweep die on its `kv_cache_dtype=bfloat16` arm with
 `TT_THROW: Statically allocated circular buffers ... grow to ... beyond max L1` — a bfloat16 cache doubles what K and V cost per chunk, so 256 does not fit where 256 with a BFP8 cache
-does. `PREFILL_SDPA_CHUNK` is keyed on `(kv_cache_dtype, sdpa_fp32_acc)` for that reason: 256 for the shipped
-policy, 128 for a bfloat16 cache, and the fused stage's 64 for anything unmeasured, because a too-large chunk is
-not slow — it is a throw at program construction.
+does. `PREFILL_SDPA_CHUNK` is a *legality* table for that reason, and getting its key
+right took two more rounds. Round 14 keyed it on `(kv_cache_dtype, sdpa_fp32_acc)`; round 15 found that **dead** —
+every shipped policy sets `sdpa_fp32_acc=True`, both keys carried `False`, so every lookup missed, every policy
+silently took the conservative fallback, and three documents claimed otherwise. It is keyed on the **policy name**
+now, so a miss is a new policy rather than a field nobody checked, with a separate ceiling for a cache wider than
+BFP8 — and that ceiling reads the **attached cache's** dtype rather than the policy's, because
+`allocate_kv_cache(dtype=...)` and `attach_kv_cache` are a supported route that changes one without the other
+(round 16). A too-large chunk is not slow; it is a throw at program construction, which is why all three facts are
+asserted per policy by `test_every_shipped_policy_prefills_at_the_shipped_chunk` rather than left to a
+build-and-run test that a legal fallback would always pass.
 
 Chasing that key turned up a **pre-existing** defect the same error was hiding. `POLICIES["fused-parity"]`, the
 policy README §4.1 describes as the fused decoder's exact dtypes, threw the same way on HEAD, before any round-14
@@ -789,10 +799,16 @@ and a fifth off each `multiply` pair, measured op-side before shipping either. S
 in the recurrent-state path, and the layer effect is in README §5.2's generated table, where traced
 `linear_attention` decode drops by about twenty microseconds while `full_attention` is unchanged - those sites
 are `linear_attention`-only, which is the check that the change did what it claims.
-Rejected: the router's `zeros_like(dtype=...)`, which is **illegal inside a trace region** — with a `dtype`
-argument the op materialises its result with a host write, and `test_perf_decode_traced` dies on
-`TT_FATAL: Writes are not supported during trace capture`. The typecast form dispatches a device op and traces,
-so it stays, with that as the reason rather than as an untried candidate. Worth stating: the op-level figure said
+Rejected in that spelling: the router's `zeros_like(dtype=...)` is **illegal inside a trace region** — with a
+`dtype` argument the op materialises its result with a host write, and `test_perf_decode_traced` dies on
+`TT_FATAL: Writes are not supported during trace capture`.
+
+Round 15 then pointed out, correctly, that this rejected a *spelling* rather than the candidate: the error proves
+the zero operand cannot be **created** inside the trace, not that it must be created per step. `ttnn.scatter` is
+out-of-place and decode replays a fixed shape, so the target is allocated once at build time and reused —
+`_router_zeros_for`, the same persistent-tensor pattern this file already uses for the RoPE tables, `batch_idxs`
+and `pos_ramp`. Both ops leave the step, and §3's ladder rows 16 and 17 carry the layer effect. A first API error
+is not a rejection; this is the round that made that stick. Worth stating: the op-level figure said
 the fold was the *largest* of the three wins, and it is the one that cannot ship — an isolated op measurement
 cannot see a trace-region contract.
 
@@ -842,7 +858,7 @@ vLLM or serving process was started at any point.
 
 ## 6. Review rounds and checkpoint
 
-Two independent `$stage-review` passes ran against this stage.
+Fifteen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
 
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
@@ -1618,6 +1634,34 @@ batch-dependent dense geometry and asserted only `in0_block_w >= 2`, which any b
 **both** activation conventions — `per_core_M == batch` for the four token-mixer roles, one tile for the three
 MoE roles, and the in0 budget divided by the tile rows — which is exactly the distinction rounds 10 to 13 kept
 getting wrong in prose.
+
+**Round 14** returned `more-work-needed` with three items and was the first round in five to find *shipped-code*
+work rather than documentation defects — by reading the half of `tt-perf-report`'s output the stage had been
+suppressing. All three are in §4.19: `--active-experts` was never passed, so advice on the two routed
+`sparse_matmul` rows (31 % of decode, ~82 % of prefill) was dropped by the tool's own early return, and one item on
+the largest op of the prefill window had never been read; the prefill SDPA config was unswept; and three
+`Typecast` launches looked foldable. Outcome: the routed `in0` moved to L1 (~0.6 ms of prefill on both kinds), two
+folds shipped, one fold rejected as illegal inside a trace region, and — chasing the SDPA chunk's legality —
+`POLICIES["fused-parity"]` turned out to be unable to prefill *at all*, on HEAD as well, because
+`_prefill_2d_matmul_config`'s L1 model hardcoded BFP8's bytes per weight element. No test had ever run that policy.
+
+**Round 15** returned `more-work-needed` with three items, and its P1 was the sharpest finding of the stage:
+round 14's prefill-SDPA change **was never in the binary**. The table was keyed on a tuple whose second element no
+policy matched, so every lookup missed and every policy took the conservative fallback while three documents
+claimed the winner shipped. The negative control had been sitting in the artifacts — `full_attention` prefill
+improved *less* than `linear_attention` across round 14, though only `full_attention` has an SDPA. Round 15 also
+refused round 14's rejection of the router's zeros target (a first API error is not a rejection) and was right: the
+target is hoisted out of the trace now. Both are in §4.19. The lasting change is a habit rather than a constant —
+where a lookup selects a shipped configuration, the *resolved* value is asserted per policy, because a table whose
+fallback is legal fails nothing.
+
+**Round 16** returned `more-work-needed` with three items, all narrow: the wide-cache clamp keyed on the policy
+field rather than on the attached cache, so `allocate_kv_cache(dtype=...)` — a documented, supported route — could
+still resolve an illegal chunk; the `PCC_BAR` comment quoted the *fused* stage's worst-case PCC as this stage's and
+called this "the fusing stage"; and §4.19 above still described round 15's dead tuple key as the shipped design
+while this section had no entries for the two rounds that found shipped-code work. All three are fixed, and the
+first now has the test it needed: a decoder built under the shipped policy but handed a bfloat16 cache must resolve
+a legal chunk *and* prefill a full chunk with it.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits
