@@ -208,6 +208,28 @@ BFP4_PROJECTION_POLICY = DEFAULT_POLICY.replace(name="bfp4-projections", proj_dt
 
 POLICIES = {p.name: p for p in (FUSED_PARITY_POLICY, DEFAULT_POLICY, BFP4_PROJECTION_POLICY)}
 
+#: Chunked-SDPA `q_chunk`/`k_chunk` for **prefill**, keyed on the KV-cache dtype and whether the SDPA
+#: accumulates in fp32, because the choice is bounded by L1 rather than by speed. `logs/probe_prefill_sdpa.txt`
+#: sweeps the whole ladder at the shipped chunk - eighteen arms, square and asymmetric, across grids - and
+#: work_log §4.19 reads it; the figures live there rather than here because a comment cannot be regenerated when
+#: the sweep re-runs. What matters at this call site: the inherited value was far from the winner, the winner is
+#: bounded above by program placement rather than by diminishing returns, and the key below is a *legality*
+#: table. Shipping one value for every policy turned `POLICIES["fused-parity"]` into a `TT_THROW` at program
+#: construction, which phase 3 of `run_evidence.sh` caught on the first sweep after the change.
+PREFILL_SDPA_CHUNK = {
+    (ttnn.bfloat8_b, False): 256,
+    (ttnn.bfloat16, False): 128,
+}
+
+#: What an unmeasured combination gets: the fused stage's value, the only one every policy here has been shown to
+#: build. Deliberately conservative - a too-large chunk is not slow, it is a `TT_THROW` at program construction.
+PREFILL_SDPA_CHUNK_DEFAULT = 64
+
+#: Where the routed gate/up matmul's `in0` lives. L1 is the shipped choice and the measured one
+#: (`logs/ab_routed_in0.txt`); DRAM is what the slice inherited before review round 14 surfaced
+#: `tt-perf-report`'s advice on that row. A module constant rather than a literal so the A/B can flip it.
+ROUTED_IN0_MEMORY = ttnn.L1_MEMORY_CONFIG
+
 #: Physical alignment of a prefill block. 128 keeps every block start legal for the chunked-SDPA
 #: 64-token q/k chunks, the paged cache's 64-token blocks, and the flat ``chunk_gated_delta_rule``
 #: contract (which requires the block length to be a multiple of its 32-token internal chunk).
@@ -701,7 +723,9 @@ EXPERT_L1_BUDGET_FRACTION = 0.32
 EXPERT_L1_MAX_CALL_TOKENS = DEFAULT_PREFILL_CHUNK
 
 
-def _prefill_2d_matmul_config(grid, m_rows: int, k: int, n: int, *, fp32_acc: bool, l1_per_core: int):
+def _prefill_2d_matmul_config(
+    grid, m_rows: int, k: int, n: int, *, fp32_acc: bool, l1_per_core: int, in1_bytes: float = 1.0625
+):
     """2D ``MatmulMultiCoreReuseMultiCastProgramConfig`` for a large prefill projection.
 
     ttnn's heuristic already picks this family for these shapes and fills the whole grid, but it
@@ -733,7 +757,15 @@ def _prefill_2d_matmul_config(grid, m_rows: int, k: int, n: int, *, fp32_acc: bo
     # is `out_block_h * out_block_w` and is *not* double-buffered, and interm0 is in-place with the
     # output whenever the output is interleaved (`do_not_inplace_interm0_out_CB` is false), which it
     # always is here. `out_block_h`/`out_block_w` default to `per_core_M`/`per_core_N`.
-    tile_bytes_in0, tile_bytes_in1, tile_bytes_out = 2 * TILE * TILE, 1.0625 * TILE * TILE, 2 * TILE * TILE
+    # `in1_bytes` is the WEIGHT dtype's bytes per element, from the policy, not a constant. It was hardcoded
+    # at BFP8's 1.0625 until review round 14's chain turned this up: under `POLICIES["fused-parity"]` the
+    # weights are bfloat16, so the real `in1` circular buffers are ~1.9x what the model predicted, the
+    # model said the program fit, and program construction threw
+    # `Statically allocated circular buffers ... grow to ... beyond max L1`. A model that only holds for
+    # one dtype silently mis-sizes every other policy.
+    tile_bytes_in0 = 2 * TILE * TILE
+    tile_bytes_in1 = in1_bytes * TILE * TILE
+    tile_bytes_out = 2 * TILE * TILE
     estimate = MATMUL_CB_MODEL_OVERHEAD * (
         2 * per_core_m * in0_block_w * tile_bytes_in0
         + 2 * in0_block_w * per_core_n * tile_bytes_in1
@@ -844,9 +876,12 @@ class _ProjectionConfigs:
     pass is not a host round trip, and a captured trace only ever replays the resulting matmul.
     """
 
-    def __init__(self, mesh_device):
+    def __init__(self, mesh_device, in1_bytes: float = _DTYPE_BYTES[ttnn.bfloat8_b]):
         self.grid = mesh_device.compute_with_storage_grid_size()
         self.l1_per_core = _worker_l1_bytes()
+        #: The weight dtype's bytes per element, so the 2D prefill config's L1 model sizes the `in1` circular
+        #: buffers for the policy that is actually running rather than for BFP8 alone.
+        self.in1_bytes = in1_bytes
         self._cache: dict[tuple, object] = {}
 
     def get(self, role: str, rows: int, k: int, n: int, *, fp32_acc: bool, decode: bool = True):
@@ -863,7 +898,13 @@ class _ProjectionConfigs:
             key = ("prefill", role, int(rows), int(n))
             if key not in self._cache:
                 self._cache[key] = _prefill_2d_matmul_config(
-                    self.grid, int(rows), int(k), int(n), fp32_acc=fp32_acc, l1_per_core=self.l1_per_core
+                    self.grid,
+                    int(rows),
+                    int(k),
+                    int(n),
+                    fp32_acc=fp32_acc,
+                    l1_per_core=self.l1_per_core,
+                    in1_bytes=self.in1_bytes,
                 )
             return self._cache[key]
         m_tiles = max(1, (int(rows) + TILE - 1) // TILE)
@@ -1075,7 +1116,7 @@ class OptimizedMoE:
         self.w = weights
         self.group_tokens = group_tokens
         self.policy = policy
-        self.proj_cfgs = _ProjectionConfigs(mesh_device)
+        self.proj_cfgs = _ProjectionConfigs(mesh_device, _DTYPE_BYTES.get(policy.proj_dtype, 2.0))
         #: See :attr:`OptimizedDecoder._decode_phase`.
         self._decode_phase = False
 
@@ -1241,6 +1282,12 @@ class OptimizedMoE:
         )
         values, indices = ttnn.topk(logits, k=self.cfg.num_experts_per_tok, dim=-1, sorted=True)
         weights = ttnn.softmax(values, dim=-1, numeric_stable=True, compute_kernel_config=self.dense_ckc)
+        # `ttnn.zeros_like(logits, dtype=...)` would remove this typecast - review round 14 raised it as one of
+        # three foldable typecasts, and in isolation it IS 12.6 us cheaper than the pair (17.9 -> 5.3 us).
+        # It is illegal here: with a dtype argument the op materialises the tensor with a HOST WRITE, and
+        # decode runs inside a trace region, so `test_perf_decode_traced` dies on
+        # `TT_FATAL: Writes are not supported during trace capture`. The typecast form dispatches a device op
+        # and traces. Kept, with that as the reason rather than as an untried candidate.
         zeros = ttnn.typecast(ttnn.zeros_like(logits), ttnn.bfloat16)
         dense = ttnn.scatter(zeros, dim=-1, index=indices, src=ttnn.typecast(weights, ttnn.bfloat16))
         ttnn.deallocate(logits)
@@ -1494,7 +1541,17 @@ class OptimizedMoE:
             parts = []
             for start in range(0, tokens, self.group_tokens):
                 span = min(self.group_tokens, tokens - start)
-                chunk = ttnn.slice(x, [0, 0, start, 0], [1, 1, start + span, self.cfg.dim])
+                # `memory_config`: this slice is the routed gate/up matmul's `in0`, and that matmul is the
+                # largest op of the prefill window. `tt-perf-report`'s advice on it - visible only once the
+                # report is given `--active-experts`, which review round 14 found missing - is "place input 0
+                # in L1". It costs no extra op here because the slice already dispatches; one group of
+                # `group_tokens x dim` at bfloat16 is ~131 KB, far inside the budget the expert intermediates
+                # already fit. `ROUTED_IN0_MEMORY` is a module constant so `logs/ab_routed_in0.py` can measure
+                # the shipped choice against the alternative at the layer rather than by hand-editing; work_log
+                # §4.19 reads its rows.
+                chunk = ttnn.slice(
+                    x, [0, 0, start, 0], [1, 1, start + span, self.cfg.dim], memory_config=ROUTED_IN0_MEMORY
+                )
                 # `_routed_experts` reads `dense_routing` only to build what it was not given, and
                 # for the whole-call mask on its `groups > 1` branch. With both kwargs supplied that
                 # leaves exactly one reader — the `span > TILE` branch — so slicing it at the shipped
@@ -1645,7 +1702,7 @@ class OptimizedDecoder(LightweightModule):
         # per-head matmuls across it (measured in doc/fused_decoder/logs/probe_decode_micro.txt).
         grid = mesh_device.compute_with_storage_grid_size()
         self.full_core_grid = ttnn.CoreGrid(y=grid.y, x=grid.x)
-        self.proj_cfgs = _ProjectionConfigs(mesh_device)
+        self.proj_cfgs = _ProjectionConfigs(mesh_device, _DTYPE_BYTES.get(policy.proj_dtype, 2.0))
         self._norm_shard_cache: dict[tuple, tuple] = {}
         #: Bytes of worker L1 a single decode-path intermediate may occupy. Same fraction and same
         #: source as the MoE's expert budget.
@@ -2207,8 +2264,17 @@ class OptimizedDecoder(LightweightModule):
         return ttnn.typecast(t, cache_dtype), True
 
     def _prefill_sdpa_config(self, chunk_start_idx: int, phys_len: int):
-        """Chunked-SDPA tiling. ``q_chunk`` must divide ``chunk_start_idx`` when it is non-zero."""
-        qk = 64
+        """Chunked-SDPA tiling. ``q_chunk`` must divide ``chunk_start_idx`` when it is non-zero.
+
+        The cap is `PREFILL_SDPA_CHUNK`, measured rather than inherited. This config was the one knob the stage
+        shipped unswept - README §9 item 7 disclosed it as a real gap and review round 14 called that deferred
+        work, correctly - and sweeping it (`logs/probe_prefill_sdpa.txt`) found the fused stage's 64 nearly three
+        times slower than 256 at the shipped 2048-token chunk. The two clamps below are contract, not tuning:
+        `q_chunk` has to divide a non-zero resume offset, and neither chunk may exceed the physical length.
+        """
+        qk = PREFILL_SDPA_CHUNK.get(
+            (self.policy.kv_cache_dtype, bool(self.policy.sdpa_fp32_acc)), PREFILL_SDPA_CHUNK_DEFAULT
+        )
         if chunk_start_idx:
             qk = min(qk, chunk_start_idx & -chunk_start_idx)
         qk = min(qk, phys_len)
@@ -2985,10 +3051,10 @@ class OptimizedDecoder(LightweightModule):
         # head) factor), but the chunked prefill op applies the same scale internally, so dropping
         # it would make prefill and decode disagree on the intermediate `o`.
         q_n = ttnn.rms_norm(q, epsilon=eps / dk)
-        q_row = ttnn.typecast(ttnn.multiply(q_n, dk**-1.0, memory_config=step_mem), ttnn.float32)
+        q_row = ttnn.multiply(q_n, dk**-1.0, memory_config=step_mem, dtype=ttnn.float32)
         ttnn.deallocate(q_n)
         k_n = ttnn.rms_norm(k, epsilon=eps / dk)
-        k_row = ttnn.typecast(ttnn.multiply(k_n, dk**-0.5, memory_config=step_mem), ttnn.float32)
+        k_row = ttnn.multiply(k_n, dk**-0.5, memory_config=step_mem, dtype=ttnn.float32)
         ttnn.deallocate(k_n)
 
         v_row = ttnn.typecast(v, ttnn.float32)

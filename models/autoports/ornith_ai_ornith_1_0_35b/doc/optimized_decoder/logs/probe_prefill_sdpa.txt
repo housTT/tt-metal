@@ -1,0 +1,22 @@
+# Prefill chunked-SDPA program config sweep at the shipped 2048-token chunk.
+# Command: python doc/optimized_decoder/logs/probe_prefill_sdpa.py
+# Prefill chunked-SDPA sweep at one 2048-token chunk, 16 q heads / 2 kv, head_dim 256, causal, bfloat16 on a 11x10 grid.
+# Reference for `pcc_vs_default` is the op's own default program config, 40-layer checkpoint's shapes.
+PREFILLSDPA cfg=default(None) us=2776.4 spread=66.8 pcc_vs_default=1.000000
+PREFILLSDPA cfg=bf16-kv q_chunk=64 k_chunk=64 us=1491.5 spread=32.4
+PREFILLSDPA cfg=bf16-kv q_chunk=128 k_chunk=128 us=937.5 spread=7.2
+PREFILLSDPA cfg=bf16-kv q_chunk=256 k_chunk=256 us=517.1 spread=11.2
+PREFILLSDPA cfg=grid=11x10 q_chunk=64 k_chunk=64 us=1488.9 spread=10.0 pcc_vs_default=0.999906
+PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=128 us=939.1 spread=19.6 pcc_vs_default=0.999877
+PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=256 us=514.0 spread=10.5 pcc_vs_default=0.999879
+PREFILLSDPA cfg=grid=11x10 q_chunk=512 k_chunk=512 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLSDPA cfg=grid=11x10 q_chunk=64 k_chunk=128 us=1525.6 spread=37.4 pcc_vs_default=0.999877
+PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=64 us=944.1 spread=11.0 pcc_vs_default=0.999906
+PREFILLSDPA cfg=grid=11x10 q_chunk=32 k_chunk=32 us=2774.7 spread=29.3 pcc_vs_default=0.999977
+PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=128 us=514.5 spread=16.7 pcc_vs_default=0.999877
+PREFILLSDPA cfg=grid=11x10 q_chunk=256 k_chunk=64 us=571.5 spread=25.5 pcc_vs_default=0.999906
+PREFILLSDPA cfg=grid=11x10 q_chunk=128 k_chunk=256 us=973.9 spread=16.7 pcc_vs_default=0.999879
+PREFILLSDPA cfg=grid=11x10 q_chunk=512 k_chunk=128 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLSDPA cfg=grid=11x10 q_chunk=512 k_chunk=256 FAILED TT_THROW @ /home/ttuser/dev/ornith/tt-metal/tt_metal/impl/program/program.cpp:1722: tt::exception
+PREFILLSDPA cfg=grid=8x8 q_chunk=64 k_chunk=64 us=1580.0 spread=31.0 pcc_vs_default=0.999906
+PREFILLSDPA cfg=grid=8x4 q_chunk=64 k_chunk=64 us=1637.7 spread=26.2 pcc_vs_default=0.999906

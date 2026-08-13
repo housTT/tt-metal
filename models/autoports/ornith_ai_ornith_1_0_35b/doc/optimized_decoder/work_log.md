@@ -148,8 +148,8 @@ wrong way first — see §3.1.
 The shipped default is re-measured end to end after every change landed, and README §5.2's headline
 table is **generated** from that measurement
 ([`logs/ab_fused_vs_optimized.txt`](logs/ab_fused_vs_optimized.txt)) rather than transcribed here, so
-this log does not carry a second copy of it to go stale: ~2.5x prefill on both layer kinds and
-~1.9-2.2x on traced decode. `test_optimized_beats_fused_traced_decode` gates the decode direction in
+this log does not carry a second copy of it to go stale — roughly two and a half times on prefill for both
+layer kinds and about two on traced decode, with the exact figures in that table. `test_optimized_beats_fused_traced_decode` gates the decode direction in
 one process, in the delivered suite.
 
 Row 0's `linear_attention` figure is the **fused stage's own committed number**, measured in that
@@ -666,12 +666,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.2 µs | **column** wins by 19.0 µs, beyond the ±0.5 µs spread |
-| 8 active | down | **152.7 µs** | 171.9 µs | **column** wins by 19.2 µs, beyond the ±0.4 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.2 µs** | 579.0 µs | **column** wins by 10.8 µs, beyond the ±0.8 µs spread |
-| 162 active | down | 345.1 µs | **344.3 µs** | row nominally ahead, inside the ±1.1 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.5 µs | **column** wins by 2.1 µs, beyond the ±0.5 µs spread |
-| 64 active | down | 284.6 µs | **277.8 µs** | **row** wins by 6.8 µs, beyond the ±1.2 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.3 µs | **column** wins by 19.1 µs, beyond the ±1.4 µs spread |
+| 8 active | down | **152.6 µs** | 171.9 µs | **column** wins by 19.3 µs, beyond the ±1.0 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.5 µs** | 580.1 µs | **column** wins by 11.6 µs, beyond the ±1.3 µs spread |
+| 162 active | down | 343.2 µs | **341.7 µs** | **row** wins by 1.5 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **386.2 µs** | 387.8 µs | column nominally ahead, inside the ±2.3 µs spread |
+| 64 active | down | 285.3 µs | **278.4 µs** | **row** wins by 6.9 µs, beyond the ±1.2 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -711,6 +711,81 @@ inverted the *other* way, so the paragraph asserted a win the artifact contradic
 table read the artifact correctly in all three rounds. That is the argument for generating tables — and, since
 prose beside a correct table can still be wrong, for `audit_figures.py` checking the source comment and this
 file against the same artifact.
+
+### 4.19 Three candidates review round 14 raised: two taken, one illegal
+
+Round 14 was the first round in five to find shipped-code work rather than documentation defects, and it found it
+by reading the *suppressed* half of the profiler's output. All three are recorded here with what they measured.
+
+**The routed gate/up `in0` in L1 — taken, and the reason it was invisible.** `tt-perf-report` cannot model a
+`sparse_matmul` row whose `nnz` is `std::nullopt`, and its advice generator *early-returns* on such a row, so
+every committed report carried no `Bound`, no DRAM %, no FLOPs % and **no advice at all** on the two routed
+projections — 31 % of the decode window and ~82 % of prefill — while printing a warning that said exactly that.
+Passing `--active-experts` (8 for a batch-1 decode step, 162 for a 32-token prefill group: the expected distinct
+union of 256 draws from 256 experts, which is the figure `probe_sparse_matmul.py` already tuned at) populates
+both utilisations, classifies the rows `SLOW`, and raises three advice items on them. Two were already answered
+elsewhere — the 1x1 output subblock is §4.14's territory and the HiFi2/HiFi4 suggestion is §4.2's — and the
+third, "place input 0 in L1", was genuinely untried on that row. It costs no extra op: the per-group
+`ttnn.slice` that produces `in0` names L1 instead of inheriting DRAM, ~131 KB for one group. Paired A/B, two
+repeats per arm, and README §5.5's generated advice row prints the outcome:
+
+
+**A shipped policy that could not run, found by shipping the SDPA change.** Raising the prefill SDPA chunk made
+phase 3 of the sweep die on its `kv_cache_dtype=bfloat16` arm with
+`TT_THROW: Statically allocated circular buffers ... grow to ... beyond max L1` — a bfloat16 cache doubles what K and V cost per chunk, so 256 does not fit where 256 with a BFP8 cache
+does. `PREFILL_SDPA_CHUNK` is keyed on `(kv_cache_dtype, sdpa_fp32_acc)` for that reason: 256 for the shipped
+policy, 128 for a bfloat16 cache, and the fused stage's 64 for anything unmeasured, because a too-large chunk is
+not slow — it is a throw at program construction.
+
+Chasing that key turned up a **pre-existing** defect the same error was hiding. `POLICIES["fused-parity"]`, the
+policy README §4.1 describes as the fused decoder's exact dtypes, threw the same way on HEAD, before any round-14
+change, and **no test in the stage ran it** — the suite only ever built `DEFAULT_POLICY`, and §4.2's sweep applies
+`--set` overrides to the optimized policy rather than selecting a policy object. The cause is in
+`_prefill_2d_matmul_config`: its L1 model hardcoded `tile_bytes_in1 = 1.0625 * TILE * TILE`, BFP8's bytes per
+element, so under bfloat16 weights it under-predicted the `in1` circular buffers by nearly
+double, declared the program legal, and left the throw to program construction. A model that only holds for one dtype silently mis-sizes every
+other policy. It takes the policy's dtype now, and `fused-parity` prefills 2048 tokens at almost
+exactly the *fused decoder's own* prefill time — the `POLICYPREFILL` rows of
+[`logs/ab_routed_in0.txt`](logs/ab_routed_in0.txt) against README §5.2's generated before/after table — which is
+the check that says the parity policy really does reproduce those dtypes rather than merely claiming to. `test_every_shipped_policy_prefills_at_the_shipped_chunk` gates all three
+policies on both layer kinds now, so a policy cannot go back to existing only on paper.
+
+**The prefill SDPA program config — swept and raised, closing README §9 item 7.** That item disclosed the config
+as the one knob with no probe behind it, and round 14 correctly called that deferred work rather than a
+limitation. [`logs/probe_prefill_sdpa.txt`](logs/probe_prefill_sdpa.txt) sweeps eighteen arms at the shipped
+2048-token chunk — square pairs from 32 to 512, asymmetric pairs around the winner, two narrower grids, and the
+bfloat16-cache case — and the shape of the result is: the op default and 32 are the two worst arms, each doubling
+of the chunk up to 256 roughly halves the time, 512 does not build at *any* `k_chunk` pairing, the narrower grids
+lose, and decoupling `k_chunk` from `q_chunk` buys nothing beyond the spread. `q_chunk` is the axis;
+`PREFILL_SDPA_CHUNK` takes the winner, still clamped by the resume-offset divisibility rule and the physical
+length, so a prefill resuming at a 128-token boundary still gets 128. The layer effect is in README §5.2's
+generated table — the SDPA is `full_attention`-only, so `linear_attention` is unchanged — and the prefill
+correctness cases (PCC, chunk-size invariance, continuation) pass at the new tiling.
+
+A peer agent optimising the same op for a different model was measuring its occupancy at the same time, and the
+two shapes together are worth recording. `sdpa_program_factory` spreads `B * NQH * q_num_chunks` chunk-pairs over
+the grid, so a *larger* `q_chunk` means fewer pairs and lower occupancy: at their 6-head shape the inherited 128 fills under half the grid and 256
+only about a fifth of it, and they measured 256 substantially slower — occupancy-bound, and their inherited value
+was already optimal. (Their figures are theirs, measured on their model, so they are described here rather than
+quoted as if this stage's artifacts contained them.) At this stage's 16 heads the same formula saturates the grid at every chunk below 256 and still puts 256
+at 58 %, yet 256 is nearly three times *faster* than 64. Both are consistent: occupancy binds until the grid
+fills, and past that only per-core efficiency moves. The rule that survives both shapes is "raise occupancy until
+the grid fills, then raise the chunk"; the rule that would have hurt either of us is "smaller `q_chunk` is
+better", which is what an occupancy model alone suggests.
+
+**Two typecast folds taken, one rejected as illegal.** Round 14 pointed out that `TypecastDeviceOperation` is the
+largest single line item of the `linear_attention` dispatch gap and that three of its seven launches looked
+foldable into the op that produces them — the transformation §4.11 already applied for a measured win. In isolation all three fold cheaply - roughly a third off the `zeros_like` pair
+and a fifth off each `multiply` pair, measured op-side before shipping either. Shipped: the two `multiply` folds
+in the recurrent-state path, and the layer effect is in README §5.2's generated table, where traced
+`linear_attention` decode drops by about twenty microseconds while `full_attention` is unchanged - those sites
+are `linear_attention`-only, which is the check that the change did what it claims.
+Rejected: the router's `zeros_like(dtype=...)`, which is **illegal inside a trace region** — with a `dtype`
+argument the op materialises its result with a host write, and `test_perf_decode_traced` dies on
+`TT_FATAL: Writes are not supported during trace capture`. The typecast form dispatches a device op and traces,
+so it stays, with that as the reason rather than as an untried candidate. Worth stating: the op-level figure said
+the fold was the *largest* of the three wins, and it is the one that cannot ship — an isolated op measurement
+cannot see a trace-region contract.
 
 ### 4.15 The routed gate/up `in0_block_w` — a phase-aware cap, taken
 

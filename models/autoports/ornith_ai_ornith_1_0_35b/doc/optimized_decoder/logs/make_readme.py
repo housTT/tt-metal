@@ -589,6 +589,33 @@ def prefill_dense_share() -> str:
     return f"{min(shares):.2%}" if max(shares) - min(shares) < 5e-5 else f"{min(shares):.2%}-{max(shares):.2%}"
 
 
+def routed_in0_verdict() -> str:
+    """One sentence about the routed `in0` placement, computed from `logs/ab_routed_in0.txt`.
+
+    Round 14 measured this by hand first and typed the figures into this file, where the figure audit correctly
+    refused them: a hand-run is not a committed artifact. The A/B is a sweep phase now and this reads its rows,
+    so the sentence and its numbers cannot come apart.
+    """
+    runs: dict = {}
+    for match in re.finditer(
+        r"ROUTEDIN0 arm=(\S+) run=\d+ layer=\d+ \((\w+)\) prefill\(warmed\) wall/iter=([\d.]+)",
+        read(LOGS / "ab_routed_in0.txt"),
+    ):
+        arm, kind, ms = match.groups()
+        runs.setdefault((kind, arm), []).append(float(ms))
+    parts = []
+    for kind in sorted({k for k, _ in runs}):
+        l1, dram = runs.get((kind, "shipped-in0-L1"), []), runs.get((kind, "in0-DRAM"), [])
+        if not l1 or not dram:
+            continue
+        separated = "every build apart" if max(l1) < min(dram) else "means apart"
+        parts.append(
+            f"on `{kind}` L1 runs {min(l1):.3f}-{max(l1):.3f} ms against DRAM's {min(dram):.3f}-{max(dram):.3f} "
+            f"({separated})"
+        )
+    return "; ".join(parts) if parts else "no A/B rows found"
+
+
 def advice_actions() -> dict:
     """What this stage did about each distinct `tt-perf-report` advice item, keyed by a substring of the
     advice text.
@@ -693,7 +720,15 @@ def advice_actions() -> dict:
             "activation-reshard cost (§5.4)."
         ),
         "place input 0 in L1": (
-            "**Taken for decode, measured and rejected for prefill.** Decode: the two residual norms, "
+            "**Taken for decode and for the routed gate/up, measured and rejected for the dense prefill "
+            "roles.** The routed arm is new in review round 14 and is the reason the item is worth re-reading: "
+            "it was invisible until the reports were regenerated with `--active-experts`, because "
+            "`tt-perf-report` drops all advice on a `sparse_matmul` row whose `nnz` it cannot model, and that "
+            "row is the largest op of the prefill window. Taking it there costs no extra op - the per-group "
+            "`ttnn.slice` that produces `in0` simply names L1 - and the layer A/B is decisive: "
+            + routed_in0_verdict()
+            + ". "
+            "Decode: the two residual norms, "
             "the three float32 recurrent-state matmuls and the shared expert's SwiGLU product all hand "
             "their result to L1, each size-gated so a large batch still uses DRAM — the item is now "
             "raised 0 times in both decode reports. The head-dim norms are the one decode exception and "

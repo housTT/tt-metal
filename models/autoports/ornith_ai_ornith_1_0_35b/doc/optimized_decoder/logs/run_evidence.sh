@@ -139,6 +139,20 @@ echo "=== 4e/9  end-to-end A/B for the two round-9 geometry candidates ==="
   python "$LOGS/ab_sdpa_decode_grid.py"
 } 2>&1 | grep -aE "^ABGRID|^#" > "$LOGS/ab_sdpa_decode_grid.txt"
 
+echo "=== 4h/9  whole-layer A/B: routed in0 placement, and every shipped policy's prefill ==="
+{
+  echo "# Routed gate/up in0 placement at the layer, and each POLICIES entry's warmed prefill."
+  echo "# Command: python doc/optimized_decoder/logs/ab_routed_in0.py"
+  python "$LOGS/ab_routed_in0.py"
+} 2>&1 | grep -aE "^ROUTEDIN0|^POLICYPREFILL|^#" > "$LOGS/ab_routed_in0.txt"
+
+echo "=== 4g/9  the prefill chunked-SDPA sweep, the knob round 14 found unmeasured ==="
+{
+  echo "# Prefill chunked-SDPA program config sweep at the shipped 2048-token chunk."
+  echo "# Command: python doc/optimized_decoder/logs/probe_prefill_sdpa.py"
+  python "$LOGS/probe_prefill_sdpa.py"
+} 2>&1 | grep -aE "^PREFILLSDPA|^#" > "$LOGS/probe_prefill_sdpa.txt"
+
 echo "=== 4f/9  the checkpoint's own shape constants, for the document audit ==="
 # Round 9 found five documents calling this a 48-layer model; it has 40, and the figure was the denominator
 # of a policy decision. The shapes are an artifact now so `audit_figures.check_model_facts` can enforce them.

@@ -61,6 +61,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     DECODE_MATMUL_IN0_TILE_BUDGET,
     DECODE_MATMUL_MAX_M_TILES,
     DEFAULT_PREFILL_CHUNK,
+    POLICIES,
     PREFILL_ALIGN,
     TILE,
     OptimizedDecoder,
@@ -931,6 +932,40 @@ def test_batched_decode_ragged_positions(mesh_device, layer_idx, batch):
         value = pcc(goldens[user], out[user : user + 1])
         logger.info(f"optimized ragged-position decode batch={batch} user={user} pos={length} PCC={value:.6f}")
         assert value > PCC_BAR, f"user {user} at position {length}: PCC {value} <= {PCC_BAR}"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("policy_name", sorted(POLICIES))
+def test_every_shipped_policy_prefills_at_the_shipped_chunk(mesh_device, layer_idx, policy_name):
+    """Every policy in ``POLICIES`` must build and run a full ``DEFAULT_PREFILL_CHUNK`` prefill.
+
+    A policy is a shipped configuration: `POLICIES["fused-parity"]` is documented as the fused decoder's exact
+    dtypes and is what the before/after comparison rests on, and `POLICIES["bfp4-projections"]` is handed to a
+    later stage to pick up. Review round 14 pointed out that no test ran either of them, and running them found
+    that `fused-parity` **could not prefill at all**: the 2D prefill config's L1 model hardcoded BFP8's 1.0625
+    bytes per weight element, so under bfloat16 weights it under-predicted the `in1` circular buffers by ~1.9x,
+    declared the program legal, and program construction threw `Statically allocated circular buffers ... grow
+    to 1676672 B which is beyond max L1`. The model takes the policy's dtype now, and this test is what stops a
+    future dtype change from re-creating a policy that only exists on paper.
+
+    Deliberately a *build and run* test rather than a PCC test: the accuracy of each policy is §4.2's sweep, and
+    what regressed here was legality at the shipped chunk, which only a full-length prefill shows.
+    """
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, policy=POLICIES[policy_name])
+    assert decoder.policy is POLICIES[policy_name], "the requested policy must reach the built layer"
+    out = decoder.prefill_forward(
+        to_device(mesh_device, make_activations(1, DEFAULT_PREFILL_CHUNK, seed=131)), page_table=page_table
+    )
+    values = ttnn.to_torch(out)
+    ttnn.deallocate(out)
+    assert torch.isfinite(values).all(), f"policy {policy_name} produced non-finite prefill output"
+    assert values.abs().max() > 0, f"policy {policy_name} produced an all-zero prefill output"
+    logger.info(
+        f"policy {policy_name} prefilled {DEFAULT_PREFILL_CHUNK} tokens on layer={layer_idx} "
+        f"({LAYER_IDS[layer_idx]}): finite, non-degenerate"
+    )
+    del decoder
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])

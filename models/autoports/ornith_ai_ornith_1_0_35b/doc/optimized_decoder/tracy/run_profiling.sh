@@ -23,8 +23,16 @@ ROOT="models/autoports/ornith_ai_ornith_1_0_35b"
 ART="$ROOT/doc/optimized_decoder/tracy"
 TEST="$ROOT/tests/test_optimized_decoder.py"
 
+# `--active-experts`: `tt-perf-report` cannot model a `sparse_matmul` row whose `nnz` is `std::nullopt`, and
+# `generate_matmul_advice` EARLY-RETURNS on such a row - so without this flag the two routed matmuls, 31 % of the
+# decode window and ~82 % of prefill, carry no Bound, no DRAM %, no FLOPs % and **no advice at all**, while the
+# report prints a warning saying so. Review round 14 found every committed report in that state and one advice
+# item ("place input 0 in L1", on the largest op of the prefill window) consequently untried. The count is the
+# active experts per input batch group: exactly 8 for a batch-1 decode step (one token, top-8), and 162 for a
+# 32-token prefill group - the expected distinct union of 256 draws from 256 experts, 256*(1-(1-1/256)^256),
+# which is the same figure `probe_sparse_matmul.py` tunes at.
 run_one() {
-  local kind="$1" phase="$2" node="$3" sign="$4"
+  local kind="$1" phase="$2" node="$3" sign="$4" active="$5"
   local out="$ART/$kind/$phase"
   rm -rf "$out"
   mkdir -p "$out" "$ART/$kind"
@@ -47,18 +55,21 @@ run_one() {
   # Advice-enabled human-readable table: this is the report the stage is guided by.
   tt-perf-report "$ART/$kind/${phase}_ops.csv" \
     --start-signpost "$sign" --end-signpost "${sign}_END" \
+    --active-experts "$active" \
     --no-summary \
     > "$ART/$kind/${phase}_perf_report.txt"
 
   # Machine-readable rows for the same window (--csv mode prints status chatter, not the table).
   tt-perf-report "$ART/$kind/${phase}_ops.csv" \
     --start-signpost "$sign" --end-signpost "${sign}_END" \
+    --active-experts "$active" \
     --csv "$ART/$kind/${phase}_perf_report.csv" \
     > "$ART/$kind/${phase}_perf_report.console.txt"
 
   # Roofline summary + per-op-code stack, advice enabled.
   tt-perf-report "$ART/$kind/${phase}_ops.csv" \
     --start-signpost "$sign" --end-signpost "${sign}_END" \
+    --active-experts "$active" \
     --group-by op \
     > "$ART/$kind/${phase}_perf_report.summary.txt"
 
@@ -89,10 +100,10 @@ run_one() {
 }
 
 run_one linear_attention prefill \
-  'test_perf_prefill[blackhole-2048-linear_attention-mesh_device0-device_params0]' PERF_PREFILL
+  'test_perf_prefill[blackhole-2048-linear_attention-mesh_device0-device_params0]' PERF_PREFILL 162
 run_one linear_attention decode \
-  'test_perf_decode_traced[blackhole-linear_attention-mesh_device0-device_params0]' PERF_DECODE
+  'test_perf_decode_traced[blackhole-linear_attention-mesh_device0-device_params0]' PERF_DECODE 8
 run_one full_attention prefill \
-  'test_perf_prefill[blackhole-2048-full_attention-mesh_device0-device_params0]' PERF_PREFILL
+  'test_perf_prefill[blackhole-2048-full_attention-mesh_device0-device_params0]' PERF_PREFILL 162
 run_one full_attention decode \
-  'test_perf_decode_traced[blackhole-full_attention-mesh_device0-device_params0]' PERF_DECODE
+  'test_perf_decode_traced[blackhole-full_attention-mesh_device0-device_params0]' PERF_DECODE 8

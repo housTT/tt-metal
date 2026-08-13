@@ -265,10 +265,16 @@ def main():
             "topk_share_of_device_time": round(topk_share, 4),
             "topk_us_per_step": round(topk_us, 1),
             "named_limitations": [
+                # The utilisation figures come from the report now, not from this string. Review round 14
+                # found them hardcoded here AND found the reason: every committed report was generated
+                # without `--active-experts`, so `tt-perf-report` could not model a `sparse_matmul` row's
+                # DRAM or FLOP utilisation and dropped all advice on it. With the flag the tool prints both,
+                # so the claim is quoted from the row instead of asserted beside it.
                 "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops "
-                "once per active expert at a single tile of M, so the two routed projections reach "
-                "roughly 5 % of the FLOP roofline and ~40 GB/s of weight bandwidth even after the "
-                f"geometry sweep; they are {sparse_share:.0%} of the window.",
+                "once per active expert at a single tile of M, so the two routed projections stay far "
+                "below both rooflines even after the geometry sweep - the report's own DRAM %% and FLOPs %% "
+                "for those rows are in README section 5.3's advice table, and tt-perf-report classifies "
+                f"them SLOW; they are {sparse_share:.0%} of the window.",
                 "The routed-expert intermediates are num_experts wide where only num_experts_per_tok "
                 "slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the "
                 "score multiply and the expert reduction each touch 32x the useful width. Moving "
