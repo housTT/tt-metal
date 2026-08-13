@@ -73,7 +73,7 @@ step, `full_attention`, sorted by device time — this is the table the whole st
 | 10 | `TopKDeviceOperation` | 48.3 | router top-8 over 256 experts, single core | pad to the multi-core width; replace the gate op | **both measured and rejected** (§4.3, §4.4) |
 | 11 | `MatmulDeviceOperation 32 x 2048 x 1056` | 31.3 | the shared expert's packed gate/up projection | explicit config; BFP8 weights | **explicit config + BFP8 taken** (§3.5); it also shares the MoE's L1 bound |
 | 12 | `MatmulDeviceOperation 32 x 2048 x 256` | 25.5 | router projection, 8 cores, 9.4 % of DRAM bandwidth | explicit config | **taken** (§3.5) |
-| 13 | `UntilizeWithUnpadding` (all launches) | 23.3 | the untilize half of three composite calls: the router scatter, the GQA head expansion and the `topk` index readback | no tile-native form at these shapes | **itemised, not removed** — README §6 splits it per call |
+| 13 | `UntilizeWithUnpadding` | 23.3 | the untilize half of three composite calls: the router scatter, the GQA head expansion and the `topk` index readback | no tile-native form at these shapes | **itemised, not removed** — README §6 splits it per call |
 | 14 | `NLPCreateQKVHeadsDecodeDeviceOperation` | 19.3 | the dedicated QKV head split | inherited from the fused stage | unchanged; falls back to the functional spelling above 32 users |
 | 15 | `SdpaDecodeDeviceOperation` | 17.6 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
 |  | *the other 18 op codes, each under 17.6 µs/step* | 105.8 | — | — | — |
@@ -88,10 +88,10 @@ mixer, and its own top items (from the same capture set, per traced step) are:
 | `MatmulDeviceOperation 32 x 2048 x 12352` | 128.5 | packed DeltaNet in-projection | BFP8 + explicit decode config (§3.5) |
 | `MatmulDeviceOperation 32 x 4096 x 2048` | 80.9 | `out_proj` | explicit decode config (§3.5) + a bfloat16 activation (§4.11) |
 | 3 x `MatmulDeviceOperation b={32} 32 x 128 x 128` | 44.2 | the float32 recurrent-state matmuls: decay read, delta outer product, output read | operands moved to L1 — 19 µs (§3.9 item 2); fidelity swept and rejected |
-| `ReshapeViewDeviceOperation` + `PermuteDeviceOperation` | 44.2 | the one-shot head-major relayout of the conv output | inherited from the fused stage, which already reduced it from three round trips to one |
-| `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` | 36.2 | `repeat_interleave`'s GQA head expansion | output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation |
+| `ReshapeView` + `Permute` (**all launches of both codes**) | 44.2 | the head-major relayout of the conv output is one `ReshapeView` and one `Permute` of these (30.9 µs/step together); the rest of this figure is three other `ReshapeView` launches | inherited from the fused stage, which already reduced it from three round trips to one |
+| `TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` (**all launches of all three codes**) | 36.2 | `repeat_interleave`'s GQA head expansion is one consecutive run of these three and costs 12.8 µs/step of this figure; the remainder is the router scatter's and `topk` readback's untilizes, which share the op codes | output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation |
 | `TernaryDeviceOperation` | 23.6 | the `addcmul` conv-tap accumulation | inherited; the fused stage measured `addcmul` against `mac` and kept it |
-| *the other 20 op codes, each under 23.6 µs/step* | 1629.8 | — | — |
+| *the other 20 op codes — 10 of them the shared MoE and norm rows the table above ranks (largest: `SparseMatmulDeviceOperation active=?/256 x 32 x 2048 x 1024` at 367.2), the rest below 23.6 µs/step* | 1629.8 | — | — |
 <!-- /generated:topology-audit-linear -->
 
 Structural observations from the same read, which drove §3.1 and §3.4:
@@ -102,7 +102,10 @@ Structural observations from the same read, which drove §3.1 and §3.4:
   packing still *wins* under BFP4/LoFi, which §4.2 answers.
 * **Reshard / layout conversions**: 6 per `full_attention` decode step, 1 per `linear_attention`
   one, all required by an op contract (§6 of the fused README). No avoidable ones existed to remove;
-  this stage *adds* 8–12, all of them the sharded-norm boundary, and pays for them (§3.6).
+  this stage *adds* 4 on `linear_attention` and 8 on `full_attention` — two per sharded norm, taking the
+  budgets from 1 and 6 to 5 and 14 — all of them the sharded-norm boundary, and pays for them (§3.6).
+  (This line said "8–12" until review round 13, which is the *total* rather than the delta and disagreed
+  with README §6 and §3.6, both of which had it right.)
 * **Host fallback**: none in the measured path, inherited and re-asserted.
 * **The 256-expert-wide intermediate chain** — fill → slice → slice → SwiGLU → score-multiply →
   fill → reduce — is 38 % of the window, on a tensor where **8 of 256** expert slots
@@ -319,13 +322,16 @@ Three findings, all kept as evidence:
   why the explicit one stays;
 * a `k_chunk_size` **larger than the 64-token paged block size is wrong**, not merely risky. The
   isolated op cannot see it — the probe's reference is the op default on the same page table — but
-  the layer's decode PCC against the HF golden collapses to 0.02–0.92 at the paged contexts the
+  the layer's decode PCC against the HF golden collapses to 0.02292–0.90512 at the paged contexts the
   delivered tests use. So the ~10 % the k128 row promises is rejected on correctness, and
   `k_chunk_size` is now pinned to `page_block_size` in code rather than to the literal 64.
 
 * the **grid is not a latency axis at all**, which took taking it to find out. `8x4` leads the shipped `8x8`
-  in both sections of [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — 60.1 vs 61.1 µs and
-  60.1 vs 61.1 µs, at spreads of 0.1–0.2 and identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
+  in both sections of [`logs/probe_decode_micro.txt`](logs/probe_decode_micro.txt) — README §5.5's generated knob
+  table prints the pair and the gap, which is the fourth time this paragraph has had to stop quoting them by
+  hand: rounds 5, 8, 9 and 13 each found the transcription wrong or stale, the last of them quoting one section's
+  8x4 time against the other section's 8x8 time and understating the spread the gap has to clear (one of those
+  8x4 rows carries a 0.9 µs spread against a 0.8 µs gap). Identical PCC to six decimals — and unlike the k-chunk it appeared to cost nothing: no invariant, no correctness question, and a
   dead heat at the layer ([`logs/ab_sdpa_decode_grid.txt`](logs/ab_sdpa_decode_grid.txt); README §5.1's
   generated table carries every build of both arms, and the difference between the arms is smaller than one
   arm's own span, SDPA being ~2 % of a step). Review round 9 was right that nothing recorded which end of the
@@ -449,7 +455,7 @@ precision one, so it stays rejected on that ground.
 §3.8 has the sweep. Two candidates are faster in isolation and wrong in the layer, and the numbers
 that reject them are committed in
 [`logs/ab_sdpa_decode_contract.txt`](logs/ab_sdpa_decode_contract.txt): `k_chunk_size` 128 (~10 %
-faster standalone) drops the layer's decode PCC to 0.02-0.92, and passing the prefill compute-kernel
+faster standalone) drops the layer's decode PCC to 0.02292-0.90512, and passing the prefill compute-kernel
 config to the decode op drops it to 0.33. Both failures are invisible to a standalone probe, whose
 reference is the same op on the same page table. The shipped config keeps `k_chunk_size` pinned to
 `page_block_size` and passes no compute-kernel config. `SdpaDecode` is 17 µs/step, 2 % of the window.
@@ -660,12 +666,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.5 µs | **column** wins by 19.0 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **152.6 µs** | 171.8 µs | **column** wins by 19.2 µs, beyond the ±1.0 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **571.0 µs** | 578.6 µs | **column** wins by 7.6 µs, beyond the ±1.2 µs spread |
-| 162 active | down | 346.2 µs | **344.5 µs** | **row** wins by 1.7 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.2 µs** | 387.3 µs | **column** wins by 2.1 µs, beyond the ±0.9 µs spread |
-| 64 active | down | 284.6 µs | **278.1 µs** | **row** wins by 6.5 µs, beyond the ±0.7 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.2 µs | **column** wins by 19.0 µs, beyond the ±0.5 µs spread |
+| 8 active | down | **152.7 µs** | 171.9 µs | **column** wins by 19.2 µs, beyond the ±0.4 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.2 µs** | 579.0 µs | **column** wins by 10.8 µs, beyond the ±0.8 µs spread |
+| 162 active | down | 345.1 µs | **344.3 µs** | row nominally ahead, inside the ±1.1 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.5 µs | **column** wins by 2.1 µs, beyond the ±0.5 µs spread |
+| 64 active | down | 284.6 µs | **277.8 µs** | **row** wins by 6.8 µs, beyond the ±1.2 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -1474,6 +1480,60 @@ Also corrected: the claim, in three places including the shipped source comment,
 "the largest supported decode batch". It is the largest *tuned* one — an untuned decode batch of 32 or more
 saturates the active bound at 256 and does reach 32 `down` cores. The orientation rule was rejected on a
 whole-layer A/B, so nothing rides on it, but it was used to argue the rule had no competing point.
+
+**Round 13** returned `more-work-needed` with six items and no model-correctness defect. Two were inside round
+12's own fix, and the rest were claims that had been true once, or true of one table, and were never re-derived.
+
+* **P2 — §2's `linear_attention` remainder row was arithmetically impossible**: "the other 20 op codes, each
+  under 23.6 µs/step" summing more than a millisecond. The generator computed the floor as the smallest listed row and asserted
+  everything unlisted was below it — true of the `full_attention` table, which is a top-N, and false of the
+  mixer-only table, whose remainder is dominated by the shared MoE rows the table above ranks. The claim is now
+  made only when it holds and names the shared rows when it does not.
+* **P2 — round 12's "all launches" relabelling landed on the wrong row.** It went on the single-code
+  `UntilizeWithUnpadding` row; the two *multi-code* rows — the ones the fix was for — were untouched, so §2 still
+  sized `repeat_interleave`'s head expansion at the step-wide total of three shared op codes rather than the
+  call, and §6 recorded the defect as closed. Both rows now say what they sum and carry the per-call figure,
+  computed from the capture rather than typed: the first draft of that label hardcoded the derived sum and the
+  figure audit refused it, which is the check working.
+* **P2 — the context contract said "prefill keeps ttnn's 2D heuristic".** The stage ships explicit 2D configs on
+  every dense prefill role, beating the heuristic on all six, asserted by a test. The contract is the file the
+  next stage reads for the shipped configuration, and `audit_figures.py` checks its figures, not its prose.
+* **P2 — the layout-conversion delta was wrong in the work log and in the test file** ("8-12 new conversions"):
+  the budgets go 1 → 5 and 6 → 14, so the stage adds **4 and 8**, which README §6 and §3.6 both had right. Two
+  two-digit integers, which `ALLOWED_INT` exempts wholesale.
+* **P2 — README §5.5's SDPA lookups matched a superset.** `q_chunk` was unconstrained, so the `q_chunk=0` arms —
+  the candidate §9 item 8 rejects — satisfied the "shipped" and "8x4" lookups and were one re-measurement away
+  from becoming the shipped figure in three cells. `min()` happened to land on the right row. Pinned, and this is
+  the seventh time this stage has found an under-constrained lookup: the lesson is that `best(**where)` matching a
+  *subset* is the wrong default for a table about one specific configuration.
+* **P2 — §3.8 quoted an 8x4/8x8 pair matching neither section of its probe**, pairing one section's 8x4 time with
+  the other's 8x8 and understating the spread the gap must clear (one of those rows carries a 0.9 µs spread
+  against a 0.8 µs gap). Fourth round on this paragraph, so it no longer transcribes the pair at all — README
+  §5.5's generated knob table prints it.
+
+Round 13's other concerns are closed too: the two op-code counts in one document (25/28 bare in §5.3 against
+31/33 shape-qualified in §7) now say why they differ; §7's roofline sentence quoted the `full_attention` fraction
+unlabelled; a cross-reference pointed at §9 item 8 instead of item 9; and the same sentence claimed
+`CLASSIFICATION.md` classifies `TT_FATAL` lines in the watcher log, where that log has none — they are in the
+pytest console logs only. The k128 candidate's PCC range was quoting a row belonging to the *other* candidate,
+and is now the right range at a precision the audit can check.
+
+Two gates got stronger, both from round 13's hard-check list. `check_generators` was invoking the two summary
+generators in **write** mode, so the audit repaired the drift it reported and only a first run on a fresh clone
+could see it; both are `--check` now, with the byte snapshot kept as proof that read-only wrote nothing. And
+`HISTORICAL` — the allowance that lets a superseded figure be quoted where a document records that it was wrong —
+was file-level while its own rationale was section-level, so a superseded value could be used as a live claim
+anywhere in the work log. It is scoped to §3's development ladder and §6's review rounds now. That fix needed
+two attempts: the first computed each paragraph's section from a string the section headings had already been
+stripped out of, so it silently never matched, which is the same class as the gates rounds 5, 8, 10 and 12
+found — a check that cannot fire — one layer up. The strippers run per paragraph now, and both directions of the
+boundary are verified.
+
+A test also got stronger: `test_decode_runs_the_tuned_program_configs` claimed in a comment to assert the
+batch-dependent dense geometry and asserted only `in0_block_w >= 2`, which any batch passes. It now asserts
+**both** activation conventions — `per_core_M == batch` for the four token-mixer roles, one tile for the three
+MoE roles, and the in0 budget divided by the tile rows — which is exactly the distinction rounds 10 to 13 kept
+getting wrong in prose.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

@@ -39,7 +39,11 @@ echo "=== 0/9  record the source hashes the evidence is produced from ==="
 } > "$LOGS/source_manifest.txt"
 
 echo "=== 1/9  correctness suite (no watcher, no profiler) ==="
-python -m pytest "$ROOT/tests/test_optimized_decoder.py" -v -p no:randomly > "$LOGS/pytest_full_suite.txt" 2>&1
+# `sed`: strip ANSI colour, which pytest emits when the environment forces it even with stdout redirected.
+# Round 13's sweep produced a summary line starting with an escape sequence, and the audit's
+# "did this run finish" check reported the completed suite as incomplete.
+python -m pytest "$ROOT/tests/test_optimized_decoder.py" -v -p no:randomly 2>&1 \
+  | sed -r 's/\x1b\[[0-9;]*m//g' > "$LOGS/pytest_full_suite.txt"
 
 echo "=== 2/9  before/after benchmark, fused and optimized in one process ==="
 {
@@ -167,7 +171,7 @@ or rope_mode_equivalence or masked_chunk_length or batched_paged_fill or above_h
 or prefill_continuation or batch_smaller_than_allocated_state or batched_prefill_decode \
 or lazy_allocation or optimized_matches_fused or padded_rows or tuned_program_configs \
 or precision_policy" \
-  > "$LOGS/watcher_pytest.txt" 2>&1
+  2>&1 | sed -r 's/\x1b\[[0-9;]*m//g' > "$LOGS/watcher_pytest.txt"
 cp generated/watcher/watcher.log "$ART/watcher/watcher_log.txt"
 python "$ART/watcher/census.py" > "$ART/watcher/census_summary.txt"
 

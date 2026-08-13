@@ -58,6 +58,7 @@ import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.reference import hf_reference as R
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     CONV1D_CHANNELS,
+    DECODE_MATMUL_IN0_TILE_BUDGET,
     DECODE_MATMUL_MAX_M_TILES,
     DEFAULT_PREFILL_CHUNK,
     PREFILL_ALIGN,
@@ -78,6 +79,12 @@ LAYER_IDS = {LINEAR_LAYER: "linear_attention", FULL_LAYER: "full_attention"}
 #: is a named constant rather than a literal repeated in each place: the decode SDPA grid must have at least
 #: this many cores, because flash-decode assigns one per batch row.
 LARGEST_SUPPORTED_DECODE_BATCH = 56
+
+#: The ``(K, N)`` of the three decode matmuls that run on the MoE's padded-token rows rather than on
+#: ``[batch, 1, dim]``: the shared expert's packed gate/up, its down projection, and the router. Their
+#: ``per_core_M`` is one tile at every supported batch, which is the distinction
+#: ``test_decode_runs_the_tuned_program_configs`` asserts against the four token-mixer roles.
+MOE_DECODE_SHAPES = {(2048, 1056), (512, 2048), (2048, 256)}
 
 #: Acceptance bar inherited from the functional-decoder stage. The fusing stage is not allowed to
 #: lower it, and every measurement below clears it by more than an order of magnitude of error (the
@@ -487,7 +494,8 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                  + 4 x (to_memory_config + sharded_to_interleaved) for the width-sharded
     #                    RMSNorms: input, post-attention, and the Q and K head-dim norms
     #
-    # The eight-to-twelve new conversions are this stage's own, and they are the price of the norm
+    # The four new conversions on `linear_attention` and eight on `full_attention` — 1 -> 5 and 6 -> 14 against
+    # `test_fused_decoder`'s budgets, two per sharded norm — are this stage's own, and they are the price of the norm
     # win, not churn: ``ttnn.rms_norm`` parallelises over rows, so an interleaved decode norm (one
     # tile of rows) runs on a single core, and the 1D ``mcast_in0`` projection matmul that consumes
     # the result needs an interleaved ``in0`` back. The conversions cost less than the norm saves;
@@ -956,7 +964,8 @@ def test_documented_batch_thresholds(mesh_device, layer_idx):
     )
     for batch in (1, 5, top):
         assert mixer(batch) is not None, f"batch {batch} is inside the documented band and must be tuned"
-    # The MoE convention: one tile of rows per call regardless of batch, so these never fall back.
+    # The MoE convention: rows are `align_up(tokens, 32)` per call rather than `32 * batch`, so one tile up to
+    # batch 32 and two at 40/56 — either way far below the 8-tile cap, which is why these never fall back.
     router = configs.get("router", rows=TILE, k=decoder.cfg.dim, n=decoder.cfg.num_experts, decode=True, fp32_acc=False)
     assert router is not None, "the MoE roles run on padded token rows and must stay tuned at every batch"
     logger.info(
@@ -1920,6 +1929,24 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         assert cfg is not None, f"dense decode matmul {k}x{n} ran on ttnn's heuristic, not a tuned config"
         assert isinstance(cfg, ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig), f"{k}x{n}: {type(cfg)}"
         assert cfg.in0_block_w >= 2, f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w}"
+        # Batch-dependent, and asserted rather than logged: `per_core_M` IS the batch for these roles, and the
+        # in0 budget is divided by the tile rows, so the inner block narrows as the batch grows. Review round 13
+        # pointed out this test's comment claimed to check that while only checking `>= 2` — which batch 5 would
+        # have passed with any value. The rule is mirrored from `_ProjectionConfigs.get`.
+        # BOTH conventions are asserted, because the difference between them is what review rounds 10-13 kept
+        # getting wrong: the token-mixer roles are called on `[batch, 1, dim]`, so `per_core_M == batch` and the
+        # in0 budget is divided by the batch; the MoE roles are called on `[1, 1, align_up(tokens, 32), dim]`, so
+        # `per_core_M` is one tile regardless. A test that asserted only `in0_block_w >= 2` (as this one did until
+        # round 13) passes at every batch without ever checking either.
+        rows = 1 if (k, n) in MOE_DECODE_SHAPES else decode_batch
+        assert cfg.per_core_M == rows, (
+            f"dense decode matmul {k}x{n} has per_core_M={cfg.per_core_M} at batch {decode_batch}, expected "
+            f"{rows}: the token-mixer roles run on [batch, 1, dim] and the MoE roles on padded token rows"
+        )
+        assert cfg.in0_block_w <= max(1, DECODE_MATMUL_IN0_TILE_BUDGET // rows), (
+            f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w} at batch {decode_batch}, above the "
+            f"{DECODE_MATMUL_IN0_TILE_BUDGET}-tile in0 budget divided by {rows} tile rows"
+        )
     logger.info(
         f"decode dense matmuls layer={layer_idx} ({LAYER_IDS[layer_idx]}) batch={decode_batch}: "
         + ", ".join(

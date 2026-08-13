@@ -460,8 +460,12 @@ def block_gap_itemisation():
         )
     lines.append("")
     lines.append(
-        "Grouped by op code and divided by the 32 replays. The bottom row of each kind is what §7's "
-        "dispatch-and-host gap has to be made of, and it reconciles with it. Note what this replaces: "
+        "Grouped by op code and divided by the 32 replays. **These op codes are shape-qualified** "
+        "(`MatmulDeviceOperation 32 x 2048 x 12352` is its own code here), which is why this table counts more "
+        "of them than §5.3, whose source aggregates by the bare code — review round 13 pointed out the two "
+        "counts sat in one document with nothing saying they count different things. The bottom row of each "
+        "kind is what §7's dispatch-and-host gap has to be made of, and it reconciles with it. Note what this "
+        "replaces: "
         "the hand-written version of this paragraph said *two* 6–8 µs typecast gaps, when the "
         "`TypecastDeviceOperation` gaps are the **largest single line item** of the `linear_attention` "
         "window at 7 launches a step."
@@ -1082,13 +1086,15 @@ def block_op_knobs():
     PLAIN = ("ckc", "max_cores_per_head_batch")
     sdpa_default = best(sdpa, cfg="default(None)", absent=PLAIN)
     # `probe_rows` splits on the FIRST "=", so the grid arrives as cfg="grid=8x8", not as a `grid` key.
-    # The k-chunk rows are pinned to the shipped grid so the chunk is the only axis, and the grid rows are
-    # pinned to the shipped chunk pair for the same reason. Both must track the layer: round 9 took 8x4 on the
+    # Every axis is pinned, including `q_chunk`: round 13 found these lookups constraining only the grid and the
+    # k-chunk, so the `q_chunk=0` arms - the candidate §9 item 8 rejects - satisfied them too and were one
+    # re-measurement away from becoming the "shipped" figure in three cells. `min()` happened to land on the
+    # right row; that is luck, not a pin. Same class as the sparse lookup rounds 5-12 kept re-finding. Both must track the layer: round 9 took 8x4 on the
     # sweep's advice and these pins had to move, then the suite sent the grid back to 8x8 on a capability bound
     # and they had to move back. A generated table can go stale against the code exactly like prose can.
-    shipped_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="64", absent=PLAIN)
-    faster_sdpa = best(sdpa, cfg="grid=8x8", k_chunk="128", absent=PLAIN)
-    faster_grid_sdpa = best(sdpa, cfg="grid=8x4", k_chunk="64", absent=PLAIN)
+    shipped_sdpa = best(sdpa, cfg="grid=8x8", q_chunk="32", k_chunk="64", absent=PLAIN)
+    faster_sdpa = best(sdpa, cfg="grid=8x8", q_chunk="32", k_chunk="128", absent=PLAIN)
+    faster_grid_sdpa = best(sdpa, cfg="grid=8x4", q_chunk="32", k_chunk="64", absent=PLAIN)
     # `max_cores_per_head_batch` decides how many cores flash-decode actually activates (default 16, so
     # 16 * B * num_kv_heads = 32 of the 64-core grid at batch 1). Round 11 pointed out the stage called this
     # config swept with that field defaulted; these rows are the sweep.
@@ -1354,6 +1360,35 @@ def block_watcher_result():
 #: Round 10 found five of these times wrong - a baseline table carrying post-optimization values, and one row
 #: taken from the other layer kind - because they are two-digit integers, which `ALLOWED_INT` exempts from
 #: sourcing wholesale. Generating them from the fused stage's committed capture is the only way this table
+def fused_call_us(kind: str, codes: tuple, consecutive: bool) -> float:
+    """The cost of ONE call in the fused capture, as opposed to its op codes' step-wide totals.
+
+    ``consecutive=True`` sums the first consecutive run of ``codes`` — the shape a composite op like
+    ``repeat_interleave`` dispatches. ``consecutive=False`` sums the first launch of each code in dispatch
+    order, which is what a two-op relayout is when the two launches are separated by other work. Round 13 found
+    both figures typed into `TOPOLOGY_AUDIT`'s prose as literals, which the figure audit correctly refused to
+    source; computing them means the label cannot drift from the capture it describes.
+    """
+    raw = read(ROOT.parent / "fused_decoder/tracy" / kind / "decode_perf_report.csv")
+    rows = [r for r in csv.DictReader(io.StringIO(raw)) if r.get("OP Code")]
+    step = [
+        (r["OP Code"], float((r["Device Time"] or "0").replace(",", ""))) for r in rows[: len(rows) // TRACED_REPLAYS]
+    ]
+    if consecutive:
+        for start in range(len(step) - len(codes) + 1):
+            window = step[start : start + len(codes)]
+            if all(have == want for (have, _), want in zip(window, codes)):
+                return sum(us for _, us in window)
+        raise SystemExit(f"work_log §2: no consecutive {codes} run in the fused {kind} capture")
+    total = 0.0
+    for want in codes:
+        first = next((us for have, us in step if have == want), None)
+        if first is None:
+            raise SystemExit(f"work_log §2: no {want} launch in the fused {kind} capture")
+        total += first
+    return total
+
+
 #: cannot drift again, and its wrongness mattered: it is the table the whole stage was planned from.
 TOPOLOGY_AUDIT = {
     "full_attention": [
@@ -1467,7 +1502,7 @@ TOPOLOGY_AUDIT = {
         ),
         (
             "UntilizeWithUnpaddingDeviceOperation",
-            "`UntilizeWithUnpadding` (all launches)",
+            "`UntilizeWithUnpadding`",
             (
                 "the untilize half of three composite calls: the router scatter, the GQA head expansion and "
                 "the `topk` index readback",
@@ -1521,17 +1556,22 @@ TOPOLOGY_AUDIT = {
         ),
         (
             "ReshapeViewDeviceOperation+PermuteDeviceOperation",
-            "`ReshapeViewDeviceOperation` + `PermuteDeviceOperation`",
+            "`ReshapeView` + `Permute` (**all launches of both codes**)",
             (
-                "the one-shot head-major relayout of the conv output",
+                "the head-major relayout of the conv output is one `ReshapeView` and one `Permute` of these "
+                f"({fused_call_us('linear_attention', ('ReshapeViewDeviceOperation', 'PermuteDeviceOperation'), False):.1f} µs/step "
+                "together); the rest of this figure is three other `ReshapeView` launches",
                 "inherited from the fused stage, which already reduced it from three round trips to one",
             ),
         ),
         (
             "TilizeWithValPaddingDeviceOperation+ConcatDeviceOperation+UntilizeWithUnpaddingDeviceOperation",
-            "`TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding`",
+            "`TilizeWithValPadding` + `Concat` + `UntilizeWithUnpadding` (**all launches of all three codes**)",
             (
-                "`repeat_interleave`'s GQA head expansion",
+                "`repeat_interleave`'s GQA head expansion is one consecutive run of these three and costs "
+                f"{fused_call_us('linear_attention', ('UntilizeWithUnpaddingDeviceOperation', 'ConcatDeviceOperation', 'TilizeWithValPaddingDeviceOperation'), True):.1f} µs/step "
+                "of this figure; the remainder is the router scatter's and `topk` readback's untilizes, which "
+                "share the op codes",
                 "output moved to L1 (§3.9 item 5); the once-per-step op-to-op stall in front of it is the largest single gap in README §7's generated itemisation",
             ),
         ),
@@ -1828,8 +1868,24 @@ def block_topology_audit(kind: str) -> str:
     listed = {part for code, _, _ in TOPOLOGY_AUDIT[kind] for part in code.split("+")}
     rest_codes = {k: v for k, v in totals.items() if k not in listed}
     floor = min(us for _, _, us in entries)
+    # The two tables have different inclusion rules, so the remainder cannot describe itself the same way in
+    # both. `full_attention` is a top-N, so "each under the smallest listed row" is true of what is left.
+    # `linear_attention` deliberately lists only the *mixer* ops - the prose above it says the MoE and the norms
+    # are shared with the table above - so its remainder is dominated by those shared rows and the same sentence
+    # was false by a factor of three: review round 13 found it claiming 1.6 ms spread over sub-24 µs op codes
+    # while two single MoE codes account for most of it. The claim is now made only when it holds, and asserted.
+    above = {k: v for k, v in rest_codes.items() if v >= floor}
+    if above:
+        biggest = max(above, key=above.get)
+        description = (
+            f"*the other {len(rest_codes)} op codes — {len(above)} of them the shared MoE and norm rows the "
+            f"table above ranks (largest: `{biggest}` at {above[biggest]:.1f}), the rest below "
+            f"{floor:.1f} µs/step*"
+        )
+    else:
+        description = f"*the other {len(rest_codes)} op codes, each under {floor:.1f} µs/step*"
     cells = ([""] if ranked else []) + [
-        f"*the other {len(rest_codes)} op codes, each under {floor:.1f} µs/step*",
+        description,
         f"{sum(rest_codes.values()):.1f}",
         *(["—"] * len(entries[0][1])),
     ]
