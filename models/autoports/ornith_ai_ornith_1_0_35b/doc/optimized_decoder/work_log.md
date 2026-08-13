@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.2 µs | **column** wins by 18.9 µs, beyond the ±0.6 µs spread |
-| 8 active | down | **152.9 µs** | 171.5 µs | **column** wins by 18.6 µs, beyond the ±0.3 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **570.9 µs** | 579.3 µs | **column** wins by 8.4 µs, beyond the ±0.7 µs spread |
-| 162 active | down | 345.3 µs | **342.2 µs** | **row** wins by 3.1 µs, beyond the ±1.0 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.6 µs** | 387.5 µs | **column** wins by 1.9 µs, beyond the ±0.8 µs spread |
-| 64 active | down | 284.7 µs | **277.6 µs** | **row** wins by 7.1 µs, beyond the ±1.1 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.2 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.8 µs** | 171.9 µs | **column** wins by 19.1 µs, beyond the ±0.9 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.2 µs** | 579.1 µs | **column** wins by 10.9 µs, beyond the ±1.3 µs spread |
+| 162 active | down | 343.2 µs | **341.5 µs** | **row** wins by 1.7 µs, beyond the ±0.9 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.6 µs** | 387.8 µs | **column** wins by 2.2 µs, beyond the ±0.8 µs spread |
+| 64 active | down | 284.7 µs | **277.7 µs** | **row** wins by 7.0 µs, beyond the ±0.9 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -858,7 +858,7 @@ vLLM or serving process was started at any point.
 
 ## 6. Review rounds and checkpoint
 
-Nineteen independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
+Twenty independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
 
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
@@ -1734,6 +1734,27 @@ dest-register budget, so the test derives it and asserts it, and the sentence is
 Also corrected: `SPARSE_CORES_PER_ACTIVE`'s docstring said the 8-core form is ~4x slower at the prefill group
 where the artifact has always said about twice; and the `shared_in` entry's layer A/B, which was run in the loop
 but never committed as an artifact, no longer reads as though a committed measurement backs it.
+
+**Round 20** returned `more-work-needed` with a single item: README §9 item 7 still carried the pre-round-15
+prefill-SDPA ratio, one round after round 19 recorded that sentence as fixed. It was not a new drift — it was
+round 19's edit never landing. The script that made it batched two replacements and asserted on the second; the
+assertion failed, `write_text` was never reached, and the message before it had already claimed success. That is
+the same multi-edit-with-assert failure this stage hit early on, and the discipline it taught (apply one edit,
+then re-read the file to confirm) is the discipline that was not followed. The sentence now states the measured
+ratio, names which arms are like-for-like, and says why the `bf16-kv` rows are not.
+
+Two smaller corrections in the same pass, both claims the artifact contradicts. The orientation comment said the
+row form leads `gate_up` at 64 active, "the opposite sign" from the prefill point — at the `in0_block_w` the layer
+actually builds there, the column leads, the *same* sign; the row only leads at inner blocks the wide phase never
+selects, so it was never a shipped comparison. And the `down` gap at the prefill group is about a percent, not
+half of one.
+
+The class behind all three of rounds 18, 19 and 20 is now closed where it matters. `audit_figures.py` matches
+numerals, so a ratio spelled in words is invisible to it, and every one of those findings was such a phrase that
+had been true of an older artifact. `check_source_magnitude_words` refuses a spelled-out performance ratio in the
+three source files — where README §1 already promises no run-varying figure lives, because no sweep regenerates a
+comment. It caught an instance on its first run: a phrase written during round 19's own fix. Documents may still
+carry ratios; they sit beside their artifacts and are regenerated with them.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

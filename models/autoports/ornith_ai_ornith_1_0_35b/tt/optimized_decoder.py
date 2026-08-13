@@ -511,7 +511,9 @@ class OrnithFusedRope(LightweightModule):
 #: ``active_experts`` K-sweeps per output block, so the useful core count tracks the *active* expert
 #: count, not ``Nt``: at 8 active experts (batch-1 decode) eight cores with ``per_core_N`` 4/8 and
 #: matching output blocks beat the 32/64-core 1x1 form by ~40 %, while at ~162 (a 32-token prefill
-#: group, the expected distinct union of 256 draws from 256 experts) the 8-core form is roughly twice as slow.
+#: group, the expected distinct union of 256 draws from 256 experts) the 8-core form loses decisively. The
+#: ratio lives in work_log §4.14 beside the artifact that measures it, not here: `check_source_magnitude_words`
+#: refuses a spelled-out ratio in this file for the same reason the figure audit refuses a numeral.
 #:
 #: ``doc/optimized_decoder/logs/probe_sparse_matmul.txt`` sweeps grid, ``in0_block_w``, output
 #: block/subblock width and output placement at 8 / 32 / 64 / 162 active experts under the selected
@@ -598,13 +600,15 @@ def _sparse_matmul_config(
     # * batch-1 decode, 8 active experts, both roles (the tuned decode point): the column wins by ~12 %.
     #   Decisive, and the largest orientation effect anywhere in the sweep.
     # * a 32-token prefill group, ~162 active, `gate_up`: the column wins by about 2 %.
-    # * the same group's `down`: the *row* wins, by half a percent, several times its measured spread. Among the
+    # * the same group's `down`: the *row* wins, by about a percent, several times its measured spread. Among the
     #   *tuned* geometries this is the only one where `down` reaches 32 cores - the largest tuned decode batch,
     #   8, gives a 64-expert bound and realises 16 - though an untuned decode batch of 32 or more saturates the
     #   active bound at 256 and reaches 32 cores too. Review round 12 corrected this comment, which said 64
     #   active was the largest supported decode batch rather than the largest tuned one.
-    # * `gate_up` at 32 cores: the row is ahead at 64 active, i.e. the opposite sign from the same key's
-    #   prefill point above, where the column leads by an order of magnitude more.
+    # * `gate_up` at 32 cores, 64 active: the column is ahead here too, by half a percent - the *same* sign as
+    #   the prefill point above, where it leads by more. The row only leads this point at `in0_block_w` 8 and 16,
+    #   which the layer never builds there (the wide phase caps at 64), so it is not a shipped comparison at all.
+    #   Review round 20 corrected this bullet, which claimed the opposite sign by reading an unshipped arm.
     #
     # So the op rows do argue for a `("down", 32) -> row` rule, and review round 9 asked for one. Taken and
     # measured end to end (`logs/ab_sdpa_decode_grid.txt`, arms alternating build-by-build, three timed builds
@@ -693,7 +697,7 @@ DECODE_MATMUL_GEOMETRY = {
     # text broke that invariant within one round of the round that existed to enforce it. The ladder is in
     # `logs/probe_dense_matmul.txt` and README §5.4's generated table reads it.
     #
-    # Review round 17 changed this entry on a claim of a 3.1 us op-level win, and round 18 found that claim wrong:
+    # Review round 17 changed this entry on a claimed op-level win, and round 18 found that claim wrong:
     # the slower band it cited is the `in0_block_w=8` arm, which varies little across core count itself, not a
     # core-count split. Both targets are defensible on the measurements; this one is kept because naming exactly
     # `Nt` cores is the honest spelling of what the op can use, and because README §5.4's generated table then has
