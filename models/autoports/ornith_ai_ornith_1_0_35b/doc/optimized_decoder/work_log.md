@@ -33,13 +33,17 @@ weights, same inputs, two warm-up prefills before a measured one, and 32 warmed 
 replays for decode. Decode is **always** measured traced; no eager decode number appears anywhere in
 this stage's evidence.
 
-Op-level candidate sweeps use five standalone probes that build only the op under test at the
+Op-level candidate sweeps use six standalone probes that build only the op under test at the
 layer's real shapes, so a geometry sweep does not have to pay for a whole layer:
 [`logs/probe_sparse_matmul.py`](logs/probe_sparse_matmul.py),
 [`logs/probe_dense_matmul.py`](logs/probe_dense_matmul.py),
 [`logs/probe_prefill_matmul.py`](logs/probe_prefill_matmul.py),
+[`logs/probe_prefill_sdpa.py`](logs/probe_prefill_sdpa.py),
 [`logs/probe_decode_micro.py`](logs/probe_decode_micro.py) and
-[`logs/probe_projection_dtype.py`](logs/probe_projection_dtype.py). Their outputs are committed next
+[`logs/probe_projection_dtype.py`](logs/probe_projection_dtype.py); round 24 found
+`probe_prefill_sdpa.py` missing from this list, which round 15 added and §4.19 records.
+[`logs/probe_footprint.py`](logs/probe_footprint.py) is a seventh `probe_*.py` of a different kind — it
+measures L1 footprint rather than latency, so it is not an op-level candidate sweep. Their outputs are committed next
 to them as `.txt`. A probe is a *screen*, never an acceptance gate: two of this stage's rejections
 (§4.5) are candidates a standalone probe called faster and the layer's HF-golden PCC called wrong,
 because the probe's reference is the same op on the same inputs.
@@ -321,15 +325,23 @@ worth and what else the axis holds
 pairs at an 8192-token context under the shipped BFP8 paged cache, at the layer's own compute-kernel
 contract — which is to pass none, and which round 8 found this sweep violating):
 
-The ladder is in the artifact — 22 rows per section, four grids (`8x8`, `11x10`, `8x4`, `4x8`) against five
-chunk pairs (`q32 k64`, `q32 k128`, `q32 k32`, `q0 k0`, `q0 k64`), plus one labelled arm carrying the rejected
+The ladder is in the artifact — 25 rows per section: the op's own default, four grids (`8x8`, `11x10`, `8x4`,
+`4x8`) against five chunk pairs (`q32 k64`, `q32 k128`, `q32 k32`, `q0 k0`, `q0 k64`), three
+`max_cores_per_head_batch` arms at the shipped grid and chunk pair, and one labelled arm carrying the rejected
 HiFi2/fp32-acc compute-kernel config so its cost stays visible — and README §5.5's generated knob table quotes
-the rows the decisions rest on.
+the rows the decisions rest on. Round 11 added the `max_cores_per_head_batch` arms, because the stage had
+called this config swept with one of its four fields defaulted; round 24 found this paragraph still describing
+the pre-round-11 ladder and still omitting that field from the findings below.
 
-Three findings, all kept as evidence:
+Four findings, all kept as evidence:
 
 * the **op default is more than an order of magnitude slower** than any explicit config here, which is
   why the explicit one stays;
+* **`max_cores_per_head_batch` saturates at the default.** Its ttnn default of 16 gives `16 * B * kv_heads`
+  active cores, and the three arms measured at the shipped grid and chunk pair show the axis flat above it and
+  costly below: 8 is materially slower than 32, while 64 is inside the arms' own spread of 32. So the field is
+  left at its default deliberately, on measurement, rather than by omission — which is how it stood before
+  round 11 asked for the arms. README §5.5's generated knob table carries the three times.
 * a `k_chunk_size` **larger than the 64-token paged block size is wrong**, not merely risky. The
   isolated op cannot see it — the probe's reference is the op default on the same page table — but
   the layer's decode PCC against the HF golden collapses to 0.02292–0.90512 at the paged contexts the
@@ -678,12 +690,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.5 µs | **column** wins by 19.0 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **152.9 µs** | 171.9 µs | **column** wins by 19.0 µs, beyond the ±0.7 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **567.8 µs** | 579.8 µs | **column** wins by 12.0 µs, beyond the ±1.5 µs spread |
-| 162 active | down | 343.3 µs | **341.9 µs** | **row** wins by 1.4 µs, beyond the ±0.4 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **386.0 µs** | 387.9 µs | **column** wins by 1.9 µs, beyond the ±0.5 µs spread |
-| 64 active | down | 284.8 µs | **279.4 µs** | **row** wins by 5.4 µs, beyond the ±0.9 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.3 µs | **column** wins by 19.1 µs, beyond the ±0.3 µs spread |
+| 8 active | down | **152.6 µs** | 172.0 µs | **column** wins by 19.4 µs, beyond the ±0.5 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **571.3 µs** | 578.8 µs | **column** wins by 7.5 µs, beyond the ±0.8 µs spread |
+| 162 active | down | 343.3 µs | **342.0 µs** | **row** wins by 1.3 µs, beyond the ±0.9 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.3 µs** | 387.5 µs | **column** wins by 2.2 µs, beyond the ±0.6 µs spread |
+| 64 active | down | 284.6 µs | **277.6 µs** | **row** wins by 7.0 µs, beyond the ±1.4 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -845,9 +857,12 @@ table carries the shipped level. `test_decode_runs_the_tuned_program_configs` an
 `test_prefill_runs_the_tuned_program_configs` both assert the geometry each phase now builds, so the two
 values cannot silently collapse back into one.
 
-Worth stating plainly: five rounds of fixing figures found no performance, and this round found close to a
+Worth stating plainly: rounds 2 through 5 fixed figures and found no performance, and this round found close to a
 percent of decode — because the table was finally required to agree with the geometry the layer actually runs. That is
-the argument for mechanical agreement over careful proofreading, in one data point.
+the argument for mechanical agreement over careful proofreading, in one data point. (Round 1 is not in that
+count: §3.9 credits it with two real wins, the state L1 placement and the `repeat_interleave` tilize. Round 24
+found this sentence and the one in §6's round-6 entry both writing it as though no earlier round had produced
+performance.)
 
 ---
 
@@ -1123,8 +1138,8 @@ note listing three of the four modelling errors; the `SLOW` row count read as ex
 classifier threshold that flaps between replays; and the note in `run_evidence.sh` that the `git archive`
 run proves reproduction rather than freshness, because the archive stamps every file with the commit time.
 
-**Round 6** returned `more-work-needed` with seven items. Two matter more than the rest, and one of them is
-the first *performance* finding a review round has produced for this stage.
+**Round 6** returned `more-work-needed` with seven items. Two matter more than the rest, and one of them is a
+*performance* finding rather than a documentation one — the first since round 1, which §3.9 credits with two.
 
 * **P1 — the audit exempted every markdown-bold figure, which is how nearly all of them are written.** The
   exponent exemption added in round 5 (`\*\*\s*-?[\d.]+`, for `head_k_dim ** -0.5`) also matched a markdown
@@ -1697,7 +1712,7 @@ failing, which is the argument for the review rounds continuing past the point w
 stage. All three came from round 17's own change, and the first is the one that matters: the justification
 round 17 wrote for retargeting `shared_in` was **refuted by the artifact it cited**. Re-derived from the committed
 probe, that role's core ladder is flat within noise at the shipped `in0_block_w`, and the slower band round 17 read
-as a core-count split belongs to a different `in0_block_w` arm entirely. §4.20 above records the correction; the
+as a core-count split belongs to a different `in0_block_w` arm entirely. §4.15 above records the correction; the
 entry stays at 32 on the structural ground that it names exactly `Nt` cores, and the code comment says so instead
 of claiming a win.
 
@@ -1791,12 +1806,35 @@ claiming the audit checked it, which nothing did. Both are corrected above and i
 `check_commit_record` now verifies the recorded list and `head` against `git log` instead of asserting that
 something else does.
 
-The class behind all three of rounds 18, 19 and 20 is now closed where it matters. `audit_figures.py` matches
-numerals, so a ratio spelled in words is invisible to it, and every one of those findings was such a phrase that
-had been true of an older artifact. `check_source_magnitude_words` refuses a spelled-out performance ratio in the
-three source files — where README §1 already promises no run-varying figure lives, because no sweep regenerates a
-comment. It caught an instance on its first run: a phrase written during round 19's own fix. Documents may still
-carry ratios; they sit beside their artifacts and are regenerated with them.
+**Round 24** returned `more-work-needed` with three required items and a set of the same class beside them,
+and it is the round that showed the "we no longer hand-maintain figures" claim was not yet true. The three:
+README §5.4 said the `router` row's `out_subblock` alternative was measured and slower when the probe's core
+ladder never expresses it — the same conflation round 12 corrected in §5.5 and only there; §3.8 described a
+pre-round-11 SDPA ladder, with the wrong row count and with `max_cores_per_head_batch` missing from its
+findings, 13 rounds after round 11 required that field be swept; and §6 itself, rewritten one round earlier,
+had attached round 20's `check_source_magnitude_words` paragraph to the round 23 entry and twice called a
+round-6 result the first performance finding of the stage when §3.9 credits round 1 with two.
+
+Beside them, six more statements this document contradicts: a probe list missing `probe_prefill_sdpa.py`, a
+prefill role count of five where six are swept, a shared-expert row calling a within-spread result "no gain",
+an A/B claim scoped to all builds where only the prefill builds compare, two dangling `§4.20` references, and
+an `in0_block_w` enumeration in the shipped comment that had drifted. None changed a decision; all were
+wrong. They are fixed together rather than one round at a time, and the lesson is recorded in the paragraph
+below rather than as a claim that the class is now shut.
+
+**Across rounds 18-24, one class.** Nearly every finding in those rounds was prose restating a measured value
+that later drifted, and each round's response tightened a gate rather than only fixing the sentence. Round 20
+added `check_source_magnitude_words`: `audit_figures.py` matches numerals, so a ratio spelled in words is
+invisible to it, and every one of rounds 18-20's findings was such a phrase, true of an older artifact. That
+gate refuses a spelled-out performance ratio in the three source files — where README §1 already promises no
+run-varying figure lives, because no sweep regenerates a comment — and it caught an instance on its first run,
+a phrase written during round 19's own fix. Round 21 added `check_orientation_claims` and then, when verifying
+magnitudes proved unwinnable, made it refuse them outright. Round 22 added `check_top_line_item` after a
+hard-coded superlative inside a generated block went stale through many captures. Round 23 added
+`check_commit_record`. Documents may still carry figures; they sit beside their artifacts and are regenerated
+with them. What remains ungated, and is recorded here rather than claimed closed, is prose that states a count,
+a ranking or a superlative in words — round 24 found six such statements wrong at once, which is why this
+paragraph does not claim the class is finished.
 
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits

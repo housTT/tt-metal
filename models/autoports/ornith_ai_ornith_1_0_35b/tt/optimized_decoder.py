@@ -621,11 +621,11 @@ def _sparse_matmul_config(
     #   least stable row - its margin has moved between sweeps, in both directions across the spread boundary,
     #   with no shipped code changing - so the direction is all this comment asserts about it. Counting the
     #   sweeps would be the same mistake one layer up: that count goes stale the next time one runs. The row
-    #   leads it only at
-    #   `in0_block_w` 8 and 16, which the layer never builds there (the wide phase caps at 64), so that is not
-    #   a shipped comparison at all. Review round 20 corrected this bullet, which claimed the row led by
-    #   reading exactly those unshipped arms; round 22 corrected it again, for calling a then-decisive row
-    #   noise.
+    #   leads it only at inner `in0_block_w` blocks the wide phase never selects, since that phase caps at 64,
+    #   so none of those is a shipped comparison at all. Which blocks they are is another run-varying list, so
+    #   it is left to the probe rather than spelled here. Review round 20 corrected this bullet, which claimed
+    #   the row led by reading exactly those unshipped arms; round 22 corrected it again, for calling a
+    #   then-decisive row noise; round 24 found the enumeration itself had drifted.
     #
     # So the op rows do argue for a `("down", 32) -> row` rule, and review round 9 asked for one. Taken and
     # measured end to end (`logs/ab_sdpa_decode_grid.txt`, arms alternating build-by-build, three timed builds
