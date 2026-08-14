@@ -698,12 +698,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.6 µs** | 172.0 µs | **column** wins by 18.4 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **152.6 µs** | 171.5 µs | **column** wins by 18.9 µs, beyond the ±0.6 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **571.3 µs** | 580.0 µs | **column** wins by 8.7 µs, beyond the ±1.0 µs spread |
-| 162 active | down | 343.4 µs | **341.3 µs** | **row** wins by 2.1 µs, beyond the ±0.6 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.6 µs** | 387.5 µs | **column** wins by 1.9 µs, beyond the ±0.7 µs spread |
-| 64 active | down | 284.9 µs | **277.4 µs** | **row** wins by 7.5 µs, beyond the ±1.1 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **154.4 µs** | 172.0 µs | **column** wins by 17.6 µs, beyond the ±0.5 µs spread |
+| 8 active | down | **152.8 µs** | 172.2 µs | **column** wins by 19.4 µs, beyond the ±0.5 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **571.3 µs** | 579.2 µs | **column** wins by 7.9 µs, beyond the ±0.3 µs spread |
+| 162 active | down | 343.2 µs | **341.4 µs** | **row** wins by 1.8 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.5 µs | **column** wins by 2.0 µs, beyond the ±1.0 µs spread |
+| 64 active | down | 284.7 µs | **277.8 µs** | **row** wins by 6.9 µs, beyond the ±1.2 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -905,6 +905,38 @@ conditions rather than assuming them, so a role that does not qualify keeps the 
 per-core shard, so the shard is not expressible there without narrowing the inner block — which
 `probe_dense_matmul.txt` measures as slower. That is a measurement, not an assertion, which is the distinction
 this section exists to make.
+
+### 4.22 Two items review round 26 found by following round 25's thread
+
+Round 25's finding was an optimization closed by an assertion rather than a measurement. Round 26 looked for
+more of that class and found two, both downstream of the round-25 change itself.
+
+**The decode output projection's `in0` placement — taken.** `tt-perf-report` raises "If possible place input 0
+in L1" on the decode `o_proj` row, on every one of its launches. README §5.5 said the item was raised nowhere in
+decode and attributed the one raised row to the head-dim norms, which is a different tensor. The cause is the
+same shape as the routed `in0` item round 14 found: `_attention_output`'s gated multiply named no placement, so
+it inherited DRAM from the paged flash-decode attention, whose output must be in DRAM. `linear_attention`'s
+identically shaped `gdn_out` already ran from L1 only because *its* producer happens to be an L1 op — which is
+what made the asymmetry visible. Taken, because it costs no extra op and is never slower at the layer; the
+honest measurement is that the layer effect sits inside the build-to-build band
+(`logs/ab_attn_out_in0.txt`), so this is an advice item cleared rather than a win claimed.
+
+**The two sharded-`in0` in-projections' geometry — retuned.** Round 25 moved `attn_in` and `gdn_in` onto a
+width-sharded `in0`, but README §5.4 kept selecting and ranking them in the DRAM-interleaved probe family. So
+the table printed a time the shipped geometry does not have, ranked the shipped row against candidates the
+layer no longer builds, and — the part that mattered — left both roles carrying an `in0_block_w` cap that had
+been chosen under a placement they had stopped running. The sharded family prefers the opposite end of that
+ladder. `make_readme.py` now picks the family per role, mirroring `_shard_feeds_projection`, and the corrected
+table put both rows behind a candidate at `in0_block_w` 2.
+
+Measured at the layer rather than adopted from the op rows (`logs/ab_dense_in0_block_w.txt`): every timed build
+of the retuned geometry beats every timed build of the pre-round-26 one, on both layer kinds. `attn_in` moves
+to 32 cores at `in0_block_w` 2, `gdn_in` keeps its core count and takes `in0_block_w` 2.
+
+That A/B also has a lesson of its own. Its first committed run compared the shipped geometry against *itself*:
+the "before" arm read `DECODE_MATMUL_GEOMETRY`, which by then held the adopted candidate, so both arms printed
+the same number and the file looked like a null result. The before-arm geometry is written literally now, and
+the script asserts that its after-arm really is what the module ships.
 
 ---
 
@@ -1863,6 +1895,22 @@ an A/B claim scoped to all builds where only the prefill builds compare, two dan
 an `in0_block_w` enumeration in the shipped comment that had drifted. None changed a decision; all were
 wrong. They are fixed together rather than one round at a time, and the lesson is recorded in the paragraph
 below rather than as a claim that the class is now shut.
+
+**Round 25** returned `more-work-needed` with one required item, and it is the most valuable finding this stage
+received. §4.21 has it in full: the sharded-residual family, which `$optimize` OPT-003 makes mandatory, had been
+closed by an assertion that `mcast_in0` requires an interleaved `in0` — false against the op's own validation,
+and inferred from a probe that only ever passed interleaved activations. Taking it removed a conversion per
+decode step on both layer kinds and carried the `linear_attention` step across 2x for the first time.
+
+**Round 26** returned `more-work-needed` with three items, two of them the same class round 25 exposed and both
+downstream of round 25's own change. §4.22 has them: the decode output projection's `in0` was still raising a
+`tt-perf-report` item that §5.5 claimed decode raised nowhere, and the two roles round 25 moved onto a sharded
+`in0` were still being ranked — and tuned — in the interleaved probe family. The third was the layout-churn
+comment's itemisation, which round 25 left summing to one more conversion than the budget it justifies.
+
+Round 26 also asked for a narrower statement of the flash-decode Q constraint, on the grounds that "cannot move"
+had just cost the stage a family: the op accepts a height-sharded Q in L1 and refuses only a *non-sharded* Q
+outside DRAM, so the blocker is the interleaved form the intervening rotary and concat ops produce, not L1.
 
 **Across rounds 18-24, one class.** Nearly every finding in those rounds was prose restating a measured value
 that later drifted, and each round's response tightened a gate rather than only fixing the sentence. Round 20

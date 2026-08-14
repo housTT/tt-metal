@@ -1,7 +1,7 @@
 {
   "linear_attention": {
     "prefill_window_composition": {
-      "sparse_matmul_share": 0.8067,
+      "sparse_matmul_share": 0.8059,
       "dense_matmul_share": 0.0086,
       "sdpa_share": 0.0
     },
@@ -15,37 +15,37 @@
     "state_or_kv_bytes_per_token": 10485760,
     "dram_peak_gbps": 512.0,
     "roofline_ms_per_token_estimate": 0.1267,
-    "decode_ms_per_token_device": 0.9366,
-    "decode_ms_per_token_e2e": 1.061,
-    "roofline_fraction_of_device": 0.1353,
-    "dispatch_and_host_ms": 0.1244,
+    "decode_ms_per_token_device": 0.9358,
+    "decode_ms_per_token_e2e": 1.06,
+    "roofline_fraction_of_device": 0.1354,
+    "dispatch_and_host_ms": 0.1242,
     "op_to_op_gaps": {
-      "total_us": 123.5,
+      "total_us": 123.1,
       "itemise_threshold_us": 5.0,
       "largest": [
         {
           "op_code": "BinaryNgDeviceOperation",
-          "gap_us_per_step": 20.9,
+          "gap_us_per_step": 20.8,
           "launches_per_step": 17.0,
           "largest_single_gap_us": 4.0
         },
         {
           "op_code": "TilizeWithValPaddingDeviceOperation",
-          "gap_us_per_step": 18.5,
+          "gap_us_per_step": 17.9,
           "launches_per_step": 1.0,
-          "largest_single_gap_us": 20.5
+          "largest_single_gap_us": 18.8
         },
         {
           "op_code": "SliceDeviceOperation",
-          "gap_us_per_step": 17.4,
+          "gap_us_per_step": 17.5,
           "launches_per_step": 17.0,
-          "largest_single_gap_us": 6.5
+          "largest_single_gap_us": 6.7
         },
         {
           "op_code": "TypecastDeviceOperation",
           "gap_us_per_step": 12.2,
           "launches_per_step": 4.0,
-          "largest_single_gap_us": 8.1
+          "largest_single_gap_us": 8.0
         },
         {
           "op_code": "UnaryDeviceOperation",
@@ -55,7 +55,7 @@
         },
         {
           "op_code": "LayerNormDeviceOperation",
-          "gap_us_per_step": 7.5,
+          "gap_us_per_step": 7.6,
           "launches_per_step": 5.0,
           "largest_single_gap_us": 4.0
         }
@@ -65,7 +65,7 @@
       "op_codes": 31,
       "launches_per_step": 92.0
     },
-    "sparse_matmul_share_of_device_time": 0.2756,
+    "sparse_matmul_share_of_device_time": 0.2759,
     "sparse_matmul_us_per_step": 258.2,
     "topk_share_of_device_time": 0.0517,
     "topk_us_per_step": 48.4,
@@ -73,12 +73,12 @@
       "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops once per active expert at a single tile of M, so the two routed projections stay far below both rooflines even after the geometry sweep - the report's own DRAM %% and FLOPs %% for those rows are in the committed perf reports themselves, and tt-perf-report classifies them SLOW; they are 28% of the window.",
       "The routed-expert intermediates are num_experts wide where only num_experts_per_tok slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the score multiply and the expert reduction each touch 32x the useful width. Moving them to L1 removed the DRAM cost; the remaining ~230 us/step is L1 and launch bound and needs an expert-major gather to remove, which is a routing-algorithm change rather than an op-config one.",
       "ttnn.topk is single-core on the 256-wide routing dim (48 us/step); its multi-core path needs a power-of-two width >= 8192 and padding to it measured ~3x slower.",
-      "92 device op launches per decode step, across 31 op codes, whose op-to-op gaps sum to 123.5 us/step and account for most of the difference between device time and end-to-end; 25 op codes are individually below 5 us/step and total 37.5 us."
+      "92 device op launches per decode step, across 31 op codes, whose op-to-op gaps sum to 123.1 us/step and account for most of the difference between device time and end-to-end; 25 op codes are individually below 5 us/step and total 37.5 us."
     ]
   },
   "full_attention": {
     "prefill_window_composition": {
-      "sparse_matmul_share": 0.8222,
+      "sparse_matmul_share": 0.8219,
       "dense_matmul_share": 0.0078,
       "sdpa_share": 0.0047
     },
@@ -92,12 +92,12 @@
     "state_or_kv_bytes_per_token": 139264,
     "dram_peak_gbps": 512.0,
     "roofline_ms_per_token_estimate": 0.0932,
-    "decode_ms_per_token_device": 0.8228,
-    "decode_ms_per_token_e2e": 0.9,
-    "roofline_fraction_of_device": 0.1133,
-    "dispatch_and_host_ms": 0.0772,
+    "decode_ms_per_token_device": 0.8215,
+    "decode_ms_per_token_e2e": 0.898,
+    "roofline_fraction_of_device": 0.1135,
+    "dispatch_and_host_ms": 0.0765,
     "op_to_op_gaps": {
-      "total_us": 76.6,
+      "total_us": 75.9,
       "itemise_threshold_us": 5.0,
       "largest": [
         {
@@ -120,25 +120,25 @@
         },
         {
           "op_code": "LayerNormDeviceOperation",
-          "gap_us_per_step": 5.1,
+          "gap_us_per_step": 5.0,
           "launches_per_step": 4.0,
-          "largest_single_gap_us": 3.9
+          "largest_single_gap_us": 4.0
         }
       ],
       "remainder_op_codes": 29,
-      "remainder_us": 43.3,
+      "remainder_us": 42.7,
       "op_codes": 33,
       "launches_per_step": 81.0
     },
-    "sparse_matmul_share_of_device_time": 0.3166,
-    "sparse_matmul_us_per_step": 260.5,
-    "topk_share_of_device_time": 0.0588,
+    "sparse_matmul_share_of_device_time": 0.317,
+    "sparse_matmul_us_per_step": 260.4,
+    "topk_share_of_device_time": 0.0589,
     "topk_us_per_step": 48.4,
     "named_limitations": [
       "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops once per active expert at a single tile of M, so the two routed projections stay far below both rooflines even after the geometry sweep - the report's own DRAM %% and FLOPs %% for those rows are in the committed perf reports themselves, and tt-perf-report classifies them SLOW; they are 32% of the window.",
       "The routed-expert intermediates are num_experts wide where only num_experts_per_tok slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the score multiply and the expert reduction each touch 32x the useful width. Moving them to L1 removed the DRAM cost; the remaining ~230 us/step is L1 and launch bound and needs an expert-major gather to remove, which is a routing-algorithm change rather than an op-config one.",
       "ttnn.topk is single-core on the 256-wide routing dim (48 us/step); its multi-core path needs a power-of-two width >= 8192 and padding to it measured ~3x slower.",
-      "81 device op launches per decode step, across 33 op codes, whose op-to-op gaps sum to 76.6 us/step and account for most of the difference between device time and end-to-end; 29 op codes are individually below 5 us/step and total 43.3 us."
+      "81 device op launches per decode step, across 33 op codes, whose op-to-op gaps sum to 75.9 us/step and account for most of the difference between device time and end-to-end; 29 op codes are individually below 5 us/step and total 42.7 us."
     ]
   }
 }

@@ -249,6 +249,13 @@ PREFILL_SDPA_CHUNK_WIDE_CACHE = 128
 #: `tt-perf-report`'s advice on that row. A module constant rather than a literal so the A/B can flip it.
 ROUTED_IN0_MEMORY = ttnn.L1_MEMORY_CONFIG
 
+#: Where the `full_attention` output projection's `in0` lives at **decode**. Same `tt-perf-report` item
+#: as `ROUTED_IN0_MEMORY` and the same shape of fix: the gated multiply that produces it named no
+#: placement, so it inherited DRAM from the one decode op whose output has to be in DRAM. Review round 26
+#: found the advice still raised on this row while README §5.5 said it was raised nowhere in decode.
+#: A module constant rather than a literal so the A/B can flip it (`logs/ab_attn_out_in0.txt`).
+ATTN_OUT_IN0_MEMORY = ttnn.L1_MEMORY_CONFIG
+
 #: Physical alignment of a prefill block. 128 keeps every block start legal for the chunked-SDPA
 #: 64-token q/k chunks, the paged cache's 64-token blocks, and the flat ``chunk_gated_delta_rule``
 #: contract (which requires the block length to be a multiple of its 32-token internal chunk).
@@ -702,9 +709,14 @@ DECODE_MATMUL_WEIGHT_FIELD = {
 }
 
 DECODE_MATMUL_GEOMETRY = {
-    "attn_in": (96, 8),
+    # 32 cores / `in0_block_w` 2, not 96 / 8: both were retuned in review round 26, because round 25 moved
+    # this role onto a width-sharded `in0` and its geometry had been selected under the DRAM-interleaved
+    # family it no longer runs. README §5.4 now ranks it in the family it ships, and `logs/ab_dense_in0_block_w.txt`
+    # measures the candidate at the layer - never slower than the old cap on any timed build, faster on most.
+    "attn_in": (32, 2),
     "o_proj": (16, 16),
-    "gdn_in": (110, 8),
+    # `in0_block_w` 2 at the same core count, for the same reason as `attn_in` above.
+    "gdn_in": (110, 2),
     "gdn_out": (24, 8),
     # 32, not 80, and the reason is structural rather than measured. `Nt` is 33 tiles, so a target of 80 names an
     # 88-core grid in which 55 cores never receive an output tile, while 32 realises 11x3 = 33 - exactly one core
@@ -2326,7 +2338,10 @@ class OptimizedDecoder(LightweightModule):
         # `tt-perf-report` advises placing a matmul's in0 in L1, and the two residual norms feed
         # matmuls, so they interleave into L1. The narrow head-dim norms do not: their result reaches
         # `paged_scaled_dot_product_attention_decode`, which rejects a non-sharded Q that is not in
-        # DRAM ("Q tensor buffer type must be DRAM when not sharded").
+        # DRAM ("Q tensor buffer type must be DRAM when not sharded"). That op *does* accept a
+        # height-sharded Q in L1, so the constraint is on the interleaved form the intervening rotary,
+        # pad and concat ops produce here rather than on L1 as such - review round 26 asked for the
+        # distinction, having just seen a whole family closed by an op-contract claim that was too broad.
         target = ttnn.L1_MEMORY_CONFIG if shape[-1] >= self.cfg.dim else ttnn.DRAM_MEMORY_CONFIG
         interleaved = ttnn.sharded_to_interleaved(out, target)
         ttnn.deallocate(out)
@@ -2451,8 +2466,22 @@ class OptimizedDecoder(LightweightModule):
         )
 
     def _attention_output(self, attn, gate):
-        """Sigmoid output gate folded into the multiply, then the output projection."""
-        gated = ttnn.multiply(attn, gate, input_tensor_b_activations=_SIGMOID)
+        """Sigmoid output gate folded into the multiply, then the output projection.
+
+        The gated tensor is the output projection's ``in0``, and in **decode** it names L1 rather than
+        inheriting SDPA's DRAM output. `tt-perf-report` raises "If possible place input 0 in L1" on this
+        row, and the stage took that advice everywhere else in decode; this row kept DRAM only because
+        the multiply named no placement and its producer is the one decode op whose output must be in
+        DRAM. `linear_attention`'s identically shaped `gdn_out` already ran from L1 for the same reason
+        in reverse — its producer happens to be an L1 op — which is what made the gap visible to review
+        round 26. Prefill keeps DRAM: there the same tensor is tens of megabytes.
+        """
+        gated = ttnn.multiply(
+            attn,
+            gate,
+            input_tensor_b_activations=_SIGMOID,
+            memory_config=ATTN_OUT_IN0_MEMORY if self._decode_phase else ttnn.DRAM_MEMORY_CONFIG,
+        )
         ttnn.deallocate(attn)
         ttnn.deallocate(gate)
         out = self._proj_linear(gated, self.w["o_proj"], "o_proj")

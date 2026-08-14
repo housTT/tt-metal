@@ -742,11 +742,19 @@ def advice_actions() -> dict:
             + routed_in0_verdict()
             + ". "
             "Decode: the two residual norms, "
-            "the three float32 recurrent-state matmuls and the shared expert's SwiGLU product all hand "
-            "their result to L1, each size-gated so a large batch still uses DRAM — the item is now "
-            "raised 0 times in both decode reports. The head-dim norms are the one decode exception and "
-            "cannot move: `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q outside "
-            "DRAM. Prefill: still raised on three rows, and measured at each role's **shipped** "
+            "the three float32 recurrent-state matmuls, the shared expert's SwiGLU product and the "
+            "`full_attention` output projection's gated `in0` all hand their result to L1, each size-gated "
+            "so a large batch still uses DRAM. The output projection is new in review round 26, which found "
+            "the item still raised on that row while this cell claimed decode raised it nowhere: its "
+            "producing multiply named no placement and so inherited DRAM from the paged flash-decode "
+            "attention, whose output must be in DRAM, while `linear_attention`'s identically shaped "
+            "`gdn_out` already ran from L1 because its producer happens to be an L1 op. Taking it costs no "
+            "extra op and is never slower at the layer, though the layer effect is inside the "
+            "build-to-build band (`logs/ab_attn_out_in0.txt`). The Q and K head-dim norms keep DRAM: their "
+            "result reaches `paged_scaled_dot_product_attention_decode`, which rejects a **non-sharded** Q "
+            "outside DRAM — the op does accept a height-sharded Q in L1, so this is a property of the "
+            "interleaved form the intervening rotary/pad/concat ops produce, not a blanket refusal. "
+            "Prefill: still raised on three rows, and measured at each role's **shipped** "
             "`in0_block_w`, against the DRAM→L1 copy that would have to *enable* it — the shipped graph "
             "would pay that copy per role, because the activation arrives interleaved from the preceding "
             "norm or residual add. "
@@ -841,6 +849,19 @@ DECODE_ROLES = [
 ]
 
 
+#: Which probe family each dense decode role actually ships, mirroring
+#: `optimized_decoder._shard_feeds_projection`. Review round 25 made the two token-mixer in-projections
+#: consume a width-sharded `in0`; review round 26 found this table still selecting and ranking them in
+#: the DRAM-interleaved family, so it compared the shipped row against candidates the layer no longer
+#: builds and printed a time the shipped geometry does not have. Roles that still take an interleaved
+#: `in0` keep `mcast1d`.
+SHARDED_IN0_DECODE_ROLES = {"attn_in", "gdn_in"}
+
+
+def decode_family(role):
+    return "mcast1d_sharded_in0" if role in SHARDED_IN0_DECODE_ROLES else "mcast1d"
+
+
 def block_decode_search():
     """The dense-decode program-config search: three families per role, generated from the probe.
 
@@ -895,7 +916,7 @@ def block_decode_search():
                 for r in rows
                 if r["us"] is not None
                 and r.get("role") == role
-                and r.get("family") == "mcast1d"
+                and r.get("family") == decode_family(role)
                 and r.get("in0_block_w") == ibw.group(1)
                 and r.get("per_core_N") == pcn.group(1)
                 and r.get("out") == shipped_out
@@ -924,7 +945,7 @@ def block_decode_search():
             for r in rows
             if r["us"] is not None
             and r.get("role") == role
-            and r.get("family") == "mcast1d"
+            and r.get("family") == decode_family(role)
             and r.get("out") == shipped_out
         ]
         winner_row = min(pool, key=lambda r: r["us"]) if pool else None

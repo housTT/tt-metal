@@ -123,7 +123,7 @@ _DECODE_ROLE_BY_SHAPE = {
 
 #: Acceptance bar inherited from the functional-decoder stage. This stage is not allowed to lower it, and every
 #: measurement below clears it by more than an order of magnitude of error - the worst PCC anywhere in the shipped
-#: suite log is 0.999840, i.e. 1.6e-4 of error against the 5e-3 the bar allows. Review round 16 found this comment
+#: suite log is 0.999864, i.e. 1.4e-4 of error against the 5e-3 the bar allows. Review round 16 found this comment
 #: quoting 0.999882 and calling this "the fusing stage": both were copied from `test_fused_decoder.py`, and that
 #: figure is the *fused* stage's poisoned-free-pool decode PCC, which appears nowhere in this stage's log.
 PCC_BAR = 0.995
@@ -525,14 +525,17 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                  + sharded_to_interleaved: 2, one per ttnn.conv1d half
     #   linear decode  = to_layout: the MoE group mask only (the conv output's head-major relayout is
     #                    a reshape + permute, which needs no layout conversion at all)
-    #                  + 2 x (to_memory_config + sharded_to_interleaved) for the two width-sharded
-    #                    residual RMSNorms this stage added (input norm, post-attention norm)
+    #                  + to_memory_config: 2, one shard-in per width-sharded residual RMSNorm
+    #                  + sharded_to_interleaved: 1, for the MoE norm only - the token-mixer norm's shard
+    #                    goes straight into `gdn_in` (§4.21), so it pays no interleave out
     #   full  prefill  = to_layout: 2 RoPE tables + one MoE group mask per MoE call
     #   full  decode   = sharded_to_interleaved: 3 off nlp_create_qkv_heads_decode
     #                  + to_memory_config: 2 height-shards for the fused paged-cache update
     #                  + to_layout: 1 MoE group mask
-    #                  + 4 x (to_memory_config + sharded_to_interleaved) for the width-sharded
-    #                    RMSNorms: input, post-attention, and the Q and K head-dim norms
+    #                  + to_memory_config: 4, one shard-in per width-sharded RMSNorm
+    #                    (input, post-attention, and the Q and K head-dim norms)
+    #                  + sharded_to_interleaved: 3, for those four norms minus the token-mixer one,
+    #                    whose shard goes straight into `attn_in` (§4.21)
     #
     # The new conversions on `linear_attention` and `full_attention` — 1 -> 4 and 6 -> 13 against
     # `test_fused_decoder`'s budgets — are this stage's own, and they are the price of the norm

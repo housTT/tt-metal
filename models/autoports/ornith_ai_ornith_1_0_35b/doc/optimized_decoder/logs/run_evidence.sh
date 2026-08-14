@@ -153,6 +153,20 @@ echo "=== 4i/9  whole-layer A/B: the residual norm shard carried into the in-pro
   python "$LOGS/ab_sharded_norm_in0.py"
 } 2>&1 | grep -aE "^SHARDEDNORM|^#" > "$LOGS/ab_sharded_norm_in0.txt"
 
+echo "=== 4j/9  whole-layer A/B: the decode output projection's in0 placement ==="
+{
+  echo "# o_proj in0 in L1 vs DRAM at decode (round 26's tt-perf-report item)."
+  echo "# Command: python doc/optimized_decoder/logs/ab_attn_out_in0.py"
+  python "$LOGS/ab_attn_out_in0.py"
+} 2>&1 | grep -aE "^ATTNOUTIN0|^#" > "$LOGS/ab_attn_out_in0.txt"
+
+echo "=== 4k/9  whole-layer A/B: in0_block_w for the two sharded-in0 in-projections ==="
+{
+  echo "# attn_in/gdn_in in0_block_w under the sharded-in0 family they actually ship (round 26)."
+  echo "# Command: python doc/optimized_decoder/logs/ab_dense_in0_block_w.py"
+  python "$LOGS/ab_dense_in0_block_w.py"
+} 2>&1 | grep -aE "^DENSEIBW|^#" > "$LOGS/ab_dense_in0_block_w.txt"
+
 echo "=== 4g/9  the prefill chunked-SDPA sweep, the knob round 14 found unmeasured ==="
 {
   echo "# Prefill chunked-SDPA program config sweep at the shipped 2048-token chunk."
