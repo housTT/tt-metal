@@ -1004,6 +1004,75 @@ def check_orientation_claims() -> list:
     return problems
 
 
+def check_commit_record() -> list:
+    """`logs/commit_record.txt` must agree with `git log`, not merely claim that something checks it.
+
+    Round 23 found the `head` field five commits stale — still naming the round-20 checkpoint after two further
+    review rounds had landed — directly beneath a sentence in the same file asserting that the audit compared it
+    against `git log`. Nothing did: this file is excluded from the evidence pool, and no gate read it. A next
+    stage resolving the checkpoint from that field would have started from a tree predating both rounds' fixes.
+
+    Verified here: every listed SHA resolves and appears in `git log <parent>..HEAD`, the list is in history
+    order, no stage commit is missing, and `head` is the second-newest stage commit (it cannot be the newest,
+    because a commit's SHA cannot appear in its own content).
+    """
+    path = DOC / "logs/commit_record.txt"
+    if not path.is_file():
+        return ["COMMIT-RECORD-MISSING  logs/commit_record.txt is absent"]
+    text = path.read_text()
+    parent = re.search(r"^parent = ([0-9a-f]{7,40})", text, re.M)
+    head = re.search(r"^head   = ([0-9a-f]{7,40})", text, re.M)
+    if not parent or not head:
+        return ["COMMIT-RECORD-MALFORMED  logs/commit_record.txt has no `parent =` / `head   =` field"]
+    import subprocess
+
+    try:
+        log = subprocess.run(
+            ["git", "log", "--format=%H", f"{parent.group(1)}..HEAD"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if log.returncode != 0:
+        # A `git archive` extraction has no repository; the committed-tree reproduction still runs every
+        # other check, and this one has nothing to compare against.
+        return []
+    history = [sha for sha in log.stdout.split() if sha]
+    if not history:
+        return []
+    order = {sha: index for index, sha in enumerate(history)}  # 0 = newest
+    listed = re.findall(r"^([0-9a-f]{7,40}) \[", text, re.M)
+    problems = []
+    resolved = []
+    for short in listed:
+        full = [sha for sha in history if sha.startswith(short)]
+        if not full:
+            problems.append(
+                f"COMMIT-RECORD-UNKNOWN  logs/commit_record.txt lists {short}, which is not in "
+                f"`git log {parent.group(1)[:11]}..HEAD`"
+            )
+        else:
+            resolved.append(full[0])
+    if [order[sha] for sha in resolved] != sorted((order[sha] for sha in resolved), reverse=True):
+        problems.append("COMMIT-RECORD-ORDER  logs/commit_record.txt does not list its commits oldest-first")
+    # The newest stage commit is the one updating this file, so it cannot list itself.
+    missing = [sha for sha in history[1:] if sha not in resolved]
+    if missing:
+        problems.append(
+            f"COMMIT-RECORD-INCOMPLETE  logs/commit_record.txt is missing {len(missing)} stage commit(s), "
+            f"newest {missing[0][:11]}"
+        )
+    if len(history) > 1 and not history[1].startswith(head.group(1)):
+        problems.append(
+            f"COMMIT-RECORD-HEAD-STALE  logs/commit_record.txt says head = {head.group(1)}; the "
+            f"second-newest stage commit is {history[1]}"
+        )
+    return problems
+
+
 def check_top_line_item() -> list:
     """A document naming *the largest* op-to-op line item must name the one the capture actually has.
 
@@ -1482,6 +1551,7 @@ def main() -> int:
     problems += check_source_magnitude_words()
     problems += check_orientation_claims()
     problems += check_top_line_item()
+    problems += check_commit_record()
     problems += check_sparse_block_rule()
     problems += check_mirrored_constants()
     problems += check_generators()

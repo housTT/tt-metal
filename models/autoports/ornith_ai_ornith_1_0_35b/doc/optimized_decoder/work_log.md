@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.2 µs | **column** wins by 18.9 µs, beyond the ±0.5 µs spread |
-| 8 active | down | **152.7 µs** | 172.0 µs | **column** wins by 19.3 µs, beyond the ±0.7 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.7 µs** | 579.1 µs | **column** wins by 10.4 µs, beyond the ±6.2 µs spread |
-| 162 active | down | 343.4 µs | **341.7 µs** | **row** wins by 1.7 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **386.7 µs** | 387.6 µs | column nominally ahead, inside the ±2.1 µs spread |
-| 64 active | down | 285.2 µs | **279.1 µs** | **row** wins by 6.1 µs, beyond the ±3.6 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.5 µs | **column** wins by 19.0 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.9 µs** | 171.9 µs | **column** wins by 19.0 µs, beyond the ±0.7 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **567.8 µs** | 579.8 µs | **column** wins by 12.0 µs, beyond the ±1.5 µs spread |
+| 162 active | down | 343.3 µs | **341.9 µs** | **row** wins by 1.4 µs, beyond the ±0.4 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **386.0 µs** | 387.9 µs | **column** wins by 1.9 µs, beyond the ±0.5 µs spread |
+| 64 active | down | 284.8 µs | **279.4 µs** | **row** wins by 5.4 µs, beyond the ±0.9 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -713,8 +713,9 @@ a result** — and this stage now settles every geometry that reaches a document
 
 The 64-active `gate_up` row is a smaller lesson in the same direction. Round 9's review read it, correctly against the artifact
 it had, as the *row* winning; every re-measurement since has had the *column* ahead. What has not held is the
-margin: across the sweeps of rounds 20-22 this row moved from just beyond its spread, to inside it, to well
-beyond it, without a line of shipped code changing. That is why the generated table in README §5.4 prints each
+margin: this row has moved back and forth across its own spread boundary from one sweep to the next, without a
+line of shipped code changing — the ladder above prints whichever verdict the current capture supports, and it
+is not the same one it printed a sweep ago. That is why the generated table in README §5.4 prints each
 row's own spread, why the inside-vs-beyond test is made at the artifact's printed precision, and why neither
 this paragraph nor the shipped comment quotes a magnitude for it any more — round 22 found both of them
 describing it as sub-microsecond noise against a table that by then called it decisive. The direction is what
@@ -862,7 +863,7 @@ vLLM or serving process was started at any point.
 
 ## 6. Review rounds and checkpoint
 
-Twenty independent `$stage-review` passes ran against this stage, each by a fresh subagent, and every one of them is recorded below. Round 16 corrected this sentence from "two" and left it one short; round 17 caught that, which is the point — a count is a figure like any other, and this one is spelled in words, so no gate sees it. The count is worth stating plainly: it says how much of this stage's content came from being checked rather than from being written. Review round 16 found this sentence still saying "two" and the narrative stopping at round 13, which is the same staleness the rounds themselves keep finding — a number that was true when written and never re-derived.
+Every `$stage-review` pass that ran against this stage, each by a fresh subagent, is recorded below — one entry per round, in order, and the list is the count. There is deliberately no total in this sentence any more. Round 16 corrected it from "two" and left it one short; round 17 caught that; round 23 found it still reading "twenty" with the narrative stopping at round 20 and rounds 21 and 22 unrecorded. A count is a figure like any other, this one is spelled in words so no gate sees it, and it is stale the moment another round runs — which is exactly the defect these rounds keep finding elsewhere. What the list says is worth stating plainly: it is how much of this stage's content came from being checked rather than from being written.
 
 **Round 1** returned `more-work-needed` with five items: a device-capability query that could never
 succeed (so every L1 budget ran against a 1 MiB fallback and the 2D prefill config was silently off
@@ -1750,8 +1751,45 @@ ratio, names which arms are like-for-like, and says why the `bf16-kv` rows are n
 Two smaller corrections in the same pass, both claims the artifact contradicts. The orientation comment said the
 row form leads `gate_up` at 64 active, "the opposite sign" from the prefill point — at the `in0_block_w` the layer
 actually builds there, the column leads, the *same* sign; the row only leads at inner blocks the wide phase never
-selects, so it was never a shipped comparison. And the `down` gap at the prefill group is about a percent, not
-half of one.
+selects, so it was never a shipped comparison. And the `down` gap at the prefill group was restated as about a
+percent — which round 21 then found was itself wrong, the ladder printing half of one. That correction is the
+origin of the rule the next two rounds generalised: this comment states directions, not magnitudes.
+
+**Round 21** returned `clean-pass` — the first pass verdict of the stage — with no required work, recording four
+errata below its finding bar. Two were closed anyway, both cases where a document contradicted the stage's own
+generated artifact: the round-20 `down` restatement above, and README §8's generated watcher sentence, which
+composed two census counts into a total the log does not have ("five RISC processors on each of two cores"
+implies thirty samples where there are fifteen; the cores are distinct *across* the summaries, not a second
+axis). Rounds 11 and 12 had each rewritten that sentence and each left a composition error, so the generator now
+asserts the product rather than trusting the phrasing.
+
+The larger outcome was a rule, not a fix. `check_orientation_claims` was added to verify the orientation
+comment's magnitudes against the generated ladder — and two consecutive sweeps then falsified three more bullets
+with no shipped code changing. A magnitude in a comment has no generator, so it is stale as soon as the sweep is
+re-run. The bullets now state directions, which are stable, and cite the ladder for figures; the check refuses a
+magnitude in a tagged bullet outright. §4.14 records the row that taught it.
+
+**Round 22** returned `more-work-needed` with two items, both documentation contradicted by committed artifacts.
+README §7 named the float32 gate-promotion `Typecast` launches the largest `linear_attention` op-to-op line
+item; the generated table directly beneath it ranks `TilizeWithValPadding` first and `Typecast` fourth. The
+claim was true of a capture superseded several times over, and it pointed a reader at a small share of the
+dispatch gap instead of the much larger one above it. It survived every round to that point because the sentence
+sat *inside* a generated block while being hard-coded, so `make_readme.py --check` regenerated it from itself
+and could never see the drift. The sentence is computed from the same `perf_summary.json` rows the table is
+built from now, the hand-written bullet is reordered to match, and `check_top_line_item` matches any such claim
+against the capture's actual top row — it found a third stale instance in §4.19 on its first run.
+
+The second item was the 64-active `gate_up` row described as sub-microsecond noise while the ladder called it
+decisive; §4.14 covers it. Round 22 also noted that the round-21 commit had swept in a shared skill file outside
+this stage's declared scope; it was already modified when the stage began, so it was never this stage's to
+commit, and it was reverted to the uncommitted state the stage inherited.
+
+**Round 23** returned `more-work-needed` with two bookkeeping items, both in this stage's own review and
+checkpoint records rather than in its measurements. This §6 claimed every round was recorded below while
+stopping at round 20, and `logs/commit_record.txt` carried a `head` five commits stale alongside a sentence
+claiming the audit checked it, which nothing did. Both are corrected above and in that file, and
+`check_commit_record` now verifies the recorded list and `head` against `git log` instead of asserting that
+something else does.
 
 The class behind all three of rounds 18, 19 and 20 is now closed where it matters. `audit_figures.py` matches
 numerals, so a ratio spelled in words is invisible to it, and every one of those findings was such a phrase that

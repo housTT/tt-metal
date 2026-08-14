@@ -618,8 +618,10 @@ def _sparse_matmul_config(
     #   and reaches 32 cores too. Review round 12 corrected this comment, which said 64 active was the largest
     #   supported decode batch rather than the largest tuned one.
     # * `gate_up` at 32 cores, 64 active [ladder 64/gate_up]: the column leads here too. This is the ladder's
-    #   least stable row - across three sweeps its margin ran from just beyond its spread, to inside it, to
-    #   well beyond it - so the direction is all this comment asserts about it. The row leads it only at
+    #   least stable row - its margin has moved between sweeps, in both directions across the spread boundary,
+    #   with no shipped code changing - so the direction is all this comment asserts about it. Counting the
+    #   sweeps would be the same mistake one layer up: that count goes stale the next time one runs. The row
+    #   leads it only at
     #   `in0_block_w` 8 and 16, which the layer never builds there (the wide phase caps at 64), so that is not
     #   a shipped comparison at all. Review round 20 corrected this bullet, which claimed the row led by
     #   reading exactly those unshipped arms; round 22 corrected it again, for calling a then-decisive row
