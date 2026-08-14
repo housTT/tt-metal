@@ -3,15 +3,15 @@
 # Whole-layer A/B: residual norm shard carried into the in-projection vs interleaved between them.
 # context=8192 decode_iters=32; arms alternate build-by-build, first build per arm discarded.
 # `interleaved-between` is the pre-round-25 shipped path; `shard-carried` is what ships now.
-SHARDEDNORM arm=shard-carried run=2 layer=3 (full_attention) decode(traced) wall/iter=0.843 ms
-SHARDEDNORM arm=interleaved-between run=2 layer=3 (full_attention) decode(traced) wall/iter=0.847 ms
-SHARDEDNORM arm=shard-carried run=3 layer=3 (full_attention) decode(traced) wall/iter=0.843 ms
-SHARDEDNORM arm=interleaved-between run=3 layer=3 (full_attention) decode(traced) wall/iter=0.847 ms
-SHARDEDNORM arm=shard-carried run=4 layer=3 (full_attention) decode(traced) wall/iter=0.843 ms
-SHARDEDNORM arm=interleaved-between run=4 layer=3 (full_attention) decode(traced) wall/iter=0.847 ms
+SHARDEDNORM arm=shard-carried run=2 layer=3 (full_attention) decode(traced) wall/iter=0.837 ms
+SHARDEDNORM arm=interleaved-between run=2 layer=3 (full_attention) decode(traced) wall/iter=0.840 ms
+SHARDEDNORM arm=shard-carried run=3 layer=3 (full_attention) decode(traced) wall/iter=0.837 ms
+SHARDEDNORM arm=interleaved-between run=3 layer=3 (full_attention) decode(traced) wall/iter=0.840 ms
+SHARDEDNORM arm=shard-carried run=4 layer=3 (full_attention) decode(traced) wall/iter=0.837 ms
+SHARDEDNORM arm=interleaved-between run=4 layer=3 (full_attention) decode(traced) wall/iter=0.840 ms
 SHARDEDNORM arm=shard-carried run=2 layer=0 (linear_attention) decode(traced) wall/iter=1.033 ms
-SHARDEDNORM arm=interleaved-between run=2 layer=0 (linear_attention) decode(traced) wall/iter=1.042 ms
-SHARDEDNORM arm=shard-carried run=3 layer=0 (linear_attention) decode(traced) wall/iter=1.032 ms
-SHARDEDNORM arm=interleaved-between run=3 layer=0 (linear_attention) decode(traced) wall/iter=1.042 ms
+SHARDEDNORM arm=interleaved-between run=2 layer=0 (linear_attention) decode(traced) wall/iter=1.040 ms
+SHARDEDNORM arm=shard-carried run=3 layer=0 (linear_attention) decode(traced) wall/iter=1.033 ms
+SHARDEDNORM arm=interleaved-between run=3 layer=0 (linear_attention) decode(traced) wall/iter=1.041 ms
 SHARDEDNORM arm=shard-carried run=4 layer=0 (linear_attention) decode(traced) wall/iter=1.033 ms
-SHARDEDNORM arm=interleaved-between run=4 layer=0 (linear_attention) decode(traced) wall/iter=1.039 ms
+SHARDEDNORM arm=interleaved-between run=4 layer=0 (linear_attention) decode(traced) wall/iter=1.040 ms

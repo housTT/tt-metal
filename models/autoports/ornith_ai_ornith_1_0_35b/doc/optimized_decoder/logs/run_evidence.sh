@@ -167,6 +167,13 @@ echo "=== 4k/9  whole-layer A/B: in0_block_w for the two sharded-in0 in-projecti
   python "$LOGS/ab_dense_in0_block_w.py"
 } 2>&1 | grep -aE "^DENSEIBW|^#" > "$LOGS/ab_dense_in0_block_w.txt"
 
+echo "=== 4l/9  whole-layer A/B: decode V written to the cache on the head split's own shard ==="
+{
+  echo "# V passthrough vs interleave-and-rebuild for the paged cache write (round 27)."
+  echo "# Command: python doc/optimized_decoder/logs/ab_v_shard_passthrough.py"
+  python "$LOGS/ab_v_shard_passthrough.py"
+} 2>&1 | grep -aE "^VPASSTHRU|^#" > "$LOGS/ab_v_shard_passthrough.txt"
+
 echo "=== 4g/9  the prefill chunked-SDPA sweep, the knob round 14 found unmeasured ==="
 {
   echo "# Prefill chunked-SDPA program config sweep at the shipped 2048-token chunk."

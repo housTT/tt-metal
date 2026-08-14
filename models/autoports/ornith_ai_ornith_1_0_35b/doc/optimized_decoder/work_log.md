@@ -108,7 +108,8 @@ Structural observations from the same read, which drove §3.1 and §3.4:
 * **Reshard / layout conversions**: 6 per `full_attention` decode step, 1 per `linear_attention`
   one, all required by an op contract (§6 of the fused README). No avoidable ones existed to remove;
   this stage *adds* 4 on `linear_attention` and 8 on `full_attention` — two per sharded norm, taking the
-  budgets from 1 and 6 to 5 and 14 — all of them the sharded-norm boundary, and pays for them (§3.6).
+  budgets from 1 and 6 — all of them the sharded-norm boundary, and pays for them (§3.6); README §6's
+  table is generated from the gate's own constants, because those two numbers went stale twice.
   (This line said "8–12" until review round 13, which is the *total* rather than the delta and disagreed
   with README §6 and §3.6, both of which had it right.)
 * **Host fallback**: none in the measured path, inherited and re-asserted.
@@ -305,7 +306,8 @@ projection consumes a width-sharded `in0` directly, so the shard is carried stra
 Until that round this section asserted the opposite — that `mcast_in0` "needs an interleaved `in0` back" — and
 that assertion closed the sharded-residual family `$optimize` OPT-003 makes mandatory. §4.21 records what the op
 actually validates, why the probe could not contradict the claim, and the whole-layer A/B.
-`test_no_layout_churn_in_measured_forward` budgets those conversions exactly (5 and 14 per decode
+`test_no_layout_churn_in_measured_forward` budgets those conversions exactly (README §6's generated
+table has the current pair, and rounds 25 and 27 each lowered it; per decode
 step, from 1 and 6) and itemises each one.
 
 Whether the narrow 256-wide Q/K head-dim norms should also shard was measured both ways, twice each
@@ -698,12 +700,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **154.4 µs** | 172.0 µs | **column** wins by 17.6 µs, beyond the ±0.5 µs spread |
-| 8 active | down | **152.8 µs** | 172.2 µs | **column** wins by 19.4 µs, beyond the ±0.5 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **571.3 µs** | 579.2 µs | **column** wins by 7.9 µs, beyond the ±0.3 µs spread |
-| 162 active | down | 343.2 µs | **341.4 µs** | **row** wins by 1.8 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.5 µs | **column** wins by 2.0 µs, beyond the ±1.0 µs spread |
-| 64 active | down | 284.7 µs | **277.8 µs** | **row** wins by 6.9 µs, beyond the ±1.2 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.4 µs | **column** wins by 18.9 µs, beyond the ±0.3 µs spread |
+| 8 active | down | **152.7 µs** | 172.1 µs | **column** wins by 19.4 µs, beyond the ±0.4 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.7 µs** | 579.1 µs | **column** wins by 10.4 µs, beyond the ±1.2 µs spread |
+| 162 active | down | 343.2 µs | **342.0 µs** | **row** wins by 1.2 µs, beyond the ±0.4 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.5 µs | **column** wins by 2.0 µs, beyond the ±0.8 µs spread |
+| 64 active | down | 284.8 µs | **277.7 µs** | **row** wins by 7.1 µs, beyond the ±0.8 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -937,6 +939,40 @@ That A/B also has a lesson of its own. Its first committed run compared the ship
 the "before" arm read `DECODE_MATMUL_GEOMETRY`, which by then held the adopted candidate, so both arms printed
 the same number and the file looked like a null result. The before-arm geometry is written literally now, and
 the script asserts that its after-arm really is what the module ships.
+
+### 4.23 The decode V shard, thrown away and rebuilt — taken
+
+Review round 27 kept pulling the thread rounds 25 and 26 had opened, and found the largest instance of it.
+
+`nlp_create_qkv_heads_decode` emits V as HEIGHT_SHARDED L1 with shard `[32, head_dim]` on the first `batch`
+cores. `_kv_update_memory_configs` then built *exactly that config* — so the layer converted V to DRAM
+interleaved, zero-padded its kv-head dimension, and converted it back, once per decode step, to arrive at the
+layout it already had. Three places called those conversions mandatory: §2 said the six `full_attention` decode
+conversions were "all required by an op contract … No avoidable ones existed to remove", the topology audit
+called the pad "irreducible at this layer", and README §6 and the churn test itemised them as contract-driven.
+
+None of that was measured. `paged_fused_update_cache` reads the head count from the **cache**, not the input,
+so the logical 2-versus-32 kv-head difference the pad existed to fix is never observed; its input rules are only
+that the tensor be sharded, ROW_MAJOR, not width-sharded, with shard width equal to the last padded dimension
+and a height its shard height divides. The head split's output satisfies every one of them as produced.
+
+Two things had to move. `nlp_create_qkv_heads_decode` takes `overlap_qk_coregrid=False`, which puts K on a
+range disjoint from Q and V; and the cache write's two grids are swapped, so **V** takes the first `batch`
+cores — the range the head split emits it on — and K takes the second. The fused update requires only that its
+two inputs be disjoint, so moving K costs nothing while moving V would cost the reshard this removes. Q and K
+still interleave: both feed the norm and rope chain, and only V reaches the cache write untouched.
+
+Measured at the layer (`logs/ab_v_shard_passthrough.txt`): every timed build of the passthrough beats every
+timed build of the rebuild, by close to a percent of the step. The `full_attention` decode layout-conversion
+budget falls from 13 to 11, and `test_decode_v_reaches_the_cache_on_the_head_split_shard` asserts both the
+memory config the cache write receives and the op's disjoint-cores rule, re-derived rather than assumed.
+
+**The pattern across rounds 25, 26 and 27 is worth naming.** Three optimizations were closed by a sentence
+about what a TTNN op requires, and all three sentences were wrong in the same direction: they described the
+shape the layer happened to be passing rather than the shape the op accepts. Two of them were reinforced by a
+probe that only ever built the shape the claim asserted, so the artifact could not contradict it. The figure
+audit cannot see this class — it checks numbers against artifacts, and these were prose about an API. What
+catches it is reading the op's validation, which is now what §4.21, §4.22 and this section each cite.
 
 ---
 

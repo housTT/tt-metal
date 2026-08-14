@@ -529,15 +529,17 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                  + sharded_to_interleaved: 1, for the MoE norm only - the token-mixer norm's shard
     #                    goes straight into `gdn_in` (§4.21), so it pays no interleave out
     #   full  prefill  = to_layout: 2 RoPE tables + one MoE group mask per MoE call
-    #   full  decode   = sharded_to_interleaved: 3 off nlp_create_qkv_heads_decode
-    #                  + to_memory_config: 2 height-shards for the fused paged-cache update
+    #   full  decode   = sharded_to_interleaved: 2 off nlp_create_qkv_heads_decode - Q and K only, since
+    #                    review round 27 writes V to the cache on the shard the op already gave it (§4.23)
+    #                  + to_memory_config: 1 height-shard for the fused paged-cache update, K's; V needs
+    #                    none for the same reason
     #                  + to_layout: 1 MoE group mask
     #                  + to_memory_config: 4, one shard-in per width-sharded RMSNorm
     #                    (input, post-attention, and the Q and K head-dim norms)
     #                  + sharded_to_interleaved: 3, for those four norms minus the token-mixer one,
     #                    whose shard goes straight into `attn_in` (§4.21)
     #
-    # The new conversions on `linear_attention` and `full_attention` — 1 -> 4 and 6 -> 13 against
+    # The new conversions on `linear_attention` and `full_attention` — 1 -> 4 and 6 -> 11 against
     # `test_fused_decoder`'s budgets — are this stage's own, and they are the price of the norm
     # win, not churn: ``ttnn.rms_norm`` parallelises over rows, so an interleaved decode norm (one
     # tile of rows) runs on a single core. Each sharded norm pays a ``to_memory_config`` in; only the
@@ -562,7 +564,7 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
             (LINEAR_LAYER, "prefill"): 12,
             (LINEAR_LAYER, "decode"): 4,
             (FULL_LAYER, "prefill"): 3,
-            (FULL_LAYER, "decode"): 13,
+            (FULL_LAYER, "decode"): 11,
         }
         x = to_device(mesh_device, make_activations(1, seq_len, seed=93))
         d = to_device(mesh_device, make_activations(1, 1, seed=94))
@@ -2000,6 +2002,97 @@ def _sparse_gate_up_block_w(moe, *, batch: int) -> int:
     realised = _largest_divisor_at_most(_sparse_n_tiles(moe.cfg, "gate_up"), max(1, target))
     cap = SPARSE_GATE_UP_IN0_BLOCK_W[realised > SPARSE_MIN_CORES]
     return _largest_divisor_at_most(moe.cfg.dim // 32, cap)
+
+
+def test_decode_v_reaches_the_cache_on_the_head_split_shard(mesh_device, monkeypatch):
+    """V must be written to the paged cache on the shard `nlp_create_qkv_heads_decode` produced.
+
+    Until review round 27 the layer interleaved V to DRAM, zero-padded it and re-sharded it into the
+    identical config, once per decode step, and three documents called those conversions op-contract
+    requirements. Nothing in a PCC test can see them come back, so the memory config
+    `paged_fused_update_cache` actually receives is asserted here, along with the property that made
+    the rebuild unnecessary: it is already the config the layer would have built.
+    """
+    decoder, page_table, _ = build_decoder(mesh_device, FULL_LAYER, default_weight_source())
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 128, seed=71)), page_table=page_table)
+    )
+    seen = {}
+    real_fused = ttnn.experimental.paged_fused_update_cache
+
+    def record(cache1, input1, cache2, input2, **kwargs):
+        seen["v"] = input2.memory_config()
+        seen["k"] = input1.memory_config()
+        return real_fused(cache1, input1, cache2, input2, **kwargs)
+
+    monkeypatch.setattr(ttnn.experimental, "paged_fused_update_cache", record)
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128]))
+    ttnn.deallocate(
+        decoder.decode_forward(
+            to_device(mesh_device, make_activations(1, 1, seed=72)),
+            current_pos=current_pos,
+            rot_idxs=rot_idxs,
+            page_table=page_table,
+        )
+    )
+    monkeypatch.undo()
+
+    assert "v" in seen, "paged_fused_update_cache never ran"
+    _, v_cfg, fused = decoder._kv_update_memory_configs(1)
+    assert fused, "batch 1 must take the fused single-launch write"
+    assert seen["v"] == v_cfg, (
+        f"V reached the cache write as {seen['v']}, not the head split's own shard {v_cfg}; the "
+        "pre-round-27 interleave-and-rebuild is back"
+    )
+    assert seen["v"].memory_layout == ttnn.TensorMemoryLayout.HEIGHT_SHARDED
+    assert seen["v"].buffer_type == ttnn.BufferType.L1
+
+    # The op's own rule, re-derived: the two inputs must live on disjoint cores. `CoreRangeSet` exposes
+    # no intersection test through the bindings, so the ranges are expanded to coordinates.
+    def cores(grid):
+        return {
+            (x, y) for r in grid.ranges() for x in range(r.start.x, r.end.x + 1) for y in range(r.start.y, r.end.y + 1)
+        }
+
+    assert not (
+        cores(seen["k"].shard_spec.grid) & cores(seen["v"].shard_spec.grid)
+    ), "paged_fused_update_cache requires its two inputs on disjoint cores"
+
+
+def test_decode_output_projection_in0_is_in_l1(mesh_device, monkeypatch):
+    """The decode `o_proj` `in0` must be in L1, which is the `tt-perf-report` item round 26 cleared.
+
+    Its producing multiply names the placement explicitly; if that name is dropped the tensor silently
+    inherits DRAM from the paged flash-decode attention again and the advice item comes back.
+    """
+    decoder, page_table, _ = build_decoder(mesh_device, FULL_LAYER, default_weight_source())
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 128, seed=73)), page_table=page_table)
+    )
+    seen = {}
+    real_linear = ttnn.linear
+
+    def record(*args, **kwargs):
+        if int(args[1].shape[-1]) == int(decoder.w["o_proj"].shape[-1]) and "o_proj" not in seen:
+            seen["o_proj"] = args[0].memory_config()
+        return real_linear(*args, **kwargs)
+
+    monkeypatch.setattr(ttnn, "linear", record)
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128]))
+    ttnn.deallocate(
+        decoder.decode_forward(
+            to_device(mesh_device, make_activations(1, 1, seed=74)),
+            current_pos=current_pos,
+            rot_idxs=rot_idxs,
+            page_table=page_table,
+        )
+    )
+    monkeypatch.undo()
+    assert "o_proj" in seen, "o_proj never ran"
+    assert seen["o_proj"].buffer_type == ttnn.BufferType.L1, (
+        f"o_proj `in0` is in {seen['o_proj'].buffer_type}; tt-perf-report raises "
+        "'place input 0 in L1' on this row when it is not"
+    )
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])

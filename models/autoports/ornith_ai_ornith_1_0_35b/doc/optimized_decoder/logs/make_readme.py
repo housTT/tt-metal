@@ -743,8 +743,11 @@ def advice_actions() -> dict:
             + ". "
             "Decode: the two residual norms, "
             "the three float32 recurrent-state matmuls, the shared expert's SwiGLU product and the "
-            "`full_attention` output projection's gated `in0` all hand their result to L1, each size-gated "
-            "so a large batch still uses DRAM. The output projection is new in review round 26, which found "
+            "`full_attention` output projection's gated `in0` all hand their result to L1. The norms, the state "
+            "matmuls and the shared-expert product are size-gated so a large batch still uses DRAM; the "
+            "output projection is gated on phase alone, because its decode tensor is one tile of rows per "
+            "user and prefill keeps DRAM. Review round 27 asked for that distinction, this cell having "
+            "claimed all four were size-gated. The output projection is new in review round 26, which found "
             "the item still raised on that row while this cell claimed decode raised it nowhere: its "
             "producing multiply named no placement and so inherited DRAM from the paged flash-decode "
             "attention, whose output must be in DRAM, while `linear_attention`'s identically shaped "
@@ -849,6 +852,49 @@ DECODE_ROLES = [
 ]
 
 
+def block_churn_budgets():
+    """The layout-churn table, read out of the gate that asserts it.
+
+    These four numbers were hand-written until review round 27, which found three document locations
+    still carrying the pre-round-25 pair (5 and 14) while the test asserted 4 and 13 — and the
+    itemisation beside them restating a per-norm rule round 25 had falsified. Two-digit integers are
+    exempt from the figure audit wholesale, so nothing could see it. They come from
+    `test_no_layout_churn_in_measured_forward`'s own `budgets` dict now, so the table cannot disagree
+    with the gate.
+    """
+    tests = ROOT.parent.parent / "tests/test_optimized_decoder.py"
+    if not tests.is_file():
+        return "**tests/test_optimized_decoder.py missing**"
+    body = tests.read_text()
+    block = re.search(r"budgets = \{(.*?)\}", body, re.S)
+    if not block:
+        return "**test_no_layout_churn_in_measured_forward has no budgets dict**"
+    found = {}
+    for layer, phase, value in re.findall(r'\((\w+), "(\w+)"\): (\d+),', block.group(1)):
+        found[(layer, phase)] = int(value)
+    names = {"LINEAR_LAYER": "linear_attention", "FULL_LAYER": "full_attention"}
+    missing = [
+        k
+        for k in (
+            ("LINEAR_LAYER", "prefill"),
+            ("LINEAR_LAYER", "decode"),
+            ("FULL_LAYER", "prefill"),
+            ("FULL_LAYER", "decode"),
+        )
+        if k not in found
+    ]
+    if missing:
+        return f"**budgets dict is missing {missing}**"
+    lines = [
+        "| Layer kind | prefill @256 | prefill @2048 | decode |",
+        "| --- | --- | --- | --- |",
+    ]
+    for layer, name in names.items():
+        pre, dec = found[(layer, "prefill")], found[(layer, "decode")]
+        lines.append(f"| `{name}` | {pre} | {pre} | {dec} |")
+    return "\n".join(lines)
+
+
 #: Which probe family each dense decode role actually ships, mirroring
 #: `optimized_decoder._shard_feeds_projection`. Review round 25 made the two token-mixer in-projections
 #: consume a width-sharded `in0`; review round 26 found this table still selecting and ranking them in
@@ -860,6 +906,18 @@ SHARDED_IN0_DECODE_ROLES = {"attn_in", "gdn_in"}
 
 def decode_family(role):
     return "mcast1d_sharded_in0" if role in SHARDED_IN0_DECODE_ROLES else "mcast1d"
+
+
+#: The residual norm width-shards `dim` over `NORM_SHARD_CORES` cores, so only the probe's rows at that
+#: shard count are candidates the layer can actually build. The probe sweeps 8/16/32/64 to show the axis;
+#: review round 27 found the table selecting a 32-core row as the shipped one and printing its time.
+NORM_SHARD_CORES = 8
+
+
+def shard_cores_ok(role, row):
+    if decode_family(role) != "mcast1d_sharded_in0":
+        return True
+    return row.get("shard_cores") == str(NORM_SHARD_CORES)
 
 
 def block_decode_search():
@@ -917,6 +975,7 @@ def block_decode_search():
                 if r["us"] is not None
                 and r.get("role") == role
                 and r.get("family") == decode_family(role)
+                and shard_cores_ok(role, r)
                 and r.get("in0_block_w") == ibw.group(1)
                 and r.get("per_core_N") == pcn.group(1)
                 and r.get("out") == shipped_out
@@ -946,6 +1005,7 @@ def block_decode_search():
             if r["us"] is not None
             and r.get("role") == role
             and r.get("family") == decode_family(role)
+            and shard_cores_ok(role, r)
             and r.get("out") == shipped_out
         ]
         winner_row = min(pool, key=lambda r: r["us"]) if pool else None
@@ -1782,6 +1842,16 @@ ADDED_TEST_ROWS = {
     "test_precision_policy_reaches_the_device_tensors": (
         "every weight tensor and the KV cache hold the dtype the policy names (OPT-013, code half)"
     ),
+    "test_decode_v_reaches_the_cache_on_the_head_split_shard": (
+        "the decode V tensor reaches `paged_fused_update_cache` on the height shard the head split "
+        "produced, not on a rebuilt copy of it, and the two cache inputs stay on disjoint cores - the "
+        "op's own rule, re-derived rather than assumed (§4.23)"
+    ),
+    "test_decode_output_projection_in0_is_in_l1": (
+        "the decode `o_proj` `in0` is in L1, which is the `tt-perf-report` item review round 26 cleared; "
+        "its producing multiply names the placement, and dropping that name silently returns the tensor "
+        "to the paged flash-decode attention's DRAM output"
+    ),
     "test_decode_norm_shard_reaches_the_in_projection": (
         "the token-mixer norm's width shard reaches the in-projection as a WIDTH_SHARDED L1 `in0`, so the "
         "`sharded_to_interleaved` review round 25 removed cannot come back unnoticed; the op's own "
@@ -2127,6 +2197,7 @@ def main():
         "decode-breakdown": block_decode_breakdown(),
         "op-knobs": block_op_knobs(),
         "sparse-search": block_sparse_search(),
+        "churn-budgets": block_churn_budgets(),
         "decode-search": block_decode_search(),
         "prefill-search": block_prefill_search(),
         "prefill-composition": block_prefill_composition(),

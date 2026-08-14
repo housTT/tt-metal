@@ -256,6 +256,16 @@ ROUTED_IN0_MEMORY = ttnn.L1_MEMORY_CONFIG
 #: A module constant rather than a literal so the A/B can flip it (`logs/ab_attn_out_in0.txt`).
 ATTN_OUT_IN0_MEMORY = ttnn.L1_MEMORY_CONFIG
 
+#: Whether the decode V head-split output is written to the paged cache **as produced**, keeping its
+#: height shard, instead of being interleaved to DRAM and re-sharded into an identical config.
+#: `nlp_create_qkv_heads_decode` already emits V as HEIGHT_SHARDED L1 with shard `[32, head_dim]`, which
+#: is bit-for-bit the config `_kv_update_memory_configs` used to rebuild, and `paged_fused_update_cache`
+#: accepts it. Until review round 27 the layer threw that shard away and paid a `sharded_to_interleaved`,
+#: a `FillPad` and an `InterleavedToSharded` per decode step to rebuild it, and the work log called all
+#: three "required by an op contract". A module constant rather than a literal so the A/B can flip it
+#: (`logs/ab_v_shard_passthrough.txt`).
+DECODE_V_SHARD_PASSTHROUGH = True
+
 #: Physical alignment of a prefill block. 128 keeps every block start legal for the chunked-SDPA
 #: 64-token q/k chunks, the paged cache's 64-token blocks, and the flat ``chunk_gated_delta_rule``
 #: contract (which requires the block length to be a multiple of its 32-token internal chunk).
@@ -2332,8 +2342,10 @@ class OptimizedDecoder(LightweightModule):
         ttnn.deallocate(x_sh)
         if keep_sharded_for is not None and self._shard_feeds_projection(keep_sharded_for, shape, cfg):
             return out
-        # Back to DRAM interleaved, which is the layout every consumer of a norm here expects: the
-        # 1D `mcast_in0` projection matmul needs an interleaved `in0`, and
+        # Back to interleaved for the consumers that cannot take the shard - which is *not* a property of
+        # `mcast_in0`, and saying so here is what closed a whole family until round 25 (see the docstring
+        # above and §4.21). The binding rule is per role: a projection whose `in0_block_w` exceeds this
+        # norm's per-core shard width cannot consume it, and
         # `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q that is not in DRAM.
         # `tt-perf-report` advises placing a matmul's in0 in L1, and the two residual norms feed
         # matmuls, so they interleave into L1. The narrow head-dim norms do not: their result reaches
@@ -2513,14 +2525,21 @@ class OptimizedDecoder(LightweightModule):
             spec = ttnn.ShardSpec(shard_grid, [TILE, self.cfg.head_dim], ttnn.ShardOrientation.ROW_MAJOR)
             return ttnn.MemoryConfig(ttnn.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.BufferType.L1, spec)
 
-        k_grid = ttnn.num_cores_to_corerangeset(batch_size, grid, row_wise=True)
+        first = ttnn.num_cores_to_corerangeset(batch_size, grid, row_wise=True)
         if 2 * batch_size > cores:
-            return config(k_grid), config(k_grid), False
+            # Two separate launches, so there is no non-overlap rule to satisfy and both take the
+            # natural first-`batch` range - which is also the range the head split emits V on, so the
+            # passthrough still applies here.
+            return config(first), config(first), False
         whole = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))])
-        v_grid = ttnn.num_cores_to_corerangeset_in_subcoregrids(
+        second = ttnn.num_cores_to_corerangeset_in_subcoregrids(
             ttnn.CoreCoord(batch_size % grid.x, batch_size // grid.x), batch_size, whole, True
         )
-        return config(k_grid), config(v_grid), True
+        # **V takes the first range, K the second.** Review round 27: V arrives from the head split
+        # already sharded on the first `batch` cores, and `paged_fused_update_cache` only cares that the
+        # two inputs are disjoint - so moving K is free and moving V would cost the reshard the
+        # passthrough exists to remove. Before that round these were the other way round.
+        return config(second), config(first), True
 
     def _rope_prefill(self, x, cos, sin):
         """Rotate ``[batch, heads, seq, head_dim]`` with cos/sin ``[1, 1, seq, width]``."""
@@ -2599,7 +2618,21 @@ class OptimizedDecoder(LightweightModule):
         cfg = self.cfg
         n_heads, n_kv, head_dim = cfg.n_heads, cfg.n_kv_heads, cfg.head_dim
         if batch <= self.DECODE_HEAD_SPLIT_MAX_BATCH:
-            heads = ttnn.experimental.nlp_create_qkv_heads_decode(qkv, num_heads=n_heads, num_kv_heads=n_kv)
+            # `overlap_qk_coregrid=False` puts K on a core range disjoint from Q and V. V keeps its
+            # shard and goes straight to the cache write, and `paged_fused_update_cache` requires its two
+            # inputs to be on disjoint cores - so K's write grid is the one that has to move, not V's.
+            heads = ttnn.experimental.nlp_create_qkv_heads_decode(
+                qkv, num_heads=n_heads, num_kv_heads=n_kv, overlap_qk_coregrid=not DECODE_V_SHARD_PASSTHROUGH
+            )
+            q, k, v = heads
+            if DECODE_V_SHARD_PASSTHROUGH:
+                # Q feeds the norm/rope chain and SDPA; K feeds the norm/rope chain. Only V reaches the
+                # cache write untouched, so only V can keep the shard.
+                return (
+                    ttnn.sharded_to_interleaved(q, ttnn.DRAM_MEMORY_CONFIG),
+                    ttnn.sharded_to_interleaved(k, ttnn.DRAM_MEMORY_CONFIG),
+                    v,
+                )
             return tuple(ttnn.sharded_to_interleaved(t, ttnn.DRAM_MEMORY_CONFIG) for t in heads)
 
         width = int(qkv.shape[-1])
@@ -2655,7 +2688,11 @@ class OptimizedDecoder(LightweightModule):
         # height-sharded [1, B, kv_heads padded to 32, head_dim].
         k_cfg, v_cfg, fused_update = self._kv_update_memory_configs(b)
         k_upd = ttnn.to_memory_config(_pad_dim(k, 2, TILE - n_kv), k_cfg)
-        v_upd = ttnn.to_memory_config(_pad_dim(v, 2, TILE - n_kv), v_cfg)
+        # V is already in `v_cfg` when the head split handed it over sharded, so this is a no-op check
+        # rather than a conversion. Compared rather than assumed: a grid or shard-shape mismatch has to
+        # fall back to the rebuild, not be written to the cache in the wrong layout.
+        v_passthrough = v.memory_config() == v_cfg
+        v_upd = v if v_passthrough else ttnn.to_memory_config(_pad_dim(v, 2, TILE - n_kv), v_cfg)
         if fused_update:
             ttnn.experimental.paged_fused_update_cache(
                 self.k_cache, k_upd, self.v_cache, v_upd, update_idxs_tensor=current_pos, page_table=page_table
@@ -2668,7 +2705,8 @@ class OptimizedDecoder(LightweightModule):
                 self.v_cache, v_upd, update_idxs_tensor=current_pos, page_table=page_table
             )
         ttnn.deallocate(k_upd)
-        ttnn.deallocate(v_upd)
+        if not v_passthrough:
+            ttnn.deallocate(v_upd)
         ttnn.deallocate(k)
         ttnn.deallocate(v)
 
