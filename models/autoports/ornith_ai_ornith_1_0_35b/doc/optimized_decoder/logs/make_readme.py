@@ -1676,13 +1676,16 @@ TOPOLOGY_AUDIT = {
             "FillPadDeviceOperation",
             "`FillPadDeviceOperation`",
             (
-                "op-contract padding: `_pad_dim` widens K and V to a tile for `paged_fused_update_cache`, and the "
-                "MoE pads a 1-row decode activation to a 32-row tile",
-                "none — both pads are what the ops require of their inputs",
-                "**unchanged, and irreducible at this layer**: removing either means an op that accepts the "
-                "unpadded shape. It grew slightly against the fused baseline because the optimized path pads at "
-                "narrower dtypes on more of its tensors; review round 16 pointed out it had no disposition "
-                "anywhere, having fallen into this table's remainder row",
+                "the MoE pads a 1-row decode activation to a 32-row tile. It used to also widen K and V to a "
+                "tile for `paged_fused_update_cache`",
+                "**drop the cache-write pads** — the op takes its head count from the *cache*, so its writer "
+                "kernel never reads the rows those pads zeroed",
+                "**taken, in two halves**: V's pad went with its reshard in review round 27 (§4.23) and K's in "
+                "round 28 (§4.24), each measured at the layer. This row asserted the opposite for twenty-six "
+                'rounds — "both pads are what the ops require of their inputs … irreducible at this layer" — '
+                "which is the defect class §4.23 names. What remains is the MoE tile pad, and *that* one is "
+                "load-bearing: §3.4's masking depends on the padding rows being exactly zero. Review round 16 "
+                "pointed out this op had no disposition anywhere, having fallen into the remainder row",
             ),
         ),
         (

@@ -510,7 +510,19 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     requiring zero. A regression that reintroduces a per-head relayout moves it immediately.
     """
     source = default_weight_source()
-    names = ["to_layout", "to_memory_config", "sharded_to_interleaved", "interleaved_to_sharded", "tilize", "untilize"]
+    # `pad` is here because review round 28 found a `FillPad` in the measured decode path that no test
+    # could see: the op it fed reads its head count from the cache and never touches the rows the pad was
+    # zeroing, so it was pure cost, and nothing counted pad launches. Budgeting them makes a dead pad
+    # visible the same way a dead reshard already was.
+    names = [
+        "to_layout",
+        "to_memory_config",
+        "sharded_to_interleaved",
+        "interleaved_to_sharded",
+        "tilize",
+        "untilize",
+        "pad",
+    ]
     # Itemisation of the budgets below, from the shipped graph. Each term names the ttnn entry point
     # the recorder actually sees: every layout *conversion* in this decoder is requested through
     # ``to_layout``/``to_memory_config``, so the bare ``tilize``/``untilize`` entry points are watched
@@ -528,6 +540,8 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                  + to_memory_config: 2, one shard-in per width-sharded residual RMSNorm
     #                  + sharded_to_interleaved: 1, for the MoE norm only - the token-mixer norm's shard
     #                    goes straight into `gdn_in` (§4.21), so it pays no interleave out
+    #                  + pad: 1, the MoE group's tile pad, which IS load-bearing - §3.4's masking depends
+    #                    on those rows being exactly zero
     #   full  prefill  = to_layout: 2 RoPE tables + one MoE group mask per MoE call
     #   full  decode   = sharded_to_interleaved: 2 off nlp_create_qkv_heads_decode - Q and K only, since
     #                    review round 27 writes V to the cache on the shard the op already gave it (§4.23)
@@ -538,9 +552,12 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                    (input, post-attention, and the Q and K head-dim norms)
     #                  + sharded_to_interleaved: 3, for those four norms minus the token-mixer one,
     #                    whose shard goes straight into `attn_in` (§4.21)
+    #                  + pad: 1, the MoE group's tile pad only. The K cache-write pad that used to sit
+    #                    beside it was removed in review round 28 (§4.24): the op reads its head count
+    #                    from the cache and never touches the rows that pad was zeroing
     #
-    # The new conversions on `linear_attention` and `full_attention` — 1 -> 4 and 6 -> 11 against
-    # `test_fused_decoder`'s budgets — are this stage's own, and they are the price of the norm
+    # The new conversions on `linear_attention` and `full_attention` — against `test_fused_decoder`'s
+    # budgets, and note this test counts `pad` launches too since review round 28 — are this stage's own, and they are the price of the norm
     # win, not churn: ``ttnn.rms_norm`` parallelises over rows, so an interleaved decode norm (one
     # tile of rows) runs on a single core. Each sharded norm pays a ``to_memory_config`` in; only the
     # norms whose consumer cannot take the shard also pay a ``sharded_to_interleaved`` out. Review
@@ -562,9 +579,9 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
         decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
         budgets = {
             (LINEAR_LAYER, "prefill"): 12,
-            (LINEAR_LAYER, "decode"): 4,
+            (LINEAR_LAYER, "decode"): 5,
             (FULL_LAYER, "prefill"): 3,
-            (FULL_LAYER, "decode"): 11,
+            (FULL_LAYER, "decode"): 12,
         }
         x = to_device(mesh_device, make_activations(1, seq_len, seed=93))
         d = to_device(mesh_device, make_activations(1, 1, seed=94))

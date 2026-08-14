@@ -266,6 +266,15 @@ ATTN_OUT_IN0_MEMORY = ttnn.L1_MEMORY_CONFIG
 #: (`logs/ab_v_shard_passthrough.txt`).
 DECODE_V_SHARD_PASSTHROUGH = True
 
+#: Whether the K cache-write input skips its kv-head tile pad. Same reasoning as
+#: :data:`DECODE_V_SHARD_PASSTHROUGH` and the same op: `paged_fused_update_cache` takes the head count
+#: from the **cache**, and its writer kernel reads exactly that many rows of the input, so rows past the
+#: real kv heads are never read and need not be zeroed. Review round 27 removed this pad for V without
+#: noticing K still paid it; review round 28 pointed out the shipped tree already contained the
+#: counter-example, since V reaches the same call unpadded. A module constant so the A/B can flip it
+#: (`logs/ab_kv_pad_free_write.txt`).
+DECODE_KV_PAD_FREE_WRITE = True
+
 #: Physical alignment of a prefill block. 128 keeps every block start legal for the chunked-SDPA
 #: 64-token q/k chunks, the paged cache's 64-token blocks, and the flat ``chunk_gated_delta_rule``
 #: contract (which requires the block length to be a multiple of its 32-token internal chunk).
@@ -507,8 +516,10 @@ class OrnithFusedRope(LightweightModule):
 
         ``rot_idxs`` is a ``[1, batch]`` uint32 device tensor, so a captured trace only needs its
         contents refreshed. The batch axis takes the place of the sequence axis, which is what lets
-        ``rotary_embedding_hf`` run in its (interleaved) prefill mode on a decode step — its native
-        decode mode requires height-sharded inputs *and* height-sharded caches.
+        ``rotary_embedding_hf`` run in its (interleaved) prefill mode on a decode step. Its native decode
+        mode requires a height-sharded *input* (`rotary_embedding_hf_device_operation.cpp` asserts
+        `is_sharded()` and HEIGHT_SHARDED); it asks only that cos/sin be sharded, not height-sharded, so
+        the reason the mode is unreachable here is neither of those. See :meth:`_rope_decode`.
         """
         cos = ttnn.embedding(rot_idxs, self.cos_table, layout=ttnn.TILE_LAYOUT)
         sin = ttnn.embedding(rot_idxs, self.sin_table, layout=ttnn.TILE_LAYOUT)
@@ -2528,8 +2539,10 @@ class OptimizedDecoder(LightweightModule):
         first = ttnn.num_cores_to_corerangeset(batch_size, grid, row_wise=True)
         if 2 * batch_size > cores:
             # Two separate launches, so there is no non-overlap rule to satisfy and both take the
-            # natural first-`batch` range - which is also the range the head split emits V on, so the
-            # passthrough still applies here.
+            # natural first-`batch` range. Unreachable in practice on this device: it needs
+            # `2 * batch > cores`, i.e. batch > 55 here, and the head split - and so the V passthrough -
+            # caps at `DECODE_HEAD_SPLIT_MAX_BATCH`. Review round 28 corrected a comment here that said
+            # the passthrough still applied on this branch.
             return config(first), config(first), False
         whole = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))])
         second = ttnn.num_cores_to_corerangeset_in_subcoregrids(
@@ -2571,9 +2584,15 @@ class OptimizedDecoder(LightweightModule):
     def _rope_decode(self, x, cos, sin):
         """Rotate ``[1, batch, heads, head_dim]`` with per-user cos/sin ``[1, 1, batch, width]``.
 
-        ``rotary_embedding_hf``'s native decode mode requires height-sharded input *and* caches;
-        transposing the batch and head axes lets the interleaved prefill kernel do the same work
-        with no reshard, which is how ``models/demos/blackhole/qwen36`` drives it too.
+        ``rotary_embedding_hf``'s native decode mode wants a height-sharded input, and the head split does
+        produce one - but the Q/K head-dim RMSNorm sits between them, and `layernorm`'s sharded program
+        config refuses a HEIGHT_SHARDED input *and* a HEIGHT_SHARDED output, so Q and K cannot reach the
+        rope still height-sharded. Transposing the batch and head axes lets the interleaved prefill kernel
+        do the same work with no reshard, which is how ``models/demos/blackhole/qwen36`` drives it too.
+        Review rounds 27 and 28 assessed the native path: it is the layernorm line that blocks it, not the
+        cos/sin layout this comment used to cite, and re-spelling it would trade the four transposes for a
+        comparable number of shard conversions - a wash inside the harness band, before the partial-rotary
+        width slice that would also have to be re-expressed.
         """
         rope_dim, head_dim = self.cfg.rope_dim, self.cfg.head_dim
         # As in _rope_prefill: a full-width rotation has no pass-through half to re-concatenate,
@@ -2618,12 +2637,15 @@ class OptimizedDecoder(LightweightModule):
         cfg = self.cfg
         n_heads, n_kv, head_dim = cfg.n_heads, cfg.n_kv_heads, cfg.head_dim
         if batch <= self.DECODE_HEAD_SPLIT_MAX_BATCH:
-            # `overlap_qk_coregrid=False` puts K on a core range disjoint from Q and V. V keeps its
-            # shard and goes straight to the cache write, and `paged_fused_update_cache` requires its two
-            # inputs to be on disjoint cores - so K's write grid is the one that has to move, not V's.
-            heads = ttnn.experimental.nlp_create_qkv_heads_decode(
-                qkv, num_heads=n_heads, num_kv_heads=n_kv, overlap_qk_coregrid=not DECODE_V_SHARD_PASSTHROUGH
-            )
+            # `paged_fused_update_cache` requires its two inputs on disjoint cores, and that comes
+            # entirely from `_kv_update_memory_configs`: V takes the range the head split emits it on and
+            # K is resharded onto the next one. Not from `overlap_qk_coregrid` - round 27's comment here
+            # claimed it was, and round 28 found the claim inert. `nlp_create_qkv_heads_decode`'s wrapper
+            # forces that flag to `True` whenever its input is not sharded, and this `qkv` is L1
+            # *interleaved*, so passing `False` would have changed nothing. Q, K and V all come off the
+            # split on one range; only K's write grid moves. That is the same defect class as §4.21, §4.22 and §4.23,
+            # caught this time in a claim the stage had just written about its own change.
+            heads = ttnn.experimental.nlp_create_qkv_heads_decode(qkv, num_heads=n_heads, num_kv_heads=n_kv)
             q, k, v = heads
             if DECODE_V_SHARD_PASSTHROUGH:
                 # Q feeds the norm/rope chain and SDPA; K feeds the norm/rope chain. Only V reaches the
@@ -2687,7 +2709,7 @@ class OptimizedDecoder(LightweightModule):
         # paged_fused_update_cache writes both caches in one launch. Both inputs must be
         # height-sharded [1, B, kv_heads padded to 32, head_dim].
         k_cfg, v_cfg, fused_update = self._kv_update_memory_configs(b)
-        k_upd = ttnn.to_memory_config(_pad_dim(k, 2, TILE - n_kv), k_cfg)
+        k_upd = ttnn.to_memory_config(k if DECODE_KV_PAD_FREE_WRITE else _pad_dim(k, 2, TILE - n_kv), k_cfg)
         # V is already in `v_cfg` when the head split handed it over sharded, so this is a no-op check
         # rather than a conversion. Compared rather than assumed: a grid or shard-shape mismatch has to
         # fall back to the rebuild, not be written to the cache in the wrong layout.

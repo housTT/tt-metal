@@ -174,6 +174,13 @@ echo "=== 4l/9  whole-layer A/B: decode V written to the cache on the head split
   python "$LOGS/ab_v_shard_passthrough.py"
 } 2>&1 | grep -aE "^VPASSTHRU|^#" > "$LOGS/ab_v_shard_passthrough.txt"
 
+echo "=== 4m/9  whole-layer A/B: the K cache-write input without its kv-head tile pad ==="
+{
+  echo "# K cache-write pad removed (round 28); the op never reads the rows it zeroed."
+  echo "# Command: python doc/optimized_decoder/logs/ab_kv_pad_free_write.py"
+  python "$LOGS/ab_kv_pad_free_write.py"
+} 2>&1 | grep -aE "^KVPADFREE|^#" > "$LOGS/ab_kv_pad_free_write.txt"
+
 echo "=== 4g/9  the prefill chunked-SDPA sweep, the knob round 14 found unmeasured ==="
 {
   echo "# Prefill chunked-SDPA program config sweep at the shipped 2048-token chunk."

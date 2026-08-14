@@ -80,7 +80,7 @@ step, `full_attention`, sorted by device time — this is the table the whole st
 | 13 | `UntilizeWithUnpadding` | 23.3 | the untilize half of three composite calls: the router scatter, the GQA head expansion and the `topk` index readback | no tile-native form at these shapes | **itemised, not removed** — README §6 splits it per call |
 | 14 | `NLPCreateQKVHeadsDecodeDeviceOperation` | 19.3 | the dedicated QKV head split | inherited from the fused stage | unchanged; falls back to the functional spelling above 32 users |
 | 15 | `SdpaDecodeDeviceOperation` | 17.6 | paged flash-decode | reduced cache dtype; program config sweep | **BFP8 cache taken** (§3.7), config swept (§4.5) |
-| 16 | `FillPadDeviceOperation` | 14.8 | op-contract padding: `_pad_dim` widens K and V to a tile for `paged_fused_update_cache`, and the MoE pads a 1-row decode activation to a 32-row tile | none — both pads are what the ops require of their inputs | **unchanged, and irreducible at this layer**: removing either means an op that accepts the unpadded shape. It grew slightly against the fused baseline because the optimized path pads at narrower dtypes on more of its tensors; review round 16 pointed out it had no disposition anywhere, having fallen into this table's remainder row |
+| 16 | `FillPadDeviceOperation` | 14.8 | the MoE pads a 1-row decode activation to a 32-row tile. It used to also widen K and V to a tile for `paged_fused_update_cache` | **drop the cache-write pads** — the op takes its head count from the *cache*, so its writer kernel never reads the rows those pads zeroed | **taken, in two halves**: V's pad went with its reshard in review round 27 (§4.23) and K's in round 28 (§4.24), each measured at the layer. This row asserted the opposite for twenty-six rounds — "both pads are what the ops require of their inputs … irreducible at this layer" — which is the defect class §4.23 names. What remains is the MoE tile pad, and *that* one is load-bearing: §3.4's masking depends on the padding rows being exactly zero. Review round 16 pointed out this op had no disposition anywhere, having fallen into the remainder row |
 |  | *the other 17 op codes, each under 14.8 µs/step* | 91.0 | — | — | — |
 <!-- /generated:topology-audit-full -->
 
@@ -105,11 +105,14 @@ Structural observations from the same read, which drove §3.1 and §3.4:
   one `gdn_in` for the four DeltaNet projections, one `shared_in` for the shared expert's
   gate/up/router, one packed sparse gate/up. Nothing left to pack; the open question was whether
   packing still *wins* under BFP4/LoFi, which §4.2 answers.
-* **Reshard / layout conversions**: 6 per `full_attention` decode step, 1 per `linear_attention`
-  one, all required by an op contract (§6 of the fused README). No avoidable ones existed to remove;
-  this stage *adds* 4 on `linear_attention` and 8 on `full_attention` — two per sharded norm, taking the
-  budgets from 1 and 6 — all of them the sharded-norm boundary, and pays for them (§3.6); README §6's
-  table is generated from the gate's own constants, because those two numbers went stale twice.
+* **Reshard / layout conversions**: 6 per `full_attention` decode step at the start of this stage, 1 per
+  `linear_attention` one. This audit originally recorded them as "all required by an op contract" with
+  "no avoidable ones existed to remove" — and that was the single most expensive sentence in the
+  document. Review round 27 removed two of those six (§4.23) and round 28 removed a pad beside them
+  (§4.24), in both cases because the op's own validation did not require what this line asserted. What
+  the stage *adds* is the sharded-norm boundary, and it pays for it (§3.6). The current budgets are in
+  README §6's generated table, taken from the gate's own constants rather than restated here: the pair
+  went stale three times, and the deltas restated in this bullet went stale with them.
   (This line said "8–12" until review round 13, which is the *total* rather than the delta and disagreed
   with README §6 and §3.6, both of which had it right.)
 * **Host fallback**: none in the measured path, inherited and re-asserted.
@@ -700,12 +703,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.4 µs | **column** wins by 18.9 µs, beyond the ±0.3 µs spread |
-| 8 active | down | **152.7 µs** | 172.1 µs | **column** wins by 19.4 µs, beyond the ±0.4 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.7 µs** | 579.1 µs | **column** wins by 10.4 µs, beyond the ±1.2 µs spread |
-| 162 active | down | 343.2 µs | **342.0 µs** | **row** wins by 1.2 µs, beyond the ±0.4 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.5 µs | **column** wins by 2.0 µs, beyond the ±0.8 µs spread |
-| 64 active | down | 284.8 µs | **277.7 µs** | **row** wins by 7.1 µs, beyond the ±0.8 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.9 µs | **column** wins by 19.7 µs, beyond the ±3.0 µs spread |
+| 8 active | down | **152.6 µs** | 172.0 µs | **column** wins by 19.4 µs, beyond the ±1.1 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.1 µs** | 579.4 µs | **column** wins by 11.3 µs, beyond the ±0.6 µs spread |
+| 162 active | down | 343.2 µs | **341.6 µs** | **row** wins by 1.6 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **386.5 µs** | 387.6 µs | **column** wins by 1.1 µs, beyond the ±0.2 µs spread |
+| 64 active | down | 286.9 µs | **277.7 µs** | **row** wins by 9.2 µs, beyond the ±1.5 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -973,6 +976,35 @@ shape the layer happened to be passing rather than the shape the op accepts. Two
 probe that only ever built the shape the claim asserted, so the artifact could not contradict it. The figure
 audit cannot see this class — it checks numbers against artifacts, and these were prose about an API. What
 catches it is reading the op's validation, which is now what §4.21, §4.22 and this section each cite.
+
+### 4.24 The K cache-write pad — the same win, left on the table one round
+
+Review round 28 found this by reading round 27's own change, and the observation is sharper than the fix.
+
+Round 27 removed the interleave-pad-reshard round trip for V. K kept paying its pad. The shipped tree
+therefore contained its own counter-example: **V reached the same `paged_fused_update_cache` call with its
+kv-head dimension unpadded, and the full suite passed.** Both inputs could not both require the pad, and
+the document beside them said both did.
+
+The op reads its head count from the **cache**, not the input, and its writer kernel advances one row per
+head for exactly that many heads. Rows past the real kv heads are never read, so they never needed
+zeroing; none of the device op's validation constrains the input's head dimension, and the shard rules are
+all on the padded shape, which a tile-layout tensor already satisfies. Measured at the layer
+(`logs/ab_kv_pad_free_write.txt`), removing it is worth about half a percent of the step.
+
+Two smaller things came out of the same round. `test_no_layout_churn_in_measured_forward` now counts
+`pad` launches: a dead pad was invisible to every test, because the churn gate watched resharding and
+relayout but not padding. And the pad that remains is now correctly described - the MoE group's tile pad
+**is** load-bearing, because §3.4's masking depends on those rows being exactly zero, which is precisely
+the property the cache-write pads did not need.
+
+Round 28 also corrected a claim round 27 had written about its own change. `overlap_qk_coregrid=False`
+was presented - in the source comment, in §4.23 and in the A/B's docstring - as what put K on a range
+disjoint from V. It is inert: `nlp_create_qkv_heads_decode`'s wrapper forces that flag to `True` whenever
+its input is not sharded, and this `qkv` is L1 interleaved. Q, K and V all come off the split on one
+range, and the disjointness the fused write requires comes entirely from the two explicit cache-write
+grids. The argument has been dropped. It is worth noting what this means about the class: the stage
+wrote a *new* false op-contract claim in the very commit that removed three old ones.
 
 ---
 
@@ -1947,6 +1979,30 @@ comment's itemisation, which round 25 left summing to one more conversion than t
 Round 26 also asked for a narrower statement of the flash-decode Q constraint, on the grounds that "cannot move"
 had just cost the stage a family: the op accepts a height-sharded Q in L1 and refuses only a *non-sharded* Q
 outside DRAM, so the blocker is the interleaved form the intervening rotary and concat ops produce, not L1.
+
+**Round 27** returned `more-work-needed` with three items and produced the largest of the three
+op-contract wins. §4.23 has it: the decode V shard was thrown away and rebuilt every step to reach the
+layout it already had, and three documents called those conversions op-contract requirements. Round 27 also
+found README §6's churn table and two work-log sentences still carrying the pre-round-25 budgets — that
+table is generated from the gate's own constants now — and the decode-search table ranking two roles
+against shard-core counts the layer cannot build.
+
+**Round 28** returned `more-work-needed` with four items, and the first is the sharpest comment this stage
+has received: the *same* optimization round 27 took for V had been left on the table for K, and the shipped
+tree already contained the counter-example, since V reached the same op unpadded and the whole suite
+passed. §4.24 has it. Round 28 also found that `overlap_qk_coregrid=False` — which round 27's own comment,
+work log and A/B docstring all presented as what put K on a disjoint range — is **inert**: the op's wrapper
+forces that flag to `True` for a non-sharded input, and the layer's `qkv` is L1 interleaved. Disjointness
+came entirely from the two explicit cache-write grids. The argument is gone and the claim corrected.
+
+Its other two items were this §6 missing a round-27 entry, and §2's reshard bullet still asserting that
+the baseline's conversions were "all required by an op contract" with "no avoidable ones existed to
+remove" — the sentence rounds 27 and 28 had just spent two wins disproving. Round 28 also settled the
+`rotary_embedding_hf` native-decode candidate that round 27 had left open: expressible in principle, but
+the head-dim RMSNorm between the head split and the rope refuses a height-sharded input *and* output for
+its sharded program config, so Q and K cannot arrive at the rope still sharded; and costing the
+conversions the native spelling would need against the four transposes it would remove makes it a wash
+inside the harness band. Recorded as closed on the op line rather than left open.
 
 **Across rounds 18-24, one class.** Nearly every finding in those rounds was prose restating a measured value
 that later drifted, and each round's response tightened a gate rather than only fixing the sentence. Round 20
