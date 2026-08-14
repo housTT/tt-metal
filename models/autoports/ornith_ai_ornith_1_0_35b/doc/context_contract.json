@@ -1,208 +1,284 @@
 {
-  "hf_model_id": "ornith-ai/Ornith-1.0-35B",
-  "stage": "optimized-decoder",
-  "target": "single decoder layer, both layer kinds, 1x1 Blackhole (p300c) mesh",
-  "_flat_keys_note": "hf_advertised_context and current_supported_context mirror advertised.context_length and supported.context_length. They exist because .agents/scripts/check_context_contract.py resolves the context with first_int(), a flat mapping.get() over the top level with no recursion, so the nested objects below are invisible to it and 06-full-model.check.sh would exit 2 (critical). Keep the two in sync; the nested objects remain authoritative for humans.",
-  "hf_advertised_context": 262144,
-  "current_supported_context": 262144,
-  "advertised": {
-    "field": "text_config.max_position_embeddings",
-    "context_length": 262144,
-    "source": "config.json of the ornith-ai/Ornith-1.0-35B snapshot"
+ "hf_model_id": "ornith-ai/Ornith-1.0-35B",
+ "stage": "multichip-decoder",
+ "target": "single decoder layer, both layer kinds, 1x4 Blackhole (p300c) mesh under FABRIC_1D_RING; the 1x1 mesh remains the single-chip baseline",
+ "_flat_keys_note": "hf_advertised_context and current_supported_context mirror advertised.context_length and supported.context_length. They exist because .agents/scripts/check_context_contract.py resolves the context with first_int(), a flat mapping.get() over the top level with no recursion, so the nested objects below are invisible to it and 06-full-model.check.sh would exit 2 (critical). Keep the two in sync; the nested objects remain authoritative for humans.",
+ "hf_advertised_context": 262144,
+ "current_supported_context": 262144,
+ "advertised": {
+  "field": "text_config.max_position_embeddings",
+  "context_length": 262144,
+  "source": "config.json of the ornith-ai/Ornith-1.0-35B snapshot"
+ },
+ "supported": {
+  "context_length": 262144,
+  "capability_reduction": "none",
+  "reduction_reason": null,
+  "notes": "FunctionalDecoder.from_state_dict defaults max_context to text_config.max_position_embeddings; the tests exercise that default, they do not lower it."
+ },
+ "tested": {
+  "prefill": {
+   "max_context": 262144,
+   "layer_kinds": [
+    "linear_attention",
+    "full_attention"
+   ],
+   "test": "test_full_context_prefill_and_decode[262144]",
+   "non_aligned_max_context": 262143,
+   "non_aligned_test": "test_full_context_prefill_and_decode[262143]",
+   "pcc_validated_max_context": 8000,
+   "pcc_validated_test": "test_long_context_pcc",
+   "pcc_validation_note": "8000 is the largest length where the HF golden is tractable on host: the eager full-attention reference materialises a [1, 16, S, S] float32 weight tensor (4.1 GB at S=8000) and scales quadratically. Beyond it the 262144 cases assert device completion, finiteness and non-degeneracy instead of PCC.",
+   "aligned_and_boundary_lengths": [
+    1,
+    7,
+    32,
+    64,
+    128,
+    129,
+    2048,
+    2049,
+    3000,
+    8000,
+    262143,
+    262144
+   ],
+   "full_context_correctness_control": "test_full_context_chunk_size_invariance: the same 262144-token prefill run with internal chunk_size 2048 and 1024 agrees to tail(128) PCC 1.000000 for both layer kinds. This moves every block boundary, paged-fill span, chunked-SDPA offset and DeltaNet state hand-off, so it is the correctness evidence at the full context where no HF golden exists.",
+   "unaligned_max_context": "test_unaligned_max_context: max_context=5000 (not a multiple of the 128 physical alignment) prefills 5000 tokens and decodes, for both kinds. The RoPE table is built one prefill alignment past the logical context because a block's physical window can end past the last logical position; those rows only rotate zero padding."
   },
-  "supported": {
-    "context_length": 262144,
-    "capability_reduction": "none",
-    "reduction_reason": null,
-    "notes": "FunctionalDecoder.from_state_dict defaults max_context to text_config.max_position_embeddings; the tests exercise that default, they do not lower it."
+  "decode": {
+   "max_position": 262143,
+   "layer_kinds": [
+    "linear_attention",
+    "full_attention"
+   ],
+   "test": "test_full_context_prefill_and_decode[262143] (decodes at absolute position 262143, the last legal slot)",
+   "pcc_validated_max_position": 8000,
+   "pcc_validated_test": "test_long_context_pcc",
+   "traced": true,
+   "traced_test": "test_traced_decode_pcc"
   },
-  "tested": {
-    "prefill": {
-      "max_context": 262144,
-      "layer_kinds": [
-        "linear_attention",
-        "full_attention"
-      ],
-      "test": "test_full_context_prefill_and_decode[262144]",
-      "non_aligned_max_context": 262143,
-      "non_aligned_test": "test_full_context_prefill_and_decode[262143]",
-      "pcc_validated_max_context": 8000,
-      "pcc_validated_test": "test_long_context_pcc",
-      "pcc_validation_note": "8000 is the largest length where the HF golden is tractable on host: the eager full-attention reference materialises a [1, 16, S, S] float32 weight tensor (4.1 GB at S=8000) and scales quadratically. Beyond it the 262144 cases assert device completion, finiteness and non-degeneracy instead of PCC.",
-      "aligned_and_boundary_lengths": [
-        1,
-        7,
-        32,
-        64,
-        128,
-        129,
-        2048,
-        2049,
-        3000,
-        8000,
-        262143,
-        262144
-      ],
-      "full_context_correctness_control": "test_full_context_chunk_size_invariance: the same 262144-token prefill run with internal chunk_size 2048 and 1024 agrees to tail(128) PCC 1.000000 for both layer kinds. This moves every block boundary, paged-fill span, chunked-SDPA offset and DeltaNet state hand-off, so it is the correctness evidence at the full context where no HF golden exists.",
-      "unaligned_max_context": "test_unaligned_max_context: max_context=5000 (not a multiple of the 128 physical alignment) prefills 5000 tokens and decodes, for both kinds. The RoPE table is built one prefill alignment past the logical context because a block's physical window can end past the last logical position; those rows only rotate zero padding."
-    },
-    "decode": {
-      "max_position": 262143,
-      "layer_kinds": [
-        "linear_attention",
-        "full_attention"
-      ],
-      "test": "test_full_context_prefill_and_decode[262143] (decodes at absolute position 262143, the last legal slot)",
-      "pcc_validated_max_position": 8000,
-      "pcc_validated_test": "test_long_context_pcc",
-      "traced": true,
-      "traced_test": "test_traced_decode_pcc"
-    },
-    "batch": {
-      "max_prefill_batch": 32,
-      "max_decode_batch": 32,
-      "test": "test_batched_prefill_decode_pcc[32]",
-      "note": "Disjoint per-user page-table block spans. Decode batch is bounded by the one-user-per-core paged_update_cache shard: a row-wise core range set of exactly `batch` cores, which is legal up to the 110-core grid - but for `full_attention` decode the binding limit is lower and comes from flash-decode: sdpa_decode assigns at least one core per page-table row (`TT_FATAL(num_cores_available >= B)`, sdpa_decode_program_factory.cpp:191, where B is the page table's padded row count for paged attention), so the 8x8 decode grid all three stages ship caps full-attention decode at 64 rows. That bound is inherited unchanged from the functional and fused decoders, is above the 56 the suite exercises, and is recorded here because review round 10 found this note claiming the 110-core figure for a path that cannot reach it; a larger grid (11x10) would raise it at a measured latency cost - see doc/optimized_decoder/work_log.md section 3.8. The fused decoder keeps that bound: where a dedicated op it uses is stricter (nlp_create_qkv_heads_decode at 32 users, paged_fused_update_cache at 2*batch cores) it falls back to the functional spelling instead of narrowing the contract - see fused_decoder.decode_batch_bound. ttnn.transformer.chunk_gated_delta_rule caps one prefill launch at floor(compute_cores / num_value_heads) = 3 users on an 11x10 Blackhole grid (chunk_gdn_phased_program_factory.cpp: BH <= ncores); FunctionalDecoder._chunk_delta_rule splits the batch across launches and concatenates outputs and final states, which is exact because the recurrence factorises over the batch axis.",
-      "tested_batches": [
-        1,
-        4,
-        5,
-        8,
-        13,
-        32,
-        40,
-        56
-      ],
-      "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (functional stage: PCC 0.999895 - 0.999975; the fused stage's own range is in doc/fused_decoder/README.md §2.4, generated from its run). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid.",
-      "tested_batches_note": "1/4/13/32 are the functional stage's; 40 and 56 are added by the fused stage to cover the two fallbacks its dedicated decode ops need (nlp_create_qkv_heads_decode above 32 users, paged_fused_update_cache above 2*batch cores). Review round 11 added 5 and 8: per_core_M equals the batch for the four token-mixer roles, so every batch from 1 to 8 is a distinct tuned decode config class and 5 is where o_proj's in0_block_w narrows. Batches 5 and 8 are asserted by the OPTIMIZED stage's suite only: they were added there because per_core_M equals the batch for the token-mixer roles, which is a property of the optimized decoder's tuned configs and not of the fused decoder, whose suite parametrises 4 and 32. So the fused_decoder.capability_note's 'every capability row is re-asserted by the identically named fused test' holds for every row that existed when it was written and not for these two - review round 15 caught the list growing under a claim that did not grow with it."
-    }
-  },
-  "capacity_evidence": {
-    "device": "Blackhole p300c, 1x1 mesh",
-    "measured_allocatable_dram_bytes": 34091302912,
-    "measured_allocatable_dram_note": "31.75 GiB, measured by allocating 0.25 GiB DRAM tensors until bank_manager.cpp:462 refused (probe log: doc/functional_decoder/logs/dram_capacity_probe.txt)",
-    "full_context_footprint_per_layer_bytes": {
-      "paged_kv_cache_k": 268435456,
-      "paged_kv_cache_v": 268435456,
-      "paged_kv_cache_note": "num_blocks=4096 (262144/64) x n_kv_heads=2 x block_size=64 x head_dim=256 x 2 B (bfloat16)",
-      "rope_cos_sin_tables": 67633152,
-      "rope_note": "2 tables x 264192 rows x rope_dim 64 x 2 B. The row count is align_up(max_context, prefill_chunk) + prefill_chunk so a final prefill block's padded window is always in range; the extra rows only rotate zero padding.",
-      "moe_routed_expert_weights": 1610612736,
-      "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 2 B",
-      "moe_shared_and_router_weights": 7340032,
-      "full_attention_projection_weights": 54525952,
-      "linear_attention_projection_weights": 67371008,
-      "deltanet_recurrent_state_batch1": 2097152,
-      "deltanet_conv_state_batch1": 49152,
-      "worst_case_layer_total": 2276982784,
-      "worst_case_layer_total_note": "2.12 GiB for a full_attention layer at the full 262144 context including its paged KV cache; 7% of the measured 31.75 GiB, so no DRAM-driven reduction is required. A linear_attention layer is smaller (no KV cache; 2 MiB recurrent + 48 KiB conv state per batch row).",
-      "linear_attention_projection_weights_note": "Measured by doc/optimized_decoder/logs/probe_footprint.py under the fused-parity policy, which is the dtype set this capacity row describes. The figure here was 67436544 until review round 15 - 65536 B (64 KiB) above the measurement, from the hand-modelled arithmetic that predated the probe, and undisclosed where the sibling shared/router row's discrepancy was disclosed. The optimized policy's own figure for the same tensors is 35790848; this row is the fused-parity baseline the capacity argument is made against."
-    }
-  },
-  "fused_decoder": {
-    "stage": "fused-decoder",
-    "implementation": "tt/fused_decoder.py",
-    "tests": "tests/test_fused_decoder.py",
-    "capability_change": "none at runtime; two construction-time validations added",
-    "context_length": 262144,
-    "capability_note": "The fused decoder is a correctness-preserving graph transform of the functional decoder: same public prefill/decode contract, same paged KV cache geometry and dtype, same DeltaNet state shapes and dtype, same supported context. Every capability row under 'tested' is re-asserted by the identically named test in tests/test_fused_decoder.py, plus test_fused_matches_functional, which compares the two implementations directly on device.",
-    "decode_batch_bound": {
-      "max_decode_batch": 32,
-      "unchanged_vs_functional": true,
-      "note": "full_attention decode splits the packed QKV with ttnn.experimental.nlp_create_qkv_heads_decode, whose device op asserts batch <= 32 (nlp_create_qkv_heads_decode_device_operation.cpp). That is a limit on the *op*, not on the layer: FusedDecoder._decode_qkv_heads falls back to the functional decoder's generic slice/reshape/permute split above it, so the supported decode batch is identical to the functional decoder's. tests/test_fused_decoder.py::test_decode_batch_above_head_split_limit runs batches 40 and 56 against HuggingFace goldens: 40 still fits the 2*batch <= 110 cores paged_fused_update_cache needs, and 56 does not, so it exercises that second fallback as well. linear_attention decode uses neither op.",
-      "tested_batches_above_the_op_limit": [
-        40,
-        56
-      ],
-      "max_decode_batch_meaning": "the largest batch the dedicated nlp_create_qkv_heads_decode op accepts, NOT a cap on the layer: above it the fused decoder falls back to the functional split and the supported batch is unchanged."
-    },
-    "footprint_change": "Byte-neutral on device. The weight packings are concatenations of exactly the same weights (q/k/v and the output gate into one attention in-projection; in_proj_qkv/z/a/b into one gated-DeltaNet in-projection; the routed experts' gate and up into one tensor; the shared expert's gate and up plus its sigmoid router column into one tensor), so every packed width is the sum of the unpacked ones and no tensor grows. The shared expert's router is the only single-column member: the fused packing pads the combined width out to a tile multiple so the slice offsets stay tile-aligned, and the functional decoder already stores that same column tile-padded on its own (tt/moe.py uploads shared_router as [1, 1, dim, 1] in TILE_LAYOUT, which occupies dim x 32 x 2 B). Both spellings therefore hold dim x 1056 x 2 B for the shared expert, and the per-layer totals under capacity_evidence are unchanged by this stage. Note that capacity_evidence.moe_shared_and_router_weights states its formula without that padded column, so recomputing the fused packing from the formula alone appears to differ by dim x 32 x 2 B; that is an omission in the formula, not a footprint change. The conclusion is unchanged either way: 2.12 GiB against a measured 31.75 GiB, so no capability reduction is required. Exact widths are tabulated in doc/fused_decoder/README.md.",
-    "internal_shape_policy_delta": {
-      "moe_tokens_per_sparse_matmul_call": 32,
-      "moe_tokens_per_sparse_matmul_call_reason": "One sparsity entry covers one 32-token group, so a call's down-projection mask is the union of the experts chosen by all its tokens. At 256 tokens per call that union is essentially all 256 experts and the down projection skips nothing; at 32 it is the same union the gate/up projections already had. Measured in doc/fused_decoder/logs/ab_moe_group_tokens.txt. This also makes the transient expert-activation footprint 8x smaller, so it relaxes rather than tightens the memory bound.",
-      "rope_table_width": "rope_dim (64), unchanged. The fused decoder can also build a head_dim-wide (256) table for a single-op full-width rotate-half; that mode is exact (tests/test_fused_decoder.py::test_rope_mode_equivalence) but measured slower and 4x larger, so it is not the default."
-    },
-    "construction_validation_delta": {
-      "note": "The fused decoder rejects two constructor argument combinations the functional decoder accepts. Neither narrows a supported configuration - the shipped defaults satisfy both, and every 'tested' capability row is re-asserted - but they are argument-domain narrowings and are recorded rather than left implicit.",
-      "checks": [
-        {
-          "check": "prefill_chunk % page_block_size == 0",
-          "why": "_attention_prefill computes blk0 = chunk_start_idx // page_block_size and lets paged_fill_cache fill from offset 0 of the sliced page table, so a chunk boundary that is not a page boundary would write the chunk at the wrong offset within its block. The functional decoder validates only prefill_chunk % PREFILL_ALIGN and would silently mis-place the write.",
-          "shipped_defaults_ok": "prefill_chunk 2048, page_block_size 64"
-        },
-        {
-          "check": "the RoPE rotated width is 32 or a multiple of 64",
-          "why": "ttnn.experimental.rotary_embedding_hf requires rotate_half's midpoint to land on a tile boundary (rotary_embedding_hf_device_operation.cpp). The functional decoder's hand-rolled rotation has no such constraint. Raising here turns a raw TT_FATAL into an explanation.",
-          "shipped_defaults_ok": "rope_dim 64 in 'partial' mode; head_dim 256 in 'full' mode"
-        }
-      ]
-    }
-  },
-  "internal_shape_policy": {
-    "public_prefill_seq_len": "any 1 <= seq_len <= supported_context - start_pos; no divisibility requirement",
-    "internal_prefill_chunk_tokens": 2048,
-    "internal_prefill_physical_alignment": 128,
-    "paged_block_size_tokens": 64,
-    "page_table_row_blocks_alignment": 32,
-    "gated_delta_rule_internal_chunk": 32,
-    "moe_sparsity_group_tokens": 32,
-    "moe_tokens_per_sparse_matmul_call": 256,
-    "padding_policy": "Each internal prefill block is zero-padded up to the physical alignment. For full_attention the padded key/value rows are exact zeros at absolute positions beyond the logical end and are excluded from every real query by causality. For linear_attention the padded steps are neutralised by zeroing beta (kills the delta write) and g (kills the decay), making each padded step an exact identity on the recurrent state, and the conv history is taken from the real tail at the logical length. Outputs are sliced back to the logical length.",
-    "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk — one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
-  },
-  "optimized_decoder": {
-    "stage": "optimized-decoder",
-    "implementation": "tt/optimized_decoder.py",
-    "tests": "tests/test_optimized_decoder.py",
-    "capability_change": "none; the advertised context, batch bound, non-aligned support and public contract are unchanged, and the per-layer device footprint falls by 63%",
-    "context_length": 262144,
-    "capability_note": "The optimized decoder changes performance only. It keeps the fused decoder's public prefill/decode signature, its paged KV cache geometry (num_blocks x n_kv_heads x page_block_size x head_dim), its DeltaNet state shapes, its 128-token internal physical alignment, its 2048-token internal chunk and its support for ANY logical seq_len in [1, max_context - start_pos]. Every capability row under 'tested' is re-asserted by the identically named test in tests/test_optimized_decoder.py, plus test_optimized_matches_fused, which compares the optimized and fused implementations directly on device, and test_optimized_beats_fused_traced_decode, which gates the performance claim.",
-    "dtype_policy_delta": {
-      "kv_cache": "bfloat16 -> bfloat8_b. Prefill fill tensors are explicitly cast to the cache dtype before paged_fill_cache; decode paged_update_cache inputs stay bfloat16, which is what that op accepts. OptimizedDecoder.allocate_kv_cache still takes an explicit dtype, so a caller that wants the old cache gets it.",
-      "routed_expert_weights": "bfloat16 -> bfloat4_b (gate/up and down), math fidelity HiFi4 -> LoFi",
-      "dense_projection_weights": "bfloat16 -> bfloat8_b (packed attention in-projection, o_proj, packed DeltaNet in-projection, out_proj, shared-expert packed gate|up|router and its down projection), math fidelity HiFi4 -> HiFi2",
-      "router_weight": "bfloat16 with HiFi4 and float32 accumulation, UNCHANGED. Expert selection is a discrete decision, so a rounding change here swaps an expert rather than perturbing a value.",
-      "expert_activations": "routed sparse_matmul output dtype bfloat16 -> bfloat8_b",
-      "norms_rope_conv_state": "unchanged: norm gains and RoPE tables bfloat16, DeltaNet recurrent state, gates and router logits float32"
-    },
-    "footprint_change": {
-      "direction": "reduction",
-      "worst_case_layer_total_bytes": 839553028,
-      "worst_case_layer_total_note": "0.78 GiB for a full_attention layer at the full 262144 context including its paged KV cache, against 2.12 GiB for the fused decoder: 63% less (69% on a linear_attention layer). Every term falls because of the dtype policy and nothing grows. Block-float sizes count the shared exponent: bfloat8_b is 1.0625 B/element and bfloat4_b is 0.5625 B/element (one exponent byte per 16 data). MEASURED, not modelled: doc/optimized_decoder/logs/probe_footprint.txt walks every device tensor of a built layer at its allocated padded size under both policies. The earlier hand-modelled figure here was a few hundred kilobytes lower: it omitted the RMSNorm gains and the RoPE transformation matrix, over-counted the projection weights, and counted the batch-1 DeltaNet conv state at its logical rather than its allocated padded size. Review round 4's figure audit had nothing to check it against, so it is now produced by a probe rather than by arithmetic in a document.",
-      "per_term_bytes": {
-        "paged_kv_cache_k": 142606336,
-        "paged_kv_cache_v": 142606336,
-        "paged_kv_cache_note": "4096 blocks x 2 kv heads x 64 tokens x 256 head_dim x 1.0625 B (bfloat8_b); was 268435456 each at bfloat16",
-        "rope_cos_sin_tables": 67633152,
-        "rope_note": "unchanged; 2 tables x 264192 rows x rope_dim 64 x 2 B",
-        "moe_routed_expert_weights": 452984832,
-        "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 0.5625 B (bfloat4_b); was 1610612736 at bfloat16",
-        "moe_shared_and_router_weights": 4460544,
-        "moe_shared_and_router_note": "shared_in (2048 x 1056) and shared_down (512 x 2048) at 1.0625 B plus the 256-wide router at 2 B; was 7471104",
-        "full_attention_projection_weights": 28966912,
-        "linear_attention_projection_weights": 35790848,
-        "norms_and_constants": 294912,
-        "norms_and_constants_note": "RMSNorm gains, the RoPE transformation matrix and the DeltaNet constant tiles, all unchanged bfloat16/float32; 565248 on a linear_attention layer, which also holds the gated-DeltaNet constant tiles",
-        "runtime_index_tensors": 4,
-        "deltanet_recurrent_state_batch1": 2097152,
-        "deltanet_conv_state_batch1": 1572864,
-        "deltanet_conv_state_note": "allocated padded size: 3 buffers x 32 padded rows x conv_dim 8192 x 2 B. The logical size is 49152; TILE layout pads a batch-1 row to a full tile",
-        "linear_attention_conv1d_weights": 35651584,
-        "linear_attention_conv1d_note": "prepared ttnn.conv1d weights, one set per accepted prefill block length; allocated by allocate_state and unchanged by this stage's dtype policy"
-      },
-      "dram_headroom": "839553028 B against the measured 34091302912 B allocatable DRAM: 40x, up from 15x. No capability reduction is required by this stage and none is taken."
-    },
-    "internal_shape_policy_delta": {
-      "moe_tokens_per_sparse_matmul_call": 32,
-      "moe_tokens_per_sparse_matmul_call_reason": "unchanged from the fused decoder",
-      "moe_routing_sparsity_rows": "The routed-expert sparsity mask is now reduced over the group's REAL rows only, not over the whole 32-row tile. A decode step for batch b < 32 pads the group with zeros, whose router logits are exactly zero, so topk still returns a full expert set for each padding row and the old whole-tile reduction unioned them in: 16 active experts at batch 1 where the model asks for 8. The padded rows' expert outputs were already exactly zero, so this changes which experts run and never the result (tests/test_optimized_decoder.py::test_padded_rows_do_not_route).",
-      "decode_activation_layout": "The two residual RMSNorms and, on full_attention layers, the Q/K head-dim norms run width-sharded in L1 on a LayerNormShardedMultiCoreProgramConfig during decode. Where each goes next differs, and review round 29 found this field still describing the pre-round-25 behaviour where all of them returned to DRAM: the token-mixer norm keeps its width shard and hands it straight to the in-projection, because the 1D mcast_in0 matmul consumes a width-sharded in0 at that role's in0_block_w; the MoE norm interleaves to L1, because its consumer's inner block is wider than the norm's per-core shard; and the Q/K head-dim norms interleave to DRAM, because Q reaches paged_scaled_dot_product_attention_decode, which refuses a non-sharded Q outside DRAM, and K reaches the paged cache write. Routed-expert intermediates (the packed gate/up output, the SwiGLU product, the scored activation and the down output) live in L1 instead of DRAM. The full_attention decode V tensor is written to the paged cache on the height shard nlp_create_qkv_heads_decode produced, without an intervening interleave or pad. Neither changes any public shape.",
-      "decode_program_configs": "Every dense decode projection runs under an explicit MatmulMultiCoreReuseMultiCast1DProgramConfig tuned per role, and the two routed sparse matmuls under a geometry chosen from the call's active-expert bound. Prefill takes explicit MatmulMultiCoreReuseMultiCastProgramConfig 2D configs on every dense role, sized by PREFILL_MATMUL_IN1_TILE_BUDGET and falling back to ttnn's heuristic only above one chunk of m_rows or when the modelled circular-buffer total exceeds L1 - README section 5.4's generated prefill table has all six roles against the heuristic. The two phases are selected explicitly rather than by activation shape, because a 128-token prefill block and a batch-4 decode step have the same tile height. (This sentence said prefill kept the heuristic until review round 13; it denied the stage's second-largest program-config change.)"
-    },
-    "named_limitations": [
-      "ttnn.topk is single-core on the 256-wide routing dim (48 us/step). Its multi-core path needs a power-of-two width >= 8192; padding the logits with -inf to 8192 is correct but measured ~3x slower than the single-core 256 call (doc/optimized_decoder/logs/probe_decode_micro.txt).",
-      "ttnn.sparse_matmul nnz is left inferred at runtime because pinning it REPRODUCIBLY WEDGED THE DEVICE at this model's shapes. After the padded-row routing mask the batch-1 decode sparsity holds exactly num_experts_per_tok non-zeros, so the exact-count invariant nnz requires is satisfiable; doc/optimized_decoder/logs/probe_sparse_matmul.py --nnz --active 8 passes nnz=8 against a sparsity tensor with exactly 8 non-zeros and the first candidate hung inside SparseMatmulDeviceOperation, despite the op's own comment that the sender validates count_nonzero(sparsity) against nnz on device and fails loudly instead of deadlocking (tt-metal #45943). tt-triage evidence: doc/optimized_decoder/triage/; one tt-smi -r recovered the card and the 1x1 mesh smoke passed. work_log.md §4.8 has the incident and recovery table. This is worth reporting upstream: the documented on-device validation does not fire here.",
-      "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig loses to an explicit 1D mcast_in0 config on every dense decode role here, even measured without its activation-reshard cost, because the op pins its compute grid to the 8 DRAM banks."
-    ]
+  "batch": {
+   "max_prefill_batch": 32,
+   "max_decode_batch": 32,
+   "test": "test_batched_prefill_decode_pcc[32]",
+   "note": "Disjoint per-user page-table block spans. Decode batch is bounded by the one-user-per-core paged_update_cache shard: a row-wise core range set of exactly `batch` cores, which is legal up to the 110-core grid - but for `full_attention` decode the binding limit is lower and comes from flash-decode: sdpa_decode assigns at least one core per page-table row (`TT_FATAL(num_cores_available >= B)`, sdpa_decode_program_factory.cpp:191, where B is the page table's padded row count for paged attention), so the 8x8 decode grid all three stages ship caps full-attention decode at 64 rows. That bound is inherited unchanged from the functional and fused decoders, is above the 56 the suite exercises, and is recorded here because review round 10 found this note claiming the 110-core figure for a path that cannot reach it; a larger grid (11x10) would raise it at a measured latency cost - see doc/optimized_decoder/work_log.md section 3.8. The fused decoder keeps that bound: where a dedicated op it uses is stricter (nlp_create_qkv_heads_decode at 32 users, paged_fused_update_cache at 2*batch cores) it falls back to the functional spelling instead of narrowing the contract - see fused_decoder.decode_batch_bound. ttnn.transformer.chunk_gated_delta_rule caps one prefill launch at floor(compute_cores / num_value_heads) = 3 users on an 11x10 Blackhole grid (chunk_gdn_phased_program_factory.cpp: BH <= ncores); FunctionalDecoder._chunk_delta_rule splits the batch across launches and concatenates outputs and final states, which is exact because the recurrence factorises over the batch axis.",
+   "tested_batches": [
+    1,
+    4,
+    5,
+    8,
+    13,
+    32,
+    40,
+    56
+   ],
+   "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (functional stage: PCC 0.999895 - 0.999975; the fused stage's own range is in doc/fused_decoder/README.md \u00a72.4, generated from its run). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid.",
+   "tested_batches_note": "1/4/13/32 are the functional stage's; 40 and 56 are added by the fused stage to cover the two fallbacks its dedicated decode ops need (nlp_create_qkv_heads_decode above 32 users, paged_fused_update_cache above 2*batch cores). Review round 11 added 5 and 8: per_core_M equals the batch for the four token-mixer roles, so every batch from 1 to 8 is a distinct tuned decode config class and 5 is where o_proj's in0_block_w narrows. Batches 5 and 8 are asserted by the OPTIMIZED stage's suite only: they were added there because per_core_M equals the batch for the token-mixer roles, which is a property of the optimized decoder's tuned configs and not of the fused decoder, whose suite parametrises 4 and 32. So the fused_decoder.capability_note's 'every capability row is re-asserted by the identically named fused test' holds for every row that existed when it was written and not for these two - review round 15 caught the list growing under a claim that did not grow with it."
   }
+ },
+ "capacity_evidence": {
+  "device": "Blackhole p300c, 1x1 mesh",
+  "measured_allocatable_dram_bytes": 34091302912,
+  "measured_allocatable_dram_note": "31.75 GiB, measured by allocating 0.25 GiB DRAM tensors until bank_manager.cpp:462 refused (probe log: doc/functional_decoder/logs/dram_capacity_probe.txt)",
+  "full_context_footprint_per_layer_bytes": {
+   "paged_kv_cache_k": 268435456,
+   "paged_kv_cache_v": 268435456,
+   "paged_kv_cache_note": "num_blocks=4096 (262144/64) x n_kv_heads=2 x block_size=64 x head_dim=256 x 2 B (bfloat16)",
+   "rope_cos_sin_tables": 67633152,
+   "rope_note": "2 tables x 264192 rows x rope_dim 64 x 2 B. The row count is align_up(max_context, prefill_chunk) + prefill_chunk so a final prefill block's padded window is always in range; the extra rows only rotate zero padding.",
+   "moe_routed_expert_weights": 1610612736,
+   "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 2 B",
+   "moe_shared_and_router_weights": 7340032,
+   "full_attention_projection_weights": 54525952,
+   "linear_attention_projection_weights": 67371008,
+   "deltanet_recurrent_state_batch1": 2097152,
+   "deltanet_conv_state_batch1": 49152,
+   "worst_case_layer_total": 2276982784,
+   "worst_case_layer_total_note": "2.12 GiB for a full_attention layer at the full 262144 context including its paged KV cache; 7% of the measured 31.75 GiB, so no DRAM-driven reduction is required. A linear_attention layer is smaller (no KV cache; 2 MiB recurrent + 48 KiB conv state per batch row).",
+   "linear_attention_projection_weights_note": "Measured by doc/optimized_decoder/logs/probe_footprint.py under the fused-parity policy, which is the dtype set this capacity row describes. The figure here was 67436544 until review round 15 - 65536 B (64 KiB) above the measurement, from the hand-modelled arithmetic that predated the probe, and undisclosed where the sibling shared/router row's discrepancy was disclosed. The optimized policy's own figure for the same tensors is 35790848; this row is the fused-parity baseline the capacity argument is made against."
+  }
+ },
+ "fused_decoder": {
+  "stage": "fused-decoder",
+  "implementation": "tt/fused_decoder.py",
+  "tests": "tests/test_fused_decoder.py",
+  "capability_change": "none at runtime; two construction-time validations added",
+  "context_length": 262144,
+  "capability_note": "The fused decoder is a correctness-preserving graph transform of the functional decoder: same public prefill/decode contract, same paged KV cache geometry and dtype, same DeltaNet state shapes and dtype, same supported context. Every capability row under 'tested' is re-asserted by the identically named test in tests/test_fused_decoder.py, plus test_fused_matches_functional, which compares the two implementations directly on device.",
+  "decode_batch_bound": {
+   "max_decode_batch": 32,
+   "unchanged_vs_functional": true,
+   "note": "full_attention decode splits the packed QKV with ttnn.experimental.nlp_create_qkv_heads_decode, whose device op asserts batch <= 32 (nlp_create_qkv_heads_decode_device_operation.cpp). That is a limit on the *op*, not on the layer: FusedDecoder._decode_qkv_heads falls back to the functional decoder's generic slice/reshape/permute split above it, so the supported decode batch is identical to the functional decoder's. tests/test_fused_decoder.py::test_decode_batch_above_head_split_limit runs batches 40 and 56 against HuggingFace goldens: 40 still fits the 2*batch <= 110 cores paged_fused_update_cache needs, and 56 does not, so it exercises that second fallback as well. linear_attention decode uses neither op.",
+   "tested_batches_above_the_op_limit": [
+    40,
+    56
+   ],
+   "max_decode_batch_meaning": "the largest batch the dedicated nlp_create_qkv_heads_decode op accepts, NOT a cap on the layer: above it the fused decoder falls back to the functional split and the supported batch is unchanged."
+  },
+  "footprint_change": "Byte-neutral on device. The weight packings are concatenations of exactly the same weights (q/k/v and the output gate into one attention in-projection; in_proj_qkv/z/a/b into one gated-DeltaNet in-projection; the routed experts' gate and up into one tensor; the shared expert's gate and up plus its sigmoid router column into one tensor), so every packed width is the sum of the unpacked ones and no tensor grows. The shared expert's router is the only single-column member: the fused packing pads the combined width out to a tile multiple so the slice offsets stay tile-aligned, and the functional decoder already stores that same column tile-padded on its own (tt/moe.py uploads shared_router as [1, 1, dim, 1] in TILE_LAYOUT, which occupies dim x 32 x 2 B). Both spellings therefore hold dim x 1056 x 2 B for the shared expert, and the per-layer totals under capacity_evidence are unchanged by this stage. Note that capacity_evidence.moe_shared_and_router_weights states its formula without that padded column, so recomputing the fused packing from the formula alone appears to differ by dim x 32 x 2 B; that is an omission in the formula, not a footprint change. The conclusion is unchanged either way: 2.12 GiB against a measured 31.75 GiB, so no capability reduction is required. Exact widths are tabulated in doc/fused_decoder/README.md.",
+  "internal_shape_policy_delta": {
+   "moe_tokens_per_sparse_matmul_call": 32,
+   "moe_tokens_per_sparse_matmul_call_reason": "One sparsity entry covers one 32-token group, so a call's down-projection mask is the union of the experts chosen by all its tokens. At 256 tokens per call that union is essentially all 256 experts and the down projection skips nothing; at 32 it is the same union the gate/up projections already had. Measured in doc/fused_decoder/logs/ab_moe_group_tokens.txt. This also makes the transient expert-activation footprint 8x smaller, so it relaxes rather than tightens the memory bound.",
+   "rope_table_width": "rope_dim (64), unchanged. The fused decoder can also build a head_dim-wide (256) table for a single-op full-width rotate-half; that mode is exact (tests/test_fused_decoder.py::test_rope_mode_equivalence) but measured slower and 4x larger, so it is not the default."
+  },
+  "construction_validation_delta": {
+   "note": "The fused decoder rejects two constructor argument combinations the functional decoder accepts. Neither narrows a supported configuration - the shipped defaults satisfy both, and every 'tested' capability row is re-asserted - but they are argument-domain narrowings and are recorded rather than left implicit.",
+   "checks": [
+    {
+     "check": "prefill_chunk % page_block_size == 0",
+     "why": "_attention_prefill computes blk0 = chunk_start_idx // page_block_size and lets paged_fill_cache fill from offset 0 of the sliced page table, so a chunk boundary that is not a page boundary would write the chunk at the wrong offset within its block. The functional decoder validates only prefill_chunk % PREFILL_ALIGN and would silently mis-place the write.",
+     "shipped_defaults_ok": "prefill_chunk 2048, page_block_size 64"
+    },
+    {
+     "check": "the RoPE rotated width is 32 or a multiple of 64",
+     "why": "ttnn.experimental.rotary_embedding_hf requires rotate_half's midpoint to land on a tile boundary (rotary_embedding_hf_device_operation.cpp). The functional decoder's hand-rolled rotation has no such constraint. Raising here turns a raw TT_FATAL into an explanation.",
+     "shipped_defaults_ok": "rope_dim 64 in 'partial' mode; head_dim 256 in 'full' mode"
+    }
+   ]
+  }
+ },
+ "internal_shape_policy": {
+  "public_prefill_seq_len": "any 1 <= seq_len <= supported_context - start_pos; no divisibility requirement",
+  "internal_prefill_chunk_tokens": 2048,
+  "internal_prefill_physical_alignment": 128,
+  "paged_block_size_tokens": 64,
+  "page_table_row_blocks_alignment": 32,
+  "gated_delta_rule_internal_chunk": 32,
+  "moe_sparsity_group_tokens": 32,
+  "moe_tokens_per_sparse_matmul_call": 256,
+  "padding_policy": "Each internal prefill block is zero-padded up to the physical alignment. For full_attention the padded key/value rows are exact zeros at absolute positions beyond the logical end and are excluded from every real query by causality. For linear_attention the padded steps are neutralised by zeroing beta (kills the delta write) and g (kills the decay), making each padded step an exact identity on the recurrent state, and the conv history is taken from the real tail at the logical length. Outputs are sliced back to the logical length.",
+  "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk \u2014 one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
+ },
+ "optimized_decoder": {
+  "stage": "optimized-decoder",
+  "implementation": "tt/optimized_decoder.py",
+  "tests": "tests/test_optimized_decoder.py",
+  "capability_change": "none; the advertised context, batch bound, non-aligned support and public contract are unchanged, and the per-layer device footprint falls by 63%",
+  "context_length": 262144,
+  "capability_note": "The optimized decoder changes performance only. It keeps the fused decoder's public prefill/decode signature, its paged KV cache geometry (num_blocks x n_kv_heads x page_block_size x head_dim), its DeltaNet state shapes, its 128-token internal physical alignment, its 2048-token internal chunk and its support for ANY logical seq_len in [1, max_context - start_pos]. Every capability row under 'tested' is re-asserted by the identically named test in tests/test_optimized_decoder.py, plus test_optimized_matches_fused, which compares the optimized and fused implementations directly on device, and test_optimized_beats_fused_traced_decode, which gates the performance claim.",
+  "dtype_policy_delta": {
+   "kv_cache": "bfloat16 -> bfloat8_b. Prefill fill tensors are explicitly cast to the cache dtype before paged_fill_cache; decode paged_update_cache inputs stay bfloat16, which is what that op accepts. OptimizedDecoder.allocate_kv_cache still takes an explicit dtype, so a caller that wants the old cache gets it.",
+   "routed_expert_weights": "bfloat16 -> bfloat4_b (gate/up and down), math fidelity HiFi4 -> LoFi",
+   "dense_projection_weights": "bfloat16 -> bfloat8_b (packed attention in-projection, o_proj, packed DeltaNet in-projection, out_proj, shared-expert packed gate|up|router and its down projection), math fidelity HiFi4 -> HiFi2",
+   "router_weight": "bfloat16 with HiFi4 and float32 accumulation, UNCHANGED. Expert selection is a discrete decision, so a rounding change here swaps an expert rather than perturbing a value.",
+   "expert_activations": "routed sparse_matmul output dtype bfloat16 -> bfloat8_b",
+   "norms_rope_conv_state": "unchanged: norm gains and RoPE tables bfloat16, DeltaNet recurrent state, gates and router logits float32"
+  },
+  "footprint_change": {
+   "direction": "reduction",
+   "worst_case_layer_total_bytes": 839553028,
+   "worst_case_layer_total_note": "0.78 GiB for a full_attention layer at the full 262144 context including its paged KV cache, against 2.12 GiB for the fused decoder: 63% less (69% on a linear_attention layer). Every term falls because of the dtype policy and nothing grows. Block-float sizes count the shared exponent: bfloat8_b is 1.0625 B/element and bfloat4_b is 0.5625 B/element (one exponent byte per 16 data). MEASURED, not modelled: doc/optimized_decoder/logs/probe_footprint.txt walks every device tensor of a built layer at its allocated padded size under both policies. The earlier hand-modelled figure here was a few hundred kilobytes lower: it omitted the RMSNorm gains and the RoPE transformation matrix, over-counted the projection weights, and counted the batch-1 DeltaNet conv state at its logical rather than its allocated padded size. Review round 4's figure audit had nothing to check it against, so it is now produced by a probe rather than by arithmetic in a document.",
+   "per_term_bytes": {
+    "paged_kv_cache_k": 142606336,
+    "paged_kv_cache_v": 142606336,
+    "paged_kv_cache_note": "4096 blocks x 2 kv heads x 64 tokens x 256 head_dim x 1.0625 B (bfloat8_b); was 268435456 each at bfloat16",
+    "rope_cos_sin_tables": 67633152,
+    "rope_note": "unchanged; 2 tables x 264192 rows x rope_dim 64 x 2 B",
+    "moe_routed_expert_weights": 452984832,
+    "moe_routed_expert_note": "3 x 256 experts x 2048 hidden x 512 moe_intermediate x 0.5625 B (bfloat4_b); was 1610612736 at bfloat16",
+    "moe_shared_and_router_weights": 4460544,
+    "moe_shared_and_router_note": "shared_in (2048 x 1056) and shared_down (512 x 2048) at 1.0625 B plus the 256-wide router at 2 B; was 7471104",
+    "full_attention_projection_weights": 28966912,
+    "linear_attention_projection_weights": 35790848,
+    "norms_and_constants": 294912,
+    "norms_and_constants_note": "RMSNorm gains, the RoPE transformation matrix and the DeltaNet constant tiles, all unchanged bfloat16/float32; 565248 on a linear_attention layer, which also holds the gated-DeltaNet constant tiles",
+    "runtime_index_tensors": 4,
+    "deltanet_recurrent_state_batch1": 2097152,
+    "deltanet_conv_state_batch1": 1572864,
+    "deltanet_conv_state_note": "allocated padded size: 3 buffers x 32 padded rows x conv_dim 8192 x 2 B. The logical size is 49152; TILE layout pads a batch-1 row to a full tile",
+    "linear_attention_conv1d_weights": 35651584,
+    "linear_attention_conv1d_note": "prepared ttnn.conv1d weights, one set per accepted prefill block length; allocated by allocate_state and unchanged by this stage's dtype policy"
+   },
+   "dram_headroom": "839553028 B against the measured 34091302912 B allocatable DRAM: 40x, up from 15x. No capability reduction is required by this stage and none is taken."
+  },
+  "internal_shape_policy_delta": {
+   "moe_tokens_per_sparse_matmul_call": 32,
+   "moe_tokens_per_sparse_matmul_call_reason": "unchanged from the fused decoder",
+   "moe_routing_sparsity_rows": "The routed-expert sparsity mask is now reduced over the group's REAL rows only, not over the whole 32-row tile. A decode step for batch b < 32 pads the group with zeros, whose router logits are exactly zero, so topk still returns a full expert set for each padding row and the old whole-tile reduction unioned them in: 16 active experts at batch 1 where the model asks for 8. The padded rows' expert outputs were already exactly zero, so this changes which experts run and never the result (tests/test_optimized_decoder.py::test_padded_rows_do_not_route).",
+   "decode_activation_layout": "The two residual RMSNorms and, on full_attention layers, the Q/K head-dim norms run width-sharded in L1 on a LayerNormShardedMultiCoreProgramConfig during decode. Where each goes next differs, and review round 29 found this field still describing the pre-round-25 behaviour where all of them returned to DRAM: the token-mixer norm keeps its width shard and hands it straight to the in-projection, because the 1D mcast_in0 matmul consumes a width-sharded in0 at that role's in0_block_w; the MoE norm interleaves to L1, because its consumer's inner block is wider than the norm's per-core shard; and the Q/K head-dim norms interleave to DRAM, because Q reaches paged_scaled_dot_product_attention_decode, which refuses a non-sharded Q outside DRAM, and K reaches the paged cache write. Routed-expert intermediates (the packed gate/up output, the SwiGLU product, the scored activation and the down output) live in L1 instead of DRAM. The full_attention decode V tensor is written to the paged cache on the height shard nlp_create_qkv_heads_decode produced, without an intervening interleave or pad. Neither changes any public shape.",
+   "decode_program_configs": "Every dense decode projection runs under an explicit MatmulMultiCoreReuseMultiCast1DProgramConfig tuned per role, and the two routed sparse matmuls under a geometry chosen from the call's active-expert bound. Prefill takes explicit MatmulMultiCoreReuseMultiCastProgramConfig 2D configs on every dense role, sized by PREFILL_MATMUL_IN1_TILE_BUDGET and falling back to ttnn's heuristic only above one chunk of m_rows or when the modelled circular-buffer total exceeds L1 - README section 5.4's generated prefill table has all six roles against the heuristic. The two phases are selected explicitly rather than by activation shape, because a 128-token prefill block and a batch-4 decode step have the same tile height. (This sentence said prefill kept the heuristic until review round 13; it denied the stage's second-largest program-config change.)"
+  },
+  "named_limitations": [
+   "ttnn.topk is single-core on the 256-wide routing dim (48 us/step). Its multi-core path needs a power-of-two width >= 8192; padding the logits with -inf to 8192 is correct but measured ~3x slower than the single-core 256 call (doc/optimized_decoder/logs/probe_decode_micro.txt).",
+   "ttnn.sparse_matmul nnz is left inferred at runtime because pinning it REPRODUCIBLY WEDGED THE DEVICE at this model's shapes. After the padded-row routing mask the batch-1 decode sparsity holds exactly num_experts_per_tok non-zeros, so the exact-count invariant nnz requires is satisfiable; doc/optimized_decoder/logs/probe_sparse_matmul.py --nnz --active 8 passes nnz=8 against a sparsity tensor with exactly 8 non-zeros and the first candidate hung inside SparseMatmulDeviceOperation, despite the op's own comment that the sender validates count_nonzero(sparsity) against nnz on device and fails loudly instead of deadlocking (tt-metal #45943). tt-triage evidence: doc/optimized_decoder/triage/; one tt-smi -r recovered the card and the 1x1 mesh smoke passed. work_log.md \u00a74.8 has the incident and recovery table. This is worth reporting upstream: the documented on-device validation does not fire here.",
+   "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig loses to an explicit 1D mcast_in0 config on every dense decode role here, even measured without its activation-reshard cost, because the op pins its compute grid to the 8 DRAM banks."
+  ]
+ },
+ "multichip_decoder": {
+  "stage": "multichip-decoder",
+  "implementation": "tt/multichip_decoder.py",
+  "tests": "tests/test_multichip_decoder.py",
+  "baseline": "tt/optimized_decoder.py (MultichipDecoder subclasses OptimizedDecoder unmodified)",
+  "target_mesh": {
+   "shape": [
+    1,
+    4
+   ],
+   "devices": 4,
+   "hardware": "Blackhole p300c, 2 x p300 dual-ASIC cards, ClusterType.P300_X2, every chip degree 2",
+   "fabric": "ttnn.FabricConfig.FABRIC_1D_RING, set before ttnn.open_mesh_device",
+   "ccl_topology": "ttnn.Topology.Ring",
+   "ccl_num_links": 2,
+   "parallelism": "TP=4 for every dense tensor, EP=4 for the 256 routed experts, on the same four chips",
+   "residual_contract": "replicated in, identical on every device out (tests/test_multichip_decoder.py::test_output_is_identical_on_every_device asserts bitwise equality)"
+  },
+  "capability_change": "none. The advertised context stays 262144, the batch bound stays 32, non-aligned logical sequence lengths are still accepted, and the public prefill/decode signature is the optimized decoder's. The per-device footprint FALLS by 60% on a full_attention layer and by 75% on a linear_attention layer, so this stage increases headroom rather than consuming it.",
+  "context_length": 262144,
+  "capability_note": "Every capability row under \"tested\" is re-asserted by the identically named test in tests/test_multichip_decoder.py on the 1x4 mesh: test_full_context_prefill_and_decode at 262144 and at the non-aligned 262141, test_unaligned_max_context at max_context=5000, test_batched_prefill_decode_pcc up to batch 32, test_batched_decode_ragged_positions, test_prefill_continuation and test_permuted_page_table. test_prefill_matches_single_chip and test_decode_matches_single_chip additionally compare the multichip layer to the single-chip TTNN baseline built from the same weights in the same process.",
+  "footprint_change": {
+   "direction": "reduction",
+   "measurement": "doc/multichip_decoder/logs/probe_footprint_local.py -> probe_footprint_local.txt. Every row is the allocated padded size of shard 0 of each device tensor of a built layer, i.e. what ONE device holds. Compared term by term against the committed single-chip artifact doc/optimized_decoder/logs/probe_footprint.txt (\"optimized\" policy rows), which is the policy this stage inherits unchanged.",
+   "per_device_worst_case_layer_total_bytes": 333565956,
+   "per_device_linear_attention_layer_total_bytes": 134680576,
+   "single_chip_worst_case_layer_total_bytes": 839553028,
+   "single_chip_linear_attention_layer_total_bytes": 533123072,
+   "per_device_terms_full_attention_bytes": {
+    "paged_kv_cache_k": 71303168,
+    "paged_kv_cache_v": 71303168,
+    "paged_kv_cache_note": "HALVED, not quartered: n_kv_heads=2 over 4 devices, so each device owns ONE whole kv head and devices (0,1) and (2,3) hold the same head. 4096 blocks x 1 kv head x 64 tokens x 256 head_dim x 1.0625 B (bfloat8_b). vs_ideal=2.000, and that factor is the deliberate price of keeping SDPA local to each device with zero attention traffic.",
+    "moe_routed_expert_weights": 113246208,
+    "moe_routed_expert_note": "exactly 1/4: expert parallelism gives each device 64 of the 256 experts whole. vs_ideal=1.000",
+    "moe_shared_and_router_weights": 1986560,
+    "moe_shared_and_router_note": "vs_ideal=1.781. shared_in and shared_down split four ways, but the [2048, 256] router is REPLICATED (1048576 B) because the top-8 is a global decision over all 256 experts, plus the [256, 64] one-hot expert_select block (32768 B) that narrows the replicated dense score vector to this device.",
+    "projection_weights": 7798784,
+    "projection_weights_note": "vs_ideal=1.077. The 557056 B above a clean quarter is the k/v projection rows duplicated across each kv-head-sharing pair, which is what buys the halved cache and the local SDPA.",
+    "rope_cos_sin_tables": 67633152,
+    "rope_note": "vs_ideal=4.000, fully replicated: RoPE is applied to local heads on every device and the tables are position-indexed, not head-indexed, so there is nothing to shard. In the full model these tables are shared across all 40 layers; counting them per layer here is conservative.",
+    "norms_and_constants": 294912,
+    "norms_note": "vs_ideal=4.000, replicated. The residual is replicated, so both RMSNorms are exact and local and no distributed-norm stats all-gather is needed.",
+    "runtime_index_tensors": 4
+   },
+   "per_device_terms_linear_attention_bytes": {
+    "moe_routed_expert_weights": 113246208,
+    "moe_shared_and_router_weights": 1986560,
+    "projection_weights": 9052160,
+    "projection_weights_note": "vs_ideal=1.012. The 104448 B above a clean quarter is the DeltaNet a/b gate padding: 32 gate columns over 4 devices is 8 per device, a quarter tile, so each gate gets its own 32-column block whose trailing 24 columns are exact zeros.",
+    "conv_weights": 8912896,
+    "deltanet_recurrent_state_batch1": 524288,
+    "deltanet_conv_state_batch1": 393216,
+    "norms_and_constants": 565248
+   },
+   "dram_headroom": "333565956 B per device against the measured 34091302912 B allocatable DRAM: 102x for one full_attention layer at the full advertised context, up from 40x on one chip. No capability reduction is required by this stage and none is taken."
+  },
+  "full_model_projection": {
+   "layers": 40,
+   "layer_types": "10 full_attention (full_attention_interval=4, layers 3,7,...,39) and 30 linear_attention",
+   "per_device_all_layers_bytes": 7376076840,
+   "per_device_all_layers_gib": 6.87,
+   "per_device_all_layers_note": "10 x 333565956 + 30 x 134680576, each at the full 262144-token context with its paged KV cache and a batch-1 DeltaNet state. Conservative: it charges every full_attention layer its own copy of the RoPE tables, which the full model shares.",
+   "per_device_kv_cache_all_layers_bytes": 1426063360,
+   "per_device_kv_cache_note": "10 full_attention layers x 142606336 B = 1.33 GiB per device at 262144 tokens, against 2.66 GiB on one chip.",
+   "single_chip_all_layers_bytes": 24389222440,
+   "headroom_vs_measured_dram": "4.62x on the target mesh (34091302912 / 7376076840), against 1.40x for the same 40 layers on one chip. The single-chip 1.40x leaves ~9.4 GiB for the embedding and lm_head matrices (248320 x 2048 x 2 B = 1017118720 B each, untied), the trace region and every activation buffer; the multichip path leaves ~26.7 GiB per device for the same, so the multichip decoder is the layer stack that makes the full model comfortable rather than tight.",
+   "capability_direction": "increase. No context reduction is required, considered, or taken at any point in this stage; the multichip path strictly enlarges the per-device budget."
+  },
+  "internal_shape_policy_delta": {
+   "public_prefill_seq_len": "UNCHANGED: any 1 <= seq_len <= supported_context - start_pos, no divisibility requirement. 4-way sharding adds no constraint to any public argument. test_prefill_matches_single_chip covers seq_len in {1, 7, 32, 128, 129, 250, 2048, 2049, 3000}, which includes tile-, chunk- and page-unaligned lengths, and test_unaligned_max_context builds with max_context=5000.",
+   "deltanet_gate_padding": "NEW and internal only. linear_num_value_heads=32 gives 8 a/b gate columns per device, a quarter tile, so the packed gdn_in weight gives each gate a 32-column block with 24 exact-zero trailing columns and MultichipDecoder._gdn_project slices the 8 real ones back out. The padding never reaches the delta rule.",
+   "moe_local_expert_mask_floor": "NEW and internal only. With top-8 of 256 and 64 experts per device, a device has zero locally-active experts with probability (3/4)**8 ~ 10% per token per layer. The sparsity mask is floored at local expert 0 so ttnn.sparse_matmul never sees an all-zero sparsity. The floored expert's routing score is exactly zero and the score multiplies the down projection's INPUT, so its contribution is exactly zero (tests/test_multichip_decoder.py::test_zero_local_active_experts).",
+   "kv_head_ownership": "NEW. n_kv_heads=2 over tp=4: device d owns global kv head d // 2, which is exactly the GQA grouping the 16 query heads already impose (query head h uses kv head h // 8). Each device stores one whole kv head, so no attention traffic crosses the fabric (tests/test_multichip_decoder.py::test_kv_cache_is_local_heads).",
+   "page_table_contract": "UNCHANGED. The page table is replicated across the mesh and indexes blocks, not heads; the head axis is what is sharded. test_permuted_page_table runs a shuffled block mapping on the mesh and test_batched_decode_ragged_positions gives every user a distinct absolute position over disjoint block spans."
+  }
+ }
 }
