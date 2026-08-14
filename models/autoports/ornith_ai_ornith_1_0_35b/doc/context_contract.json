@@ -1,7 +1,10 @@
 {
   "hf_model_id": "ornith-ai/Ornith-1.0-35B",
-  "stage": "functional-decoder",
+  "stage": "optimized-decoder",
   "target": "single decoder layer, both layer kinds, 1x1 Blackhole (p300c) mesh",
+  "_flat_keys_note": "hf_advertised_context and current_supported_context mirror advertised.context_length and supported.context_length. They exist because .agents/scripts/check_context_contract.py resolves the context with first_int(), a flat mapping.get() over the top level with no recursion, so the nested objects below are invisible to it and 06-full-model.check.sh would exit 2 (critical). Keep the two in sync; the nested objects remain authoritative for humans.",
+  "hf_advertised_context": 262144,
+  "current_supported_context": 262144,
   "advertised": {
     "field": "text_config.max_position_embeddings",
     "context_length": 262144,

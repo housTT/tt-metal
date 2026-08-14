@@ -2137,3 +2137,43 @@ paragraph does not claim the class is finished.
 Checkpoint: [`logs/commit_record.txt`](logs/commit_record.txt), which also records the exact command
 that proves the committed tree reproduces every generator and passes the figure audit. Local commits
 only; nothing is pushed.
+
+## 7. Stage stopped by operator decision — no terminal `clean-pass`
+
+**This stage did not meet its own completion contract.** The goal requires `$stage-review` to return
+`clean-pass`; it never did as a terminal verdict. The stage was stopped deliberately by the operator
+after review round 32, at the commit boundary below, so that the pipeline could proceed to
+multichip bringup. Anyone reading this as a finished stage should not.
+
+What that means concretely:
+
+* Round 21 *did* return `clean-pass`. It was superseded: the stage then found items the reviewer had
+  classified as below its finding bar, fixed them, and rounds 22-30 all returned `more-work-needed`
+  again. Rounds 31 and 32 were closed and recorded but never independently re-reviewed.
+* Rounds 31 and 32 landed in `e5a97903020`, `f4558913402` and `26ae528fd87`. Round 32's finding is a
+  **silent correctness bug**, not a documentation defect, and is the reason the stage was allowed to
+  finish this round before stopping: a 16-core norm shard measured ~8 us/step *faster* at the layer
+  while dropping `full_attention` decode PCC far below the acceptance bar and raising no error,
+  because the matmul program factory takes only the *count* of in0 sender cores from the shard spec
+  and re-lays them out inside its own rect. The guard is in `tt/optimized_decoder.py`; the A/B in
+  `logs/ab_norm_shard_cores.py` now records PCC beside every arm, because a latency-only A/B cannot
+  see this class of bug at all.
+* No round after 32 has run, so the round-32 fixes carry the same status every previous round's
+  fixes carried before their successor confirmed them: implemented, self-verified, not independently
+  reviewed.
+
+Totals: 43h 08m of active session time across 12 sessions, 66 commits, 32 review rounds.
+
+Why it was stopped rather than allowed to converge: each fix edits a source file, which changes a
+hash in `logs/source_manifest.txt`, which correctly invalidates every artifact and forces a full
+~40-minute evidence regeneration; the re-measurement then occasionally moves a figure and produces a
+new finding. There is no round cap in `$stage-review` and stages 01-05 have no runner-side gate, so
+the loop has no reachable fixed point. That analysis, and the suggestion of a bounded
+`clean-pass with declared residuals` verdict, is recorded in `.agents/fast-models-fast-feedback.md`.
+
+Residual risk for whoever picks this up: the open items are the ones rounds 28-32 named and did not
+close — chiefly the ungated prose class described in section 6 (statements of count, ranking or
+superlative that no grep can check), and the round-32 guard's own lack of an independent review. The
+measured results, the dtype and program-config policy, and the rejection ledger are all backed by
+committed artifacts and were verified by round 21's reviewer against the regenerated evidence
+(suite 123 passed / 0 failed, watcher 65 passed / 0 fatal-class).
