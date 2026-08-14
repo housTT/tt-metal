@@ -869,10 +869,13 @@ def check_source_magnitude_words() -> list:
 #: introduced a two-fold error into another.
 CLAIM_WORDS = {"half": 0.5, "a": 1.0, "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0}
 
-#: A percentage claim in a source comment: "by ~12 %", "by about 2 %", "by half a percent", "of one percent".
+#: A magnitude claim in a source comment: "by ~12 %", "by about 2 %", "by half a percent", "by 47.3 µs".
+#: Microseconds are covered as well as percentages — round 22 pointed out that an absolute op-level figure is
+#: exactly as run-varying as a ratio, and the ladder's own rows moved by microseconds between sweeps.
 CLAIM_PERCENT = re.compile(
-    r"\bby\s+(?:about\s+|around\s+|roughly\s+|~)?(?P<value>\d+(?:\.\d+)?|" + "|".join(CLAIM_WORDS) + r")\s*"
-    r"(?:a\s+)?(?:%|percent)",
+    r"\bby\s+(?:about\s+|around\s+|roughly\s+|under\s+|over\s+|~)?(?P<value>\d+(?:\.\d+)?|"
+    + "|".join(CLAIM_WORDS)
+    + r")\s*(?:a\s+)?(?:%|percent|µs|us\b|microsecond)",
     re.IGNORECASE,
 )
 
@@ -946,6 +949,16 @@ def check_orientation_claims() -> list:
         for bullet in re.findall(r"^[ \t]*#[ \t]*\*[ \t].*(?:\n[ \t]*#[ \t]{2,}(?!\*).*)*", source.read_text(), re.M):
             tag = CLAIM_TAG.search(bullet)
             if not tag:
+                # The gate would otherwise be opt-in: round 22 showed that an *untagged* bullet claiming
+                # "the column wins by ~12 %" passes the whole audit, because two-digit integers are exempt
+                # wholesale and this check only looked at tagged bullets. Any bullet making an orientation
+                # claim has to name the rows it is claiming about.
+                orphan = CLAIM_WINNER.search(" ".join(line.lstrip(" \t#") for line in bullet.splitlines()))
+                if orphan:
+                    problems.append(
+                        f'ORIENTATION-CLAIM-UNTAGGED  {source.name}: "{orphan.group(0)}" makes an orientation '
+                        f"claim with no [ladder <active>/<role>] tag, so no artifact row backs it"
+                    )
                 continue
             text = " ".join(line.lstrip(" \t#") for line in bullet.splitlines())
             rows = []
@@ -987,6 +1000,50 @@ def check_orientation_claims() -> list:
                     problems.append(
                         f'ORIENTATION-CLAIM-WINNER  {source.name}: "{text[:70]}..." says the {who} leads at '
                         f"[ladder {token}], the generated ladder says the {winner} {where}"
+                    )
+    return problems
+
+
+def check_top_line_item() -> list:
+    """A document naming *the largest* op-to-op line item must name the one the capture actually has.
+
+    This closes the defect round 22 found, which had survived twenty-one review rounds at zero audit problems.
+    §7's itemisation table is generated from ``perf_summary.json``, but the sentence announcing which op code
+    tops it was hard-coded — *inside* the generated block, where ``make_readme.py --check`` regenerates it from
+    itself and can never see that it has gone stale. It named ``TypecastDeviceOperation`` at 7 launches a step
+    through every re-capture that demoted it to fourth at 4 launches, pointing the next stage at 9 % of the
+    dispatch gap instead of the 46 % sitting above it.
+
+    The generated sentence is computed now, so this check guards the *hand-written* prose that cites it: any
+    claim that some ``…DeviceOperation`` is the largest line item is matched against the top row of every layer
+    kind in the summary.
+    """
+    path = DOC / "tracy/perf_summary.json"
+    if not path.is_file():
+        return []
+    import json as _json
+
+    data = _json.loads(path.read_text())
+    tops = set()
+    for kind, payload in data.items():
+        if isinstance(payload, dict) and payload.get("op_to_op_gaps", {}).get("largest"):
+            tops.add(payload["op_to_op_gaps"]["largest"][0]["op_code"])
+    if not tops:
+        return []
+    problems = []
+    claim = re.compile(r"`(?P<op>\w*DeviceOperation)`[^.]{0,200}?\blargest\b[^.]{0,80}?\bline item\b", re.S)
+    reverse = re.compile(r"\blargest\b[^.]{0,80}?\bline item\b[^.]{0,200}?`(?P<op>\w*DeviceOperation)`", re.S)
+    for doc in DOCS:
+        if not doc.is_file() or doc.suffix != ".md":
+            continue
+        text = doc.read_text(errors="replace")
+        for pattern in (claim, reverse):
+            for match in pattern.finditer(text):
+                if match.group("op") not in tops:
+                    problems.append(
+                        f"TOP-LINE-ITEM-WRONG  {doc.relative_to(REPO)}: calls `{match.group('op')}` the largest "
+                        f"op-to-op line item; the capture's largest is {sorted(tops)} "
+                        f"(tracy/perf_summary.json)"
                     )
     return problems
 
@@ -1424,6 +1481,7 @@ def main() -> int:
     problems += check_model_facts()
     problems += check_source_magnitude_words()
     problems += check_orientation_claims()
+    problems += check_top_line_item()
     problems += check_sparse_block_rule()
     problems += check_mirrored_constants()
     problems += check_generators()

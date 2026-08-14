@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.1 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **152.8 µs** | 172.2 µs | **column** wins by 19.4 µs, beyond the ±0.4 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **567.9 µs** | 579.0 µs | **column** wins by 11.1 µs, beyond the ±0.8 µs spread |
-| 162 active | down | 343.4 µs | **341.9 µs** | **row** wins by 1.5 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.3 µs** | 390.5 µs | **column** wins by 5.2 µs, beyond the ±0.4 µs spread |
-| 64 active | down | 284.5 µs | **277.4 µs** | **row** wins by 7.1 µs, beyond the ±1.0 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.2 µs | **column** wins by 18.9 µs, beyond the ±0.5 µs spread |
+| 8 active | down | **152.7 µs** | 172.0 µs | **column** wins by 19.3 µs, beyond the ±0.7 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.7 µs** | 579.1 µs | **column** wins by 10.4 µs, beyond the ±6.2 µs spread |
+| 162 active | down | 343.4 µs | **341.7 µs** | **row** wins by 1.7 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **386.7 µs** | 387.6 µs | column nominally ahead, inside the ±2.1 µs spread |
+| 64 active | down | 285.2 µs | **279.1 µs** | **row** wins by 6.1 µs, beyond the ±3.6 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -712,10 +712,13 @@ keeping is the one this row cost three review rounds to learn — **an op-level 
 a result** — and this stage now settles every geometry that reaches a document with a whole-layer A/B.
 
 The 64-active `gate_up` row is a smaller lesson in the same direction. Round 9's review read it, correctly against the artifact
-it had, as the row winning by under a microsecond; re-measured from these bytes the *column* leads, by about as
-much. A sub-microsecond op gap at a spread of the same order is not a fact about the hardware, which is why the
-generated table in README §5.4 prints each row's own spread and why the inside-vs-beyond test is now made at
-the artifact's printed precision.
+it had, as the *row* winning; every re-measurement since has had the *column* ahead. What has not held is the
+margin: across the sweeps of rounds 20-22 this row moved from just beyond its spread, to inside it, to well
+beyond it, without a line of shipped code changing. That is why the generated table in README §5.4 prints each
+row's own spread, why the inside-vs-beyond test is made at the artifact's printed precision, and why neither
+this paragraph nor the shipped comment quotes a magnitude for it any more — round 22 found both of them
+describing it as sub-microsecond noise against a table that by then called it decisive. The direction is what
+the shipped rule turns on, and the direction is the part that has held.
 
 For the record, the earlier states of this paragraph: round 5 found it claiming a universal column win, which
 the sweep never said; round 8 found the prefill `down` sign inverted; round 9 found round 8's correction
@@ -792,9 +795,10 @@ fills, and past that only per-core efficiency moves. The rule that survives both
 the grid fills, then raise the chunk"; the rule that would have hurt either of us is "smaller `q_chunk` is
 better", which is what an occupancy model alone suggests.
 
-**Two typecast folds taken, one rejected as illegal.** Round 14 pointed out that `TypecastDeviceOperation` is the
-largest single line item of the `linear_attention` dispatch gap and that three of its seven launches looked
-foldable into the op that produces them — the transformation §4.11 already applied for a measured win. In isolation all three fold cheaply - roughly a third off the `zeros_like` pair
+**Two typecast folds taken, one rejected as illegal.** Round 14 pointed out that `TypecastDeviceOperation` then
+topped the `linear_attention` dispatch gap — the folds below are part of why it no longer does; README §7's
+generated table ranks it fourth against the current capture — and that three of its seven
+launches looked foldable into the op that produces them — the transformation §4.11 already applied for a measured win. In isolation all three fold cheaply - roughly a third off the `zeros_like` pair
 and a fifth off each `multiply` pair, measured op-side before shipping either. Shipped: the two `multiply` folds
 in the recurrent-state path, and the layer effect is in README §5.2's generated table, where traced
 `linear_attention` decode drops by about twenty microseconds while `full_attention` is unchanged - those sites

@@ -464,12 +464,25 @@ def block_gap_itemisation():
         "(`MatmulDeviceOperation 32 x 2048 x 12352` is its own code here), which is why this table counts more "
         "of them than §5.3, whose source aggregates by the bare code — review round 13 pointed out the two "
         "counts sat in one document with nothing saying they count different things. The bottom row of each "
-        "kind is what §7's dispatch-and-host gap has to be made of, and it reconciles with it. Note what this "
-        "replaces: "
-        "the hand-written version of this paragraph said *two* 6–8 µs typecast gaps, when the "
-        "`TypecastDeviceOperation` gaps are the **largest single line item** of the `linear_attention` "
-        "window at 7 launches a step."
+        "kind is what §7's dispatch-and-host gap has to be made of, and it reconciles with it."
     )
+    # The sentence naming the top line item has to be *computed* from the same rows the table is built
+    # from. Round 4 replaced a hand-written itemisation with this generated table but left the sentence
+    # beneath it hard-coded, so it went on naming `TypecastDeviceOperation` at 7 launches a step through
+    # every re-capture that demoted it - inside a `generated:` block, where `--check` regenerates it from
+    # itself and can never see the drift. Round 22 found it four captures stale, ranked fourth.
+    top = kind_gaps[KINDS[0][0]]["largest"]
+    if top:
+        first = top[0]
+        lines.append("")
+        lines.append(
+            f"The largest single line item of the `{KINDS[0][0]}` window is "
+            f"`{first['op_code']}` at **{first['gap_us_per_step']:.1f} µs/step** over "
+            f"{first['launches_per_step']:.0f} launch"
+            f"{'' if abs(first['launches_per_step'] - 1) < 0.5 else 'es'} a step. Note what the table "
+            f"replaces: the hand-written version of this paragraph named *two* 6–8 µs typecast gaps, and "
+            f"the capture it described has since been superseded several times over."
+        )
     return "\n".join(lines)
 
 
@@ -1400,9 +1413,10 @@ def block_watcher_result():
                 f"census_summary.txt disagrees with itself: {summaries} stack summaries x {per_summary} "
                 f"processors is not {stack.group(2)} detail lines"
             )
+        cores = fact("stack reporting cores")
         text += (
             f" Watcher recorded a stack watermark in {summaries} of its {fact('dumps')} dumps, "
-            f"{per_summary} RISC processors each, naming {fact('stack reporting cores')} distinct cores "
+            f"{per_summary} RISC processors each, on {cores} core{'' if cores == '1' else 's'} "
             f"between them; the tightest of those {stack.group(2)} samples leaves {stack.group(1)} bytes free."
         )
     return (
