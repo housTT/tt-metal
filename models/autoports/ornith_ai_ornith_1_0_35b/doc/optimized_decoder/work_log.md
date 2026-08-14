@@ -703,12 +703,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.4 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **153.3 µs** | 171.9 µs | **column** wins by 18.6 µs, beyond the ±2.6 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **569.0 µs** | 579.0 µs | **column** wins by 10.0 µs, beyond the ±2.0 µs spread |
-| 162 active | down | 343.2 µs | **341.8 µs** | row nominally ahead, inside the ±3.4 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.5 µs | **column** wins by 2.0 µs, beyond the ±0.5 µs spread |
-| 64 active | down | 284.7 µs | **277.5 µs** | **row** wins by 7.2 µs, beyond the ±1.3 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.4 µs** | 171.8 µs | **column** wins by 18.4 µs, beyond the ±0.5 µs spread |
+| 8 active | down | **152.8 µs** | 172.1 µs | **column** wins by 19.3 µs, beyond the ±0.3 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.3 µs** | 578.9 µs | **column** wins by 10.6 µs, beyond the ±2.7 µs spread |
+| 162 active | down | 346.1 µs | **341.8 µs** | **row** wins by 4.3 µs, beyond the ±0.2 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.5 µs | **column** wins by 2.1 µs, beyond the ±0.5 µs spread |
+| 64 active | down | 284.8 µs | **277.6 µs** | **row** wins by 7.2 µs, beyond the ±1.6 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -2027,6 +2027,26 @@ That tail is worth recording as its own lesson. Four rounds of real optimization
 editing the code and the sections that discussed it, and each time a further copy of the old claim survived
 somewhere the diff did not reach. The figure audit cannot see any of it: every one was prose about an API or
 a cross-reference between two sections.
+
+**Round 30** returned `more-work-needed` with three items, all of the cross-document class round 29 named,
+and said plainly that closing them leaves nothing else. Its first is the stage's own recurring defect in its
+last hiding place: README §5.5's `shared_in` cell was keyed to the 88-core grid **round 17 removed**, so §5.5
+and §5.4 printed different shipped times for the same role (9.9 against 10.0), and the `router` lookup was
+pinned to the widest `in0_block_w` rather than the shipped cap (9.0 against 9.1). The generator reads
+`DECODE_MATMUL_GEOMETRY` now, and `check_generator_geometry_literals` refuses a return to a literal.
+
+Its second item taught something about what a test can and cannot do. README §5.4 claimed
+`test_decode_runs_the_tuned_program_configs` asserts the shipped `in0_block_w`; the dense loop only bounded
+it, so a role's cap could revert to a value round 26 measured against and every assertion would pass. The
+loop now pins the *rule* exactly. But the obvious next step — pinning the value — does not work, and this was
+checked rather than assumed: the expectation is derived from the same table the cap lives in, so reverting
+`attn_in`'s cap to 8 moves the expectation with it and the assertion still passes. A cap's value is a
+measurement, not a rule, and what checks it is README §5.4's generated ranking on every regeneration. Both
+the test comment and §5.4 now say that rather than claiming a gate that does not exist.
+
+Its third was the test module's own docstring, which attributed four optimization-contract assertions to
+`test_optimized_path_is_used` after they had been split out into three other tests — the bullet that answers
+the goal contract's "tests exercise the optimized path, not a functional fallback".
 
 **Across rounds 18-24, one class.** Nearly every finding in those rounds was prose restating a measured value
 that later drifted, and each round's response tightened a gate rather than only fixing the sentence. Round 20

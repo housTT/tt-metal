@@ -1077,6 +1077,27 @@ def check_commit_record() -> list:
     return problems
 
 
+def check_generator_geometry_literals() -> list:
+    """`make_readme.py` must not hardcode a decode geometry that `DECODE_MATMUL_GEOMETRY` owns.
+
+    Review round 30 found §5.5's `shared_in` cell keyed to the 88-core grid that review round 17 removed, so
+    the section printed a time for a geometry §5.4's table does not — the stage's own recurring defect, inside
+    a generated block. The generator reads the layer's table now; this refuses a return to a literal, which is
+    the form the defect took.
+    """
+    gen = DOC / "logs/make_readme.py"
+    if not gen.is_file():
+        return []
+    problems = []
+    for match in re.finditer(r"subblock_pair\(\s*\"(\w+)\"\s*,\s*(\d+)", gen.read_text()):
+        problems.append(
+            f'GENERATOR-GEOMETRY-LITERAL  logs/make_readme.py: subblock_pair("{match.group(1)}", '
+            f"{match.group(2)}) hardcodes a core count DECODE_MATMUL_GEOMETRY owns - derive it with "
+            f"`shipped_geometry` so the cell cannot drift from §5.4"
+        )
+    return problems
+
+
 def check_top_line_item() -> list:
     """A document naming *the largest* op-to-op line item must name the one the capture actually has.
 
@@ -1555,6 +1576,7 @@ def main() -> int:
     problems += check_source_magnitude_words()
     problems += check_orientation_claims()
     problems += check_top_line_item()
+    problems += check_generator_geometry_literals()
     problems += check_commit_record()
     problems += check_sparse_block_rule()
     problems += check_mirrored_constants()

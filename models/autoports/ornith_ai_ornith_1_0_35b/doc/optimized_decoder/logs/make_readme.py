@@ -668,7 +668,22 @@ def advice_actions() -> dict:
     # sweep has no such candidate: `router` has Nt = 8, so a per_core_N >= 2 config would need <= 4 cores
     # and the ladder starts at 8. Round 5 found the previous lookup keyed on a core count the probe never
     # emits, which rendered the shipped side of the comparison as the word "unmeasured".
-    def subblock_pair(role, shipped_cores):
+    #: The shipped decode target and `in0` cap per role, read out of the layer rather than restated. Review
+    #: round 30 found this cell keyed to `shared_in`'s pre-round-17 88-core grid and to the `router`'s widest
+    #: `in0_block_w` instead of its shipped cap, so §5.5 printed times for geometries §5.4 does not - the
+    #: stage's own recurring defect, inside the block generated to prevent it.
+    def shipped_geometry(role):
+        import ast
+
+        source = (ROOT.parent.parent / "tt/optimized_decoder.py").read_text()
+        block = re.search(r"DECODE_MATMUL_GEOMETRY = (\{.*?\n\})", source, re.S)
+        if not block:
+            raise SystemExit("cannot find DECODE_MATMUL_GEOMETRY in tt/optimized_decoder.py")
+        table = ast.literal_eval(re.sub(r"#[^\n]*", "", block.group(1)))
+        target, cap = table[role]
+        return 11 * -(-target // 11), cap
+
+    def subblock_pair(role, shipped_cores, shipped_ibw=None):
         shipped_us = min(
             (
                 r["us"]
@@ -680,6 +695,7 @@ def advice_actions() -> dict:
                 and r.get("per_core_N") == "1"
                 and r.get("cores")
                 and 11 * -(-int(r["cores"]) // 11) == shipped_cores
+                and (shipped_ibw is None or r.get("in0_block_w") == str(shipped_ibw))
             ),
             default=None,
         )
@@ -697,8 +713,10 @@ def advice_actions() -> dict:
         )
         return shipped_us, alt
 
-    sub_shipped, sub_alt = subblock_pair("shared_in", 88)
-    router_shipped, router_alt = subblock_pair("router", 33)
+    shared_cores, shared_ibw = shipped_geometry("shared_in")
+    router_cores, router_ibw = shipped_geometry("router")
+    sub_shipped, sub_alt = subblock_pair("shared_in", shared_cores, shared_ibw)
+    router_shipped, router_alt = subblock_pair("router", router_cores, router_ibw)
 
     def us(value, digits=1):
         return "unmeasured" if value is None else f"{value:.{digits}f} µs"

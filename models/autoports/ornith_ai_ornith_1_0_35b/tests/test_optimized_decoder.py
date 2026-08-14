@@ -16,11 +16,16 @@ On top of that this file adds what is specific to an *optimized* implementation:
   and inputs must agree far more tightly than either agrees with HF, allowing for the reduced-
   precision weight policy this stage selects;
 * ``test_optimized_path_is_used`` — the delivered tests must exercise the optimized path, not a
-  functional fallback, so this asserts the dedicated ops are dispatched (and that the functional
-  decoder does not dispatch them), **and** that the optimization-stage contracts are live: the
-  selected weight dtypes reached the device tensors, the tuned decode program configs are the ones
-  the projections run under, the routed-expert intermediates are in L1, and the decode residual
-  norms take the width-sharded multi-core path;
+  functional fallback, so this asserts the dedicated ops are dispatched, that the ops this stage
+  replaced are dispatched zero times, and that the functional decoder *does* dispatch them, which is
+  the live control that makes the zero meaningful. The rest of the optimization-stage contracts are
+  asserted, but by their own tests, and this bullet used to claim them here: weight dtypes reaching
+  the device tensors by ``test_precision_policy_reaches_the_device_tensors``; the tuned decode program
+  configs and the routed-expert intermediates' L1 placement by
+  ``test_decode_runs_the_tuned_program_configs``; and the residual norms' width-sharded path — with
+  its shard carried into the in-projection — by
+  ``test_decode_norm_shard_reaches_the_in_projection``. Review round 30 found the attribution wrong
+  after those tests were split out of this one;
 * ``test_padded_rows_do_not_route`` — the tile-padding rows of a decode MoE group must not
   contribute experts to the routing sparsity, and must not change the layer output;
 * ``test_optimized_beats_fused_traced_decode`` — the optimized traced decode must actually be
@@ -2244,7 +2249,7 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         # `in0_block_w` and `per_core_M` were, which is how review round 17 could change a core-count entry on a
         # misread of the probe and round 18 have to catch it by re-deriving the artifact. `DECODE_MATMUL_GEOMETRY`
         # is the source of truth; this pins what the layer builds from it.
-        target, _ = DECODE_MATMUL_GEOMETRY[_DECODE_ROLE_BY_SHAPE[(LAYER_IDS[layer_idx], k, n)]]
+        target, in0_cap = DECODE_MATMUL_GEOMETRY[_DECODE_ROLE_BY_SHAPE[(LAYER_IDS[layer_idx], k, n)]]
         cols = min(int(mesh_device.compute_with_storage_grid_size().x), target)
         expected_rows = -(-target // cols) if cols else 1
         assert (int(cfg.compute_with_storage_grid_size.x), int(cfg.compute_with_storage_grid_size.y)) == (
@@ -2271,9 +2276,26 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
             f"dense decode matmul {k}x{n} has per_core_N={cfg.per_core_N} on "
             f"{cols * expected_rows} cores, which cannot cover {-(-n // 32)} output tiles"
         )
-        assert cfg.in0_block_w <= max(1, DECODE_MATMUL_IN0_TILE_BUDGET // rows), (
-            f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w} at batch {decode_batch}, above the "
-            f"{DECODE_MATMUL_IN0_TILE_BUDGET}-tile in0 budget divided by {rows} tile rows"
+        # The `in0_block_w` the rule produces, not merely a window around it. Review round 30 pointed out that
+        # this loop only bounded it - [2, 64] at batch 1 - so a role's cap could change and nothing here would
+        # notice. This pins the *rule application* exactly: the largest divisor of the K tiles within both the
+        # role's cap and the per-row budget.
+        #
+        # What it deliberately does NOT do is pin the cap's chosen value, and that limit is worth stating
+        # because the obvious reading is wrong. The expectation is derived from `DECODE_MATMUL_GEOMETRY`, so
+        # reverting `attn_in`'s cap from the 2 round 26 measured to the 8 it measured against moves the
+        # expectation with it and this assertion still passes - checked, not assumed. No test can settle that
+        # choice, because it is a measurement: README §5.4's generated table ranks each shipped row against
+        # every candidate in the family the layer actually builds, and regenerating it is what would catch a
+        # cap that stopped being the winner.
+        from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import _largest_divisor_at_most
+
+        budget = max(1, DECODE_MATMUL_IN0_TILE_BUDGET // rows)
+        expected_ibw = _largest_divisor_at_most(k // 32, min(in0_cap, budget))
+        assert int(cfg.in0_block_w) == expected_ibw, (
+            f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w} at batch {decode_batch}; the rule "
+            f"gives {expected_ibw} from cap {in0_cap} and the {DECODE_MATMUL_IN0_TILE_BUDGET}-tile budget over "
+            f"{rows} tile rows"
         )
     logger.info(
         f"decode dense matmuls layer={layer_idx} ({LAYER_IDS[layer_idx]}) batch={decode_batch}: "
