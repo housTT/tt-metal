@@ -864,6 +864,133 @@ def check_source_magnitude_words() -> list:
     return problems
 
 
+#: Words a magnitude claim may be spelled with, beyond a plain numeral. "half a percent" and "about a percent"
+#: differ by a factor of two and read almost identically, which is exactly how round 20's repair of one bullet
+#: introduced a two-fold error into another.
+CLAIM_WORDS = {"half": 0.5, "a": 1.0, "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0}
+
+#: A percentage claim in a source comment: "by ~12 %", "by about 2 %", "by half a percent", "of one percent".
+CLAIM_PERCENT = re.compile(
+    r"\bby\s+(?:about\s+|around\s+|roughly\s+|~)?(?P<value>\d+(?:\.\d+)?|" + "|".join(CLAIM_WORDS) + r")\s*"
+    r"(?:a\s+)?(?:%|percent)",
+    re.IGNORECASE,
+)
+
+#: Which rectangle a bullet says won, taken from the first verb phrase in the bullet — later sentences routinely
+#: mention the *other* orientation to say where it does not apply.
+CLAIM_WINNER = re.compile(
+    r"\bthe\s+\*?(?P<who>column|row)\*?\s+(?:wins|is\s+ahead|leads|is\s+never\s+behind)\b", re.IGNORECASE
+)
+
+#: `[ladder <active>/<role> ...]` — the generated-ladder rows a source bullet claims to be describing.
+CLAIM_TAG = re.compile(r"\[ladder\s+(?P<rows>\d+/\w+(?:\s+\d+/\w+)*)\]")
+
+
+def _orientation_ladder() -> dict:
+    """The generated orientation ladder in `work_log.md`, as ``(active, role) -> (winner, gap_percent)``.
+
+    The block is generated from ``logs/probe_sparse_matmul.txt`` by ``logs/make_readme.py`` and
+    ``check_generators`` proves it still reproduces from that artifact, so reading it here is a chain back to
+    the measurement rather than a second hand-maintained copy of it.
+    """
+    body = (DOC / "work_log.md").read_text(errors="replace")
+    block = re.search(r"<!-- generated:orientation-ladder -->(.*?)<!-- /generated:orientation-ladder -->", body, re.S)
+    if not block:
+        return {}
+    ladder = {}
+    for line in block.group(1).splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 5 or not cells[0][:1].isdigit():
+            continue
+        active = int(re.match(r"(\d+)", cells[0]).group(1))
+        role = cells[1].replace("/", "_")
+        times = [float(m) for m in re.findall(r"([\d.]+) µs", f"{cells[2]} {cells[3]}")]
+        if len(times) != 2:
+            continue
+        decisive = re.search(r"\*\*(column|row)\*\* wins by ([\d.]+) µs", cells[4])
+        # A row whose two rectangles land inside the measured spread is a *non-result*, not a missing row, and
+        # it has to be carried as one: the 64-active `gate_up` point crossed that line between two runs of the
+        # same sweep (2.2 µs beyond a ±0.8 µs spread, then 0.3 µs inside a ±3.9 µs one). Dropping it here would
+        # have made a marginal measurement look like a typo in the tag that names it.
+        nominal = re.search(r"(column|row) nominally ahead, inside the", cells[4])
+        if decisive:
+            ladder[(active, role)] = (decisive.group(1), float(decisive.group(2)) / min(times) * 100.0)
+        elif nominal:
+            ladder[(active, role)] = (nominal.group(1), None)
+    return ladder
+
+
+def check_orientation_claims() -> list:
+    """Every tagged orientation claim in a source comment must match the ladder rows it names.
+
+    ``check_source_magnitude_words`` bans a *ratio* spelled as a word, but it matches on "twice as slow"-shaped
+    phrasings and cannot see "wins by about a percent" — which is how a two-fold overstatement of the `down`
+    orientation gap shipped in-tree at zero audit problems for a full round.
+
+    The first version of this check tried to keep the magnitudes and verify them. Two consecutive sweeps then
+    falsified three different bullets without a line of shipped code changing: `162/gate_up` moved 1.9 % -> 1.5 %,
+    and the `64/gate_up` point crossed the spread boundary in both directions. That is not drift to be corrected,
+    it is the measurement's own resolution — and a comment cannot track it, because no sweep regenerates a
+    comment. So the rule is now the one the round-21 reviewer proposed: a tagged bullet states a **direction**,
+    which is stable, and cites the generated ladder for the **magnitude**, which is not. Directions are still
+    checked against the artifact here, so a sign error is caught the way round 20's was.
+    """
+    ladder = _orientation_ladder()
+    if not ladder:
+        return ["ORIENTATION-LADDER-MISSING  work_log.md has no generated:orientation-ladder block to check against"]
+    problems = []
+    for source in SOURCES:
+        if not source.is_file():
+            continue
+        # A bullet is "# * ..." plus its "#   ..." continuations, so a claim keeps the rows it was written beside.
+        for bullet in re.findall(r"^[ \t]*#[ \t]*\*[ \t].*(?:\n[ \t]*#[ \t]{2,}(?!\*).*)*", source.read_text(), re.M):
+            tag = CLAIM_TAG.search(bullet)
+            if not tag:
+                continue
+            text = " ".join(line.lstrip(" \t#") for line in bullet.splitlines())
+            rows = []
+            for token in tag.group("rows").split():
+                active, _, role = token.partition("/")
+                key = (int(active), role)
+                if key not in ladder:
+                    problems.append(
+                        f"ORIENTATION-CLAIM-ROW  {source.name}: [ladder {token}] names a row the generated "
+                        f"ladder does not have ({sorted(ladder)})"
+                    )
+                else:
+                    rows.append((token, *ladder[key]))
+            if not rows:
+                continue
+            claimed_winner = CLAIM_WINNER.search(text)
+            claimed_percent = CLAIM_PERCENT.search(text)
+            # No magnitude, at all. This is the rule that stops the treadmill: a percentage here is a
+            # run-varying figure with no generator behind it, so it is wrong as soon as the sweep is re-run.
+            if claimed_percent:
+                problems.append(
+                    f'ORIENTATION-CLAIM-MAGNITUDE  {source.name}: "{claimed_percent.group(0)}" states a '
+                    f"run-varying magnitude a source comment cannot keep true - state the direction here and "
+                    f"leave the figure to the generated ladder this bullet already cites"
+                )
+            if not claimed_winner:
+                problems.append(
+                    f'ORIENTATION-CLAIM-UNREADABLE  {source.name}: "{text[:90]}..." carries a [ladder] tag but '
+                    f"states no `the <column|row> wins/leads/is never behind` direction for the audit to check"
+                )
+                continue
+            who = claimed_winner.group("who").lower()
+            for token, winner, percent in rows:
+                if who != winner:
+                    # `percent is None` means the two rectangles landed inside the run's spread. The direction
+                    # is then only nominal, but a bullet naming the *opposite* rectangle still contradicts the
+                    # only measurement there is.
+                    where = "does" if percent is not None else "is nominally ahead, inside the run's spread"
+                    problems.append(
+                        f'ORIENTATION-CLAIM-WINNER  {source.name}: "{text[:70]}..." says the {who} leads at '
+                        f"[ladder {token}], the generated ladder says the {winner} {where}"
+                    )
+    return problems
+
+
 def check_model_facts() -> list:
     """Documents must not contradict the checkpoint's own shape constants.
 
@@ -1296,6 +1423,7 @@ def main() -> int:
     problems += check_freshness_exemptions()
     problems += check_model_facts()
     problems += check_source_magnitude_words()
+    problems += check_orientation_claims()
     problems += check_sparse_block_rule()
     problems += check_mirrored_constants()
     problems += check_generators()

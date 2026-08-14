@@ -597,18 +597,31 @@ def _sparse_matmul_config(
     # At the op (`probe_sparse_matmul.txt`, both rectangles back to back at the same in0_block_w and output
     # placement, per-row `spread=`; README §5.4's generated table re-derives all of this from the artifact):
     #
-    # * batch-1 decode, 8 active experts, both roles (the tuned decode point): the column wins by ~12 %.
-    #   Decisive, and the largest orientation effect anywhere in the sweep.
-    # * a 32-token prefill group, ~162 active, `gate_up`: the column wins by about 2 %.
-    # * the same group's `down`: the *row* wins, by about a percent, several times its measured spread. Among the
-    #   *tuned* geometries this is the only one where `down` reaches 32 cores - the largest tuned decode batch,
-    #   8, gives a 64-expert bound and realises 16 - though an untuned decode batch of 32 or more saturates the
-    #   active bound at 256 and reaches 32 cores too. Review round 12 corrected this comment, which said 64
-    #   active was the largest supported decode batch rather than the largest tuned one.
-    # * `gate_up` at 32 cores, 64 active: the column is ahead here too, by half a percent - the *same* sign as
-    #   the prefill point above, where it leads by more. The row only leads this point at `in0_block_w` 8 and 16,
-    #   which the layer never builds there (the wide phase caps at 64), so it is not a shipped comparison at all.
-    #   Review round 20 corrected this bullet, which claimed the opposite sign by reading an unshipped arm.
+    # Each bullet's `[ladder <active>/<role>]` tag names the generated-ladder rows it describes, and
+    # `audit_figures.check_orientation_claims` re-derives the winning rectangle from those rows on every run.
+    #
+    # These bullets deliberately carry no percentages. Rounds 18-20 each found a ratio here that had been true
+    # of an older artifact; round 20's own repair then overstated the `down` gap two-fold; and when round 21
+    # added a check to verify the magnitudes rather than ban them, two consecutive sweeps falsified three more
+    # bullets without a line of shipped code changing - the `162/gate_up` gap shrank by a fifth of itself, and
+    # `64/gate_up` crossed its spread boundary in both directions. A magnitude here has no generator, so it is
+    # stale the moment the sweep is re-run. The direction is stable and is what the shipped rule turns on; the
+    # figures live in README §5.4's generated table and work_log §4.14's ladder, regenerated from the artifact.
+    #
+    # * batch-1 decode, 8 active experts, both roles (the tuned decode point) [ladder 8/gate_up 8/down]: the
+    #   column wins, and by the largest margin anywhere in the sweep - decisively.
+    # * a 32-token prefill group, ~162 active, `gate_up` [ladder 162/gate_up]: the column wins again, by less.
+    # * the same group's `down` [ladder 162/down]: the *row* wins - the narrowest of the ladder's decisive
+    #   gaps, and the reason this rule was worth testing end to end at all. Among the *tuned* geometries this
+    #   is the only point where `down` reaches 32 cores - the largest tuned decode batch, 8, gives a 64-expert
+    #   bound and realises 16 - though an untuned decode batch of 32 or more saturates the active bound at 256
+    #   and reaches 32 cores too. Review round 12 corrected this comment, which said 64 active was the largest
+    #   supported decode batch rather than the largest tuned one.
+    # * `gate_up` at 32 cores, 64 active [ladder 64/gate_up]: the column is never behind - depending on the
+    #   run the ladder has it either narrowly ahead or inside the spread, so this point does not discriminate.
+    #   The row leads it only at `in0_block_w` 8 and 16, which the layer never builds there (the wide phase
+    #   caps at 64), so that is not a shipped comparison at all. Review round 20 corrected this bullet, which
+    #   claimed the row led by reading exactly those unshipped arms.
     #
     # So the op rows do argue for a `("down", 32) -> row` rule, and review round 9 asked for one. Taken and
     # measured end to end (`logs/ab_sdpa_decode_grid.txt`, arms alternating build-by-build, three timed builds

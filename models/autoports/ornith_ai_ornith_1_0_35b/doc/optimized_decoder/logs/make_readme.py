@@ -1387,15 +1387,23 @@ def block_watcher_result():
         return found.group(1) if found else "?"
 
     if stack:
-        # Every field here is a *counted* fact from the census, not one count reused as another. Round 11 found
-        # this sentence rendering the detail-line count as a dump count; round 12 found the replacement
-        # rendering the same count as a processor count and claiming one reporting core where the log has two.
-        # The tightest figure is a minimum over all the detail lines, which is what it now says.
+        # Every field here is a *counted* fact from the census, not one count reused as another, and the
+        # sentence must not multiply two of them into a total the log does not have. Round 11 found it
+        # rendering the detail-line count as a dump count; round 12 found the replacement rendering the same
+        # count as a processor count and claiming one reporting core where the log has two; round 21 found
+        # that repair reading "on each of 2 cores", which multiplies out to 30 samples where there are 15 -
+        # the cores are *distinct across* the summaries, not a second axis multiplying them. Hence "between
+        # them", and the product that does hold is asserted rather than phrased.
+        summaries, per_summary = fact("stack summaries"), fact("stack processors per summary")
+        if summaries.isdigit() and per_summary.isdigit() and int(summaries) * int(per_summary) != int(stack.group(2)):
+            raise SystemExit(
+                f"census_summary.txt disagrees with itself: {summaries} stack summaries x {per_summary} "
+                f"processors is not {stack.group(2)} detail lines"
+            )
         text += (
-            f" Watcher recorded a stack watermark in {fact('stack summaries')} of its {fact('dumps')} dumps, "
-            f"across {fact('stack processors per summary')} RISC processors on each of "
-            f"{fact('stack reporting cores')} cores; the tightest of those {stack.group(2)} samples leaves "
-            f"{stack.group(1)} bytes free."
+            f" Watcher recorded a stack watermark in {summaries} of its {fact('dumps')} dumps, "
+            f"{per_summary} RISC processors each, naming {fact('stack reporting cores')} distinct cores "
+            f"between them; the tightest of those {stack.group(2)} samples leaves {stack.group(1)} bytes free."
         )
     return (
         text + "\n\nArtifacts: [`watcher/watcher_log.txt.gz`](watcher/watcher_log.txt.gz), "

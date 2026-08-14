@@ -678,12 +678,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.3 µs** | 172.2 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
-| 8 active | down | **152.8 µs** | 171.9 µs | **column** wins by 19.1 µs, beyond the ±0.9 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.2 µs** | 579.1 µs | **column** wins by 10.9 µs, beyond the ±1.3 µs spread |
-| 162 active | down | 343.2 µs | **341.5 µs** | **row** wins by 1.7 µs, beyond the ±0.9 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.6 µs** | 387.8 µs | **column** wins by 2.2 µs, beyond the ±0.8 µs spread |
-| 64 active | down | 284.7 µs | **277.7 µs** | **row** wins by 7.0 µs, beyond the ±0.9 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.1 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.8 µs** | 172.2 µs | **column** wins by 19.4 µs, beyond the ±0.4 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **567.9 µs** | 579.0 µs | **column** wins by 11.1 µs, beyond the ±0.8 µs spread |
+| 162 active | down | 343.4 µs | **341.9 µs** | **row** wins by 1.5 µs, beyond the ±0.7 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.3 µs** | 390.5 µs | **column** wins by 5.2 µs, beyond the ±0.4 µs spread |
+| 64 active | down | 284.5 µs | **277.4 µs** | **row** wins by 7.1 µs, beyond the ±1.0 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
