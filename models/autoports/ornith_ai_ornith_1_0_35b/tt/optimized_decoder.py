@@ -2362,8 +2362,8 @@ class OptimizedDecoder(LightweightModule):
         # matmuls, so they interleave into L1. The narrow head-dim norms do not: their result reaches
         # `paged_scaled_dot_product_attention_decode`, which rejects a non-sharded Q that is not in
         # DRAM ("Q tensor buffer type must be DRAM when not sharded"). That op *does* accept a
-        # height-sharded Q in L1, so the constraint is on the interleaved form the intervening rotary,
-        # pad and concat ops produce here rather than on L1 as such - review round 26 asked for the
+        # height-sharded Q in L1, so the constraint is on the interleaved form the intervening rotary and
+        # concat ops produce here rather than on L1 as such - review round 26 asked for the
         # distinction, having just seen a whole family closed by an op-contract claim that was too broad.
         target = ttnn.L1_MEMORY_CONFIG if shape[-1] >= self.cfg.dim else ttnn.DRAM_MEMORY_CONFIG
         interleaved = ttnn.sharded_to_interleaved(out, target)
@@ -2539,10 +2539,12 @@ class OptimizedDecoder(LightweightModule):
         first = ttnn.num_cores_to_corerangeset(batch_size, grid, row_wise=True)
         if 2 * batch_size > cores:
             # Two separate launches, so there is no non-overlap rule to satisfy and both take the
-            # natural first-`batch` range. Unreachable in practice on this device: it needs
-            # `2 * batch > cores`, i.e. batch > 55 here, and the head split - and so the V passthrough -
-            # caps at `DECODE_HEAD_SPLIT_MAX_BATCH`. Review round 28 corrected a comment here that said
-            # the passthrough still applied on this branch.
+            # natural first-`batch` range. This branch **is** reached - it needs `2 * batch > cores`, i.e.
+            # batch > 55 on this grid, and `test_decode_batch_above_head_split_limit[56]` covers it. What
+            # does not apply here is the V passthrough: the head split caps at
+            # `DECODE_HEAD_SPLIT_MAX_BATCH`, so above 32 users V arrives interleaved from the generic
+            # fallback and is resharded like K. Review round 28 wrote "unreachable" here while replacing a
+            # different wrong comment, and round 29 caught it against the test that covers the branch.
             return config(first), config(first), False
         whole = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))])
         second = ttnn.num_cores_to_corerangeset_in_subcoregrids(

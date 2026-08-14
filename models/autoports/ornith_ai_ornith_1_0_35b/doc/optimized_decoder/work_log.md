@@ -703,12 +703,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.9 µs | **column** wins by 19.7 µs, beyond the ±3.0 µs spread |
-| 8 active | down | **152.6 µs** | 172.0 µs | **column** wins by 19.4 µs, beyond the ±1.1 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.1 µs** | 579.4 µs | **column** wins by 11.3 µs, beyond the ±0.6 µs spread |
-| 162 active | down | 343.2 µs | **341.6 µs** | **row** wins by 1.6 µs, beyond the ±0.7 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **386.5 µs** | 387.6 µs | **column** wins by 1.1 µs, beyond the ±0.2 µs spread |
-| 64 active | down | 286.9 µs | **277.7 µs** | **row** wins by 9.2 µs, beyond the ±1.5 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.4 µs | **column** wins by 18.9 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **153.3 µs** | 171.9 µs | **column** wins by 18.6 µs, beyond the ±2.6 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **569.0 µs** | 579.0 µs | **column** wins by 10.0 µs, beyond the ±2.0 µs spread |
+| 162 active | down | 343.2 µs | **341.8 µs** | row nominally ahead, inside the ±3.4 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.5 µs** | 387.5 µs | **column** wins by 2.0 µs, beyond the ±0.5 µs spread |
+| 64 active | down | 284.7 µs | **277.5 µs** | **row** wins by 7.2 µs, beyond the ±1.3 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -959,11 +959,16 @@ so the logical 2-versus-32 kv-head difference the pad existed to fix is never ob
 that the tensor be sharded, ROW_MAJOR, not width-sharded, with shard width equal to the last padded dimension
 and a height its shard height divides. The head split's output satisfies every one of them as produced.
 
-Two things had to move. `nlp_create_qkv_heads_decode` takes `overlap_qk_coregrid=False`, which puts K on a
-range disjoint from Q and V; and the cache write's two grids are swapped, so **V** takes the first `batch`
-cores — the range the head split emits it on — and K takes the second. The fused update requires only that its
+One thing had to move: the cache write's two grids are swapped, so **V** takes the first `batch` cores — the
+range the head split emits it on — and K is resharded onto the second. The fused update requires only that its
 two inputs be disjoint, so moving K costs nothing while moving V would cost the reshard this removes. Q and K
 still interleave: both feed the norm and rope chain, and only V reaches the cache write untouched.
+
+This paragraph originally named a second thing, `overlap_qk_coregrid=False`, and review round 28 found it
+inert — the op's wrapper forces that flag to `True` for a non-sharded input, and this `qkv` is L1 interleaved.
+Round 28 corrected the source comment and the A/B docstring and recorded the correction in §4.24, but not this
+paragraph; review round 29 found it still here. Two of three places is how a correction becomes a
+contradiction.
 
 Measured at the layer (`logs/ab_v_shard_passthrough.txt`): every timed build of the passthrough beats every
 timed build of the rebuild, by close to a percent of the step. The `full_attention` decode layout-conversion
@@ -2003,6 +2008,25 @@ the head-dim RMSNorm between the head split and the rope refuses a height-sharde
 its sharded program config, so Q and K cannot arrive at the rope still sharded; and costing the
 conversions the native spelling would need against the four transposes it would remove makes it a wash
 inside the harness band. Recorded as closed on the op line rather than left open.
+
+**Round 29** returned `more-work-needed` with three items, all documentation, and it is the round that
+closed the op-contract class. It re-derived every remaining rejection rationale in this stage against the op
+sources — the sharded-layernorm refusal, the rope width rule, the SDPA-decode core bound, `topk`'s
+multi-core width, the DRAM-sharded worker/bank equality, the four `chunk_gated_delta_rule` claims, the
+host-only conv weight preparation, the unified-MoE program count and PCC target — and found all of them
+earned. No fifth instance of the class exists in this tree.
+
+What it found instead was the *reporting* tail of rounds 25-28: corrections claimed in more places than they
+were applied. §4.24 said the inert-flag claim had been corrected "in the source comment, in §4.23 and in the
+A/B's docstring"; two of those three were. A comment round 28 wrote to replace a wrong one called the
+two-launch cache-write branch unreachable, when `test_decode_batch_above_head_split_limit[56]` exists to
+cover it. And `doc/context_contract.json` still described every decode norm as returning to DRAM — the
+behaviour §4.21 removed four rounds earlier — in the one stage-owned file the goal contract names by name.
+
+That tail is worth recording as its own lesson. Four rounds of real optimization findings were absorbed by
+editing the code and the sections that discussed it, and each time a further copy of the old claim survived
+somewhere the diff did not reach. The figure audit cannot see any of it: every one was prose about an API or
+a cross-reference between two sections.
 
 **Across rounds 18-24, one class.** Nearly every finding in those rounds was prose restating a measured value
 that later drifted, and each round's response tightened a gate rather than only fixing the sentence. Round 20
