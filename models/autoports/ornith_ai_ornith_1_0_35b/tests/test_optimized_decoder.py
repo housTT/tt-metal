@@ -2026,6 +2026,43 @@ def _sparse_gate_up_block_w(moe, *, batch: int) -> int:
     return _largest_divisor_at_most(moe.cfg.dim // 32, cap)
 
 
+def test_norm_shard_carry_refuses_a_two_dimensional_shard(mesh_device):
+    """A norm shard that is not a single row must not be handed to the projection matmul.
+
+    `mcast_in0` takes only the *count* of `in0` sender cores from the shard spec and then lays that many
+    cores out inside the matmul's own rect, so a 2-D norm shard passes every `TT_FATAL` and reads the wrong
+    cores — silently. Review round 28 predicted it; review round 32 reached it by raising
+    `NORM_SHARD_CORES` to 16, which is 8x2 on this device, measured faster at the layer, and dropped
+    `full_attention` decode PCC far below the bar (§4.25). The guard is what makes the shipped shard-carry safe
+    against a future change to that constant, so it is asserted rather than left to the constant's value.
+    """
+    decoder, _, _ = build_decoder(mesh_device, FULL_LAYER, default_weight_source())
+    decoder._decode_phase = True
+    shape = [1, 1, TILE, decoder.cfg.dim]
+
+    single_row, _ = decoder._norm_shard(TILE, decoder.cfg.dim)
+    assert (
+        single_row is not None and single_row.compute_with_storage_grid_size.y == 1
+    ), "the shipped shard count must give a single-row grid for this test to mean anything"
+    assert decoder._shard_feeds_projection(
+        "attn_in", shape, single_row
+    ), "the shipped single-row shard must still reach the in-projection"
+
+    # The 2-D shard the guard exists to refuse, built directly so the test does not depend on which
+    # constant produces it.
+    two_row = ttnn.LayerNormShardedMultiCoreProgramConfig(
+        compute_with_storage_grid_size=(8, 2),
+        subblock_w=int(single_row.subblock_w),
+        block_h=int(single_row.block_h),
+        block_w=max(1, int(single_row.block_w) // 2),
+        inplace=False,
+    )
+    assert not decoder._shard_feeds_projection("attn_in", shape, two_row), (
+        "a two-row norm shard was accepted; mcast_in0 would read the wrong cores and return wrong values "
+        "without raising, which is exactly what review round 32 measured as an 8 us 'win'"
+    )
+
+
 def test_decode_v_reaches_the_cache_on_the_head_split_shard(mesh_device, monkeypatch):
     """V must be written to the paged cache on the shard `nlp_create_qkv_heads_decode` produced.
 

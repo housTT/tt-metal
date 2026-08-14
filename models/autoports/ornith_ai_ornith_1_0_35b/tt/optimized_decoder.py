@@ -2208,7 +2208,28 @@ class OptimizedDecoder(LightweightModule):
             return False
         if int(cfg.per_core_M) != rows // TILE:
             return False
-        return norm_cfg.block_w % int(cfg.in0_block_w) == 0
+        if norm_cfg.block_w % int(cfg.in0_block_w) != 0:
+            return False
+        # The shard's cores must be the ones the matmul will actually read from, and that is **not** implied by
+        # the validation above. `matmul_multicore_reuse_mcast_1d_program_factory.cpp` takes only the *count* of
+        # in0 sender cores from the shard spec and then lays those cores out inside the **matmul's** own rect in
+        # row-major order, so a shard grid that is not the matmul rect's first `n` row-major cores passes every
+        # `TT_FATAL` and reads the wrong cores. The layer's norm shard is a single row, so requiring the matmul
+        # grid to be at least that wide makes the two coincide exactly.
+        #
+        # This is not hypothetical. Review round 28 predicted it as unreachable-but-silent; review round 32
+        # reached it: a 16-core norm shard is 8x2 on this device, it is ~8 us a step *faster* at the layer, and
+        # it drops `full_attention` decode PCC far below the acceptance bar while raising no error. It is correct with the shard
+        # carry disabled, which is what pins the cause here rather than on the norm. A latency-only A/B cannot
+        # see that, which is why `ab_norm_shard_cores.txt` now records PCC beside every arm.
+        norm_grid = norm_cfg.compute_with_storage_grid_size
+        return int(norm_grid.y if hasattr(norm_grid, "y") else norm_grid[1]) == 1 and int(
+            norm_grid.x if hasattr(norm_grid, "x") else norm_grid[0]
+        ) <= int(
+            cfg.compute_with_storage_grid_size.x
+            if hasattr(cfg.compute_with_storage_grid_size, "x")
+            else cfg.compute_with_storage_grid_size[0]
+        )
 
     def _proj_linear(self, x, weight, role):
         """Dense token-mixer projection under this role's tuned decode program config.
@@ -2244,26 +2265,34 @@ class OptimizedDecoder(LightweightModule):
     #: output and naming a ``LayerNormShardedMultiCoreProgramConfig`` moves it onto ``cores`` cores,
     #: which cuts the isolated norm's time by around a third.
     #:
-    #: On the **isolated op** the ladder is monotonic — 4 cores is fastest and 8/16/32/64 get
-    #: progressively worse as the per-core block shrinks (``logs/probe_decode_micro.txt``, ``NORM`` rows,
-    #: now min-of-three with a reported ``spread=``). On the **whole layer** that ladder does not transfer at
-    #: all: every one of 4/8/16/32 lands inside the run-to-run band the layer harness itself shows
-    #: (``logs/ab_norm_shard_cores.txt``; README §5.1 measures three builds of one arm differing by more than
-    #: ten microseconds), so the artifact does **not** rank them, and on ``linear_attention`` 8 is not even the
-    #: fastest arm. Review round 11 found this comment claiming 8 was "marginally best on both layer kinds",
-    #: which the artifact reverses. The likely mechanism is that each sharded norm pays a ``to_memory_config``
-    #: in and a ``sharded_to_interleaved`` out and those scale with the shard count, cancelling the op-level
-    #: gain — unmeasured, and not worth measuring while nothing distinguishes the arms.
+    #: On the **isolated op** 8 cores is fastest (``logs/probe_decode_micro.txt``, ``NORM`` rows, min-of-three
+    #: with a reported ``spread=``), then 4, then 16/32/64 as the per-core block shrinks. The ladder is not
+    #: monotonic in the shard count and this comment claimed it was until review round 32.
     #:
-    #: 8 therefore ships for one stated reason, and it is not a latency win: it is the shard count the rest of
-    #: the stage's norm evidence was measured at (``ab_norm_shard_width.txt`` and the §3 development ladder),
-    #: it is the value the isolated ladder's monotonic region and the layer's indifference are both consistent
-    #: with, and changing it would invalidate that evidence for nothing measurable in return.
+    #: At the **whole layer** 8 is fastest or tied at every arm measured, with the arms alternating
+    #: build-by-build (``logs/ab_norm_shard_cores.txt``): on ``full_attention`` 8/16/32 tie, and on
+    #: ``linear_attention`` 16 costs about 11 µs and 32 about 12. So 8 ships on the layer measurement, not
+    #: merely on consistency with the rest of the norm evidence.
     #:
-    #: Review round 6 found this comment claiming the ladder was monotonic *the other way* and citing
-    #: ``ab_norm_shard_width.txt``, which varies a different knob (which norms shard, not over how many
-    #: cores) and therefore could not support the claim. The 4- and 32-core arms had never been measured
-    #: whole-layer; ``ab_norm_shard_cores.txt`` exists because of that finding.
+    #: **Review round 32 found something sharper here, and it is the reason this block is long.** The
+    #: artifact then on disk showed the 16-core arm ~8 µs a step *faster* on ``full_attention``, reproducibly,
+    #: and five places in this stage - including this comment - were calling the arms indistinguishable. The
+    #: arm was faster because it was **wrong**: a 16-core shard of a 2048-wide norm is 8x2 on this device, and
+    #: :meth:`_shard_feeds_projection` let it through to a matmul that takes only the *core count* from the
+    #: shard spec and then lays those cores out inside its own rect, so it read the wrong cores. Layer decode
+    #: PCC fell far below the acceptance bar, with no error raised, and it is correct again with the shard carry
+    #: disabled - which is what pins the cause on the interaction rather than on the norm. Review round 28 had
+    #: predicted exactly this as unreachable-but-silent; round 32's latency measurement reached it.
+    #:
+    #: What ships as a result: the single-row guard in :meth:`_shard_feeds_projection`, and a
+    #: ``pcc_vs_shipped`` column in ``ab_norm_shard_cores.txt`` so a latency-only arm can never again read as
+    #: a candidate. With the guard in place the 16-core arm is correct, and it is no longer faster - the whole
+    #: gap was the corrupted path.
+    #:
+    #: Review round 6 found an earlier version of this comment claiming the isolated ladder was monotonic the
+    #: other way and citing ``ab_norm_shard_width.txt``, which varies a different knob (which norms shard, not
+    #: over how many cores); ``ab_norm_shard_cores.txt`` exists because of that finding, and review round 11
+    #: corrected a "marginally best on both kinds" claim the artifact reversed.
     NORM_SHARD_CORES = 8
 
     #: Narrowest activation that takes the sharded norm path. 0 means every decode-shaped norm

@@ -304,11 +304,15 @@ interleaved form the fused stage used puts the whole 2048-wide norm on **one cor
 input and output over 8 cores with an explicit `LayerNormShardedMultiCoreProgramConfig` takes about a
 third off it — README §5.5's generated knob table has both times, from `probe_decode_micro.py`'s `NORM`
 rows, which also sweep 4, 16, 32 and 64 cores: 16 and up get progressively worse as the per-core block
-shrinks, and 4 is inside the run-to-run spread of 8. At the *layer* none of 4/8/16/32 can be told apart at
-all — §4.13 has the A/B and what it does and does not support — so 8 ships for the reason stated there and
-nowhere else: it is the shard count every other piece of norm evidence in this stage was measured at. Review
-round 11 found this sentence giving a second, differently-worded reason, which is how a constant ends up with
-two justifications and no measurement.
+shrinks, and 4 is inside the run-to-run spread of 8. At the *layer*, with the arms alternating
+build-by-build, **8 is fastest or tied at every arm measured**: 8/16/32 tie on `full_attention`, and on
+`linear_attention` 16 costs about 11 µs and 32 about 12. So 8 ships on the layer measurement. §4.13 has the
+A/B and §4.25 has the more important story — this sentence used to say the arms could not be told apart at
+all, which was true when written and false after review round 25 changed what the conversions cost, and the
+artifact then showed a 16-core arm 8 µs *faster* that turned out to be computing the wrong thing. Review
+round 11 found this sentence giving a second, differently-worded reason for the constant, which is how one
+ends up with two justifications and no measurement; review round 32 found it with a measurement it
+contradicted.
 
 Each sharded norm pays one `to_memory_config` in, and — where its consumer cannot take the shard — one
 `sharded_to_interleaved` out, about 3 µs for a larger saving on the norm itself; README §5.5's generated knob
@@ -713,12 +717,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.4 µs** | 172.6 µs | **column** wins by 19.2 µs, beyond the ±0.6 µs spread |
-| 8 active | down | **152.6 µs** | 172.0 µs | **column** wins by 19.4 µs, beyond the ±0.6 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.0 µs** | 582.5 µs | **column** wins by 14.5 µs, beyond the ±0.5 µs spread |
-| 162 active | down | 346.0 µs | **341.4 µs** | **row** wins by 4.6 µs, beyond the ±0.5 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.6 µs | **column** wins by 2.2 µs, beyond the ±1.5 µs spread |
-| 64 active | down | 284.9 µs | **277.6 µs** | **row** wins by 7.3 µs, beyond the ±1.5 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.5 µs** | 172.3 µs | **column** wins by 18.8 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.5 µs** | 171.9 µs | **column** wins by 19.4 µs, beyond the ±0.4 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.1 µs** | 579.4 µs | **column** wins by 11.3 µs, beyond the ±3.9 µs spread |
+| 162 active | down | 345.3 µs | **344.0 µs** | **row** wins by 1.3 µs, beyond the ±1.0 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.3 µs** | 387.3 µs | **column** wins by 2.0 µs, beyond the ±0.7 µs spread |
+| 64 active | down | 285.1 µs | **278.1 µs** | **row** wins by 7.0 µs, beyond the ±1.0 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -1020,6 +1024,44 @@ its input is not sharded, and this `qkv` is L1 interleaved. Q, K and V all come 
 range, and the disjointness the fused write requires comes entirely from the two explicit cache-write
 grids. The argument has been dropped. It is worth noting what this means about the class: the stage
 wrote a *new* false op-contract claim in the very commit that removed three old ones.
+
+### 4.25 A faster arm that was computing the wrong thing — the guard review round 32 forced
+
+Review round 32 read `logs/ab_norm_shard_cores.txt` and found the 16-core arm about **8 µs a step faster**
+than the shipped 8 on `full_attention`, reproducibly across six regenerations, while five places in this
+stage — the source comment, README §5.5, §3.6, §6's round-11 entry and the A/B's own docstring — said the
+layer could not tell the arms apart. It also found the sign had flipped exactly at `cec2bac6475`, the commit
+where round 25 made the token-mixer norm hand its shard to the in-projection, and that nobody had re-read
+the artifact after the mechanism moved underneath it. On its face that was a fifth optimization of the class
+rounds 25-28 mined.
+
+**It was not an optimization. The arm was faster because it was wrong.** Adopting 16 cores drops
+`full_attention` decode PCC far below the 0.995 bar, at two different steps — no error, no warning,
+just wrong numbers. Disabling the round-25 shard carry makes the same 16-core arm correct again (0.9999),
+which pins the cause on the *interaction* rather than on the norm.
+
+The mechanism is one line of ttnn. `matmul_multicore_reuse_mcast_1d_program_factory.cpp` takes only the
+**count** of `in0` sender cores from the shard spec and then lays that many cores out inside the *matmul's*
+own rect in row-major order. A 2048-wide norm over 8 cores is an 8x1 shard, which coincides with the first
+eight row-major cores of the matmul's rect; over 16 cores it is 8x2, which does not. The matmul reads the
+wrong cores — cheaper than reading the right ones, hence the "win".
+
+Review round 28 predicted this precisely, as a residual risk it judged unreachable: "a future grid narrower
+than 8 columns, or a `NORM_SHARD_CORES`/`in0_block_w` pairing that admits a 2-D norm shard, would produce
+silently wrong results rather than an op error." Round 32's latency measurement reached it.
+
+**What ships.** `_shard_feeds_projection` now requires the norm's shard grid to be a single row no wider than
+the matmul's grid, so the two coincide by construction; with the guard in place the 16-core arm is correct
+*and* no longer faster, which is the cleanest possible confirmation that the whole gap was the corrupted
+path. `ab_norm_shard_cores.py` alternates arms build-by-build and records `pcc_vs_shipped` for every arm
+against the shipped count's own replayed output, so a latency-only arm can never again read as a candidate.
+Under that protocol 8 is fastest or tied at every arm, and the five claim sites now say that.
+
+The lesson is narrower than "measure correctness too", which this stage already does everywhere else. It is
+that **an A/B which varies a knob the correctness suite does not re-run for that knob is not evidence of a
+win** — it is evidence of a difference. This file had been quoted as evidence in five places for twenty-six
+rounds, and the thing it was missing was the one column that would have made its most eye-catching row
+obviously unusable.
 
 ---
 
@@ -1354,14 +1396,17 @@ reason.** The reviewer was right that the isolated `NORM` rows contradicted the 
 claim, that the A/B cited in its defence varies a *different* knob, and that 4 and 32 cores had never been
 measured whole-layer. Both gaps are closed: the micro-probe's `NORM`, `TOPK`, `GATE`, `SPLIT` and `SDPA`
 sections now report a measured `spread=` like the matmul probes (round 5 had fixed only those), and with
-repeats the isolated ladder turns out to be *monotonic* — 4 fastest, then 8, 16, 32, 64 — so the earlier
-non-monotonicity was single-shot noise, which is exactly what a spread exists to reveal. The new
-whole-layer A/B ([`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt)) then shows all of 4/8/16/32
-landing inside the layer harness's own run-to-run band, so it does not rank them. In the committed run the four
-arms span barely more than a microsecond on either layer kind — a couple of
-microseconds, with 8 nominally first on both. The *previous* run of the same file put 8 last on
-`linear_attention`, which is the point: this artifact resolves nothing, and any ranking read out of it is a
-reading of that run's noise. Review round 11 found this paragraph, the source comment and the A/B
+repeats the isolated ladder was recorded here as *monotonic* — 4 fastest, then 8, 16, 32, 64. It is not:
+the committed probe puts 8 first, then 4, then 16/32/64, and review round 32 corrected that here and in the
+source comment. The new whole-layer A/B
+([`logs/ab_norm_shard_cores.txt`](logs/ab_norm_shard_cores.txt)) was read at the time as landing every arm
+inside the harness's own band, and this paragraph said so.
+
+Round 32 is where that stops being true, and §4.25 has it in full. Two changes to the file answer it: the
+arms alternate build-by-build now, and each carries its replayed PCC against the shipped shard count. Under
+that protocol 8 is fastest or tied everywhere. The reason the earlier reading looked like noise in one run
+and an 8 µs win in another is that review round 25 changed what the conversions cost, after which a 16-core
+arm became both faster and silently wrong — which is precisely what a latency-only artifact cannot say. Review round 11 found this paragraph, the source comment and the A/B
 script's docstring all claiming 8 was "marginally best on both layer kinds", which is the artifact read
 backwards — and it was the replacement for the claim round 6 found wrong, which makes it the third round on
 this one constant.

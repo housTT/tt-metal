@@ -1294,8 +1294,12 @@ def block_op_knobs():
             "taken; it saves "
             + (f"{interleaved - sharded:.1f} µs" if None not in (interleaved, sharded) else "more")
             + " per norm on the isolated op and adds two layout conversions. At the whole layer the two "
-            "roughly cancel: `ab_norm_shard_cores.txt` shows the core count barely moving the layer at all, "
-            "and the only layer-level sharded-vs-interleaved comparison is step 8 of work_log §3's "
+            "roughly cancel. `ab_norm_shard_cores.txt` ranks the shard counts at the layer with the arms "
+            "alternating build-by-build: 8 is fastest or tied at every arm, 16 and 32 cost `linear_attention` "
+            "about 11-12 µs, and every arm now carries its replayed PCC against the shipped count - review "
+            "round 32 read an 8 µs win off an earlier version of this file for an arm that was silently "
+            "computing the wrong thing (§4.25). "
+            "The only layer-level sharded-vs-interleaved comparison is step 8 of work_log §3's "
             "development ladder. `ab_norm_shard_width.txt` answers a different question — whether the narrow "
             "head-dim norms should shard too — and both of its arms are sharded",
         ),
@@ -1876,6 +1880,12 @@ ADDED_TEST_ROWS = {
     "test_optimized_matches_fused": "optimized vs fused PCC at seq 1 / 130 / 300, prefill and decode",
     "test_precision_policy_reaches_the_device_tensors": (
         "every weight tensor and the KV cache hold the dtype the policy names (OPT-013, code half)"
+    ),
+    "test_norm_shard_carry_refuses_a_two_dimensional_shard": (
+        "a norm shard that is not a single row is refused before it reaches the projection matmul, because "
+        "`mcast_in0` takes only the sender-core *count* from the shard spec and would read the wrong cores "
+        "silently - the hazard review round 28 predicted and review round 32 measured as an 8 us 'win' at "
+        "a PCC far below the acceptance bar (§4.25)"
     ),
     "test_decode_v_reaches_the_cache_on_the_head_split_shard": (
         "the decode V tensor reaches `paged_fused_update_cache` on the height shard the head split "
