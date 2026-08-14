@@ -639,9 +639,18 @@ def test_permuted_page_table(mesh_device, layer_idx):
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
-@pytest.mark.parametrize("batch", [4])
+@pytest.mark.parametrize("batch", [1, 4, 13, 32])
 def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch):
-    """Batched prefill and decode, per-user page tables, against the HF golden."""
+    """Batched prefill and decode, per-user page tables, against the HF golden.
+
+    The batch list is the one ``doc/context_contract.json`` advertises, and it is exercised **on the
+    mesh** rather than inherited from the single-chip stage: TP=4 changes the per-device head counts
+    that every batch-sensitive decode op is bounded by — ``nlp_create_qkv_heads_decode`` (a 32-user
+    op limit), ``paged_fused_update_cache`` (2 x batch cores) and ``sdpa_decode`` (one core per
+    page-table row) all see ``n_heads`` 16 -> 4 and ``n_kv_heads`` 2 -> 1 here. Review round 1 of this
+    stage found this test pinned at batch 4 while three documents claimed batch 32, which is exactly
+    the class of defect the contract's own notes record being caught twice before.
+    """
     source = default_weight_source()
     seq_len = 192
     x = make_activations(batch, seq_len, seed=51)
@@ -1015,6 +1024,93 @@ def test_determinism_repeated_inputs(mesh_device, layer_idx):
             assert torch.equal(results[0][0][d], results[idx][0][d]), f"prefill run {idx} device {d} differs"
             assert torch.equal(results[0][1][d], results[idx][1][d]), f"decode run {idx} device {d} differs"
     logger.info(f"multichip determinism layer={layer_idx}: 3/3 runs bit-identical on all 4 devices")
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_traced_replay_does_not_leak(mesh_device, layer_idx):
+    """A long run of trace replays allocates nothing after the first.
+
+    ``test_repeated_run_stress`` bounds DRAM growth over the **untraced** path. The traced path is the
+    one the next stage actually replays, and it is where a CCL semaphore or a persistent all-gather
+    buffer allocated per replay would hide: a captured trace re-runs the same program, so a leak here
+    is invisible to PCC and to the untraced stress test. Review round 1 of this stage named this gap.
+
+    128 replays, and the allocation is sampled after the first 8 so trace-region warm-up is excluded
+    from the baseline rather than from the assertion.
+    """
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
+    prefill_len = 128
+    ttnn.deallocate(
+        decoder.prefill_forward(
+            to_device(mesh_device, make_activations(1, prefill_len, seed=44)), page_table=page_table
+        )
+    )
+    x_buf = to_device(mesh_device, make_activations(1, 1, seed=45))
+    pos_buf, rot_buf = decode_inputs(mesh_device, torch.tensor([prefill_len]))
+
+    def forward():
+        return decoder.decode_forward(x_buf, current_pos=pos_buf, rot_idxs=rot_buf, page_table=page_table)
+
+    ttnn.deallocate(forward())
+    ttnn.synchronize_device(mesh_device)
+    trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+    trace_out = forward()
+    ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+    ttnn.synchronize_device(mesh_device)
+
+    replays = 128
+    warmup = 8
+    allocations = []
+    for replay in range(replays):
+        ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=False)
+        ttnn.synchronize_device(mesh_device)
+        allocations.append(ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM).total_bytes_allocated_per_bank)
+    parts = shards(mesh_device, trace_out)
+    ttnn.release_trace(mesh_device, trace_id)
+
+    growth = allocations[-1] - allocations[warmup]
+    logger.info(
+        f"multichip traced replay leak layer={layer_idx}: {replays} replays, DRAM allocated "
+        f"{allocations[warmup]} -> {allocations[-1]} bytes (growth {growth})"
+    )
+    assert torch.isfinite(parts[0].float()).all()
+    for d in range(1, len(parts)):
+        assert torch.equal(parts[0], parts[d]), f"replayed output differs on device {d}"
+    assert growth == 0, f"DRAM allocation grew by {growth} bytes over {replays} trace replays"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_chunk_size_invariance(mesh_device, layer_idx):
+    """The same prefill run with two different internal chunk sizes must agree on the mesh.
+
+    The single-chip stage's control for its long-prefill path
+    (``test_full_context_chunk_size_invariance``) has no counterpart here, which review round 1
+    recorded as the reason the mesh's full-context path had no correctness cross-check at all: beyond
+    8000 tokens the HF golden is intractable on host, so the only way to check a long prefill is
+    against *itself* under a different internal decomposition.
+
+    This runs at 6000 tokens rather than the full 262144 — enough to cross both the 2048- and the
+    1024-token chunk boundary several times and to leave a non-aligned tail under both — because the
+    control is about the chunking, not about the length, and a 262144-token pair costs an hour of
+    device time to say the same thing. The length is deliberately not a multiple of either chunk.
+    """
+    source = default_weight_source()
+    seq_len = 6000
+    x = make_activations(1, seq_len, seed=63)
+    outs = []
+    for chunk in (2048, 1024):
+        decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=8192, prefill_chunk=chunk)
+        out = decoder.prefill_forward(to_device(mesh_device, x), page_table=page_table)
+        outs.append(to_host(mesh_device, out).float())
+        ttnn.deallocate(out)
+        del decoder, page_table
+    value = pcc(outs[0], outs[1])
+    logger.info(
+        f"multichip chunk-size invariance layer={layer_idx} seq_len={seq_len}: " f"chunk 2048 vs 1024 PCC={value:.6f}"
+    )
+    assert torch.isfinite(outs[1]).all()
+    assert value > BASELINE_BAR, f"chunk size changed the prefill result (PCC {value})"
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])

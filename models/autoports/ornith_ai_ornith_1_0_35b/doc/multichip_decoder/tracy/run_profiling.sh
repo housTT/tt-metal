@@ -23,9 +23,9 @@ TEST="$ROOT/tests/test_multichip_decoder.py"
 # `std::nullopt` and early-returns out of its advice for such a row, so without this flag the two
 # routed matmuls carry no Bound, no DRAM %, no FLOPs % and no advice. The count is the active
 # experts **per device**, which is what changes under expert parallelism: at batch-1 decode the
-# expected maximum over the four devices is 3.54 of the global 8 (probe_expert_parallel.txt), and
-# for a 32-token prefill group it is the expected distinct union of 256 draws over 64 local experts,
-# 64*(1-(1-1/64)^256) = 63.
+# expected maximum over the four devices is 3.512 of the global 8 (probe_expert_parallel.txt, exact
+# over the multivariate hypergeometric), and the suite measures 4; for a 32-token prefill group it is
+# the expected distinct union of 256 draws over 64 local experts, 64*(1-(1-1/64)^256) = 63.
 run_one() {
   local kind="$1" phase="$2" node="$3" sign="$4" active="$5"
   local out="$ART/$kind/$phase"

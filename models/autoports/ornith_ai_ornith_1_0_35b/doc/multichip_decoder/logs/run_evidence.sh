@@ -48,21 +48,41 @@ fi
 
 # ---------------------------------------------------------------- 3. whole-layer A/B knobs
 if has ab; then
-  echo "=== step 3/6: whole-layer A/B for the CCL spelling and the retuned decode geometry ==="
+  echo "=== step 3/6: whole-layer A/B: CCL spelling, decode geometry, routing narrowing, sparse cores ==="
   python "$LOGS/ab_layer_knobs.py" 2>/dev/null | grep -E "^ABLAYER|^#" > "$LOGS/ab_layer_knobs.txt"
   cat "$LOGS/ab_layer_knobs.txt"
 fi
 
 # ---------------------------------------------------------------- 4. isolated probes
 if has probes; then
-  echo "=== step 4/6: isolated op probes (CCL topology, dense geometry, expert parallelism) ==="
+  echo "=== step 4/6: isolated op probes (CCL, dense + sparse geometry, EP, footprint, decode batch) ==="
   python "$LOGS/probe_ccl.py" 2>/dev/null | grep -E "^CCL|^#" > "$LOGS/probe_ccl.txt"
   python "$LOGS/probe_dense_matmul.py" 2>/dev/null | grep -E "^DENSE|^#" > "$LOGS/probe_dense_matmul.txt"
   {
     python "$LOGS/probe_expert_parallel.py" --phase decode 2>/dev/null | grep -E "^MOEPAR|^#"
     python "$LOGS/probe_expert_parallel.py" --phase prefill 2>/dev/null | grep -E "^MOEPAR"
   } > "$LOGS/probe_expert_parallel.txt"
-  wc -l "$LOGS/probe_ccl.txt" "$LOGS/probe_dense_matmul.txt" "$LOGS/probe_expert_parallel.txt"
+  python "$LOGS/probe_footprint_local.py" 2>/dev/null | grep -E "^LOCALFOOTPRINT|^DEVICE|^#" \
+    > "$LOGS/probe_footprint_local.txt"
+  # The routed sparse-matmul ladder at the two per-device operating points EP creates. Two processes:
+  # the sweep builds a few hundred kernels per run and a single process exhausts L1_SMALL.
+  {
+    python "$LOGS/probe_sparse_matmul_local.py" --experts 64 --active 4 2>/dev/null | grep -E "^SPARSEL|^#"
+    python "$LOGS/probe_sparse_matmul_local.py" --experts 64 --active 63 2>/dev/null | grep -E "^SPARSEL|^#"
+  } > "$LOGS/probe_sparse_matmul_local.txt"
+  # One process per batch, for the same reason: this probe builds ~7 decoders per batch and the CCL
+  # semaphores they allocate out of L1_SMALL are not reclaimed while the mesh stays open.
+  : > "$LOGS/.decode_batch.tmp"
+  for b in 1 2 4 8 13 16 32; do
+    python "$LOGS/probe_decode_batch.py" --batches "$b" 2>/dev/null \
+      | grep -E "^SHAPE|^DECODEB|^#" >> "$LOGS/.decode_batch.tmp"
+  done
+  grep -E "^#" "$LOGS/.decode_batch.tmp" | head -3 > "$LOGS/probe_decode_batch.txt"
+  grep -E "^SHAPE|^DECODEB" "$LOGS/.decode_batch.tmp" >> "$LOGS/probe_decode_batch.txt"
+  rm -f "$LOGS/.decode_batch.tmp"
+  wc -l "$LOGS/probe_ccl.txt" "$LOGS/probe_dense_matmul.txt" "$LOGS/probe_expert_parallel.txt" \
+        "$LOGS/probe_footprint_local.txt" "$LOGS/probe_sparse_matmul_local.txt" \
+        "$LOGS/probe_decode_batch.txt"
 fi
 
 # ---------------------------------------------------------------- 5. tt-perf-report via Tracy
@@ -80,7 +100,7 @@ fi
 # `mesh_device` setup, before any model code runs:
 #     TT_FATAL: Program size (29040) too large for kernel config buffer (25600) on ACTIVE_ETH
 #              (assert.hpp:104)
-# That signature is reproduced in `logs/watcher_pytest_eth_enabled.txt` (30/30 errors in 15 s, zero
+# That signature is reproduced in `logs/watcher_pytest_eth_enabled.txt.gz` (every selected test errors in ~15 s, zero
 # tests executed). There is no environment knob that grows that buffer, so the choice is watcher
 # coverage on the 110 Tensix worker cores per chip or no watcher coverage at all. The Tensix cores
 # are where every op in this stage runs; the uninstrumented cores are the fabric routers, which this
@@ -91,7 +111,7 @@ if has watcher; then
   rm -f generated/watcher/watcher.log
   TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=1 TT_METAL_WATCHER_DISABLE_ETH=1 \
   python -m pytest "$TEST" -v -p no:randomly \
-    -k "traced_decode or determinism or stress or collectives or zero_local_active or kv_cache_is_local or ccl_modes or ragged or batched or output_is_identical or permuted_page_table or continuation" \
+    -k "traced_decode or traced_replay or determinism or stress or collectives or zero_local_active or kv_cache_is_local or ccl_modes or ragged or batched or output_is_identical or permuted_page_table or continuation" \
     > "$LOGS/watcher_pytest.txt" 2>&1 || {
       echo "!!! watcher subset failed; see $LOGS/watcher_pytest.txt" >&2; exit 1;
     }

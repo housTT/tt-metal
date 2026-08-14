@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Whole-layer A/B for the three knobs this stage introduced, on the target 4-chip mesh.
+"""Whole-layer A/B for the five knobs this stage introduced, on the target 4-chip mesh.
 
 The isolated probes (``probe_ccl.txt``, ``probe_dense_matmul.txt``) rank candidates op by op. This
 script measures what the *layer* does with each choice — warmed traced decode and warmed 2048-token
@@ -17,6 +17,16 @@ Arms:
     the retuned ``MULTICHIP_DECODE_MATMUL_GEOMETRY`` against the single-chip
     ``DECODE_MATMUL_GEOMETRY`` it replaces, i.e. what the inherited program configs cost when
     applied unchanged to the 4x narrower per-device projections.
+``sparse``
+    :data:`~...multichip_decoder.SPARSE_SCALE_CORES_BY_TP` over ``on`` (shipped) and ``off`` (the
+    inherited single-chip core rule). Only the prefill column can move: the rescaling changes the
+    routed matmuls' realised core count from 16/8 to 32/32 at a 32-token prefill group's ~63 local
+    active experts, and leaves batch-1 decode at 8 cores for both roles.
+``cast``
+    :data:`~...multichip_decoder.CCL_CAST_BLOCKFLOAT` over ``on`` (shipped) and ``off``. The MoE half
+    produces ``bfloat8_b``, so without the cast the second per-layer collective runs on a block-float
+    operand — 1492 us against the first collective's 100 us at the same logical shape in the prefill
+    profile.
 ``routing``
     :data:`~...multichip_decoder.ROUTING_SELECT_MODE` over ``select_matmul`` (shipped) and
     ``gather``: the two spellings of "narrow the replicated 256-wide dense routing vector to this
@@ -141,7 +151,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--layers", default="0,3")
     ap.add_argument("--builds", type=int, default=3)
-    ap.add_argument("--knobs", default="ccl,geometry,routing")
+    ap.add_argument("--knobs", default="ccl,geometry,routing,sparse,cast")
     args = ap.parse_args()
 
     cfg = R.load_text_config()
@@ -149,6 +159,8 @@ def main():
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(*MC.DEFAULT_MESH_SHAPE), l1_small_size=24576, trace_region_size=0)
     shipped_geometry = dict(MC._MultichipProjectionConfigs.GEOMETRY)
     shipped_routing = MC.ROUTING_SELECT_MODE
+    shipped_sparse = MC.SPARSE_SCALE_CORES_BY_TP
+    shipped_cast = MC.CCL_CAST_BLOCKFLOAT
     print("# whole-layer A/B on the 4-chip mesh; each arm built fresh, N builds per arm")
     print("# columns: knob arm layer kind build decode_ms prefill_ms finite")
     try:
@@ -161,14 +173,24 @@ def main():
                 arms += [("geometry", "multichip-retuned"), ("geometry", "single-chip-inherited")]
             if "routing" in args.knobs:
                 arms += [("routing", mode) for mode in ("select_matmul", "gather")]
+            if "sparse" in args.knobs:
+                arms += [("sparse", "tp-rescaled"), ("sparse", "single-chip-inherited")]
+            if "cast" in args.knobs:
+                arms += [("cast", "bf16"), ("cast", "block-float")]
             for knob, arm in arms:
                 MC.CCL_MODE = "auto"
                 MC.ROUTING_SELECT_MODE = shipped_routing
+                MC.SPARSE_SCALE_CORES_BY_TP = shipped_sparse
+                MC.CCL_CAST_BLOCKFLOAT = shipped_cast
                 MC._MultichipProjectionConfigs.GEOMETRY = shipped_geometry
                 if knob == "ccl":
                     MC.CCL_MODE = arm
                 elif knob == "routing":
                     MC.ROUTING_SELECT_MODE = arm
+                elif knob == "sparse":
+                    MC.SPARSE_SCALE_CORES_BY_TP = arm == "tp-rescaled"
+                elif knob == "cast":
+                    MC.CCL_CAST_BLOCKFLOAT = arm == "bf16"
                 elif arm == "single-chip-inherited":
                     MC._MultichipProjectionConfigs.GEOMETRY = dict(DECODE_MATMUL_GEOMETRY)
                 for build_idx in range(args.builds):
@@ -185,6 +207,8 @@ def main():
     finally:
         MC.CCL_MODE = "auto"
         MC.ROUTING_SELECT_MODE = shipped_routing
+        MC.SPARSE_SCALE_CORES_BY_TP = shipped_sparse
+        MC.CCL_CAST_BLOCKFLOAT = shipped_cast
         MC._MultichipProjectionConfigs.GEOMETRY = shipped_geometry
         ttnn.close_mesh_device(mesh)
         ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)

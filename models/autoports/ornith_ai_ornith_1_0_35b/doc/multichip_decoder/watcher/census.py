@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Reproduce the line-kind census and fatal-class check in CLASSIFICATION.md.
+"""Line-kind census and fatal-class check for this stage's watcher log.
 
-Copied unchanged from the optimized stage's ``watcher/census.py`` except for this note and the
-docstring path: it resolves its log relative to its own directory, so the same code classifies this
-stage's log. The bucket rules are the same because watcher's line kinds are the same; a **new** line
+Copied unchanged from the optimized stage's ``watcher/census.py`` except for this note: it resolves
+its log relative to its own directory, so the same code classifies this stage's log. The single-chip
+stage pairs it with a ``CLASSIFICATION.md`` narrative; this stage states the result in README section
+7 instead, so there is no such file here and none is referenced. The bucket rules are the same because watcher's line kinds are the same; a **new** line
 kind (an Ethernet-related one this stage could produce that the single-chip stage could not) lands in
 ``UNCLASSIFIED`` and trips the assert rather than hiding in a catch-all.
 

@@ -4,8 +4,12 @@
 
 Target hardware: the 4-chip Blackhole ``p300c`` ring on this host (2 x p300 dual-ASIC cards,
 ``ClusterType.P300_X2``, every chip degree 2, 2 ethernet links per hop). The mesh is opened as
-``ttnn.MeshShape(1, 4)`` under ``FabricConfig.FABRIC_1D_RING`` and every collective runs
-``ttnn.Topology.Ring``.
+``ttnn.MeshShape(1, 4)`` under ``FabricConfig.FABRIC_1D_RING``, which is what actually selects the
+ring for every collective. ``ttnn.Topology.Ring`` is additionally passed to the ops that still accept
+it (``all_reduce``, ``reduce_scatter``); ``ttnn.all_gather`` deprecated and **ignores** both
+``topology`` and ``num_links`` (``all_gather_nanobind.cpp``), so the shipped decode collective takes
+the ring from the fabric config alone. ``probe_ccl.py`` uses the identical spelling, so the measured
+Ring-vs-Linear comparison is a comparison of fabric configs, which is where the difference lives.
 
 Baseline
 --------
@@ -97,6 +101,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     DEFAULT_ROPE_MODE,
     POLICIES,
     PREFILL_ALIGN,
+    SPARSE_CORES_PER_ACTIVE,
     TILE,
     OptimizedDecoder,
     OptimizedMoE,
@@ -139,10 +144,15 @@ DEFAULT_MESH_SHAPE = (1, 4)
 #: fabric gives both directions; ``FABRIC_1D`` (line) works and is measured as the rejected arm.
 DEFAULT_FABRIC_CONFIG = ttnn.FabricConfig.FABRIC_1D_RING
 
-#: Topology every collective is issued with.
+#: Topology passed to the collectives that still accept one. ``ttnn.all_reduce`` and
+#: ``ttnn.reduce_scatter`` take it; ``ttnn.all_gather`` marks both ``topology`` and ``num_links``
+#: deprecated and ignored, so the ``stack_sum`` path takes the ring from :data:`DEFAULT_FABRIC_CONFIG`
+#: instead. That is not a gap: the fabric config is what selects the ring, and it is set before
+#: ``ttnn.open_mesh_device`` for every process in this stage.
 DEFAULT_CCL_TOPOLOGY = ttnn.Topology.Ring
 
-#: Ethernet links per hop on this machine (both directions of the ring are 2-wide).
+#: Ethernet links per hop on this machine (both directions of the ring are 2-wide). Passed to the
+#: same ops as :data:`DEFAULT_CCL_TOPOLOGY`, and ignored by ``ttnn.all_gather`` for the same reason.
 DEFAULT_CCL_NUM_LINKS = 2
 
 #: Tensor-parallel / expert-parallel factor. One number, because the same four devices carry both.
@@ -183,6 +193,55 @@ CCL_MODE = "auto"
 #: measure the layer-level effect of this switch end to end, and README section 5.5 tabulates it;
 #: no figure is quoted here, because this file states no run-varying absolute timing.
 CCL_STACK_SUM_MAX_ROWS = 64
+
+#: Whether a block-float activation is cast to ``bfloat16`` before the collective. **Off**, measured.
+#:
+#: The MoE half of the layer produces ``bfloat8_b`` (the optimized stage's routed-expert activation
+#: dtype), so the second per-layer collective is handed a block-float tensor while the first gets
+#: ``bfloat16``. In the prefill profile those two are the same logical shape and wildly different
+#: cost: ``tracy/full_attention/prefill_perf_report.txt`` has the BF16 reduce-scatter at ~100 us on 20
+#: cores and the BFP8 one at ~1500 us on 12 cores, 4.8% of the whole prefill window and the largest
+#: non-sparse item in it. That reads as an obvious win, and it is not one.
+#:
+#: The ``cast`` arm of ``doc/multichip_decoder/logs/ab_layer_knobs.txt`` measures it at the layer:
+#: casting up costs ~5 us on every decode step and moves warmed prefill by **nothing** — the arms'
+#: three-build ranges overlap on both layer kinds. So the profiler's ~1500 us is not data movement
+#: this layer pays; it is the collective's barrier absorbing the per-device expert-load imbalance that
+#: expert parallelism creates, attributed to the op that waits. Removing the block-float operand — the
+#: only difference between the two collectives — changes the block-float row's cost and not the
+#: layer's, which is what distinguishes the two explanations.
+#:
+#: Kept as a knob rather than deleted because that null result is the control for the anomaly, and
+#: because a future dtype policy could move the boundary.
+CCL_CAST_BLOCKFLOAT = False
+
+#: Whether the routed sparse matmuls' core target is rescaled for expert parallelism.
+#:
+#: ``OptimizedMoE`` targets ``clamp(active // SPARSE_CORES_PER_ACTIVE[role], 8, 32)`` cores. The
+#: divisor means "work per core, per active expert" and was calibrated at ``E = 256``. EP divides the
+#: per-device active count by ``tp`` **without** changing ``Nt`` (``moe_intermediate_size`` and
+#: ``dim`` are not sharded), so inheriting the divisor collapses the core target exactly where the
+#: available parallelism did not change. :meth:`MultichipMoE._sparse_cfg` has the derivation and the
+#: measured cost; ``doc/multichip_decoder/logs/probe_sparse_matmul_local.txt`` is the sweep and the
+#: ``sparse`` arm of ``ab_layer_knobs.txt`` is the whole-layer A/B. Off reproduces the inherited
+#: behaviour.
+SPARSE_SCALE_CORES_BY_TP = True
+
+#: Whether a rank-3 ``[b, t, dim]`` activation is folded to ``[1, 1, b * t, dim]`` before the
+#: collective and viewed back after.
+#:
+#: A tile's row axis is the *sequence* axis, so a decode activation ``[b, 1, dim]`` occupies ``b``
+#: tile rows — ``b * 32`` physical rows — of which ``b`` carry data. The collective moves the padding
+#: too. At the advertised batch bound of 32 that is 1024 rows to reduce 32, and the layer's other
+#: collective already runs on the compacted ``[1, 1, tokens, dim]`` form that ``_block`` builds for
+#: the MoE, so without this the same logical reduction costs 32x more at one call site than the
+#: other in the same forward.
+#:
+#: Off at batch 1, where ``[1, 1, dim]`` is already one tile row and the reshape would be pure
+#: overhead: the guard compares the physical row count against ``align_up(b * t, 32)`` and only folds
+#: when it is strictly larger. ``doc/multichip_decoder/logs/probe_decode_batch.txt`` records both the
+#: measured shapes at each call site and the traced-decode A/B at batch 1/4/13/32.
+CCL_COMPACT_ROWS = True
 
 #: How the globally-routed dense score vector is narrowed to this device's expert block.
 #: ``"select_matmul"`` multiplies the replicated ``[1, 1, tokens, 256]`` vector by a mesh-sharded
@@ -336,6 +395,11 @@ class _MultichipProjectionConfigs(_ProjectionConfigs):
         return self._cache[key]
 
 
+#: Block-float dtypes, which pack a shared exponent per 16 datums. A collective on one of these is
+#: measurably slower than on ``bfloat16`` at the same logical shape; see :data:`CCL_CAST_BLOCKFLOAT`.
+_BLOCK_FLOAT_DTYPES = (ttnn.bfloat8_b, ttnn.bfloat4_b)
+
+
 def kv_head_owner(kv_heads: int, tp: int, device: int) -> int:
     """Which global kv head device ``device`` owns when ``kv_heads < tp``."""
     return device // (tp // kv_heads)
@@ -390,6 +454,36 @@ class MultichipMoE(OptimizedMoE):
         #: forward paths entirely — which ``test_no_host_fallback_in_forward`` checks and which a
         #: lazily-built buffer would break the first time a shape was seen inside a measured pass.
         self._mask_floor = self._build_mask_floor() if MOE_MASK_FLOOR and tp > 1 else None
+
+    # ---------------- sparse geometry ----------------
+    def _sparse_cfg(self, role: str, tokens: int, active_bound: int):
+        """The inherited sparse-matmul config, with the core target rescaled for expert parallelism.
+
+        ``OptimizedMoE`` picks the routed matmul's core target as
+        ``clamp(active_bound // SPARSE_CORES_PER_ACTIVE[role], SPARSE_MIN_CORES, SPARSE_MAX_CORES)``.
+        The divisor encodes "how much work one core should be given per active expert", and it was
+        calibrated at ``E = 256``, where a 32-token prefill group activates ~162 experts. Expert
+        parallelism does not change ``Nt`` — ``moe_intermediate_size`` and ``dim`` are not sharded, so
+        the op still produces 32 and 64 output tiles — but it divides the *active* count by ``tp``, to
+        ~63 per device. Inherited unchanged, that collapses the core target exactly where the
+        available parallelism did not change: ``gate_up`` 32 -> 16 realised cores and ``down`` 32 -> 8.
+
+        ``doc/multichip_decoder/logs/probe_sparse_matmul_local.txt`` re-runs the single-chip sweep's
+        candidate ladder at the per-device operating point and measures the cost of that collapse:
+        at ``active = 63`` the shipped-inherited geometries are 244.8 us (``gate_up``, 16 cores) and
+        235.7 us (``down``, 8 cores) against 199.4 and 105.2 at 32 cores. The routed matmuls are 76-78%
+        of the prefill window, so this is the largest single item this stage's re-tuning found.
+
+        The fix is one number per role, and it is the same number the divisor already means: with
+        ``tp`` times fewer active experts per device, each core should be given ``tp`` times fewer of
+        them. Rather than re-declare the rule, this scales the bound it is applied to, so the parent's
+        clamping, its realised-core reduction and its ``in0_block_w`` cap all still run exactly once
+        and in the parent. At ``active = 4`` (batch-1 decode) the scaled bound still clamps to
+        ``SPARSE_MIN_CORES`` = 8, which the same sweep confirms is the winner for both roles there —
+        so decode geometry is unchanged, and only the prefill point moves.
+        """
+        scale = SPARSE_CORES_PER_ACTIVE[role] if SPARSE_SCALE_CORES_BY_TP else 1
+        return super()._sparse_cfg(role, tokens, active_bound * scale)
 
     # ---------------- router ----------------
     def routing_weights(self, x):
@@ -570,9 +664,35 @@ class MultichipDecoder(OptimizedDecoder):
         the MoE's (routed partial sum + shared-expert row-parallel partial). Both operands are the
         residual-shaped ``[b, t, dim]``, which is the smallest tensor either half can be reduced on:
         reducing earlier would carry the un-projected 4096-wide head/intermediate stream instead.
+
+        ``[b, t, dim]`` is not the smallest *physical* tensor, though, and at decode the difference
+        is the whole cost. A tile's row axis is the sequence axis, so a decode activation
+        ``[b, 1, dim]`` occupies ``b`` tile rows — ``b * 32`` physical rows — of which ``b`` carry
+        data. :data:`CCL_COMPACT_ROWS` folds the batch into the row axis as ``[1, 1, b * t, dim]``
+        first, which is exactly the layout the MoE call site already uses (``_block`` reshapes to
+        ``[1, 1, tokens, dim]`` before the FF norm), so at batch 32 the two collectives in one
+        forward stop differing by 32x in the rows they move. Measured in
+        ``doc/multichip_decoder/logs/probe_decode_batch.txt``, which also records the shapes each
+        call site is handed rather than inferring them from this docstring.
         """
         if self.tp == 1:
             return tensor
+        if CCL_CAST_BLOCKFLOAT and tensor.dtype in _BLOCK_FLOAT_DTYPES:
+            wide = ttnn.typecast(tensor, ttnn.bfloat16, memory_config=tensor.memory_config())
+            ttnn.deallocate(tensor)
+            tensor = wide
+        dims = [int(d) for d in tensor.shape]
+        compact = (
+            CCL_COMPACT_ROWS and len(dims) == 3 and _physical_rows(tensor.shape) > _align_up(dims[0] * dims[1], TILE)
+        )
+        if compact:
+            packed = ttnn.reshape(tensor, [1, 1, dims[0] * dims[1], dims[2]])
+            ttnn.deallocate(tensor)
+            reduced = self._all_reduce(packed)
+            out = ttnn.reshape(reduced, dims)
+            if out is not reduced:
+                ttnn.deallocate(reduced)
+            return out
         mode = CCL_MODE
         if mode == "auto":
             mode = "stack_sum" if _physical_rows(tensor.shape) <= CCL_STACK_SUM_MAX_ROWS else "all_reduce"
