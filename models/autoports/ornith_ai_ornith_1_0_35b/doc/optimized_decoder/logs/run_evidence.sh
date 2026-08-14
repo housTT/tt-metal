@@ -146,6 +146,13 @@ echo "=== 4h/9  whole-layer A/B: routed in0 placement, and every shipped policy'
   python "$LOGS/ab_routed_in0.py"
 } 2>&1 | grep -aE "^ROUTEDIN0|^POLICYPREFILL|^#" > "$LOGS/ab_routed_in0.txt"
 
+echo "=== 4i/9  whole-layer A/B: the residual norm shard carried into the in-projection ==="
+{
+  echo "# Norm shard carried into attn_in/gdn_in vs interleaved between them (round 25)."
+  echo "# Command: python doc/optimized_decoder/logs/ab_sharded_norm_in0.py"
+  python "$LOGS/ab_sharded_norm_in0.py"
+} 2>&1 | grep -aE "^SHARDEDNORM|^#" > "$LOGS/ab_sharded_norm_in0.txt"
+
 echo "=== 4g/9  the prefill chunked-SDPA sweep, the knob round 14 found unmeasured ==="
 {
   echo "# Prefill chunked-SDPA program config sweep at the shipped 2048-token chunk."

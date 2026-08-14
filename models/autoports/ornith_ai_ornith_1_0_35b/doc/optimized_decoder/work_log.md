@@ -146,7 +146,10 @@ Cumulative traced decode, both layer kinds, `logs/bench.py`, batch 1:
 | 14 | gated-DeltaNet output activation bfloat16 (§4.11) | 0.858 | 1.071 |
 | 15 | routed gate/up `in0_block_w` follows the active-expert bound (review round 6, §4.15) | 0.849 | 1.061 |
 | 16 | two float32 promotions folded into the producing multiply (review round 14, §4.19) | 0.849 | 1.044 |
-| 17 | the router's zero scatter-target hoisted out of the trace (review round 15, §4.19) | **0.846** | **1.038** |
+| 17 | the router's zero scatter-target hoisted out of the trace (review round 15, §4.19) | 0.846 | 1.038 |
+| 18 | the token-mixer norm's shard carried into the in-projection (review round 25, §4.21) | *README §5.2* | *README §5.2* |
+
+Row 18 carries no number of its own: it is the level that ships, and the ladder's rule is that the shipped level is README §5.2's generated table, always. Every earlier row is an intermediate revision that no longer exists to re-measure, which is why those rows keep their figures; the last row would simply go stale on the next sweep. `logs/ab_sharded_norm_in0.txt` has the paired arms this row is the win from.
 
 Rows 16 and 17 are `linear_attention`-weighted for the same reason: the folded promotions are in the
 recurrent-state path, which only that kind runs, and the hoisted target is shared by both but is a larger
@@ -293,10 +296,15 @@ nowhere else: it is the shard count every other piece of norm evidence in this s
 round 11 found this sentence giving a second, differently-worded reason, which is how a constant ends up with
 two justifications and no measurement.
 
-The 1D `mcast_in0` projection matmul that consumes the result needs an interleaved `in0` back, so
-each sharded norm pays one `to_memory_config` in and one `sharded_to_interleaved` out — about 3 µs
-for a larger saving on the norm itself — README §5.5's generated knob table carries both times, from
-the probe. Net effect on the layer: rows 7→8 of §3's ladder.
+Each sharded norm pays one `to_memory_config` in, and — where its consumer cannot take the shard — one
+`sharded_to_interleaved` out, about 3 µs for a larger saving on the norm itself; README §5.5's generated knob
+table carries both times, from the probe. Net effect on the layer: rows 7→8 of §3's ladder.
+
+The `sharded_to_interleaved` on the **token-mixer** norm is gone as of review round 25: the 1D `mcast_in0`
+projection consumes a width-sharded `in0` directly, so the shard is carried straight into `attn_in`/`gdn_in`.
+Until that round this section asserted the opposite — that `mcast_in0` "needs an interleaved `in0` back" — and
+that assertion closed the sharded-residual family `$optimize` OPT-003 makes mandatory. §4.21 records what the op
+actually validates, why the probe could not contradict the claim, and the whole-layer A/B.
 `test_no_layout_churn_in_measured_forward` budgets those conversions exactly (5 and 14 per decode
 step, from 1 and 6) and itemises each one.
 
@@ -690,12 +698,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.2 µs** | 172.3 µs | **column** wins by 19.1 µs, beyond the ±0.3 µs spread |
-| 8 active | down | **152.6 µs** | 172.0 µs | **column** wins by 19.4 µs, beyond the ±0.5 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **571.3 µs** | 578.8 µs | **column** wins by 7.5 µs, beyond the ±0.8 µs spread |
-| 162 active | down | 343.3 µs | **342.0 µs** | **row** wins by 1.3 µs, beyond the ±0.9 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.3 µs** | 387.5 µs | **column** wins by 2.2 µs, beyond the ±0.6 µs spread |
-| 64 active | down | 284.6 µs | **277.6 µs** | **row** wins by 7.0 µs, beyond the ±1.4 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.6 µs** | 172.0 µs | **column** wins by 18.4 µs, beyond the ±0.4 µs spread |
+| 8 active | down | **152.6 µs** | 171.5 µs | **column** wins by 18.9 µs, beyond the ±0.6 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **571.3 µs** | 580.0 µs | **column** wins by 8.7 µs, beyond the ±1.0 µs spread |
+| 162 active | down | 343.4 µs | **341.3 µs** | **row** wins by 2.1 µs, beyond the ±0.6 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.6 µs** | 387.5 µs | **column** wins by 1.9 µs, beyond the ±0.7 µs spread |
+| 64 active | down | 284.9 µs | **277.4 µs** | **row** wins by 7.5 µs, beyond the ±1.1 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -863,6 +871,40 @@ the argument for mechanical agreement over careful proofreading, in one data poi
 count: §3.9 credits it with two real wins, the state L1 placement and the `repeat_interleave` tilize. Round 24
 found this sentence and the one in §6's round-6 entry both writing it as though no earlier round had produced
 performance.)
+
+### 4.21 Carrying the residual norm's shard into the in-projection — taken, and the claim that blocked it
+
+This is the one optimization in this stage that was closed by an assertion rather than by a measurement, and it
+is worth recording how, because no amount of proofreading would have found it.
+
+§3.6 and README §10 both said the 1D `mcast_in0` projection needs an interleaved `in0`, and that the
+DRAM-sharded family "is the only one that consumes a width-sharded `in0`". On that basis the sharded-residual
+family — which `$optimize` OPT-003 makes mandatory when a norm output is interleaved before a matmul — was
+closed, and the layer paid a `sharded_to_interleaved` after every residual norm.
+
+**The op says otherwise.** `ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp` validates a
+sharded `in0` for `mcast_in0` explicitly, requiring WIDTH_SHARDED, ROW_MAJOR, `fuse_batch`,
+`per_core_M == shard_shape[0] / tile_h`, and `(shard_shape[1] / tile_w) % in0_block_w == 0`. The decode residual
+norm already produces exactly that shape, and `attn_in`/`gdn_in` ship an `in0_block_w` that divides the norm's
+per-core shard width. The conversion was pure overhead.
+
+**Where the false claim came from.** Not from a measurement — from the *probe*. Every `mcast1d` row in
+`probe_dense_matmul.py` created its activation once, DRAM-interleaved, and reused it for every arm; only the
+`dram_sharded` family ever resharded. So the artifact could not contain a counterexample, and the claim read as
+though the sweep supported it. The probe now has a `mcast1d_sharded_in0` family, and the sharded-`in0` rows are
+in `probe_dense_matmul.txt` alongside the interleaved ones.
+
+**Taken, on a whole-layer A/B.** `logs/ab_sharded_norm_in0.txt` alternates the arms build-by-build, three timed
+builds each, discarding each arm's first: every timed build of the shard-carried arm beats every timed build of
+the interleaved-between arm, on both layer kinds. `_shard_feeds_projection` re-derives each of the op's
+conditions rather than assuming them, so a role that does not qualify keeps the interleaved path, and
+`test_decode_norm_shard_reaches_the_in_projection` asserts the projection really receives a width-sharded `in0`
+— the test fails on the pre-round-25 path, which was checked rather than assumed.
+
+**Not taken for the MoE norm.** Its consumer is `shared_in`, whose tuned `in0_block_w` is wider than the norm's
+per-core shard, so the shard is not expressible there without narrowing the inner block — which
+`probe_dense_matmul.txt` measures as slower. That is a measurement, not an assertion, which is the distinction
+this section exists to make.
 
 ---
 

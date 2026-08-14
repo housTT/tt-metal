@@ -2144,6 +2144,39 @@ class OptimizedDecoder(LightweightModule):
             ttnn.multiply(buf, 0.0, output_tensor=buf)
 
     # ------------------------------------------------------------------ small helpers
+    def _shard_feeds_projection(self, role, shape, norm_cfg) -> bool:
+        """Can ``role``'s tuned decode config consume this norm's width-sharded output directly?
+
+        Every condition here mirrors the ``mcast_in0`` sharded-``in0`` validation in
+        ``ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp``: WIDTH_SHARDED and
+        ROW_MAJOR (which :meth:`_norm_shard` always builds), ``fuse_batch`` (always set here),
+        ``per_core_M == shard_shape[0] / tile_h``, and ``block_w % in0_block_w == 0`` where
+        ``block_w`` is the per-core shard width in tiles. The last is the binding one: the residual
+        norms shard ``dim`` over :attr:`NORM_SHARD_CORES`, so a role whose ``in0_block_w`` exceeds
+        that per-core width cannot take the shard. That is why the MoE roles are excluded — their
+        tuned ``in0_block_w`` is wider than the norm's per-core shard, and lowering it to fit is
+        measurably slower (`logs/probe_dense_matmul.txt`).
+        """
+        if not self._decode_phase:
+            return False
+        weight = self.w.get(role)
+        if weight is None:
+            return False
+        rows = _physical_rows(shape)
+        cfg = self.proj_cfgs.get(
+            role,
+            rows,
+            shape[-1],
+            int(weight.shape[-1]),
+            fp32_acc=self.policy.proj_fp32_acc,
+            decode=True,
+        )
+        if cfg is None or not getattr(cfg, "mcast_in0", False) or not getattr(cfg, "fuse_batch", False):
+            return False
+        if int(cfg.per_core_M) != rows // TILE:
+            return False
+        return norm_cfg.block_w % int(cfg.in0_block_w) == 0
+
     def _proj_linear(self, x, weight, role):
         """Dense token-mixer projection under this role's tuned decode program config.
 
@@ -2261,14 +2294,22 @@ class OptimizedDecoder(LightweightModule):
             self._norm_shard_cache[key] = cached
         return cached
 
-    def _norm(self, x, weight):
+    def _norm(self, x, weight, *, keep_sharded_for=None):
         """Zero-centered RMSNorm — the ``+1`` is already folded into ``weight``.
 
         Decode-shaped activations take a width-sharded multi-core program config; everything else
-        keeps the interleaved form. The sharded arm pays one shard in and one interleave out — the
-        1D ``mcast_in0`` projection matmul that consumes the result needs an interleaved ``in0`` —
-        and still wins at this shape — README §5.5's generated knob table has the interleaved and
+        keeps the interleaved form. README §5.5's generated knob table has the interleaved and
         width-sharded times, and `logs/ab_norm_shard_cores.txt` has the whole-layer comparison.
+
+        ``keep_sharded_for`` names the projection role that consumes this norm. When the role's tuned
+        config can take the shard directly, the result is returned **still width-sharded** and the
+        ``sharded_to_interleaved`` between norm and projection disappears. Until review round 25 this
+        stage asserted that no such case existed — that ``mcast_in0`` requires an interleaved ``in0``
+        — and rejected the whole sharded-residual family on it. The assertion was false, and it came
+        from the probe rather than the op: every ``mcast1d`` row in `probe_dense_matmul.py` handed the
+        op a DRAM-interleaved activation, so no row could contradict it.
+        ``matmul_device_operation.cpp`` validates a sharded ``in0`` for ``mcast_in0`` explicitly, and
+        :meth:`_shard_feeds_projection` re-derives each of its conditions here.
         """
         shape = [int(d) for d in x.shape]
         cfg, mem = self._norm_shard(_physical_rows(shape), shape[-1]) if self._decode_phase else (None, None)
@@ -2277,6 +2318,8 @@ class OptimizedDecoder(LightweightModule):
         x_sh = ttnn.to_memory_config(x, mem)
         out = ttnn.rms_norm(x_sh, weight=weight, epsilon=self.cfg.norm_eps, program_config=cfg, memory_config=mem)
         ttnn.deallocate(x_sh)
+        if keep_sharded_for is not None and self._shard_feeds_projection(keep_sharded_for, shape, cfg):
+            return out
         # Back to DRAM interleaved, which is the layout every consumer of a norm here expects: the
         # 1D `mcast_in0` projection matmul needs an interleaved `in0`, and
         # `paged_scaled_dot_product_attention_decode` rejects a non-sharded Q that is not in DRAM.
@@ -3210,7 +3253,14 @@ class OptimizedDecoder(LightweightModule):
         """One decoder block: norm → mixer → residual → norm → MoE → residual."""
         self._decode_phase = mode == "decode"
         b, t = x.shape[0], x.shape[1]
-        attn_in = self._norm(x, self.w["attn_norm"])
+        # The token-mixer norm hands its shard straight to the in-projection when that projection's
+        # tuned config can take it (§4.21). The MoE norm below cannot: its consumer is `shared_in`,
+        # whose `in0_block_w` is wider than the norm's per-core shard.
+        attn_in = self._norm(
+            x,
+            self.w["attn_norm"],
+            keep_sharded_for=("attn_in" if self.is_full_attention else "gdn_in") if mode == "decode" else None,
+        )
         if self.is_full_attention:
             if mode == "prefill":
                 mixed = self._attention_prefill(attn_in, page_table, chunk_start_idx)

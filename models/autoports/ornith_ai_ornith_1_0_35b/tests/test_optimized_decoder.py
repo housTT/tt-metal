@@ -534,11 +534,15 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
     #                  + 4 x (to_memory_config + sharded_to_interleaved) for the width-sharded
     #                    RMSNorms: input, post-attention, and the Q and K head-dim norms
     #
-    # The four new conversions on `linear_attention` and eight on `full_attention` — 1 -> 5 and 6 -> 14 against
-    # `test_fused_decoder`'s budgets, two per sharded norm — are this stage's own, and they are the price of the norm
+    # The new conversions on `linear_attention` and `full_attention` — 1 -> 4 and 6 -> 13 against
+    # `test_fused_decoder`'s budgets — are this stage's own, and they are the price of the norm
     # win, not churn: ``ttnn.rms_norm`` parallelises over rows, so an interleaved decode norm (one
-    # tile of rows) runs on a single core, and the 1D ``mcast_in0`` projection matmul that consumes
-    # the result needs an interleaved ``in0`` back. The conversions cost less than the norm saves;
+    # tile of rows) runs on a single core. Each sharded norm pays a ``to_memory_config`` in; only the
+    # norms whose consumer cannot take the shard also pay a ``sharded_to_interleaved`` out. Review
+    # round 25 removed one per decode step on each layer kind by carrying the token-mixer norm's shard
+    # straight into the in-projection (§4.21) — which is why these budgets are one lower than they
+    # were, and why an upper bound would have hidden the improvement instead of recording it.
+    # The conversions cost less than the norm saves;
     # ``doc/optimized_decoder/logs/probe_decode_micro.txt``'s ``NORM`` rows carry the interleaved and
     # width-sharded times (README §5.5 quotes them), and ``ab_norm_shard_width.txt`` is a different
     # question — whether the narrow head-dim norms should shard too — not this trade.
@@ -553,9 +557,9 @@ def test_no_layout_churn_in_measured_forward(mesh_device, layer_idx, seq_len, mo
         decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
         budgets = {
             (LINEAR_LAYER, "prefill"): 12,
-            (LINEAR_LAYER, "decode"): 5,
+            (LINEAR_LAYER, "decode"): 4,
             (FULL_LAYER, "prefill"): 3,
-            (FULL_LAYER, "decode"): 14,
+            (FULL_LAYER, "decode"): 13,
         }
         x = to_device(mesh_device, make_activations(1, seq_len, seed=93))
         d = to_device(mesh_device, make_activations(1, 1, seed=94))
@@ -1993,6 +1997,64 @@ def _sparse_gate_up_block_w(moe, *, batch: int) -> int:
     realised = _largest_divisor_at_most(_sparse_n_tiles(moe.cfg, "gate_up"), max(1, target))
     cap = SPARSE_GATE_UP_IN0_BLOCK_W[realised > SPARSE_MIN_CORES]
     return _largest_divisor_at_most(moe.cfg.dim // 32, cap)
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_decode_norm_shard_reaches_the_in_projection(mesh_device, layer_idx, monkeypatch):
+    """The token-mixer norm must hand its width shard straight to the in-projection.
+
+    Until review round 25 this stage inserted a ``sharded_to_interleaved`` here, on the belief that
+    ``mcast_in0`` cannot consume a width-sharded ``in0``. The op validates exactly that case, the
+    belief came from a probe that only ever passed interleaved activations, and removing the
+    conversion is worth ~0.6-0.9 % of a traced decode step on both layer kinds
+    (`logs/ab_sharded_norm_in0.txt`). Nothing in a PCC test can see the conversion come back, so the
+    memory config the projection is actually called with is asserted here.
+    """
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, default_weight_source())
+    role = "attn_in" if decoder.is_full_attention else "gdn_in"
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 128, seed=97)), page_table=page_table)
+    )
+
+    seen = {}
+    real_linear = ttnn.linear
+
+    def record(*args, **kwargs):
+        if int(args[1].shape[-1]) == int(decoder.w[role].shape[-1]) and role not in seen:
+            seen[role] = args[0].memory_config()
+        return real_linear(*args, **kwargs)
+
+    monkeypatch.setattr(ttnn, "linear", record)
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128]))
+    ttnn.deallocate(
+        decoder.decode_forward(
+            to_device(mesh_device, make_activations(1, 1, seed=98)),
+            current_pos=current_pos,
+            rot_idxs=rot_idxs,
+            page_table=page_table,
+        )
+    )
+    monkeypatch.undo()
+
+    assert role in seen, f"{role} projection never ran"
+    mem = seen[role]
+    assert mem.memory_layout == ttnn.TensorMemoryLayout.WIDTH_SHARDED, (
+        f"{role} received a {mem.memory_layout} `in0`; the norm's shard is being interleaved away again, "
+        "which is the pre-round-25 path and costs a `sharded_to_interleaved` per step"
+    )
+    assert mem.buffer_type == ttnn.BufferType.L1
+    # The op's own divisibility rule, re-derived: the per-core shard width in tiles must be a whole
+    # number of `in0_block_w` blocks, or `mcast_in0` rejects the tensor outright.
+    shard_w_tiles = mem.shard_spec.shape[1] // 32
+    cfg = decoder.proj_cfgs.get(
+        role,
+        32,
+        decoder.cfg.dim,
+        int(decoder.w[role].shape[-1]),
+        fp32_acc=decoder.policy.proj_fp32_acc,
+        decode=True,
+    )
+    assert shard_w_tiles % int(cfg.in0_block_w) == 0
 
 
 #: The tuned dense decode configs are keyed on ``per_core_M``, which equals the batch for the four token-mixer

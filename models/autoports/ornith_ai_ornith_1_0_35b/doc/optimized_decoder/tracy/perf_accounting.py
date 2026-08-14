@@ -273,7 +273,7 @@ def main():
                 "ttnn.sparse_matmul parallelism is capped by the output tile count (Nt) and it loops "
                 "once per active expert at a single tile of M, so the two routed projections stay far "
                 "below both rooflines even after the geometry sweep - the report's own DRAM %% and FLOPs %% "
-                "for those rows are in README section 5.3's advice table, and tt-perf-report classifies "
+                "for those rows are in the committed perf reports themselves, and tt-perf-report classifies "
                 f"them SLOW; they are {sparse_share:.0%} of the window.",
                 "The routed-expert intermediates are num_experts wide where only num_experts_per_tok "
                 "slots are non-zero, so the zero-fill, the two unpacking slices, the SwiGLU, the "

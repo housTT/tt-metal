@@ -427,6 +427,10 @@ HISTORICAL = {
     "0.849",
     "1.061",
     "1.044",
+    # Row 17, the level shipped from round 15 until round 25 carried the token-mixer norm's shard into the
+    # in-projection (§4.21). Superseded by that change, so no artifact of the shipped code holds them now.
+    "0.846",
+    "1.038",
     "1.987",
     "1.691",
     "1.909",

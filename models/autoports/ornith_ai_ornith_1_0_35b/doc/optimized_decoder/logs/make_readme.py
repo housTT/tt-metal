@@ -1761,6 +1761,11 @@ ADDED_TEST_ROWS = {
     "test_precision_policy_reaches_the_device_tensors": (
         "every weight tensor and the KV cache hold the dtype the policy names (OPT-013, code half)"
     ),
+    "test_decode_norm_shard_reaches_the_in_projection": (
+        "the token-mixer norm's width shard reaches the in-projection as a WIDTH_SHARDED L1 `in0`, so the "
+        "`sharded_to_interleaved` review round 25 removed cannot come back unnoticed; the op's own "
+        "shard-width/`in0_block_w` divisibility rule is re-derived rather than assumed"
+    ),
     "test_decode_runs_the_tuned_program_configs": (
         "all five dense decode matmuls carry a tuned 1D config, at the `per_core_M` and in0-budget their "
         "activation convention implies; both routed sparse matmuls carry theirs and keep their intermediates "

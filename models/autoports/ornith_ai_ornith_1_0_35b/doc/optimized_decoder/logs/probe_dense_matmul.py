@@ -163,7 +163,7 @@ def main():
     ap.add_argument("--iters", type=int, default=20)
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--roles", default="")
-    ap.add_argument("--families", default="default,mcast1d,dram_sharded")
+    ap.add_argument("--families", default="default,mcast1d,mcast1d_sharded_in0,dram_sharded")
     ap.add_argument("--in0-blocks", default="32", help="comma-separated in0_block_w caps for mcast1d")
     args = ap.parse_args()
 
@@ -229,6 +229,61 @@ def main():
                             )
                         except Exception as exc:  # noqa: BLE001 - illegal geometries are data
                             print(f"{tag} FAILED {str(exc).splitlines()[0][:100]}", flush=True)
+            # `mcast_in0` with a **width-sharded L1 `in0`**, which is the arm this probe was missing.
+            # Every other `mcast1d` row above hands the op a DRAM-interleaved activation, and the stage
+            # read that off as "`mcast_in0` requires interleaved" — an artifact of the probe, not of the
+            # op. `matmul_device_operation.cpp` validates a sharded `in0` for `mcast_in0` explicitly: it
+            # must be WIDTH_SHARDED, ROW_MAJOR, `fuse_batch`, `per_core_M == shard_shape[0]/tile_h`, and
+            # `(shard_shape[1]/tile_w) % in0_block_w == 0`. That is exactly what the decode residual norm
+            # already produces, so the `sharded_to_interleaved` between them is a candidate for removal.
+            # Review round 25 required this measurement; the shard core counts below bracket the norm's
+            # own (`NORM_SHARD_CORES`), and `in0_block_w` is capped by the per-core shard width because
+            # of the divisibility rule above.
+            for cores in (8, 16, 32, 64) if "mcast1d_sharded_in0" in families else ():
+                act_cfg = act_shard_config(grid, k, cores)
+                if act_cfg is None:
+                    continue
+                k_per_core = (k // cores) // TILE
+                try:
+                    x_sh = ttnn.to_memory_config(x, act_cfg)
+                except Exception as exc:  # noqa: BLE001
+                    print(
+                        f"DENSE role={name} m={m} k={k} n={n} family=mcast1d_sharded_in0 shard_cores={cores} "
+                        f"FAILED-shard {str(exc).splitlines()[0][:90]}",
+                        flush=True,
+                    )
+                    continue
+                for out_cores in (cores, 32, 64, 96, 110):
+                    if out_cores > grid.x * grid.y:
+                        continue
+                    for in0_cap in [d for d in divisors(k_per_core)][-3:]:
+                        cfg = mcast1d_config(grid, out_cores, m, k, n, args.fp32_acc, in0_cap)
+                        if cfg is None or k_per_core % cfg.in0_block_w:
+                            continue
+                        for mem_name, mem in (("L1", ttnn.L1_MEMORY_CONFIG), ("DRAM", ttnn.DRAM_MEMORY_CONFIG)):
+
+                            def run(cfg=cfg, mem=mem, x_sh=x_sh):
+                                return ttnn.linear(
+                                    x_sh, w, compute_kernel_config=ckc, program_config=cfg, memory_config=mem
+                                )
+
+                            tag = (
+                                f"DENSE role={name} m={m} k={k} n={n} family=mcast1d_sharded_in0 "
+                                f"shard_cores={cores} cores={out_cores} in0_block_w={cfg.in0_block_w} "
+                                f"per_core_N={cfg.per_core_N} out={mem_name}"
+                            )
+                            try:
+                                print(
+                                    f"{tag} "
+                                    + "us={:.1f} spread={:.1f}".format(
+                                        *time_call(mesh, run, args.iters, repeats=args.repeats)
+                                    ),
+                                    flush=True,
+                                )
+                            except Exception as exc:  # noqa: BLE001 - illegal geometries are data
+                                print(f"{tag} FAILED {str(exc).splitlines()[0][:110]}", flush=True)
+                ttnn.deallocate(x_sh)
+
             ttnn.deallocate(w)
 
             # DRAM-sharded family: weight width-sharded over the DRAM banks, activation and output
