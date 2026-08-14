@@ -431,7 +431,6 @@ HISTORICAL = {
     # in-projection (§4.21). Superseded by that change, so no artifact of the shipped code holds them now.
     "0.846",
     "1.038",
-    "1.987",
     "1.691",
     "1.909",
     "1.624",
@@ -1077,6 +1076,44 @@ def check_commit_record() -> list:
     return problems
 
 
+def check_dense_decode_verdicts() -> list:
+    """No dense decode row may ship behind its own sweep beyond the row's measured spread.
+
+    This is the check review round 31 proposed for the one property no test can hold. A role's
+    `in0_block_w` cap is a *measurement*, not a rule: the test can only assert that the layer applies the
+    rule to whatever cap the table holds, because the expectation is derived from that same table. What
+    actually establishes the cap is README §5.4's generated ranking of the shipped row against every
+    candidate in the family the layer builds — and until now a reader had to look at that column after a
+    regeneration. Now a regression in a cap fails the audit: the verdict column is machine-read, and a
+    dense row whose gap clears its own spread is a problem rather than a note.
+
+    The sparse table is deliberately out of scope: §5.4 documents four of its rows as untuned batches
+    (decode 4 and 8), and those legitimately ship behind their sweeps.
+    """
+    readme = DOC / "README.md"
+    if not readme.is_file():
+        return []
+    block = re.search(
+        r"<!-- generated:decode-search -->(.*?)<!-- /generated:decode-search -->",
+        readme.read_text(errors="replace"),
+        re.S,
+    )
+    if not block:
+        return ["DECODE-VERDICTS-MISSING  README.md has no generated:decode-search block"]
+    problems = []
+    for line in block.group(1).splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 6 or not cells[0].startswith("`"):
+            continue
+        role, verdict = cells[0].strip("`"), cells[-1]
+        if re.search(r"beyond the ±[\d.]+ µs row spread", verdict):
+            problems.append(
+                f"DENSE-DECODE-BEHIND-SWEEP  README.md §5.4: `{role}` ships behind its own sweep beyond the "
+                f'row\'s spread — "{verdict[:110]}". Retune the role or record why the winner is not shippable'
+            )
+    return problems
+
+
 def check_generator_geometry_literals() -> list:
     """`make_readme.py` must not hardcode a decode geometry that `DECODE_MATMUL_GEOMETRY` owns.
 
@@ -1577,6 +1614,7 @@ def main() -> int:
     problems += check_orientation_claims()
     problems += check_top_line_item()
     problems += check_generator_geometry_literals()
+    problems += check_dense_decode_verdicts()
     problems += check_commit_record()
     problems += check_sparse_block_rule()
     problems += check_mirrored_constants()

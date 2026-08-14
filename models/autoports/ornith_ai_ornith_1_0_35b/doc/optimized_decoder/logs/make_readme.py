@@ -673,6 +673,14 @@ def advice_actions() -> dict:
     #: `in0_block_w` instead of its shipped cap, so §5.5 printed times for geometries §5.4 does not - the
     #: stage's own recurring defect, inside the block generated to prevent it.
     def shipped_geometry(role):
+        """``(realised_cores, applied_in0_block_w)`` for a decode role, from the layer's own table.
+
+        Both returns apply the layer's rule rather than restating a constant: the grid fills the x axis
+        first (so a target at or below the grid width realises exactly itself - review round 31 pointed out
+        the first version of this helper used the wide-grid formula unconditionally, which no shipped role
+        reaches but which disagreed with ``realised()`` a few lines down), and the inner block is the
+        largest divisor of ``Kt`` within the role's cap, not the cap itself.
+        """
         import ast
 
         source = (ROOT.parent.parent / "tt/optimized_decoder.py").read_text()
@@ -681,7 +689,10 @@ def advice_actions() -> dict:
             raise SystemExit("cannot find DECODE_MATMUL_GEOMETRY in tt/optimized_decoder.py")
         table = ast.literal_eval(re.sub(r"#[^\n]*", "", block.group(1)))
         target, cap = table[role]
-        return 11 * -(-target // 11), cap
+        cores = target if target <= 11 else 11 * -(-target // 11)
+        k_tiles = 2048 // 32
+        applied = max(d for d in range(1, min(cap, k_tiles) + 1) if k_tiles % d == 0)
+        return cores, applied
 
     def subblock_pair(role, shipped_cores, shipped_ibw=None):
         shipped_us = min(
@@ -841,10 +852,12 @@ def advice_actions() -> dict:
         ),
         "HiFi2 may also work": (
             "**Rejected on purpose** (the router row): the matmul is under 10 µs and its output decides "
-            "*which experts run*. The preceding stages measured bfloat16 routing agreeing with float32 on "
-            "only 99.8 % / 95.5 % of top-8 sets "
-            "(`doc/functional_decoder/logs/router_precision_ab.txt`), so this group stays "
-            "BF16/HiFi4/fp32-accumulate."
+            "*which experts run*. The preceding stages measured top-8 set agreement against a float32 "
+            "reference at **95.5 %** for bfloat16 logits and **99.8 %** for the fp32-accumulate arm this "
+            "group ships (`doc/functional_decoder/logs/router_precision_ab.txt`, one row each), so it stays "
+            "BF16/HiFi4/fp32-accumulate. Review round 31 found this cell reading as though both figures were "
+            "bfloat16 measurements - the `X / Y` form everywhere else in this README means "
+            "`linear` / `full`."
         ),
         "look good": (
             "**Not advice** — `tt-perf-report` printing that a row's `in0_block_w` and output subblock "

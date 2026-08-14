@@ -133,7 +133,7 @@ Cumulative traced decode, both layer kinds, `logs/bench.py`, batch 1:
 
 | # | Change | `full_attention` ms | `linear_attention` ms |
 | --- | --- | --- | --- |
-| 0 | fused decoder (baseline) | 1.830 | 1.987 |
+| 0 | fused decoder (baseline) | 1.830 | 2.063 |
 | 1 | precision policy: BFP4 experts + LoFi, BFP8 projections + HiFi2, BFP8 KV cache | 1.691 | 1.909 |
 | 2 | padded-row routing mask (§3.4) | 1.624 | 1.842 |
 | 3 | expert intermediates in L1 (§3.2) | 1.297 | 1.515 |
@@ -173,11 +173,21 @@ this log does not carry a second copy of it to go stale — roughly two and a ha
 layer kinds and about two on traced decode, with the exact figures in that table. `test_optimized_beats_fused_traced_decode` gates the decode direction in
 one process, in the delivered suite.
 
-Row 0's `linear_attention` figure is the **fused stage's own committed number**, measured in that
-stage's harness, quoted so this column starts where the previous stage left off. Re-measured in this
-stage's harness it is 2.06-2.07 ms, a few percent slower — harness and run-to-run spread. Every "before"
-figure the README quotes is this stage's own re-measurement, not row 0; against the fused stage's
-published figure the `linear_attention` decode speedup would read slightly lower than README §5.2's.
+Row 0 is the fused decoder's own committed **wall-clock** figure for each kind, from that stage's
+[`doc/fused_decoder/logs/ab_functional_vs_fused.txt`](../fused_decoder/logs/ab_functional_vs_fused.txt),
+so this column starts where the previous stage left off in the same units the column is headed with. It
+agrees with this stage's own re-measurement to the last digit on both kinds — 2.063 and 1.829/1.830 —
+so there is no inter-stage harness gap here and the headline speedups read the same against either.
+
+That last sentence is a correction, and the way it was wrong is worth keeping. Until review round 31 this
+cell held **1.987**, which is the fused stage's `linear_attention` *device* time from its Tracy summary,
+not its wall-clock time — so the row mixed two bases, and the paragraph beside it explained the
+difference from this stage's 2.063 as "harness and run-to-run spread, a few percent". There was no such
+spread to explain: the two stages' wall-clock numbers are identical, and the discrepancy was entirely a
+units mismatch inside one table row. It also understated step 1: against the right baseline the
+precision policy is worth about 7.5 % of that step rather than the 3.9 % the old row implied. The figure
+audit could not see it because 1.987 was on the `HISTORICAL` exemption list, which is documented as being
+for values with no artifact by construction — and this one had an artifact, labelled `Device Time`.
 
 The per-step figures in this column are the running total from one harness during development, and they
 are the one group of numbers in this stage that **no artifact can contain**: each row measures an
@@ -703,12 +713,12 @@ README §5.4's generated table prints every one of them. What they are:
 <!-- generated:orientation-ladder -->
 | point | role | shipped (column) | other (row) | verdict |
 | --- | --- | --- | --- | --- |
-| 8 active — the tuned batch-1 decode target | gate/up | **153.4 µs** | 171.8 µs | **column** wins by 18.4 µs, beyond the ±0.5 µs spread |
-| 8 active | down | **152.8 µs** | 172.1 µs | **column** wins by 19.3 µs, beyond the ±0.3 µs spread |
-| 162 active — a 32-token prefill group | gate/up | **568.3 µs** | 578.9 µs | **column** wins by 10.6 µs, beyond the ±2.7 µs spread |
-| 162 active | down | 346.1 µs | **341.8 µs** | **row** wins by 4.3 µs, beyond the ±0.2 µs spread |
-| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.5 µs | **column** wins by 2.1 µs, beyond the ±0.5 µs spread |
-| 64 active | down | 284.8 µs | **277.6 µs** | **row** wins by 7.2 µs, beyond the ±1.6 µs spread |
+| 8 active — the tuned batch-1 decode target | gate/up | **153.4 µs** | 172.6 µs | **column** wins by 19.2 µs, beyond the ±0.6 µs spread |
+| 8 active | down | **152.6 µs** | 172.0 µs | **column** wins by 19.4 µs, beyond the ±0.6 µs spread |
+| 162 active — a 32-token prefill group | gate/up | **568.0 µs** | 582.5 µs | **column** wins by 14.5 µs, beyond the ±0.5 µs spread |
+| 162 active | down | 346.0 µs | **341.4 µs** | **row** wins by 4.6 µs, beyond the ±0.5 µs spread |
+| 64 active — decode batch 8, **not tuned** | gate/up | **385.4 µs** | 387.6 µs | **column** wins by 2.2 µs, beyond the ±1.5 µs spread |
+| 64 active | down | 284.9 µs | **277.6 µs** | **row** wins by 7.3 µs, beyond the ±1.5 µs spread |
 <!-- /generated:orientation-ladder -->
 
 One row wants the row rectangle beyond its spread — `down` at the prefill group — and it is a geometry the
@@ -2047,6 +2057,23 @@ the test comment and §5.4 now say that rather than claiming a gate that does no
 Its third was the test module's own docstring, which attributed four optimization-contract assertions to
 `test_optimized_path_is_used` after they had been split out into three other tests — the bullet that answers
 the goal contract's "tests exercise the optimized path, not a functional fallback".
+
+**Round 31** was the re-review round 30 asked for, and it confirmed all three of round 30's fixes while
+finding one more of the same class — the oldest figure in the stage. §3's ladder row 0 held the fused
+decoder's `linear_attention` **device** time under a column headed with wall-clock times, and the paragraph
+beside it explained the difference from this stage's 2.063 as "harness and run-to-run spread, a few
+percent". The fused stage's own committed wall-clock figure is 2.063: identical, to the last digit. There
+was no spread to explain, the row mixed two bases, and step 1's effect was understated by about half. The
+figure could not be audited because it sat on the `HISTORICAL` exemption list, which exists for values with
+no artifact — and this one had an artifact, labelled `Device Time`. Corrected, and the exemption removed.
+
+Round 31 also answered the question round 30 left open, which is the more useful outcome. Round 30 had
+shown that no test can pin a role's `in0_block_w` *value*, because the expectation must come from the same
+table the value lives in. Round 31 pointed out the gateable form is not a test at all: §5.4's generated
+table already ranks every shipped dense row against its whole sweep at the shipped placement, using that
+row's own spread, so the audit can simply read the verdict column. `check_dense_decode_verdicts` does that
+now — a dense role that ships behind its own sweep beyond its spread fails the audit rather than waiting
+for a human to notice. That closes the one property this stage had been documenting as un-gateable.
 
 **Across rounds 18-24, one class.** Nearly every finding in those rounds was prose restating a measured value
 that later drifted, and each round's response tightened a gate rather than only fixing the sentence. Round 20
