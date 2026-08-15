@@ -24,6 +24,13 @@ Two things are recorded per batch:
 ``DECODEB``
     warmed traced decode, ``CCL_COMPACT_ROWS`` off and on, three builds per arm, both layer kinds.
     ``off`` is the pre-review behaviour.
+``SPARSEB``
+    the same measurement for :data:`~...multichip_decoder.SPARSE_SCALE_CORES_BY_TP`. The routed
+    sparse matmuls' core target is a function of ``OptimizedMoE._active_expert_bound``, which is
+    ``min(num_experts_local, rows * top_k)`` — so it is **8 at batch 1, 16 at batch 2, 32 at batch 4
+    and 64 from batch 8 up**, and the rescale therefore changes decode geometry at every batch above
+    1, not only at prefill. Review round 2 of this stage found four documents asserting the opposite
+    on the strength of a batch-1-only A/B. This arm is that missing measurement.
 
 Batch 32 is the advertised bound, 13 is the awkward non-power-of-two the suite already uses, and the
 rest of the ladder exists to locate the crossover: the fold is not free, so at small batches the
@@ -56,6 +63,12 @@ def dev(mesh, t, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
         mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
     )
+
+
+KNOBS = {
+    "ccl": ("CCL_COMPACT_ROWS", "DECODEB"),
+    "sparse": ("SPARSE_SCALE_CORES_BY_TP", "SPARSEB"),
+}
 
 
 def build(mesh, cfg, sd, layer_idx, batch):
@@ -149,40 +162,51 @@ def main():
     ap.add_argument("--layers", default="0,3")
     ap.add_argument("--batches", default="1,2,4,8,13,16,32")
     ap.add_argument("--builds", type=int, default=3)
+    ap.add_argument("--knobs", default="ccl,sparse")
     args = ap.parse_args()
 
     cfg = R.load_text_config()
     ttnn.set_fabric_config(MC.DEFAULT_FABRIC_CONFIG)
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(*MC.DEFAULT_MESH_SHAPE), l1_small_size=24576, trace_region_size=0)
-    shipped = MC.CCL_COMPACT_ROWS
+    shipped = {name: getattr(MC, name) for name, _ in KNOBS.values()}
     print("# what the two per-layer collectives are handed at decode, and the cost of compacting it")
     print("# SHAPE rows are measured by wrapping MultichipDecoder._all_reduce, not read off the source")
-    print("# columns: DECODEB layer kind batch arm build decode_ms finite")
+    print("# columns: DECODEB|SPARSEB layer kind batch arm build decode_ms finite")
+    print("# DECODEB is CCL_COMPACT_ROWS, SPARSEB is SPARSE_SCALE_CORES_BY_TP; 'on' is shipped for both")
     try:
         for layer_idx in [int(v) for v in args.layers.split(",")]:
             sd = R.load_layer_state_dict(layer_idx)
             kind = LAYERS[layer_idx]
             for batch in [int(v) for v in args.batches.split(",")]:
+                for name, value in shipped.items():
+                    setattr(MC, name, value)
                 MC.CCL_COMPACT_ROWS = False
                 decoder, page_table = build(mesh, cfg, sd, layer_idx, batch)
                 warm(mesh, decoder, page_table, cfg, batch)
                 record_shapes(mesh, decoder, page_table, cfg, batch, kind)
                 del decoder, page_table
-                for arm in (False, True):
-                    MC.CCL_COMPACT_ROWS = arm
-                    for build_idx in range(args.builds):
-                        decoder, page_table = build(mesh, cfg, sd, layer_idx, batch)
-                        warm(mesh, decoder, page_table, cfg, batch)
-                        ms, finite = traced_decode_ms(mesh, decoder, page_table, cfg, batch)
-                        print(
-                            f"DECODEB {layer_idx} {kind} {batch} {'on' if arm else 'off'} {build_idx} "
-                            f"{ms:.3f} {finite}",
-                            flush=True,
-                        )
-                        del decoder, page_table
+                for knob in [k.strip() for k in args.knobs.split(",")]:
+                    name, tag = KNOBS[knob]
+                    for arm in (False, True):
+                        # Every other knob is held at its shipped value, so each row is the
+                        # one-variable difference and not a combination.
+                        for other, value in shipped.items():
+                            setattr(MC, other, value)
+                        setattr(MC, name, arm)
+                        for build_idx in range(args.builds):
+                            decoder, page_table = build(mesh, cfg, sd, layer_idx, batch)
+                            warm(mesh, decoder, page_table, cfg, batch)
+                            ms, finite = traced_decode_ms(mesh, decoder, page_table, cfg, batch)
+                            print(
+                                f"{tag} {layer_idx} {kind} {batch} {'on' if arm else 'off'} {build_idx} "
+                                f"{ms:.3f} {finite}",
+                                flush=True,
+                            )
+                            del decoder, page_table
             del sd
     finally:
-        MC.CCL_COMPACT_ROWS = shipped
+        for name, value in shipped.items():
+            setattr(MC, name, value)
         ttnn.close_mesh_device(mesh)
         ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
 

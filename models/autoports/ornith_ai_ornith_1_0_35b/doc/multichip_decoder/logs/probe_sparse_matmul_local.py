@@ -5,7 +5,7 @@
 The single-chip sweep (``doc/optimized_decoder/logs/probe_sparse_matmul.py``) selected
 ``SPARSE_CORES_PER_ACTIVE``, ``SPARSE_MIN_CORES``/``SPARSE_MAX_CORES`` and
 ``SPARSE_GATE_UP_IN0_BLOCK_W`` at ``E = 256`` and ``active ∈ {8, 32, 64, 162}``. Expert parallelism
-moves this stage to ``E = 64`` per device and ``active ≈ 4`` at batch-1 decode / ``≈ 63`` for a
+moves this stage to ``E = 64`` per device and ``active ≈ 4`` at batch-1 decode / ``≈ 41`` for a
 32-token prefill group — points that sweep does not contain. README section 5.6 re-swept every *dense*
 role for exactly this reason ("the local shape is different"), and the routed matmuls are the single
 dominant op in all four profiler captures, so leaving them on an extrapolated geometry would be the
@@ -24,7 +24,7 @@ moves. That is the whole question this probe answers: does the same geometry sti
 call sweeps 4 experts out of 64 instead of 8 out of 256?
 
     python .../doc/multichip_decoder/logs/probe_sparse_matmul_local.py --experts 64 --active 4
-    python .../doc/multichip_decoder/logs/probe_sparse_matmul_local.py --experts 64 --active 63
+    python .../doc/multichip_decoder/logs/probe_sparse_matmul_local.py --experts 64 --active 41
 
 The ``--nnz`` static-count arm of the single-chip probe is deliberately **not** carried over: it
 wedged the device the one time it was run (``doc/optimized_decoder/triage/``), and this stage has no
@@ -140,9 +140,11 @@ def main():
         "--active",
         type=int,
         default=4,
-        help="non-zero experts in the sparsity tensor. 4 is the measured per-device batch-1 decode "
-        "count (tests log 'decode sparsity max non-zeros per device [4, 4]'); 63 is the expected "
-        "distinct union for a 32-token prefill group, E*(1-(1-1/E)^(32*top_k)) at E=64.",
+        help="non-zero experts in the sparsity tensor, per device per group. 4 is the measured "
+        "batch-1 decode count; 41 is the expected distinct union for a 32-token prefill group, "
+        "E*(1-(1-1/E)^(32*top_k/tp)) at E=64 — the draws are divided by tp because only that "
+        "fraction lands on this device, which review round 2 found missing (it gave 63). "
+        "run_evidence.sh sweeps 4/8/16/32/63 so the whole decode-to-prefill range is bracketed.",
     )
     args = ap.parse_args()
 

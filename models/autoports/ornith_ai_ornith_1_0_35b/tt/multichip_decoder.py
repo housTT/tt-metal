@@ -59,8 +59,8 @@ Two dims do not divide by 4 and are handled explicitly rather than by rounding t
 * **``n_kv_heads = 2`` over 4 devices.** Devices 0,1 own kv head 0 and devices 2,3 own kv head 1,
   which is exactly the GQA grouping the 16 query heads already impose (query head ``h`` uses kv head
   ``h // 8``). Each device stores **one** kv head, i.e. half the single-chip cache, and the k/v
-  projection rows are duplicated across the pair — 2048 extra weight columns in ``attn_in`` per
-  layer, against a halved per-device KV cache.
+  projection rows are duplicated across the pair — 256 extra weight columns in ``attn_in`` per layer,
+  557056 B at bfloat8_b, against a halved per-device KV cache.
 * **``a`` / ``b`` DeltaNet gates, 32 wide over 4 devices.** 8 columns per device is a quarter tile,
   so each gate gets its own 32-column block in the packed ``gdn_in`` weight whose trailing 24
   columns are exact zeros, and :meth:`MultichipDecoder._gdn_project` slices the 8 real ones back
@@ -200,12 +200,12 @@ CCL_STACK_SUM_MAX_ROWS = 64
 #: dtype), so the second per-layer collective is handed a block-float tensor while the first gets
 #: ``bfloat16``. In the prefill profile those two are the same logical shape and wildly different
 #: cost: ``tracy/full_attention/prefill_perf_report.txt`` has the BF16 reduce-scatter at ~100 us on 20
-#: cores and the BFP8 one at ~1500 us on 12 cores, 4.8% of the whole prefill window and the largest
+#: cores and the BFP8 one at ~1465 us on 12 cores, 4.7% of the whole prefill window and the largest
 #: non-sparse item in it. That reads as an obvious win, and it is not one.
 #:
 #: The ``cast`` arm of ``doc/multichip_decoder/logs/ab_layer_knobs.txt`` measures it at the layer:
 #: casting up costs ~5 us on every decode step and moves warmed prefill by **nothing** — the arms'
-#: three-build ranges overlap on both layer kinds. So the profiler's ~1500 us is not data movement
+#: three-build ranges overlap on both layer kinds. So the profiler's ~1465 us is not data movement
 #: this layer pays; it is the collective's barrier absorbing the per-device expert-load imbalance that
 #: expert parallelism creates, attributed to the op that waits. Removing the block-float operand — the
 #: only difference between the two collectives — changes the block-float row's cost and not the
@@ -217,14 +217,38 @@ CCL_CAST_BLOCKFLOAT = False
 
 #: Whether the routed sparse matmuls' core target is rescaled for expert parallelism.
 #:
-#: ``OptimizedMoE`` targets ``clamp(active // SPARSE_CORES_PER_ACTIVE[role], 8, 32)`` cores. The
-#: divisor means "work per core, per active expert" and was calibrated at ``E = 256``. EP divides the
-#: per-device active count by ``tp`` **without** changing ``Nt`` (``moe_intermediate_size`` and
-#: ``dim`` are not sharded), so inheriting the divisor collapses the core target exactly where the
-#: available parallelism did not change. :meth:`MultichipMoE._sparse_cfg` has the derivation and the
-#: measured cost; ``doc/multichip_decoder/logs/probe_sparse_matmul_local.txt`` is the sweep and the
-#: ``sparse`` arm of ``ab_layer_knobs.txt`` is the whole-layer A/B. Off reproduces the inherited
-#: behaviour.
+#: ``OptimizedMoE`` targets ``clamp(bound // SPARSE_CORES_PER_ACTIVE[role], 8, 32)`` cores, where
+#: ``bound`` is ``_active_expert_bound`` = ``min(num_experts_local, rows * top_k)``. The divisor means
+#: "work per core, per active expert" and was calibrated at ``E = 256``, where that bound saturates
+#: at 256 and a 32-token prefill group activates ~162 experts. Expert parallelism cuts the bound's
+#: ceiling to 64 without changing ``Nt`` (``moe_intermediate_size`` and ``dim`` are not sharded, so
+#: the op still produces 32 and 64 output tiles), so inheriting the divisor shrinks the core target
+#: exactly where the available parallelism did not change.
+#:
+#: On means the bound is scaled back by the same divisor, i.e. the net rule becomes
+#: ``cores = clamp(bound, 8, 32)``. Read off the shipped constants rather than the intended
+#: narrative — review round 2 found an earlier version of this comment describing an effect one
+#: divisor and one operating point away from the real one:
+#:
+#:   ==============  =====  ==========================  =======================
+#:   call            bound  ``gate_up`` realised, off->on  ``down`` realised, off->on
+#:   ==============  =====  ==========================  =======================
+#:   decode b=1          8  8 -> 8                      8 -> 8
+#:   decode b=2         16  8 -> 16                     8 -> 16
+#:   decode b=4         32  16 -> 32                    8 -> 32
+#:   decode b>=8        64  32 -> 32                    16 -> 32
+#:   prefill group      64  32 -> 32                    16 -> 32
+#:   ==============  =====  ==========================  =======================
+#:
+#: So at prefill only ``down`` moves, and decode geometry changes at **every batch above 1** — the
+#: opposite of what that earlier comment claimed. Both are measured rather than argued:
+#: ``ab_layer_knobs.txt``'s ``sparse`` arm has the prefill effect (about 4 ms a layer on both layer
+#: kinds) and ``probe_decode_batch.txt``'s ``SPARSEB`` rows have the decode effect at batch 1..32
+#: (a tie at batch 1 by construction, and a win of 15-72 us a step at every batch above it).
+#: ``probe_sparse_matmul_local.txt`` is the isolated ladder the rule is checked against, and
+#: ``test_sparse_cores_match_the_local_sweep`` pins the realised grid at every advertised batch.
+#: The rescale is additionally gated on ``tp > 1``, so a layer built on a 1-device mesh reproduces
+#: ``OptimizedMoE`` exactly rather than only when this flag is cleared.
 SPARSE_SCALE_CORES_BY_TP = True
 
 #: Whether a rank-3 ``[b, t, dim]`` activation is folded to ``[1, 1, b * t, dim]`` before the
@@ -276,8 +300,11 @@ ROUTING_SELECT_MODE = "select_matmul"
 #:
 #:   * ``attn_in`` and ``gdn_in`` are the two wide in-projections, where the inherited cap of 2 is the
 #:     *worst* legal value for the local shape and costs a large factor on the op;
-#:   * ``shared_down`` because TP=4 cuts its ``K`` from 512 to 128 — 4 tiles — and a 55-core grid for a
-#:     4-tile ``K`` and a 64-tile ``N`` is launch overhead rather than parallelism;
+#:   * ``shared_down`` because TP=4 cuts its ``K`` from 512 to 128 — 4 tiles — and the inherited
+#:     entry's 55-core grid for a 4-tile ``K`` and a 64-tile ``N`` is launch overhead rather than
+#:     parallelism. 8 cores rather than the 4 an earlier round shipped: 4 is the faster of the two on
+#:     some sweeps and 1.4 us slower on others, while 8 reads 8.55-8.77 us on every sweep, so 8 is
+#:     both the stable choice and never behind;
 #:   * ``expert_select`` is a role this stage introduces and the single-chip table has no entry for.
 #:
 #: The ``geometry`` arm of ``doc/multichip_decoder/logs/ab_layer_knobs.txt`` measures the whole
@@ -291,7 +318,7 @@ ROUTING_SELECT_MODE = "select_matmul"
 MULTICHIP_DECODE_MATMUL_GEOMETRY = {
     "attn_in": (110, 8),
     "gdn_in": (110, 8),
-    "shared_down": (4, 4),
+    "shared_down": (8, 4),
     "expert_select": (8, 8),
 }
 
@@ -460,29 +487,22 @@ class MultichipMoE(OptimizedMoE):
         """The inherited sparse-matmul config, with the core target rescaled for expert parallelism.
 
         ``OptimizedMoE`` picks the routed matmul's core target as
-        ``clamp(active_bound // SPARSE_CORES_PER_ACTIVE[role], SPARSE_MIN_CORES, SPARSE_MAX_CORES)``.
-        The divisor encodes "how much work one core should be given per active expert", and it was
-        calibrated at ``E = 256``, where a 32-token prefill group activates ~162 experts. Expert
-        parallelism does not change ``Nt`` — ``moe_intermediate_size`` and ``dim`` are not sharded, so
-        the op still produces 32 and 64 output tiles — but it divides the *active* count by ``tp``, to
-        ~63 per device. Inherited unchanged, that collapses the core target exactly where the
-        available parallelism did not change: ``gate_up`` 32 -> 16 realised cores and ``down`` 32 -> 8.
+        ``clamp(active_bound // SPARSE_CORES_PER_ACTIVE[role], SPARSE_MIN_CORES, SPARSE_MAX_CORES)``,
+        and ``active_bound`` is ``min(num_experts_local, rows * top_k)``. The divisor encodes "how
+        much work one core should be given per active expert" and was calibrated at ``E = 256``.
+        Expert parallelism does not change ``Nt`` — the op still produces 32 and 64 output tiles — but
+        it cuts the bound's ceiling from 256 to 64, which shrinks the core target exactly where the
+        available parallelism did not change.
 
-        ``doc/multichip_decoder/logs/probe_sparse_matmul_local.txt`` re-runs the single-chip sweep's
-        candidate ladder at the per-device operating point and measures the cost of that collapse:
-        at ``active = 63`` the shipped-inherited geometries are 244.8 us (``gate_up``, 16 cores) and
-        235.7 us (``down``, 8 cores) against 199.4 and 105.2 at 32 cores. The routed matmuls are 76-78%
-        of the prefill window, so this is the largest single item this stage's re-tuning found.
-
-        The fix is one number per role, and it is the same number the divisor already means: with
-        ``tp`` times fewer active experts per device, each core should be given ``tp`` times fewer of
-        them. Rather than re-declare the rule, this scales the bound it is applied to, so the parent's
-        clamping, its realised-core reduction and its ``in0_block_w`` cap all still run exactly once
-        and in the parent. At ``active = 4`` (batch-1 decode) the scaled bound still clamps to
-        ``SPARSE_MIN_CORES`` = 8, which the same sweep confirms is the winner for both roles there —
-        so decode geometry is unchanged, and only the prefill point moves.
+        Scaling the bound rather than re-declaring the rule keeps the parent's clamping, its
+        realised-core reduction and its ``in0_block_w`` cap running exactly once, and in the parent.
+        :data:`SPARSE_SCALE_CORES_BY_TP` has the resulting per-batch table and the measurements; the
+        short version is that only ``down`` moves at prefill, both roles move at decode batch 2 and
+        4, and batch 1 is unchanged.
         """
-        scale = SPARSE_CORES_PER_ACTIVE[role] if SPARSE_SCALE_CORES_BY_TP else 1
+        # `self.tp > 1` as well as the flag: at tp=1 there is no expert parallelism to compensate
+        # for, and a MultichipMoE built on a 1-device mesh must reproduce `OptimizedMoE` exactly.
+        scale = SPARSE_CORES_PER_ACTIVE[role] if SPARSE_SCALE_CORES_BY_TP and self.tp > 1 else 1
         return super()._sparse_cfg(role, tokens, active_bound * scale)
 
     # ---------------- router ----------------

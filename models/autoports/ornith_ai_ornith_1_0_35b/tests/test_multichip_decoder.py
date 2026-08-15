@@ -83,6 +83,26 @@ BASELINE_BAR = 0.999
 TEST_CONTEXT = 8192
 ADVERTISED_CONTEXT = 262144
 
+#: Realised sparse-matmul grid the shipped policy must produce at each advertised decode batch.
+#:
+#: Derived from the shipped constants rather than guessed, and asserted rather than assumed:
+#: ``OptimizedMoE._active_expert_bound`` is ``min(num_experts_local, rows * top_k)``, so the bound is
+#: 8 / 16 / 32 / 64 at batch 1 / 2 / 4 / >=8; ``MultichipMoE._sparse_cfg`` scales it by
+#: ``SPARSE_CORES_PER_ACTIVE[role]``; the parent clamps to ``[8, 32]`` and reduces to the largest
+#: divisor of ``Nt`` (32 for ``gate_up``, 64 for ``down``). The net effect is
+#: ``cores = clamp(bound, 8, 32)`` for both roles.
+#:
+#: Every row is measured as a win by the ``sparse`` arm of
+#: ``doc/multichip_decoder/logs/probe_decode_batch.txt`` except batch 1, where the geometry is
+#: identical to the inherited one and the arms tie.
+SPARSE_DECODE_CORES = {
+    1: {"gate_up": 8, "down": 8},
+    2: {"gate_up": 16, "down": 16},
+    4: {"gate_up": 32, "down": 32},
+    8: {"gate_up": 32, "down": 32},
+    32: {"gate_up": 32, "down": 32},
+}
+
 #: The mesh every test opens, and the fabric it needs. ``l1_small_size`` matches the optimized
 #: suite; the CCL ops allocate their semaphores out of it.
 DEVICE_PARAMS = [
@@ -640,7 +660,8 @@ def test_permuted_page_table(mesh_device, layer_idx):
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 @pytest.mark.parametrize("batch", [1, 4, 13, 32])
-def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch):
+@pytest.mark.parametrize("seq_len", [192, 130])
+def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch, seq_len):
     """Batched prefill and decode, per-user page tables, against the HF golden.
 
     The batch list is the one ``doc/context_contract.json`` advertises, and it is exercised **on the
@@ -650,11 +671,17 @@ def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch):
     page-table row) all see ``n_heads`` 16 -> 4 and ``n_kv_heads`` 2 -> 1 here. Review round 1 of this
     stage found this test pinned at batch 4 while three documents claimed batch 32, which is exactly
     the class of defect the contract's own notes record being caught twice before.
+
+    ``seq_len`` 130 is not a multiple of the 32-token tile, and it is here for a reason round 2 of the
+    review found: ``CCL_COMPACT_ROWS`` folds ``[b, t, dim]`` to ``[1, 1, b*t, dim]`` whenever the
+    physical row count exceeds the folded one, which in **prefill** happens only when ``b > 1`` and
+    ``t`` is not tile-aligned. Every other prefill test is either batch 1 or tile-aligned, so before
+    this parameter the prefill side of that fold was never executed — the same shape of defect as the
+    batch pinning above, one layer down.
     """
     source = default_weight_source()
-    seq_len = 192
-    x = make_activations(batch, seq_len, seed=51)
-    decode_x = make_activations(batch, 1, seed=52)
+    x = make_activations(batch, seq_len, seed=51 + seq_len)
+    decode_x = make_activations(batch, 1, seed=52 + seq_len)
     ref_prefill, ref_decode = run_reference(layer_idx, source, x, decode_x=[decode_x], decode_steps=1)
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, batch=batch, max_context=1024)
     out = decoder.prefill_forward(to_device(mesh_device, x), page_table=page_table)
@@ -667,7 +694,10 @@ def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch):
     )
     dvalue = pcc(ref_decode[0], to_host(mesh_device, dec))
     ttnn.deallocate(dec)
-    logger.info(f"multichip batched layer={layer_idx} batch={batch}: prefill PCC={value:.6f} decode PCC={dvalue:.6f}")
+    logger.info(
+        f"multichip batched layer={layer_idx} batch={batch} seq_len={seq_len}: "
+        f"prefill PCC={value:.6f} decode PCC={dvalue:.6f}"
+    )
     assert value > PCC_BAR and dvalue > PCC_BAR
 
 
@@ -854,9 +884,16 @@ def test_gate_selected_experts_not_dense(mesh_device, layer_idx, monkeypatch):
     seen: list[int] = []
     original = ttnn.sparse_matmul
 
+    shapes: list[tuple[int, ...]] = []
+
     def spy(*args, sparsity=None, **kwargs):
         parts = shards(mesh_device, sparsity)
-        seen.append(max(int(torch.count_nonzero(p)) for p in parts))
+        # Per **group**, not per call: the sparsity tensor is [1, groups, 1, E] and the op loops once
+        # per active expert within each group, so the per-group count is what `--active-experts`
+        # models. Review round 2 found the profiling scripts calibrated against a per-call total.
+        groups = max(1, int(parts[0].shape[1]))
+        seen.append(max(int(torch.count_nonzero(p)) for p in parts) / groups)
+        shapes.append(tuple(int(d) for d in parts[0].shape))
         return original(*args, sparsity=sparsity, **kwargs)
 
     monkeypatch.setattr(ttnn, "sparse_matmul", spy)
@@ -875,14 +912,29 @@ def test_gate_selected_experts_not_dense(mesh_device, layer_idx, monkeypatch):
         )
     )
     logger.info(
-        f"multichip active-expert path layer={layer_idx}: decode sparsity max non-zeros per device {seen}, "
-        f"prefill {prefill_seen[:4]}... over {len(prefill_seen)} calls, local expert count "
-        f"{decoder.cfg.num_experts}"
+        f"multichip active-expert path layer={layer_idx}: decode sparsity max non-zeros per device "
+        f"per group {seen}, prefill {prefill_seen[:4]}... over {len(prefill_seen)} calls, sparsity "
+        f"shapes {sorted(set(shapes))}, local expert count {decoder.cfg.num_experts}"
     )
     assert seen, "no sparse_matmul was dispatched in decode — the routed path is not the sparse one"
     top_k = decoder.global_cfg.num_experts_per_tok
     assert max(seen) <= top_k, f"decode activated {max(seen)} local experts, more than the global top-{top_k}"
     assert max(seen) < decoder.cfg.num_experts, "decode is running every local expert, i.e. densely"
+
+    # The prefill count is asserted too, because it is a *modelling input* elsewhere and not just a
+    # sanity check: `tracy/run_profiling.sh` passes it to `tt-perf-report --active-experts`, and
+    # `probe_sparse_matmul_local.py` sweeps at it. Review round 2 found the profiling scripts using
+    # 63 — the uniform-draw expectation `E*(1-(1-1/E)^(32*top_k))` — against a measured 39-44, which
+    # is a ~50% overestimate feeding every prefill DRAM/FLOPs figure. The bound below is the
+    # structural one (a 32-token group cannot activate more than 64 local experts, and must activate
+    # at least one per token's worth of routing); the exact figure lives in the log line above, which
+    # is what the scripts are calibrated against.
+    assert prefill_seen, "no sparse_matmul was dispatched in prefill"
+    assert max(prefill_seen) <= decoder.cfg.num_experts, (
+        f"prefill activated {max(prefill_seen)} local experts, more than the {decoder.cfg.num_experts} "
+        "this device owns"
+    )
+    assert max(prefill_seen) < decoder.cfg.num_experts, "prefill is running every local expert, i.e. densely"
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
@@ -1276,6 +1328,62 @@ def test_decode_runs_the_multichip_program_configs(mesh_device, layer_idx, monke
     )
     assert sd_grid.x * sd_grid.y <= sd_target
     assert sd_cfg.in0_block_w == min(sd_cap, sd_k // TILE)
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("batch", [1, 2, 4, 8, 32])
+def test_sparse_cores_match_the_local_sweep(mesh_device, layer_idx, batch, monkeypatch):
+    """The routed sparse matmuls run on the core counts ``probe_sparse_matmul_local.txt`` selected.
+
+    The dense projections have had this guard since the stage opened
+    (``test_decode_runs_the_multichip_program_configs``); the routed matmuls did not, and review
+    round 2 found the consequence. ``SPARSE_SCALE_CORES_BY_TP`` rescales the bound handed to the
+    inherited core rule, and that bound is ``OptimizedMoE._active_expert_bound`` =
+    ``min(num_experts_local, rows * top_k)`` — so it is 8 at batch 1, 16 at batch 2, 32 at batch 4
+    and saturates at 64 from batch 8. The rescale therefore changes decode geometry at every batch
+    above 1, which four documents had asserted it did not, on the strength of a batch-1-only A/B.
+
+    This pins the realised grid at every advertised decode batch against
+    :data:`SPARSE_DECODE_CORES`, which is transcribed from the shipped policy and cross-checked
+    against the sweep's winner. A silently different geometry is indistinguishable from the intended
+    one in every other measurement.
+    """
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(
+        mesh_device, layer_idx, source, batch=batch, max_context=1024, num_blocks=64 * batch
+    )
+    seen: dict[tuple[int, int], int] = {}
+    original = ttnn.sparse_matmul
+
+    def spy(a, b, *args, program_config=None, **kwargs):
+        grid = program_config.compute_with_storage_grid_size
+        seen[(int(b.shape[-2]), int(b.shape[-1]))] = grid.x * grid.y
+        return original(a, b, *args, program_config=program_config, **kwargs)
+
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(batch, 128, seed=77)), page_table=page_table)
+    )
+    monkeypatch.setattr(ttnn, "sparse_matmul", spy)
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.full((batch,), 128, dtype=torch.int32))
+    ttnn.deallocate(
+        decoder.decode_forward(
+            to_device(mesh_device, make_activations(batch, 1, seed=78)),
+            current_pos=current_pos,
+            rot_idxs=rot_idxs,
+            page_table=page_table,
+        )
+    )
+    cfg = decoder.moe.cfg
+    roles = {
+        "gate_up": (cfg.dim, 2 * cfg.moe_intermediate_size),
+        "down": (cfg.moe_intermediate_size, cfg.dim),
+    }
+    got = {role: seen[shape] for role, shape in roles.items() if shape in seen}
+    logger.info(f"multichip sparse cores layer={layer_idx} batch={batch}: {got}")
+    assert set(got) == set(roles), f"missing a routed matmul at batch {batch}: saw {sorted(seen)}"
+    for role, cores in got.items():
+        want = SPARSE_DECODE_CORES[batch][role]
+        assert cores == want, f"{role} at batch {batch} ran on {cores} cores, expected {want}"
 
 
 # --------------------------------------------------------------------------------------

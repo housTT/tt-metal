@@ -21,11 +21,24 @@ TEST="$ROOT/tests/test_multichip_decoder.py"
 
 # `--active-experts`: tt-perf-report cannot model a `sparse_matmul` row whose `nnz` is
 # `std::nullopt` and early-returns out of its advice for such a row, so without this flag the two
-# routed matmuls carry no Bound, no DRAM %, no FLOPs % and no advice. The count is the active
-# experts **per device**, which is what changes under expert parallelism: at batch-1 decode the
-# expected maximum over the four devices is 3.512 of the global 8 (probe_expert_parallel.txt, exact
-# over the multivariate hypergeometric), and the suite measures 4; for a 32-token prefill group it is
-# the expected distinct union of 256 draws over 64 local experts, 64*(1-(1-1/64)^256) = 63.
+# routed matmuls carry no Bound, no DRAM %, no FLOPs % and no advice. The count is the active experts
+# **per device, per sparsity group**, which is what the op loops over and what expert parallelism
+# changes.
+#
+# Decode: 4. Measured, not modelled — `test_gate_selected_experts_not_dense` logs
+# "decode sparsity max non-zeros per device per group [4.0, 4.0]" on both layer kinds.
+#
+# Prefill: 41. A 32-token group makes `32 * top_k` = 256 draws over the *global* 256 experts, of
+# which `256 / tp` = 64 land on this device's 64, so the expected distinct union is
+# `64 * (1 - (1 - 1/64)^64)` = 40.6. The same test measures 44 (linear_attention) and 39-40
+# (full_attention) for exactly that quantity, which brackets it.
+#
+# Review round 2 found this at 63 — `64 * (1 - (1 - 1/64)^256)`, i.e. the same formula with the
+# draws *not* divided by `tp`, so every draw was credited to every device. That is a ~50%
+# overestimate, and it feeds tt-perf-report's modelled DRAM bytes and FLOPs for the rows that are
+# 74-75% of the prefill window. `probe_sparse_matmul_local.txt` brackets the corrected point with
+# `active=32` and `active=63` rows and picks 32 cores for both roles at both, so the geometry
+# decision is unaffected; the roofline figures are restated at the corrected input.
 run_one() {
   local kind="$1" phase="$2" node="$3" sign="$4" active="$5"
   local out="$ART/$kind/$phase"
@@ -98,10 +111,10 @@ run_one() {
 }
 
 run_one linear_attention prefill \
-  'test_perf_prefill[blackhole-2048-linear_attention-mesh_device0-device_params0]' PERF_PREFILL 63
+  'test_perf_prefill[blackhole-2048-linear_attention-mesh_device0-device_params0]' PERF_PREFILL 41
 run_one linear_attention decode \
   'test_perf_decode_traced[blackhole-linear_attention-mesh_device0-device_params0]' PERF_DECODE 4
 run_one full_attention prefill \
-  'test_perf_prefill[blackhole-2048-full_attention-mesh_device0-device_params0]' PERF_PREFILL 63
+  'test_perf_prefill[blackhole-2048-full_attention-mesh_device0-device_params0]' PERF_PREFILL 41
 run_one full_attention decode \
   'test_perf_decode_traced[blackhole-full_attention-mesh_device0-device_params0]' PERF_DECODE 4

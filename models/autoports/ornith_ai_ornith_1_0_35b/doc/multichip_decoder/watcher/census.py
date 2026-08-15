@@ -123,7 +123,7 @@ def main():
     fatal = [line for line in lines if FATAL.search(line)]
     out.append(f"fatal-class matches: {len(fatal)}")
 
-    # Committed next to the log so the counts CLASSIFICATION.md quotes are a generated artifact
+    # Committed next to the log so the counts README section 7 quotes are a generated artifact
     # rather than a transcription, and so audit_figures.py can trace them.
     text = "\n".join(out) + "\n"
     unknown = [a for a in sys.argv[1:] if a != "--check"]
@@ -143,7 +143,7 @@ def main():
             raise SystemExit(1)
         print("census_summary.txt matches the artifacts")
     else:
-        # Committed next to the log so the counts CLASSIFICATION.md quotes are a generated artifact
+        # Committed next to the log so the counts README section 7 quotes are a generated artifact
         # rather than a transcription, and so audit_figures.py can trace them.
         summary.write_text(text)
         print(text, end="")

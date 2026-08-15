@@ -66,19 +66,23 @@ if has probes; then
     > "$LOGS/probe_footprint_local.txt"
   # The routed sparse-matmul ladder at the two per-device operating points EP creates. Two processes:
   # the sweep builds a few hundred kernels per run and a single process exhausts L1_SMALL.
-  {
-    python "$LOGS/probe_sparse_matmul_local.py" --experts 64 --active 4 2>/dev/null | grep -E "^SPARSEL|^#"
-    python "$LOGS/probe_sparse_matmul_local.py" --experts 64 --active 63 2>/dev/null | grep -E "^SPARSEL|^#"
-  } > "$LOGS/probe_sparse_matmul_local.txt"
+  # 4 is the measured batch-1 decode count and 41 the corrected prefill-group expectation; 8/16/32
+  # fill in the decode range that `_active_expert_bound` walks as batch grows, and 63 is kept so the
+  # rows the earlier (over-counted) calibration used are still in the artifact.
+  : > "$LOGS/probe_sparse_matmul_local.txt"
+  for a in 4 8 16 32 41 63; do
+    python "$LOGS/probe_sparse_matmul_local.py" --experts 64 --active "$a" 2>/dev/null \
+      | grep -E "^SPARSEL|^#" >> "$LOGS/probe_sparse_matmul_local.txt"
+  done
   # One process per batch, for the same reason: this probe builds ~7 decoders per batch and the CCL
   # semaphores they allocate out of L1_SMALL are not reclaimed while the mesh stays open.
   : > "$LOGS/.decode_batch.tmp"
   for b in 1 2 4 8 13 16 32; do
     python "$LOGS/probe_decode_batch.py" --batches "$b" 2>/dev/null \
-      | grep -E "^SHAPE|^DECODEB|^#" >> "$LOGS/.decode_batch.tmp"
+      | grep -E "^SHAPE|^DECODEB|^SPARSEB|^#" >> "$LOGS/.decode_batch.tmp"
   done
-  grep -E "^#" "$LOGS/.decode_batch.tmp" | head -3 > "$LOGS/probe_decode_batch.txt"
-  grep -E "^SHAPE|^DECODEB" "$LOGS/.decode_batch.tmp" >> "$LOGS/probe_decode_batch.txt"
+  grep -E "^#" "$LOGS/.decode_batch.tmp" | head -4 > "$LOGS/probe_decode_batch.txt"
+  grep -E "^SHAPE|^DECODEB|^SPARSEB" "$LOGS/.decode_batch.tmp" >> "$LOGS/probe_decode_batch.txt"
   rm -f "$LOGS/.decode_batch.tmp"
   wc -l "$LOGS/probe_ccl.txt" "$LOGS/probe_dense_matmul.txt" "$LOGS/probe_expert_parallel.txt" \
         "$LOGS/probe_footprint_local.txt" "$LOGS/probe_sparse_matmul_local.txt" \
