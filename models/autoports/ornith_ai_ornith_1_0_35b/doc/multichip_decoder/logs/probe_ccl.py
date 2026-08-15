@@ -30,7 +30,7 @@ Arms:
     that to "unavailable on this hardware"; review round 3 pointed out that the op's Blackhole guard
     is DRAM-specific rather than architecture-specific, and retrying it turned up something else
     again: the arm had been calling the op **wrong**. It needs two barrier semaphores
-    (``all_reduce_async.cpp:435``) and a ``cluster_axis`` (``:436``), and rounds 0-3 passed one and
+    (``all_reduce_async.cpp:435``) and a ``cluster_axis`` (``:436``); rounds 0-3 supplied one semaphore and
     ``None``. It never reached any Blackhole check at all. Called correctly it runs on a DRAM operand
     on this hardware and is correct; these rows are what it costs.
 

@@ -38,6 +38,7 @@ a run, not to deselect.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -103,6 +104,24 @@ SPARSE_DECODE_CORES = {
     32: {"gate_up": 32, "down": 32},
 }
 
+#: The active-expert count a full 32-token prefill group produces on one device, and the band the
+#: suite holds it to. ``tracy/run_profiling.sh`` passes :data:`PREFILL_ACTIVE_MODEL` to
+#: ``tt-perf-report --active-experts`` and ``probe_sparse_matmul_local.py`` sweeps at it, so it is a
+#: modelling input for every prefill DRAM and FLOPs figure rather than a description. Expectation:
+#: ``64 * (1 - (1 - 1/64)^(32*8/4))`` = 40.6, measured 39-44 across layer kinds and sweeps.
+#: Bar for a BFP4 expert weight block against the float checkpoint. See
+#: `test_expert_partition_is_disjoint_and_complete`; the quantisation itself costs ~7e-3 here.
+EXPERT_WEIGHT_BAR = 0.99
+
+#: The traced-decode speedup the suite gates on. See `test_multichip_beats_single_chip_traced_decode`.
+DECODE_SPEEDUP_BAR = 1.4
+
+#: Warmed 2048-token prefill wall-clock bar, milliseconds. See `test_perf_prefill`.
+PREFILL_MS_BAR = 48.0
+
+PREFILL_ACTIVE_MODEL = 41
+PREFILL_ACTIVE_BAND = (30, 55)
+
 #: The same, for **prefill**. Every prefill expert group is a full 32 rows, so the bound saturates at
 #: ``min(64, 32*8) = 64`` at every sequence length and batch and the geometry is one pair of numbers.
 #: Review round 3 found the prefill row of README section 5.7's table was derivation-only — the spy
@@ -124,6 +143,18 @@ pytestmark = [
 # --------------------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------------------
+def decode_grid_for(grid, cores: int) -> tuple:
+    """The worker rectangle a decode matmul target realises as, mirroring `_decode_1d_matmul_config`.
+
+    The widest legal rectangle at or below ``cores``: full rows of the device grid's x extent, capped
+    by its y extent. Mirrored rather than imported so that changing the rule takes a deliberate edit
+    in both places -- the point of the assertion is that the shipped layer passes the swept target
+    through to this rule, which a `realised <= target` check could not see (review round 4).
+    """
+    cols = min(grid.x, cores)
+    return cols, min(math.ceil(cores / cols), grid.y)
+
+
 def pcc(golden: torch.Tensor, actual: torch.Tensor) -> float:
     """Pearson correlation, accumulated in float64."""
     a = golden.double().flatten()
@@ -387,8 +418,16 @@ def test_weights_are_sharded_not_replicated(mesh_device, layer_idx):
         tensor = store[name]
         assert list(tensor.shape) == shape, f"{name} per-device shape {list(tensor.shape)} != {shape}"
         parts = shards(mesh_device, tensor)
-        assert not torch.equal(parts[0], parts[1]), f"{name} is identical on devices 0 and 1 — it is replicated"
-        logger.info(f"multichip weight layer={layer_idx} {name}: per-device {shape}, shards differ")
+        # Every pair, not just (0, 1): review round 4 pointed out that a weight replicated across
+        # devices 2 and 3 -- exactly what a wrong kv-head or expert-block index would produce -- passed
+        # the two-device version of this check.
+        for a in range(len(parts)):
+            for b in range(a + 1, len(parts)):
+                assert not torch.equal(parts[a], parts[b]), f"{name} is identical on devices {a} and {b}"
+        logger.info(
+            f"multichip weight layer={layer_idx} {name}: per-device {shape}, all "
+            f"{len(parts) * (len(parts) - 1) // 2} shard pairs differ"
+        )
     for name, shape in replicated.items():
         tensor = store[name]
         assert list(tensor.shape) == shape, f"{name} should stay whole: {list(tensor.shape)} != {shape}"
@@ -409,13 +448,29 @@ def test_expert_partition_is_disjoint_and_complete(mesh_device, layer_idx):
     parts = shards(mesh_device, decoder.moe.w["expert_gate_up"])
     rebuilt = torch.cat([p.reshape(-1, g.dim, 2 * g.moe_intermediate_size) for p in parts], dim=0)
     assert rebuilt.shape[0] == g.num_experts
-    # The weights are BFP4 on device, so compare per-expert correlation rather than values.
-    worst = min(pcc(host[e].float(), rebuilt[e].float()) for e in range(0, g.num_experts, 17))
+    # Every expert, not the 1-in-17 sample review round 4 called a coverage gap. The bar stays at
+    # 0.99: these are BFP4 weights compared against the float checkpoint, which costs ~7e-3 of PCC
+    # (the suite log has the per-layer-kind worst values), so a tighter bar would be
+    # measuring the dtype rather than the partition. What makes the check sharp is not the bar but
+    # the mismatch bound below -- an in-order expert scores 0.99 against its own weights and 0.004
+    # against any other, so the two are three orders of magnitude apart.
+    per_expert = [pcc(host[e].float(), rebuilt[e].float()) for e in range(g.num_experts)]
+    worst = min(per_expert)
+    # Disjointness, asserted rather than inferred: expert `e` must match checkpoint expert `e` better
+    # than it matches any other expert. Checked against the neighbours a block-boundary error would
+    # actually produce -- the same index in another device's block, and the adjacent index.
+    confusions = []
+    for e in range(0, g.num_experts, 8):
+        for other in {(e + g.num_experts // decoder.tp) % g.num_experts, (e + 1) % g.num_experts}:
+            confusions.append((e, other, pcc(host[other].float(), rebuilt[e].float())))
+    worst_confusion = max(v for _, _, v in confusions)
     logger.info(
         f"multichip expert partition layer={layer_idx}: 4 x {parts[0].shape[1]} experts rebuild the "
-        f"{g.num_experts}-expert checkpoint tensor in order, worst per-expert PCC={worst:.6f}"
+        f"{g.num_experts}-expert checkpoint tensor in order, worst per-expert PCC={worst:.6f}, "
+        f"best mismatched-expert PCC={worst_confusion:.6f}"
     )
-    assert worst > 0.99, f"expert blocks are not the checkpoint's experts in order (worst PCC {worst})"
+    assert worst > EXPERT_WEIGHT_BAR, f"expert blocks are not the checkpoint's experts in order (worst PCC {worst})"
+    assert worst_confusion < 0.5, f"a device's expert block matches the wrong checkpoint expert (PCC {worst_confusion})"
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
@@ -742,10 +797,25 @@ def test_batched_decode_ragged_positions(mesh_device, layer_idx):
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 def test_prefill_continuation(mesh_device, layer_idx):
-    """Two prefill calls over one sequence must equal a single call over the concatenation."""
+    """Two prefill calls over one sequence equal one call over the concatenation.
+
+    Against **both** references, because they answer different questions: the HF golden says the
+    continuation is right, and a single 258-token TTNN prefill in the same process says the split
+    changed nothing about *this* implementation. Review round 4 found the second comparison claimed
+    in the docstring and not made.
+
+    The continued segment is deliberately **130 tokens** — not a multiple of the 32-token tile, the
+    64-token page or the 128-token chunk — because that is the freedom the public contract has to
+    keep. ``start_pos`` itself is a different matter: ``OptimizedDecoder.prefill_forward`` requires
+    ``start_pos % chunk_size == 0`` and this stage inherits that unchanged, so a caller resumes on
+    chunk boundaries and may end anywhere. :func:`test_prefill_continuation_rejects_unaligned_start`
+    pins that boundary as a clean error rather than a silent wrong answer, and
+    ``doc/context_contract.json`` records it.
+    """
     source = default_weight_source()
     chunk = 128
-    total = 3 * chunk
+    tail = 130
+    total = chunk + tail
     x = make_activations(1, total, seed=21)
     ref_prefill, _ = run_reference(layer_idx, source, x)
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, prefill_chunk=chunk)
@@ -763,9 +833,34 @@ def test_prefill_continuation(mesh_device, layer_idx):
         chunk_size=chunk,
     )
     got = torch.cat([to_host(mesh_device, first), to_host(mesh_device, second)], dim=1)
-    value = pcc(ref_prefill, got)
-    logger.info(f"multichip prefill continuation layer={layer_idx} PCC={value:.6f}")
-    assert value > PCC_BAR
+    decoder.reset_state()
+    whole = to_host(mesh_device, decoder.prefill_forward(x_tt, page_table=page_table, chunk_size=chunk))
+    golden = pcc(ref_prefill, got)
+    split = pcc(whole, got)
+    logger.info(
+        f"multichip prefill continuation layer={layer_idx} tail={tail}: "
+        f"PCC vs HF golden={golden:.6f} PCC vs one call={split:.6f}"
+    )
+    assert golden > PCC_BAR
+    assert split > BASELINE_BAR, f"splitting the prefill changed the result (PCC {split})"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS[:1], ids=lambda i: LAYER_IDS[i])
+def test_prefill_continuation_rejects_unaligned_start(mesh_device, layer_idx, expect_error):
+    """A resume at a non-chunk-aligned ``start_pos`` is refused, not silently mis-cached.
+
+    The inherited public contract: ``chunk_size`` is a multiple of ``PREFILL_ALIGN`` and ``start_pos``
+    a multiple of ``chunk_size``. This stage adds no restriction of its own — sharding does not
+    narrow it — but review round 4 pointed out that the restriction existed, that no document
+    recorded it, and that README section 4.4 described this stage's continuation test as covering the
+    case the API rejects.
+    """
+    source = default_weight_source()
+    chunk = 128
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, prefill_chunk=chunk)
+    x_tt = to_device(mesh_device, make_activations(1, chunk, seed=22))
+    with expect_error(ValueError, "must be a multiple of chunk_size"):
+        decoder.prefill_forward(x_tt, start_pos=chunk // 2, page_table=page_table, chunk_size=chunk)
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
@@ -950,46 +1045,81 @@ def test_gate_selected_experts_not_dense(mesh_device, layer_idx, monkeypatch):
     # at least one per token's worth of routing); the exact figure lives in the log line above, which
     # is what the scripts are calibrated against.
     assert prefill_seen, "no sparse_matmul was dispatched in prefill"
-    assert max(prefill_seen) <= decoder.cfg.num_experts, (
-        f"prefill activated {max(prefill_seen)} local experts, more than the {decoder.cfg.num_experts} "
-        "this device owns"
+    assert (
+        max(prefill_seen) < decoder.cfg.num_experts
+    ), f"prefill activated {max(prefill_seen)} of the {decoder.cfg.num_experts} local experts, i.e. densely"
+    # And the *band* the modelling input sits in, not just "less than dense". Review round 4 pointed
+    # out that the structural bound above would still pass if the count drifted back to round 2's 63,
+    # which is what `--active-experts` was wrongly set to and which feeds every prefill DRAM and FLOPs
+    # figure. The band is wide enough for run-to-run routing variation on random activations and far
+    # too narrow to admit the uniform-draw over-count.
+    assert PREFILL_ACTIVE_BAND[0] <= max(prefill_seen) <= PREFILL_ACTIVE_BAND[1], (
+        f"prefill activated {max(prefill_seen)} local experts per group, outside the band "
+        f"{PREFILL_ACTIVE_BAND} that `tracy/run_profiling.sh --active-experts "
+        f"{PREFILL_ACTIVE_MODEL}` and `probe_sparse_matmul_local.py` are calibrated against"
     )
-    assert max(prefill_seen) < decoder.cfg.num_experts, "prefill is running every local expert, i.e. densely"
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
-@pytest.mark.parametrize("mode", ["select_matmul", "gather"])
-def test_routing_select_modes_agree(mesh_device, layer_idx, monkeypatch, mode):
-    """Both spellings of the global-to-local routing narrowing give the same vector."""
+def test_routing_select_modes_agree(mesh_device, layer_idx, monkeypatch):
+    """``gather`` and the shipped ``select_matmul`` narrowing agree, on the vector and on the layer.
+
+    Two comparisons, because the routing vector is not the deliverable: the local scores feed a
+    sparsity mask and a score multiply, so a narrowing that produced the right vector in the wrong
+    dtype or layout could still move the layer. Review round 4 found this test comparing only the
+    vector while README section 4.3 claimed the layer output, and running a ``select_matmul`` arm
+    against itself — a parametrization where half the cases were tautological. The reference arm is
+    now fixed at ``select_matmul`` and the single compared arm is ``gather``.
+    """
     source = default_weight_source()
-    decoder, _, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
     x = to_device(mesh_device, make_activations(1, 32, seed=84).reshape(1, 1, 32, hf_config().hidden_size))
+    layer_x = to_device(mesh_device, make_activations(1, 128, seed=86))
     decoder.moe._decode_phase = False
     monkeypatch.setattr(MC, "ROUTING_SELECT_MODE", "select_matmul")
     want = torch.cat(shards(mesh_device, decoder.moe.routing_weights(x)), dim=-1)
-    monkeypatch.setattr(MC, "ROUTING_SELECT_MODE", mode)
+    decoder.reset_state()
+    want_layer = to_host(mesh_device, decoder.prefill_forward(layer_x, page_table=page_table))
+    monkeypatch.setattr(MC, "ROUTING_SELECT_MODE", "gather")
     got = torch.cat(shards(mesh_device, decoder.moe.routing_weights(x)), dim=-1)
+    decoder.reset_state()
+    got_layer = to_host(mesh_device, decoder.prefill_forward(layer_x, page_table=page_table))
+    layer_value = pcc(want_layer, got_layer)
     logger.info(
-        f"multichip routing select mode={mode} layer={layer_idx}: equal to select_matmul = {torch.equal(got, want)}"
+        f"multichip routing select gather vs select_matmul layer={layer_idx}: "
+        f"routing vectors bit-equal = {torch.equal(got, want)}, layer PCC = {layer_value:.6f}"
     )
-    assert torch.equal(got, want), f"ROUTING_SELECT_MODE={mode} disagrees with select_matmul"
+    assert torch.equal(got, want), "ROUTING_SELECT_MODE=gather disagrees with select_matmul"
+    assert layer_value > BASELINE_BAR, f"the narrowing spelling moved the layer (PCC {layer_value})"
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("seq_len", [32, 128], ids=["stack_sum_regime", "all_reduce_regime"])
 @pytest.mark.parametrize("mode", ["all_reduce", "rs_ag", "stack_sum"])
-def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode):
-    """Every collective spelling produces the same layer output, so the knob is a latency knob."""
+def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode, seq_len):
+    """Every collective spelling produces the same layer output, so the knob is a latency knob.
+
+    Run on **both sides of the ``auto`` crossover**. Review round 4 pointed out that the single
+    128-token shape this used to run put ``auto`` above ``CCL_STACK_SUM_MAX_ROWS``, so ``auto``
+    resolved to ``all_reduce`` and the ``all_reduce`` arm was comparing the shipped path with itself
+    — a determinism check presented as an agreement check. At 32 rows ``auto`` is ``stack_sum``, so
+    between the two shapes every arm is compared against a genuinely different spelling once.
+    """
     source = default_weight_source()
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
-    x = to_device(mesh_device, make_activations(1, 128, seed=85))
+    x = to_device(mesh_device, make_activations(1, seq_len, seed=85))
     monkeypatch.setattr(MC, "CCL_MODE", "auto")
     decoder.reset_state()
     want = to_host(mesh_device, decoder.prefill_forward(x, page_table=page_table))
+    resolved = "stack_sum" if seq_len <= MC.CCL_STACK_SUM_MAX_ROWS else "all_reduce"
     monkeypatch.setattr(MC, "CCL_MODE", mode)
     decoder.reset_state()
     got = to_host(mesh_device, decoder.prefill_forward(x, page_table=page_table))
     value = pcc(want, got)
-    logger.info(f"multichip CCL_MODE={mode} layer={layer_idx}: PCC vs auto = {value:.6f}")
+    logger.info(
+        f"multichip CCL_MODE={mode} layer={layer_idx} seq_len={seq_len} (auto={resolved}): "
+        f"PCC vs auto = {value:.6f}"
+    )
     assert value > 0.9999, f"CCL_MODE={mode} changed the result (PCC {value})"
 
 
@@ -1320,7 +1450,19 @@ def test_decode_runs_the_multichip_program_configs(mesh_device, layer_idx, monke
         f"in0_block_w={cfg.in0_block_w} per_core_N={cfg.per_core_N} target={target_cores} cap={cap}"
     )
     assert cfg.in0_block_w == cap, f"{role} in0_block_w {cfg.in0_block_w} != the swept cap {cap}"
-    assert realised <= target_cores
+    # Equality against the grid the swept target realises as, not `<=`: review round 4 pointed out
+    # that `<=` passes a silent fallback to 8 cores on a role whose swept target is 110. The rule is
+    # `_decode_1d_matmul_config`'s -- the widest legal rectangle at or below the target on this
+    # device's worker grid -- mirrored here rather than imported so that a change to it has to be
+    # made deliberately in two places.
+    want_grid = decode_grid_for(mesh_device.compute_with_storage_grid_size(), target_cores)
+    assert (grid.x, grid.y) == want_grid, (
+        f"{role} ran on a {grid.x}x{grid.y} grid; the swept target {target_cores} realises as "
+        f"{want_grid[0]}x{want_grid[1]} on this device"
+    )
+    assert cfg.per_core_N == math.ceil(
+        (width // TILE) / realised
+    ), f"{role} per_core_N {cfg.per_core_N} does not cover {width // TILE} output tiles on {realised} cores"
     # The residual norm hands this projection a width shard over NORM_SHARD_CORES cores, so the
     # per-core shard is dim/NORM_SHARD_CORES/32 tiles and mcast_in0 requires in0_block_w to divide it.
     shard_tiles = decoder.cfg.dim // decoder.NORM_SHARD_CORES // TILE
@@ -1346,7 +1488,7 @@ def test_decode_runs_the_multichip_program_configs(mesh_device, layer_idx, monke
         f"({sd_grid.x * sd_grid.y} cores) in0_block_w={sd_cfg.in0_block_w} per_core_N={sd_cfg.per_core_N} "
         f"target={sd_target} cap={sd_cap}"
     )
-    assert sd_grid.x * sd_grid.y <= sd_target
+    assert (sd_grid.x, sd_grid.y) == decode_grid_for(mesh_device.compute_with_storage_grid_size(), sd_target)
     assert sd_cfg.in0_block_w == min(sd_cap, sd_k // TILE)
 
 
@@ -1502,6 +1644,14 @@ def test_perf_prefill(mesh_device, layer_idx, seq_len):
         f"MULTICHIP PERF prefill layer={layer_idx} ({LAYER_IDS[layer_idx]}) seq_len={seq_len} "
         f"wall={elapsed * 1e3:.2f} ms  tok/s={seq_len / elapsed:.1f}"
     )
+    # This test exists to be profiled between signposts, but review round 4 pointed out that it
+    # asserted nothing at all, so nothing in the suite gated the prefill speedup the README quotes.
+    # The bar is the single-chip baseline's warmed prefill (~95-102 ms) divided by a conservative 2x,
+    # against a measured 3.36-3.47x: it fails a lost parallelisation and tolerates a slow machine.
+    assert elapsed * 1e3 < PREFILL_MS_BAR, (
+        f"warmed multichip prefill {elapsed * 1e3:.2f} ms is above the {PREFILL_MS_BAR} ms bar; the "
+        "single-chip baseline is ~95-102 ms, so this is at most a 2x speedup"
+    )
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
@@ -1594,4 +1744,10 @@ def test_multichip_beats_single_chip_traced_decode(mesh_device, layer_idx):
         f"single-chip-replicated {timings['single-chip-replicated'] * 1e3:.3f} ms -> multichip "
         f"{timings['multichip'] * 1e3:.3f} ms ({speedup:.2f}x)"
     )
-    assert speedup > 1.0, f"multichip traced decode is not faster: {timings}"
+    # A real bar, not `> 1.0`: the measured speedup is 1.65-1.68x on both layer kinds across every
+    # sweep this stage ran, so 1.4x leaves ample room for machine noise while still failing if the
+    # parallelisation regresses. Review round 4 pointed out that `> 1.0` gated nothing the README's
+    # figures depend on.
+    assert (
+        speedup > DECODE_SPEEDUP_BAR
+    ), f"multichip traced decode speedup {speedup:.2f}x is below the {DECODE_SPEEDUP_BAR}x bar: {timings}"

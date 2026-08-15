@@ -270,6 +270,128 @@ def _dense():
     return rows, widest
 
 
+def table_category() -> str:
+    """Every ``Op Category`` of the merged 4-device window, against the single-chip stage's own.
+
+    Added after review round 4, which pointed out that section 5.4 reported six *op-code* rows summing
+    to about 55% of the decode window and called it "top of the stack", while the ``TM`` (layout)
+    category alone was a fifth of that window and appeared nowhere. The single-chip column is the
+    control that says whether a category is this stage's doing: it is the same profile, same phases,
+    from ``doc/optimized_decoder/tracy/``.
+    """
+    import csv
+    import io
+
+    def shares(root, kind, phase):
+        body = read(root / kind / f"{phase}_perf_report_stacked.csv.gz")
+        totals: dict = {}
+        for row in csv.DictReader(io.StringIO(body)):
+            totals[row["Op Category"]] = totals.get(row["Op Category"], 0.0) + float(row["Total % [%]"])
+        return totals
+
+    single = TRACY.parent.parent / "optimized_decoder" / "tracy"
+    cols = [
+        ("linear_attention", "decode"),
+        ("full_attention", "decode"),
+        ("linear_attention", "prefill"),
+        ("full_attention", "prefill"),
+    ]
+    mine = [shares(TRACY, k, p) for k, p in cols]
+    theirs = [shares(single, k, p) for k, p in cols]
+    out = [
+        "| `Op Category` | linear decode | full decode | linear prefill | full prefill |",
+        "|---|---|---|---|---|",
+    ]
+    for cat, label in (
+        ("Compute", "`Compute`"),
+        ("TM", "`TM` (layout)"),
+        ("DM", "`DM` (data movement)"),
+        ("Other", "`Other`"),
+    ):
+        cells = [f"{m.get(cat, 0.0):.1f}% ({t.get(cat, 0.0):.1f}%)" for m, t in zip(mine, theirs)]
+        out.append(f"| {label} | " + " | ".join(cells) + " |")
+    return "\n".join(out)
+
+
+def table_tm() -> str:
+    """The layout rows that make up the decode ``TM`` share, largest first."""
+    import csv
+    import io
+
+    out = ["| op | linear decode | full decode |", "|---|---|---|"]
+    rows = {}
+    for i, kind in enumerate(("linear_attention", "full_attention")):
+        body = read(TRACY / kind / "decode_perf_report_stacked.csv.gz")
+        for row in csv.DictReader(io.StringIO(body)):
+            if row["Op Category"] != "TM":
+                continue
+            name = row["Op Code"].split("DeviceOperation")[0]
+            cell = rows.setdefault(name, [0.0, 0.0])
+            cell[i] += float(row["Total % [%]"])
+    for name, (a, b) in sorted(rows.items(), key=lambda kv: -sum(kv[1]))[:8]:
+        out.append(f"| `{name}` | {a:.2f}% | {b:.2f}% |")
+    return "\n".join(out)
+
+
+#: Which logged PCC belongs to which inventory, by the exact phrasing each test prints. Explicit
+#: rather than inferred: review round 4 found section 4.2's hand-written breakdown 4 values short and
+#: misattributed after round 3 added two assertions to an existing test, and a "count every PCC in
+#: the log" rule would sweep in the agreement, weight-partition and self-consistency comparisons,
+#: which are different claims with different bars.
+PCC_INVENTORIES = {
+    "golden": [
+        ("test_prefill_pcc", r"PCC=([01]\.\d+)"),
+        ("test_decode_pcc", r"PCC=([01]\.\d+)"),
+        ("test_batched_prefill_decode_pcc", r"PCC=([01]\.\d+)"),
+        ("test_batched_decode_ragged_positions", r"PCC=([01]\.\d+)"),
+        ("test_long_context_pcc", r"(?:prefill|decode) ([01]\.\d+)"),
+        ("test_unaligned_max_context", r"PCC=([01]\.\d+)"),
+        ("test_traced_decode_pcc", r"PCC=([01]\.\d+)"),
+        ("test_permuted_page_table", r"PCC=([01]\.\d+)"),
+        ("test_prefill_continuation", r"PCC vs HF golden=([01]\.\d+)"),
+    ],
+    "baseline": [
+        ("test_prefill_matches_single_chip", r"PCC=([01]\.\d+)"),
+        ("test_decode_matches_single_chip", r"PCC=([01]\.\d+)"),
+    ],
+}
+
+
+def _pcc_rows(which):
+    body = read(LOGS / "pytest_full_suite.txt.gz")
+    lines = body.splitlines()
+    counts, values = {}, {}
+    for test, pattern in PCC_INVENTORIES[which]:
+        hits = []
+        for line in lines:
+            if f"test_multichip_decoder:{test}:" not in line:
+                continue
+            hits += [float(v) for v in re.findall(pattern, line)]
+        if hits:
+            counts[test], values[test] = len(hits), min(hits)
+    return counts, values
+
+
+def table_pcc_inventory() -> str:
+    """Every HF-golden PCC the committed suite log prints, counted by the test that printed it."""
+    counts, values = _pcc_rows("golden")
+    out = ["| test | values | minimum |", "|---|---|---|"]
+    for name in sorted(counts, key=lambda n: (-counts[n], n)):
+        out.append(f"| `{name}` | {counts[name]} | {values[name]:.6f} |")
+    out.append(f"| **total** | **{sum(counts.values())}** | **{min(values.values()):.6f}** |")
+    return "\n".join(out)
+
+
+def table_pcc_baseline() -> str:
+    """The same, for the primary bar: this stage against the single-chip TTNN decoder in-process."""
+    counts, values = _pcc_rows("baseline")
+    out = ["| test | values | minimum |", "|---|---|---|"]
+    for name in sorted(counts, key=lambda n: (-counts[n], n)):
+        out.append(f"| `{name}` | {counts[name]} | {values[name]:.6f} |")
+    out.append(f"| **total** | **{sum(counts.values())}** | **{min(values.values()):.6f}** |")
+    return "\n".join(out)
+
+
 def table_dense() -> str:
     #: Inherited entry per role, from `optimized_decoder.DECODE_MATMUL_GEOMETRY`, and this stage's.
     inherited = {
@@ -429,6 +551,10 @@ TABLES = {
     "fabric": table_fabric,
     "ablayer": table_ablayer,
     "perf": table_perf,
+    "category": table_category,
+    "tm": table_tm,
+    "pcc_inventory": table_pcc_inventory,
+    "pcc_baseline": table_pcc_baseline,
     "dense": table_dense,
     "sparse_ladder": table_sparse_ladder,
     "decode_batch": table_decode_batch,

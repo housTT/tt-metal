@@ -60,6 +60,20 @@ SOURCES = [
     ROOT / "tests" / "test_multichip_decoder.py",
 ]
 
+#: Not stage-owned and **not** scanned for figures — that is the optimized stage's own audit — but
+#: every artifact here measures them: this stage subclasses `OptimizedDecoder` and inherits its
+#: config wholesale, so a change under it invalidates these measurements exactly as a change to
+#: `multichip_decoder.py` would. Review round 4 pointed out that the fingerprint covered only the two
+#: files this stage writes. `optimized_decoder.py` imports nothing else from `tt/` but
+#: `model_config.py`, so these two are the closure.
+INHERITED_SOURCES = [
+    ROOT / "tt" / "optimized_decoder.py",
+    ROOT / "tt" / "model_config.py",
+]
+
+#: What the sweep fingerprints and what freshness is decided against.
+MEASURED_SOURCES = SOURCES + INHERITED_SOURCES
+
 #: Documents whose figures must be sourced. The probe and harness scripts are included for the reason
 #: the single-chip port gives: a script that explains why it exists is making a claim about a
 #: measurement, and round 3 found exactly such a claim (``run_profiling.sh``'s ``3.54``) stale.
@@ -219,6 +233,8 @@ ALLOWED = {
     "0.999938",
     "0.999924",  # historical: a PCC pair round 3 found quoted with no run behind it
     "0.9935",  # the expert-partition weight PCC, quoted rounded from its two logged values
+    "1.4",  # DECODE_SPEEDUP_BAR: a policy threshold in the suite, not a measurement
+    "48.0",  # PREFILL_MS_BAR: the same
 }
 
 #: Integers that are architecture/config/shape constants, section/round numbers or prose numbers.
@@ -427,6 +443,54 @@ def derived_from_artifacts() -> set:
             tokens.add(micros)
             tokens.add(micros.replace(",", ""))
 
+    # Whole-window `Op Category` shares, for this stage's captures and for the single-chip stage's
+    # (README section 5.4 quotes both, the second as the control that says a category is inherited).
+    import csv as _csv
+
+    category_shares: dict = {}
+    for root in (DOC / "tracy", DOC.parent / "optimized_decoder" / "tracy"):
+        for path in sorted(root.glob("*/*_perf_report_stacked.csv.gz")):
+            body = read_blob(path)
+            if body is None:
+                continue
+            totals: dict = {}
+            for row in _csv.DictReader(io.StringIO(body)):
+                totals[row["Op Category"]] = totals.get(row["Op Category"], 0.0) + float(row["Total % [%]"])
+            for value in totals.values():
+                for digits in (1, 2):
+                    tokens.add(f"{value:.{digits}f}")
+            # Keyed by root as well: both trees hold a `linear_attention/decode_...` file and the
+            # cross-tree delta is exactly what this feeds.
+            category_shares.setdefault(f"{root.parent.name}/{path.parent.name}/{path.name}", {}).update(totals)
+            # Per-op-name aggregates, which is how README section 5.4's `TM` table names them: one
+            # `Op Code` per `in0` layout, summed by the op.
+            by_op: dict = {}
+            for row in _csv.DictReader(io.StringIO(body)):
+                by_op[row["Op Code"].split("DeviceOperation")[0]] = by_op.get(
+                    row["Op Code"].split("DeviceOperation")[0], 0.0
+                ) + float(row["Total % [%]"])
+            for value in by_op.values():
+                for digits in (1, 2):
+                    tokens.add(f"{value:.{digits}f}")
+            # Per-op *rates*: a row's device time divided by its op count, which is how the anomaly
+            # ledger and README limitation 7 quote the two collectives (a per-call cost is the only
+            # way to compare rows whose op counts differ).
+            for row in _csv.DictReader(io.StringIO(body)):
+                count = int(row["Op Count"])
+                if count:
+                    rate = float(row["Device Time Sum [\u03bcs]"]) / count
+                    for digits in (1, 2):
+                        tokens.add(f"{rate:.{digits}f}")
+
+    # The multichip-minus-single-chip delta per category and phase, which is the number the prose
+    # uses to say a category is or is not this stage's doing.
+    for name, mine in category_shares.items():
+        for other, theirs in category_shares.items():
+            if name != other:
+                for cat, value in mine.items():
+                    if cat in theirs:
+                        tokens.add(f"{abs(value - theirs[cat]):.1f}")
+
     dense = read_blob(DOC / "logs" / "probe_dense_matmul.txt")
     if dense:
         # The `repeatability` column of README section 5.6: the widest disagreement between repeated
@@ -572,7 +636,8 @@ def code_fingerprint(path) -> str:
 
 def write_source_stamp() -> None:
     SOURCE_STAMP.write_text(
-        json.dumps({p.name: code_fingerprint(p) for p in SOURCES if p.is_file()}, indent=1, sort_keys=True) + "\n"
+        json.dumps({p.name: code_fingerprint(p) for p in MEASURED_SOURCES if p.is_file()}, indent=1, sort_keys=True)
+        + "\n"
     )
 
 
@@ -584,14 +649,14 @@ def unchanged_since_stamp() -> set:
         stamped = json.loads(SOURCE_STAMP.read_text())
     except ValueError:
         return set()
-    return {p for p in SOURCES if p.is_file() and stamped.get(p.name) == code_fingerprint(p)}
+    return {p for p in MEASURED_SOURCES if p.is_file() and stamped.get(p.name) == code_fingerprint(p)}
 
 
 def check_freshness() -> list:
     """Every artifact must be newer than the code it measures, unless only its prose moved."""
     problems = []
     fresh = unchanged_since_stamp()
-    candidates = [p for p in SOURCES if p.is_file() and p not in fresh]
+    candidates = [p for p in MEASURED_SOURCES if p.is_file() and p not in fresh]
     if fresh and not candidates:
         return []
     newest = max(((p.stat().st_mtime, p) for p in candidates), default=None)

@@ -11,10 +11,10 @@ One `ornith-ai/Ornith-1.0-35B` decoder layer, both layer kinds, sharded across t
 | Target mesh | `ttnn.MeshShape(1, 4)`, `FabricConfig.FABRIC_1D_RING`, 2 links per hop |
 | Parallelism | `TP = 4` for every dense tensor, `EP = 4` for the 256 routed experts, on the same four chips |
 | Residual contract | replicated in, **bit-identical on every device** out |
-| Suite | **132 passed, 3 skipped** (`logs/pytest_full_suite.txt.gz`) |
+| Suite | **137 passed, 3 skipped** (`logs/pytest_full_suite.txt.gz`) |
 | PCC vs the single-chip TTNN baseline | 34 values, min **0.999892**, bar 0.999 |
-| PCC vs the float32 HF golden | 86 values, min **0.999851**, bar 0.995 |
-| Warmed 2048-token prefill | **3.50x** linear_attention, **3.34x** full_attention (88% / 84% of linear) |
+| PCC vs the float32 HF golden | 90 values, min **0.999851**, bar 0.995 |
+| Warmed 2048-token prefill | **3.50x** linear_attention, **3.40x** full_attention (87% / 85% of linear) |
 | Warmed traced decode | **1.68x** linear_attention, **1.65x** full_attention (42% / 41% of linear) |
 | Advertised context | **262144, unchanged**; per-device layer footprint falls 60–75% |
 | Advertised batch | **32, unchanged**, exercised on the mesh at 1 / 4 / 13 / 32, aligned and not |
@@ -46,8 +46,9 @@ breaks:
   not a multiple of the 128-token physical alignment.
 * Paged KV cache with `page_block_size=64`, arbitrary block mappings (`test_permuted_page_table`),
   per-user disjoint block spans and distinct absolute positions
-  (`test_batched_decode_ragged_positions`), and chunked-prefill continuation
-  (`test_prefill_continuation`).
+  (`test_batched_decode_ragged_positions`), and chunked-prefill continuation on a chunk boundary with
+  a non-aligned tail (`test_prefill_continuation`; `start_pos` alignment is an inherited restriction,
+  §4.4).
 * Decode and prefill batch up to 32, exercised **on the mesh** at 1, 4, 13 and 32, at a tile-aligned
   `seq_len` (192) and a non-aligned one (130) (`test_batched_prefill_decode_pcc`). This is not
   inherited from the single-chip stage: TP=4 changes the per-device head counts that every
@@ -87,12 +88,12 @@ before any code:
 <!-- TABLE:fabric -->
 | shape | `all_reduce` ring fabric | `all_reduce` line fabric | `stack_sum` ring fabric | `stack_sum` line fabric |
 |---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.08 | 22.14 | 17.18 | 17.95 |
-| 64 rows | 26.97 | 27.27 | 26.39 | 26.65 |
-| 128 rows | 33.20 | 33.13 | 43.70 | 62.23 |
-| 512 rows | 76.40 | 97.62 | 125.42 | 199.32 |
-| decode batch 32 (1024 rows) | 135.13 | 177.89 | 233.26 | 378.75 |
-| prefill 2048 | 196.79 | 270.43 | 447.43 | 739.18 |
+| decode (batch 1, 32 rows) | 22.10 | 22.14 | 17.18 | 17.95 |
+| 64 rows | 27.00 | 27.28 | 26.40 | 26.64 |
+| 128 rows | 33.20 | 33.11 | 43.79 | 62.11 |
+| 512 rows | 76.33 | 97.58 | 125.37 | 199.48 |
+| decode batch 32 (1024 rows) | 135.07 | 177.93 | 233.11 | 378.30 |
+| prefill 2048 | 196.82 | 270.74 | 447.48 | 739.12 |
 <!-- /TABLE:fabric -->
 
    The two fabrics tie to within a few tenths of a microsecond up to 128 rows — individual rows fall
@@ -126,7 +127,10 @@ more than it saves:
 
 * Both RMSNorms would need `rms_norm_pre_all_gather` → stats all-gather → `rms_norm_post_all_gather`
   instead of one exact local norm. That is a **third and fourth** collective per layer, on the
-  latency-critical path, to save part of one.
+  latency-critical path, to save part of one. (Their cost is inferred from the shapes rather than
+  measured — the stats all-gather is a narrow tensor this stage never built. It is not what the
+  rejection rests on: §5.10 measures the *consumer* side of a sharded residual directly, and that
+  alone is net worse. The unmeasured norm cost only adds to it.)
 * The MoE router's top-8 is a decision over all 256 experts. Under a sharded residual the router
   input is a quarter of the hidden dimension on each device, so the routing matmul needs the full
   width gathered back — reintroducing exactly the collective the sharded residual removed, at the
@@ -146,19 +150,23 @@ fabric):
 <!-- TABLE:ccl -->
 | shape | `all_reduce` Ring | `rs_ag` Ring | `rs_only` Ring | `all_reduce` Linear | `stack_sum` | `async` |
 |---|---|---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.08 | 22.10 | 14.36 | 26.99 | 17.18 | 33.59 |
-| 64 rows | 26.97 | 26.97 | 16.98 | 31.66 | 26.39 | 40.00 |
-| 96 rows | 29.16 | 29.14 | 17.18 | 35.67 | 35.48 | 45.40 |
-| 128 rows | 33.20 | 33.20 | 19.38 | 39.99 | 43.70 | 51.06 |
-| 256 rows | 49.15 | 49.14 | 27.61 | 57.57 | 77.10 | 70.80 |
-| 512 rows | 76.40 | 76.41 | 44.24 | 92.80 | 125.42 | 112.02 |
-| decode batch 32 (1024 rows) | 135.13 | 135.23 | 77.66 | 157.77 | 233.26 | 187.84 |
-| prefill 2048 | 196.79 | 196.82 | 104.27 | 266.52 | 447.43 | 341.37 |
+| decode (batch 1, 32 rows) | 22.10 | 22.10 | 14.37 | 26.99 | 17.18 | 33.56 |
+| 64 rows | 27.00 | 26.96 | 16.98 | 31.66 | 26.40 | 40.13 |
+| 96 rows | 29.16 | 29.15 | 17.21 | 35.68 | 35.47 | 45.66 |
+| 128 rows | 33.20 | 33.19 | 19.38 | 39.93 | 43.79 | 50.98 |
+| 256 rows | 49.15 | 49.15 | 27.60 | 57.57 | 77.30 | 70.93 |
+| 512 rows | 76.33 | 76.32 | 44.25 | 92.90 | 125.37 | 112.15 |
+| decode batch 32 (1024 rows) | 135.07 | 135.31 | 77.53 | 157.81 | 233.11 | 187.91 |
+| prefill 2048 | 196.82 | 196.78 | 104.23 | 266.16 | 447.48 | 341.64 |
 <!-- /TABLE:ccl -->
 
 So the layer pays **exactly two collectives**, one after the token mixer and one after the MoE, and
 `test_collectives_per_forward` pins that count and their positions by intercepting the CCL entry
-points. Nothing else crosses the fabric — not attention, not the router, not the norms.
+points. Nothing else crosses the fabric — not attention, not the router, not the norms. (The spy
+covers `ttnn.all_reduce`, `all_gather` and `reduce_scatter`, which is every collective this module
+calls; it is a guard against this layer growing a third one, not a proof that no other TTNN entry
+point could move data. The four profiler captures are that proof: their only fabric ops are the two
+per layer.)
 
 ### 2.3 Per-tensor plan, with the calculated per-device shapes
 
@@ -298,12 +306,12 @@ all three arrangements, each at the active-expert count it actually runs at (tra
 <!-- TABLE:moepar -->
 | phase | arm | experts/device | active/device | us |
 |---|---|---|---|---|
-| decode | unsharded, still gate-selected | 256 | 8 | 665.35 |
-| decode | **expert parallelism** (shipped) | 64 | 2 | 192.21 |
-| decode | intermediate sharded 4 ways | 256 | 8 | 471.74 |
-| prefill | unsharded, still gate-selected | 256 | 162 | 1653.08 |
-| prefill | **expert parallelism** (shipped) | 64 | 41 | 513.86 |
-| prefill | intermediate sharded 4 ways | 256 | 162 | 1299.41 |
+| decode | unsharded, still gate-selected | 256 | 8 | 669.22 |
+| decode | **expert parallelism** (shipped) | 64 | 2 | 194.07 |
+| decode | intermediate sharded 4 ways | 256 | 8 | 472.93 |
+| prefill | unsharded, still gate-selected | 256 | 162 | 1640.32 |
+| prefill | **expert parallelism** (shipped) | 64 | 41 | 514.77 |
+| prefill | intermediate sharded 4 ways | 256 | 162 | 1299.19 |
 <!-- /TABLE:moepar -->
 
 The active counts differ between arms because expert parallelism is precisely what changes them: a
@@ -328,19 +336,45 @@ Bar `BASELINE_BAR = 0.999`, deliberately far tighter than the HF bar: the two im
 the same math from the same weights in the same dtypes and differ only by where the sums are
 reassociated.
 
-| | values | min | max |
-|---|---|---|---|
-| `test_prefill_matches_single_chip` (9 lengths x 2 layer kinds) | 18 | 0.999913 | 0.999998 |
-| `test_decode_matches_single_chip` (4 steps x 2 prefill lengths x 2 kinds) | 16 | 0.999892 | 0.999993 |
+<!-- TABLE:pcc_baseline -->
+| test | values | minimum |
+|---|---|---|
+| `test_prefill_matches_single_chip` | 18 | 0.999913 |
+| `test_decode_matches_single_chip` | 16 | 0.999892 |
+| **total** | **34** | **0.999892** |
+<!-- /TABLE:pcc_baseline -->
+
+(`test_prefill_matches_single_chip` is 9 lengths x 2 layer kinds; `test_decode_matches_single_chip`
+is 4 steps x 2 prefill lengths x 2 kinds. Both counts and both minima are counted out of the
+committed suite log by `logs/make_tables.py`, not transcribed.)
 
 Lengths: `1, 7, 32, 128, 129, 250, 2048, 2049, 3000`. Prefill lengths for decode: 130 (decode writes
 cross a 64-token page boundary) and 2048 (past an internal prefill chunk boundary).
 
 ### 4.2 Against the float32 HF golden
 
-Bar `PCC_BAR = 0.995`, inherited from the functional stage and not lowered. 86 values, min
-**0.999851**, over prefill (20), decode (16), batched (32), ragged-position (4), long-context (4),
-traced-decode replay (6), permuted-page-table (2) and continuation (2) cases on the mesh.
+Bar `PCC_BAR = 0.995`, inherited from the functional stage and not lowered. Every value the suite
+prints against the golden, counted by the test that printed it:
+
+<!-- TABLE:pcc_inventory -->
+| test | values | minimum |
+|---|---|---|
+| `test_batched_prefill_decode_pcc` | 32 | 0.999900 |
+| `test_prefill_pcc` | 20 | 0.999851 |
+| `test_decode_pcc` | 16 | 0.999923 |
+| `test_traced_decode_pcc` | 6 | 0.999872 |
+| `test_batched_decode_ragged_positions` | 4 | 0.999909 |
+| `test_long_context_pcc` | 4 | 0.999866 |
+| `test_unaligned_max_context` | 4 | 0.999869 |
+| `test_permuted_page_table` | 2 | 0.999903 |
+| `test_prefill_continuation` | 2 | 0.999911 |
+| **total** | **90** | **0.999851** |
+<!-- /TABLE:pcc_inventory -->
+
+This breakdown is generated. Review round 1 found the hand-written version's total wrong, the fix
+recounted it once by script, and round 3's two new assertions in `test_unaligned_max_context` then
+made it wrong again — a two-digit integer that no figure audit can see. `logs/make_tables.py`
+carries the per-test patterns, so adding an assertion updates the table.
 
 ### 4.3 Sharding, layout and mesh-specific properties
 
@@ -368,7 +402,13 @@ traced-decode replay (6), permuted-page-table (2) and continuation (2) cases on 
 * `test_batched_decode_ragged_positions` — 4 users at **distinct** absolute positions
   (37, 130, 200, 64) over disjoint per-user block spans, each compared to its own HF golden. The
   block mapping here is contiguous per user; the shuffled-mapping case is `test_permuted_page_table`.
-* `test_prefill_continuation` — chunked prefill resumed at a non-chunk-aligned `start_pos`.
+* `test_prefill_continuation` — a chunked prefill resumed on a chunk boundary and **ending** at a
+  non-aligned length (128 then 130 tokens), checked against the HF golden *and* against a single
+  258-token TTNN prefill in the same process. `start_pos` itself must be a multiple of `chunk_size`:
+  that is an inherited restriction of `OptimizedDecoder.prefill_forward`, this stage neither adds to
+  it nor relaxes it, `test_prefill_continuation_rejects_unaligned_start` pins it as a clean
+  `ValueError`, and `doc/context_contract.json` records it. Review round 4 found this bullet
+  claiming the opposite of what the API permits.
 * The page table is **replicated** and indexes blocks; the head axis is what is sharded, so the page
   table contract is byte-for-byte the single-chip one.
 
@@ -425,17 +465,21 @@ replay. Raw output: `logs/ab_single_vs_multichip.txt`.
 <!-- TABLE:bench -->
 | layer kind | phase | single-chip | 1x4 replication control | multichip | speedup | efficiency |
 |---|---|---|---|---|---|---|
-| linear_attention | prefill 2048 | 101.63 ms | 101.90 ms | **29.33 ms** | **3.465x** | 86.6% |
-| linear_attention | decode (traced) | 1.030 ms | 1.031 ms | **0.612 ms** | **1.683x** | 42.1% |
-| full_attention | prefill 2048 | 95.40 ms | 95.60 ms | **28.42 ms** | **3.357x** | 83.9% |
-| full_attention | decode (traced) | 0.827 ms | 0.827 ms | **0.502 ms** | **1.647x** | 41.2% |
+| linear_attention | prefill 2048 | 101.58 ms | 101.85 ms | **29.04 ms** | **3.498x** | 87.4% |
+| linear_attention | decode (traced) | 1.030 ms | 1.032 ms | **0.612 ms** | **1.683x** | 42.1% |
+| full_attention | prefill 2048 | 95.41 ms | 95.65 ms | **28.09 ms** | **3.397x** | 84.9% |
+| full_attention | decode (traced) | 0.827 ms | 0.828 ms | **0.502 ms** | **1.647x** | 41.2% |
 <!-- /TABLE:bench -->
 
-The replication control is within +0.0% to +0.2% of the single-chip arm on every row, so none of the
-speedup is a mesh-dispatch artifact.
+The replication control is within +0.3% of the single-chip arm on every row, so none of the speedup
+is a mesh-dispatch artifact.
 
-`test_multichip_beats_single_chip_traced_decode` gates the decode claim in the suite itself
-(`multichip 0.502 ms (1.65x)`, `0.611 ms (1.68x)`).
+Both claims are gated inside the suite, not only reported by the bench harness:
+`test_multichip_beats_single_chip_traced_decode` fails below `DECODE_SPEEDUP_BAR = 1.4x` (measured
+1.65–1.68x) and `test_perf_prefill` fails above `PREFILL_MS_BAR = 48 ms` (measured 28–29 ms against a
+95–102 ms single-chip baseline). Review round 4 found the first asserting only `> 1.0` and the second
+asserting nothing at all; the bars are set well clear of run-to-run noise, so they fail a lost
+parallelisation rather than a slow afternoon.
 
 The full_attention prefill row is the one that moves most between sweeps; the `ab_layer_knobs.txt`
 prefill columns show the same spread on every arm, which is how it is known to be build-to-build
@@ -462,12 +506,12 @@ routed matmul rows are modelled with `--active-experts` (4 per device at batch-1
 <!-- TABLE:perf -->
 | | linear_attention decode | full_attention decode | linear_attention prefill | full_attention prefill |
 |---|---|---|---|---|
-| `SparseMatmul` (routed experts) | 17.70% | 21.54% | 74.96% | 73.88% |
+| `SparseMatmul` (routed experts) | 17.70% | 21.52% | 75.05% | 73.90% |
 | `TopK` (router) | 8.98% | 9.43% | 0.17% | 0.18% |
-| dense `Matmul` (all in0 layouts) | 13.09% | 9.39% | 1.11% | 1.06% |
-| **collectives (`AllGather` / `ReduceScatter`)** | **6.81%** | **9.36%** | **3.05%** | **5.89%** |
-| all data movement (`DM` category) | 8.50% | 11.19% | 3.32% | 5.89% |
-| DRAM roofline (modeled ops) | 6.5% (33 GB/s) | 5.9% (30 GB/s) | 27.1% (139 GB/s) | 27.2% (139 GB/s) |
+| dense `Matmul` (all in0 layouts) | 13.07% | 9.41% | 1.10% | 1.06% |
+| **collectives (`AllGather` / `ReduceScatter`)** | **6.78%** | **9.38%** | **2.97%** | **5.84%** |
+| all data movement (`DM` category) | 8.47% | 11.21% | 3.24% | 5.84% |
+| DRAM roofline (modeled ops) | 6.5% (33 GB/s) | 5.9% (30 GB/s) | 27.1% (139 GB/s) | 27.3% (140 GB/s) |
 <!-- /TABLE:perf -->
 
 `--active-experts` — the count `tt-perf-report` needs to model a `sparse_matmul` row at all — is the
@@ -479,9 +523,58 @@ so every global draw was credited to every device — which inflated the modelle
 of the rows that are 74–75% of the prefill window by about 50%. The roofline figures above are at the
 corrected input, and are **not** comparable to any roofline this stage quoted before round 2.
 
+**The whole window, by `Op Category`,** with the single-chip stage's own share of the same phase in
+brackets — the control for whether a category is this stage's doing:
+
+<!-- TABLE:category -->
+| `Op Category` | linear decode | full decode | linear prefill | full prefill |
+|---|---|---|---|---|
+| `Compute` | 58.1% (72.5%) | 54.5% (71.5%) | 88.0% (92.1%) | 87.9% (94.1%) |
+| `TM` (layout) | 22.2% (17.9%) | 19.5% (15.1%) | 4.7% (4.5%) | 4.2% (4.2%) |
+| `DM` (data movement) | 8.5% (1.6%) | 11.2% (1.1%) | 3.2% (0.3%) | 5.8% (0.0%) |
+| `Other` | 11.3% (8.1%) | 14.9% (12.3%) | 4.0% (3.0%) | 2.1% (1.7%) |
+<!-- /TABLE:category -->
+
+The op-code rows above are the ones this stage's decisions reach; the category table is what they sit
+in, and it is here because review round 4 pointed out that six op-code rows summing to about 55% of
+the decode window were being presented as "the profiler says exactly where the time goes" while
+`TM` — layout — was a fifth of that window and appeared nowhere.
+
+`TM` is **inherited, not introduced**: 22.2% / 19.5% at decode against the single-chip decoder's
+17.9% / 15.1% on the same phase and the same layer kinds, and 4.2–4.7% at prefill against 4.2–4.5%.
+The rows behind it:
+
+<!-- TABLE:tm -->
+| op | linear decode | full decode |
+|---|---|---|
+| `Slice` | 5.28% | 5.54% |
+| `UntilizeWithUnpadding` | 4.16% | 3.96% |
+| `FillPad` | 2.79% | 2.92% |
+| `ReshapeView` | 2.69% | 0.46% |
+| `Transpose` | 0.98% | 1.67% |
+| `TilizeWithValPadding` | 1.18% | 1.25% |
+| `Untilize` | 1.11% | 1.16% |
+| `Permute` | 1.04% | 1.09% |
+<!-- /TABLE:tm -->
+
+`Slice` is the inherited MoE chain unpacking the packed gate/up product and slicing the fused
+`attn_in`/`gdn_in` output; `UntilizeWithUnpadding`, `FillPad`, `TilizeWithValPadding` and `Untilize`
+are the inherited paged-cache and norm boundaries. The one row this stage moves is `ReshapeView`
+(2.69% on linear decode), which includes `CCL_COMPACT_ROWS`' fold around the collective — and §5.9
+measures that fold as a **net win** of 85–88 us a step at batch 32, so it pays for its own layout
+cost several times over. The multichip delta on the whole category is 4.3 points at decode, against a
+`DM` delta of 6.9 points that is the collectives themselves.
+
+Two consequences are recorded rather than acted on: the decode window is 20% layout work in the
+single-chip stage already, so it is that stage's ledger and not this one's; and it is the reason the
+six op-code rows do not sum to the window. Neither changes a decision here.
+
 Findings this drove:
 
-* **Communication is 6.8–9.4% of decode and 3.0–5.9% of prefill.** That is an upper bound on the
+* **Communication is 6.8–9.4% of decode and 3.0–5.9% of prefill.** (The row counts the fabric ops.
+  `stack_sum`'s local `ttnn.sum` — `FastReduceNC`, 2 ops a step — adds 0.93% / 0.99% at decode, so
+  the all-in decode figure is about a point higher; it is compute, not fabric, and it is the price of
+  the spelling that wins at the decode tile.) That is an upper bound on the
   cost of the whole parallelisation — §5.8 shows part of the prefill figure is barrier wait, not data
   movement — and it is small enough that no further collective-shape work would change the headline.
   In decode the two collectives are `AllGather` because `CCL_MODE="auto"` picks `stack_sum` at the
@@ -516,18 +609,18 @@ per arm, so the spread is visible next to the difference. All values in ms.
 <!-- TABLE:ablayer -->
 | knob | arm | linear decode | full decode | linear prefill | full prefill |
 |---|---|---|---|---|---|
-| `ccl` | **`auto`** (shipped) | 0.611–0.612 | 0.502 | 29.01–29.18 | 28.22–28.54 |
-| `ccl` | `stack_sum` | 0.611–0.612 | 0.502 | 29.31–29.35 | 28.54–30.26 |
-| `ccl` | `all_reduce` | 0.621 | 0.508 | 29.03–30.22 | 28.18–28.54 |
-| `ccl` | `rs_ag` | 0.620–0.621 | 0.508–0.509 | 29.04–29.29 | 28.30–28.47 |
-| `geometry` | **multichip-retuned** (shipped) | 0.611–0.612 | 0.502 | 28.96–29.23 | 28.27–28.42 |
-| `geometry` | single-chip-inherited | 0.635 | 0.517 | 28.88–29.30 | 28.21–28.66 |
-| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.502 | 28.88–29.12 | 28.36–28.63 |
-| `routing` | `gather` | 0.669 | 0.560–0.561 | 29.36–29.55 | 28.69–29.02 |
-| `sparse` | **tp-rescaled** (shipped) | 0.611–0.612 | 0.502 | 28.91–29.23 | 28.36–28.68 |
-| `sparse` | single-chip-inherited | 0.611 | 0.502–0.503 | 33.02–33.64 | 32.29–32.70 |
-| `cast` | **block-float** (shipped) | 0.611 | 0.502 | 29.10–29.45 | 28.19–33.64 |
-| `cast` | `bf16` | 0.616 | 0.507–0.508 | 29.08–29.51 | 28.31–28.54 |
+| `ccl` | **`auto`** (shipped) | 0.611 | 0.502–0.503 | 28.92–29.28 | 28.17–28.58 |
+| `ccl` | `stack_sum` | 0.611–0.612 | 0.502 | 29.30–29.39 | 28.48–28.68 |
+| `ccl` | `all_reduce` | 0.621 | 0.508–0.509 | 28.95–29.34 | 28.36–28.65 |
+| `ccl` | `rs_ag` | 0.621 | 0.508 | 28.99–29.35 | 28.18–28.71 |
+| `geometry` | **multichip-retuned** (shipped) | 0.611 | 0.502 | 28.95–29.07 | 28.25–28.46 |
+| `geometry` | single-chip-inherited | 0.635 | 0.516–0.517 | 28.95–29.06 | 28.24–28.52 |
+| `routing` | **`select_matmul`** (shipped) | 0.611–0.612 | 0.502 | 28.92–29.36 | 28.27–28.59 |
+| `routing` | `gather` | 0.669–0.670 | 0.560 | 29.32–29.62 | 28.59–28.83 |
+| `sparse` | **tp-rescaled** (shipped) | 0.611–0.612 | 0.502 | 28.92–29.01 | 28.31–28.42 |
+| `sparse` | single-chip-inherited | 0.611 | 0.502 | 32.95–33.20 | 32.36–32.87 |
+| `cast` | **block-float** (shipped) | 0.611–0.612 | 0.502 | 28.95–29.29 | 28.18–28.56 |
+| `cast` | `bf16` | 0.616 | 0.507–0.508 | 29.11–29.34 | 28.30–28.66 |
 <!-- /TABLE:ablayer -->
 
 All values in ms, and all at **batch 1** — which is why the `sparse` arm ties in the decode columns
@@ -560,14 +653,14 @@ the batch-1 decode tile:
 <!-- TABLE:dense -->
 | role | inherited (realised) | us | local winner | us | delta | winner spread | repeatability | shipped |
 |---|---|---|---|---|---|---|---|---|
-| `attn_in` | (32,2) → 33/2 | 30.82 | 110/8 | 17.83 | 12.99 | 0.15 | 0.14 | **retuned (110, 8)**, 17.83 |
-| `gdn_in` | (110,2) → 110/2 | 48.91 | 110/8 | 20.29 | 28.62 | 0.24 | 0.41 | **retuned (110, 8)**, 20.29 |
-| `shared_down` | (48,16) → 55/4 | 12.62 | 8/4 | 8.59 | 4.03 | 0.10 | 3.97 | **retuned (8, 4)**, 8.59 |
-| `expert_select` | new role | — | 8/8 | 8.23 | — | 0.64 | 0.27 | **(8, 8)**, 8.23 |
-| `o_proj` | (16,16) → 22/16 | 9.43 | 33/8 | 9.17 | 0.26 | 0.29 | 0.20 | inherited |
-| `gdn_out` | (24,8) → 33/8 | 9.56 | 22/8 | 9.43 | 0.13 | 0.12 | 0.07 | inherited |
-| `shared_in` | (32,32) → 33/32 | 8.79 | 22/32 | 8.69 | 0.10 | 0.31 | 0.22 | inherited |
-| `router` | (32,32) → 33/32 | 9.11 | 66/32 | 8.93 | 0.18 | 0.38 | 0.08 | inherited |
+| `attn_in` | (32,2) → 33/2 | 30.78 | 110/8 | 17.88 | 12.90 | 0.06 | 0.26 | **retuned (110, 8)**, 17.88 |
+| `gdn_in` | (110,2) → 110/2 | 48.69 | 33/8 | 20.33 | 28.36 | 0.20 | 0.11 | **retuned (110, 8)**, 20.52 |
+| `shared_down` | (48,16) → 55/4 | 9.24 | 4/4 | 8.51 | 0.73 | 0.14 | 0.33 | **retuned (8, 4)**, 8.56 |
+| `expert_select` | new role | — | 8/8 | 8.34 | — | 0.67 | 0.25 | **(8, 8)**, 8.34 |
+| `o_proj` | (16,16) → 22/16 | 9.35 | 33/16 | 9.24 | 0.11 | 0.11 | 0.10 | inherited |
+| `gdn_out` | (24,8) → 33/8 | 9.55 | 55/16 | 9.42 | 0.13 | 0.18 | 1.38 | inherited |
+| `shared_in` | (32,32) → 33/32 | 8.77 | 33/32 | 8.77 | 0.00 | 0.21 | 0.32 | inherited |
+| `router` | (32,32) → 33/32 | 8.93 | 88/32 | 8.85 | 0.08 | 0.27 | 0.17 | inherited |
 <!-- /TABLE:dense -->
 
 `repeatability` is this probe's own noise floor for that role, read out of the same file: several
@@ -640,23 +733,28 @@ policy. Best microseconds per realised core count:
 <!-- TABLE:sparse_ladder -->
 | active | 4 cores | 8 cores | 16 cores | 32 cores | 64 cores | winner |
 |---|---|---|---|---|---|---|
-| 4, `down` | — | **52.3** | 59.5 | 66.7 | 85.4 | 8 |
-| 4, `gate_up` | 82.8 | **62.5** | 64.2 | 70.2 | — | 8 |
+| 4, `down` | — | **52.3** | 59.6 | 66.7 | 85.5 | 8 |
+| 4, `gate_up` | 82.7 | **62.5** | 64.2 | 70.0 | — | 8 |
 | 8, `down` | — | 62.1 | **61.8** | 68.9 | 88.1 | 16 |
-| 8, `gate_up` | 122.5 | 81.5 | **73.1** | 78.0 | — | 16 |
-| 16, `down` | — | 74.3 | **65.3** | 72.4 | 92.4 | 16 |
-| 16, `gate_up` | 180.3 | 109.5 | **86.8** | 90.0 | — | 16 |
-| 32, `down` | — | 120.3 | 83.1 | **80.3** | 101.7 | 32 |
-| 32, `gate_up` | 329.9 | 192.6 | 125.6 | **119.9** | — | 32 |
-| 41, `down` | — | 146.9 | 96.4 | **85.8** | 107.6 | 32 |
-| 41, `gate_up` | 414.5 | 240.9 | 150.2 | **139.2** | — | 32 |
-| 63, `down` | — | 236.2 | 144.8 | **105.1** | 124.8 | 32 |
-| 63, `gate_up` | 691.6 | 397.9 | 234.4 | **200.0** | — | 32 |
+| 8, `gate_up` | 122.5 | 82.3 | **73.1** | 78.2 | — | 16 |
+| 16, `down` | — | 74.5 | **65.4** | 72.4 | 92.5 | 16 |
+| 16, `gate_up` | 180.9 | 109.5 | **86.8** | 90.0 | — | 16 |
+| 32, `down` | — | 119.9 | 83.1 | **80.3** | 101.5 | 32 |
+| 32, `gate_up` | 329.5 | 192.9 | 125.5 | **120.0** | — | 32 |
+| 41, `down` | — | 146.2 | 96.8 | **85.8** | 107.6 | 32 |
+| 41, `gate_up` | 414.6 | 240.2 | 150.6 | **139.3** | — | 32 |
+| 63, `down` | — | 235.7 | 144.8 | **105.4** | 125.6 | 32 |
+| 63, `gate_up` | 691.5 | 397.8 | 235.0 | **199.3** | — | 32 |
 <!-- /TABLE:sparse_ladder -->
 
 The ladder's winner tracks the shipped rule: 8 cores at the batch-1 decode point (measured active 4),
 16 in the middle, 32 from active 32 up — which includes the corrected prefill point of 41 and the
 over-counted 63 the earlier calibration used, so the prefill geometry decision is the same either way.
+
+The two `—` cells are structural, not gaps in the sweep: `gate_up` produces `Nt = 32` output tiles so
+64 cores cannot be realised, and `down`'s 4-core point is below `SPARSE_MIN_CORES = 8`, which the
+shipped rule clamps to and therefore never asks for. Every core count the rule can select is
+measured at every operating point it can select it at.
 
 Both effects are then measured at the layer rather than argued from the ladder:
 
@@ -673,8 +771,8 @@ Both effects are then measured at the layer rather than argued from the ladder:
 ### 5.8 The block-float collective — an anomaly, and its control
 
 The prefill profile shows the layer's two collectives at wildly different cost for the same logical
-shape: `tracy/full_attention/prefill_perf_report.txt` has the BF16 reduce-scatter at ~110 us on 20
-cores and the BFP8 one at ~1500 us on 12 cores — about 5% of the whole prefill window on its own, and
+shape: `tracy/full_attention/prefill_perf_report.txt` has the BF16 reduce-scatter at ~100 us on 20
+cores and the BFP8 one **an order of magnitude above it** on 12 cores — about 5% of the whole prefill window on its own, and
 the largest non-sparse item in it. (The stacked report's single `ReduceScatter` row is the two
 summed, which is why it reads higher.) The only
 difference between them is the operand dtype: the MoE half produces `bfloat8_b` under the inherited
@@ -724,10 +822,10 @@ call site than the other in the same forward. `CCL_COMPACT_ROWS` folds `[b, t, d
 | 1 | 32 | 0.502 / 0.611 | 0.502 / 0.611 | +0 / +0 us |
 | 2 | 64 | 0.582 / 0.709 | 0.576 / 0.704 | +6 / +5 us |
 | 4 | 128 | 0.637 / 0.818 | 0.641 / 0.822 | **-4 / -4 us** |
-| 8 | 256 | 0.791 / 1.007 | 0.785 / 1.001 | +6 / +6 us |
-| 13 | 416 | 1.626 / 2.069 | 1.609 / 2.053 | +17 / +16 us |
+| 8 | 256 | 0.791 / 1.007 | 0.785 / 1.002 | +6 / +5 us |
+| 13 | 416 | 1.627 / 2.069 | 1.609 / 2.053 | +18 / +16 us |
 | 16 | 512 | 1.828 / 2.272 | 1.799 / 2.245 | +29 / +27 us |
-| 32 | 1024 | 3.022 / 3.948 | 2.934 / 3.863 | **+88 / +85 us** |
+| 32 | 1024 | 3.023 / 3.948 | 2.934 / 3.863 | **+89 / +85 us** |
 <!-- /TABLE:decode_batch -->
 
 (full_attention / linear_attention; positive delta = the fold is faster.) At batch 1 the guard skips
@@ -744,10 +842,10 @@ one harness at one set of batches — the sparse core rule's decode effect, at e
 | 1 | 0.502 / 0.611 | 0.502 / 0.611 | +0 / +0 us |
 | 2 | 0.609 / 0.704 | 0.576 / 0.704 | +33 / +0 us |
 | 4 | 0.691 / 0.851 | 0.641 / 0.822 | +50 / +29 us |
-| 8 | 0.808 / 1.017 | 0.785 / 1.001 | +23 / +16 us |
-| 13 | 1.647 / 2.080 | 1.609 / 2.053 | +38 / +27 us |
-| 16 | 1.849 / 2.284 | 1.800 / 2.245 | +49 / +39 us |
-| 32 | 3.005 / 3.929 | 2.934 / 3.864 | +71 / +65 us |
+| 8 | 0.807 / 1.017 | 0.785 / 1.001 | +22 / +16 us |
+| 13 | 1.648 / 2.080 | 1.609 / 2.052 | +39 / +28 us |
+| 16 | 1.849 / 2.283 | 1.799 / 2.245 | +50 / +38 us |
+| 32 | 3.004 / 3.929 | 2.934 / 3.864 | +70 / +65 us |
 <!-- /TABLE:sparse_batch -->
 
 ### 5.10 The fused matmul+CCL family
@@ -763,12 +861,12 @@ Traced microseconds:
 <!-- TABLE:fused -->
 | boundary | arm | decode | decode batch 32 | prefill 2048 |
 |---|---|---|---|---|
-| `o_proj` | matmul + `all_reduce` | 40.76 | 198.35 | 311.49 |
-| `o_proj` | matmul + `stack_sum` (shipped at the decode tile) | 37.74 | 294.81 | 560.76 |
-| `o_proj` | **fused** matmul+reduce-scatter, then all-gather | 49.36 | 216.67 | 356.31 |
-| `o_proj` | **fused**, no gather — the sharded-residual bound | 42.51 | 165.32 | 272.17 |
-| `attn_in` | matmul on a replicated input (shipped: no collective) | 43.55 | 146.40 | 261.60 |
-| `attn_in` | all-gather + matmul — what a sharded residual would pay | 51.01 | 206.10 | 349.79 |
+| `o_proj` | matmul + `all_reduce` | 40.74 | 199.91 | 311.57 |
+| `o_proj` | matmul + `stack_sum` (shipped at the decode tile) | 37.74 | 295.23 | 560.35 |
+| `o_proj` | **fused** matmul+reduce-scatter, then all-gather | 49.36 | 216.70 | 355.13 |
+| `o_proj` | **fused**, no gather — the sharded-residual bound | 42.53 | 165.29 | 271.89 |
+| `attn_in` | matmul on a replicated input (shipped: no collective) | 43.52 | 148.23 | 265.93 |
+| `attn_in` | all-gather + matmul — what a sharded residual would pay | 51.02 | 205.13 | 351.66 |
 <!-- /TABLE:fused -->
 
 Three readings, all of which keep the shipped contract:
@@ -803,7 +901,7 @@ Per-device layer footprint at the full 262144-token context, batch 1
 | routed expert weights | 113 246 208 B | 452 984 832 B | 1.000 |
 
 `vs_ideal = local / (single_chip / 4)`; 1.000 is a perfect four-way split. The full_attention layer's
-1.589 is dominated by two deliberately replicated terms — the RoPE tables (67.6 MB, replicated
+1.589 is dominated by two deliberately replicated terms — the RoPE tables (67 633 152 B, replicated
 because RoPE is applied to local heads and the tables are position-indexed, not head-indexed) and the
 kv cache (2.000, §2.4) — plus the replicated router.
 
@@ -838,11 +936,14 @@ kinds. There is no `import torch` on any shipped forward path: the routing mask 
 belongs to the non-shipped `ROUTING_SELECT_MODE="gather"` arm.
 
 **Watcher — clean.** `TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=1 TT_METAL_WATCHER_DISABLE_ETH=1`
-over the state-, trace- and collective-critical subset: **43 passed, 3 skipped**
+over the state-, trace- and collective-critical subset: **50 passed, 3 skipped**
 (`logs/watcher_pytest.txt.gz`). `watcher/census.py` partitions all 52 538 log lines into disjoint
 buckets — an unknown line kind lands in `UNCLASSIFIED` and trips an assert rather than hiding in a
 catch-all — and reports **0 fatal-class matches** over 48 dumps, minimum stack headroom 1332 bytes
-free over 40 detail lines (`watcher/census_summary.txt`).
+free over 40 detail lines (`watcher/census_summary.txt`). The stack figure is narrower than the
+fatal-class one and is reported as such: the summary's `stack reporting cores: 1` says those 40
+detail lines come from a single core, so it is a spot check on stack depth, not a survey. The
+fatal-class result covers every dump.
 
 `TT_METAL_WATCHER_DISABLE_ETH=1` is a **hard tool limit here, not a choice**. With watcher
 instrumenting the ACTIVE_ETH cores, the 1D-fabric ERISC program grows to 29 040 B against a 25 600 B
@@ -896,11 +997,15 @@ to what any `ttnn` CCL user runs. Every op this stage does author runs on the co
    without the `cluster_axis` it requires, so it never reached any Blackhole check. Called correctly
    it is correct on both DRAM and L1 operands and costs 1.5-1.9x the shipped arm (`probe_ccl.txt`).
    It is rejected on that measurement. The limitation this entry used to claim did not exist.
-7. **The mechanism behind the prefill collective's device time is not pinned, only bounded.** §5.8
+7. **The mechanism behind a collective's device time is not pinned, only bounded.** §5.8
    establishes what it is *not* (operand dtype, data volume) with a measured control, and leaves the
    barrier/imbalance explanation as the remaining candidate rather than a demonstrated one. Pinning
-   it needs per-device op timelines from the profiled run. Nothing in the stage's conclusions rests
-   on it: the collective share is quoted as an upper bound throughout.
+   it needs per-device op timelines from the profiled run. It has two instances, not one: the prefill
+   pair §5.8 discusses, and — found by review round 4 — the shipped decode `stack_sum` all-gather,
+   which costs 33.9 us/op on full_attention against 21.8 on linear_attention for the same shape while
+   the two captures' L1-operand rows agree to within 4%. Same signature, ~1.5% of the decode window.
+   Nothing in the stage's conclusions rests on either: the collective share is quoted as an upper
+   bound throughout.
 8. **Long-context PCC is validated to 8000 tokens, not 262144.** Inherited from the earlier stages
    and unchanged by this one: the eager HF full-attention reference materialises a `[seq, seq]` score
    matrix and is not tractable on host beyond that. Beyond 8000 the mesh path is cross-checked
@@ -927,7 +1032,7 @@ doc/multichip_decoder/
 │   ├── make_tables.py                         generates every table in these two documents
 │   ├── audit_selftest.txt                     what an audit_figures.py pass is worth, per class
 │   ├── source_stamp.json                      behavioural fingerprint of the code the sweep measured
-│   ├── pytest_full_suite.txt.gz               132 passed, 3 skipped
+│   ├── pytest_full_suite.txt.gz               137 passed, 3 skipped
 │   ├── bench.py                               3-arm warmed prefill / traced decode harness
 │   ├── ab_single_vs_multichip.txt             §5.2 — the speedup table's raw rows
 │   ├── ab_layer_knobs.py / .txt               §5.5 — ccl / geometry / routing / sparse / cast arms
@@ -940,7 +1045,7 @@ doc/multichip_decoder/
 │   ├── probe_footprint_local.py / .txt        §6 — measured per-device footprint, term by term
 │   ├── probe_decode_batch.py / .txt           §5.7/§5.9 — collective shapes, and the fold and
 │   │                                          sparse-core A/Bs at batch 1..32
-│   ├── watcher_pytest.txt.gz                  §7 — 43 passed, 3 skipped, watcher on
+│   ├── watcher_pytest.txt.gz                  §7 — 50 passed, 3 skipped, watcher on
 │   └── watcher_pytest_eth_enabled.txt.gz      §7 — the ACTIVE_ETH kernel-buffer failure, preserved
 ├── tracy/
 │   ├── run_profiling.sh                       4 captures, prefill and decode in separate runs

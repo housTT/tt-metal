@@ -164,6 +164,11 @@ done
 # a re-measurement cannot leave a stale table behind; `make_tables.py` reports which ones moved.
 echo "=== step 7/7: regenerate tables, then audit every quoted figure ==="
 python "$LOGS/make_tables.py"
+# The stamp certifies "these artifacts measured this code", so it is only honest after a run that
+# regenerated *all* of them. A partial run (STEPS="suite") leaves the rest untouched, and review
+# round 4 pointed out that stamping there would certify artifacts nothing had re-measured.
+FULL_SWEEP=1
+for step in suite bench ab probes tracy watcher; do has "$step" || FULL_SWEEP=0; done
 # Every measured figure the documents quote must exist in a committed artifact. Ported in review
 # round 3, which asked for it after rounds 1, 2 and 3 each found quoted-figure errors that no
 # hard check could see. It runs last because it checks the artifacts the steps above just wrote.
@@ -172,7 +177,11 @@ python "$DOC/audit_figures.py" --selftest
 # instead of mtimes when it exists, so a later documentation-only edit to the decoder or the suite
 # does not read as a stale sweep -- and a change to the *code* still does, decided by hashing the
 # comment- and docstring-stripped AST rather than by whoever is holding the pen.
-python "$DOC/audit_figures.py" --stamp
+if [ "$FULL_SWEEP" = 1 ]; then
+  python "$DOC/audit_figures.py" --stamp
+else
+  echo "partial sweep (STEPS=\"$STEPS\"): source stamp NOT refreshed, freshness stays on mtimes" >&2
+fi
 python "$DOC/audit_figures.py"
 
 echo "=== done ==="
