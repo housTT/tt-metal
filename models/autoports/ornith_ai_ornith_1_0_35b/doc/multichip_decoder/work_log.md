@@ -1102,3 +1102,4 @@ deliberately excluded from every commit.
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 2 | `80563b120e4` |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 3 | `9d889b01682` |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 4 | `30de0e0e553` |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 5 | `87a23776f85` |
