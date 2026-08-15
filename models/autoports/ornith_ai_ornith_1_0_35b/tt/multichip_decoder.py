@@ -173,7 +173,7 @@ DEFAULT_CCL_NUM_LINKS = 2
 #:
 #: The build default on this machine is 4352 B. The two per-layer collectives carry **different
 #: dtypes** — the token mixer's is ``bfloat16`` and the MoE's is ``bfloat8_b`` — so their tile pages
-#: are 2048 B and 1088 B, and ``ccl_common.cpp:60`` derives a different ideal packet for each:
+#: are 2048 B and 1088 B, and ``ccl_common.cpp:60-66`` derives a different ideal packet for each:
 #: ``min(15232/page, 4) * page`` is 8192 B for the first and 4352 B for the second. One fabric
 #: setting serves both, so the runtime warns about whichever it is not; the warning cannot be driven
 #: to zero, and rounds 5 and 6 each found a version of this file treating it as if it could.
@@ -421,6 +421,14 @@ def local_decoder_config(config: OrnithDecoderConfig, tp: int = DEFAULT_TP) -> O
             raise ValueError(f"{name}={value} is not divisible by tp={tp}")
     if config.n_kv_heads > tp and config.n_kv_heads % tp:
         raise ValueError(f"n_kv_heads={config.n_kv_heads} is neither <= tp nor divisible by tp={tp}")
+    # And the other direction: fewer kv heads than devices means a *group* of devices shares one head,
+    # so `kv_head_owner` divides `tp` by the head count and the count has to divide `tp` evenly.
+    # Without this, `n_kv_heads=3, tp=4` passes every check above and then hands device 3 an empty
+    # k/v slice in `from_state_dict` — which `torch.cat` accepts and the shard mapper splits wrong,
+    # silently. Unreachable for this model (2 over 4) but `local_decoder_config` is general in `tp`;
+    # found by round 8's correctness audit and, when the first fix did not land, again by round 9.
+    if config.n_kv_heads < tp and tp % config.n_kv_heads:
+        raise ValueError(f"n_kv_heads={config.n_kv_heads} is below tp={tp} and does not divide it")
     if config.n_heads % config.n_kv_heads:
         raise ValueError(f"n_heads={config.n_heads} is not a multiple of n_kv_heads={config.n_kv_heads}")
     return replace(
@@ -516,10 +524,17 @@ def _free_unless_aliased(tensor, keep) -> None:
     """
     if tensor is keep:
         return
+    # `buffer_address` raises for three different reasons (`pytensor.cpp`): not a device tensor, not
+    # allocated, and **per-core allocated** ("do not have a single address"). Only the first two mean
+    # "nothing to alias". On the third the addresses simply cannot be compared, and falling through to
+    # the free is the use-after-free this helper exists to prevent — so that case returns instead.
+    # Nothing here allocates per-core today; the helper is written for the case where something does.
+    if any(t.is_per_core_allocated() for t in (tensor, keep)):
+        return
     try:
         if tensor.buffer_address() == keep.buffer_address():
             return
-    except RuntimeError:  # no device buffer to alias (host tensor); nothing to protect
+    except RuntimeError:  # host or unallocated tensor: no device buffer to alias
         pass
     ttnn.deallocate(tensor)
 

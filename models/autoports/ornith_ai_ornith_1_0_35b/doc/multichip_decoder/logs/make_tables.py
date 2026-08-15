@@ -502,8 +502,11 @@ def _pcc_rows(which):
             if f"test_multichip_decoder:{test}:" not in line:
                 continue
             hits += [float(v) for v in re.findall(pattern, line)]
+        # Zero hits is recorded, not skipped: a test that stopped emitting its PCC would otherwise
+        # vanish from the inventory rather than showing up as a 0. Round 9 raised it.
+        counts[test] = len(hits)
         if hits:
-            counts[test], values[test] = len(hits), min(hits)
+            values[test] = min(hits)
     return counts, values
 
 
@@ -512,7 +515,8 @@ def table_pcc_inventory() -> str:
     counts, values = _pcc_rows("golden")
     out = ["| test | values | minimum |", "|---|---|---|"]
     for name in sorted(counts, key=lambda n: (-counts[n], n)):
-        out.append(f"| `{name}` | {counts[name]} | {values[name]:.6f} |")
+        minimum = f"{values[name]:.6f}" if name in values else "**none emitted**"
+        out.append(f"| `{name}` | {counts[name]} | {minimum} |")
     out.append(f"| **total** | **{sum(counts.values())}** | **{min(values.values()):.6f}** |")
     return "\n".join(out)
 
@@ -522,7 +526,8 @@ def table_pcc_baseline() -> str:
     counts, values = _pcc_rows("baseline")
     out = ["| test | values | minimum |", "|---|---|---|"]
     for name in sorted(counts, key=lambda n: (-counts[n], n)):
-        out.append(f"| `{name}` | {counts[name]} | {values[name]:.6f} |")
+        minimum = f"{values[name]:.6f}" if name in values else "**none emitted**"
+        out.append(f"| `{name}` | {counts[name]} | {minimum} |")
     out.append(f"| **total** | **{sum(counts.values())}** | **{min(values.values()):.6f}** |")
     return "\n".join(out)
 

@@ -315,7 +315,11 @@ LABELLED_PAIRS = [
 ]
 
 #: An artifact filename mentioned in prose.
-CITATION = re.compile(r"\b([a-z0-9_]+\.(?:txt|json|csv|md|py|sh))\b")
+#: An artifact filename mentioned in prose. The optional ``.gz`` matters: without it the pattern
+#: captured only the stem of ``foo.txt.gz`` (``.`` is a word boundary), so a citation naming a
+#: *deleted* gzipped artifact resolved against the surviving plain file and the dangling-citation
+#: check could not see it. Round 9 found exactly that.
+CITATION = re.compile(r"\b([a-z0-9_]+\.(?:txt|json|csv|md|py|sh)(?:\.gz)?)\b")
 
 #: Cross-references that look like decimals and are not figures: section numbers, headings, limitation
 #: and round numbers. Stripped before scanning, because otherwise every "§5.7" would have to be

@@ -95,14 +95,14 @@ Traced microseconds:
 <!-- TABLE:ccl -->
 | shape | `all_reduce` Ring | `rs_ag` Ring | `rs_only` Ring | `all_reduce` Linear | `stack_sum` | `async` |
 |---|---|---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.09 | 22.08 | 14.44 | 26.50 | 15.84 | 33.35 |
-| 64 rows | 25.90 | 25.92 | 16.44 | 30.76 | 22.71 | 38.65 |
-| 96 rows | 27.67 | 27.66 | 16.72 | 34.06 | 29.30 | 43.15 |
-| 128 rows | 31.05 | 31.05 | 18.49 | 37.97 | 43.58 | 47.98 |
-| 256 rows | 42.56 | 42.56 | 24.60 | 53.10 | 76.65 | 66.11 |
-| 512 rows | 69.94 | 70.03 | 37.34 | 91.87 | 108.05 | 103.39 |
-| decode batch 32 (1024 rows) | 121.87 | 121.92 | 63.36 | 156.50 | 193.85 | 177.57 |
-| prefill 2048 | 179.93 | 179.91 | 102.25 | 250.48 | 373.06 | 325.05 |
+| decode (batch 1, 32 rows) | 22.09 | 22.11 | 14.42 | 26.49 | 15.84 | 33.45 |
+| 64 rows | 25.92 | 25.94 | 16.41 | 30.78 | 22.71 | 38.69 |
+| 96 rows | 27.67 | 27.68 | 16.73 | 34.06 | 29.30 | 43.19 |
+| 128 rows | 31.05 | 31.03 | 18.47 | 37.90 | 43.61 | 48.00 |
+| 256 rows | 42.55 | 42.54 | 24.60 | 53.06 | 76.56 | 66.08 |
+| 512 rows | 69.89 | 69.96 | 37.34 | 91.92 | 108.11 | 103.36 |
+| decode batch 32 (1024 rows) | 121.78 | 121.96 | 63.24 | 156.60 | 193.78 | 177.87 |
+| prefill 2048 | 179.77 | 179.88 | 102.14 | 250.55 | 372.93 | 324.95 |
 <!-- /TABLE:ccl -->
 
 These are the **traced** rows, and every one of them is under `FABRIC_1D_RING`: they vary the ops'
@@ -117,12 +117,12 @@ needs its own process because `set_fabric_config` runs before `open_mesh_device`
 <!-- TABLE:fabric -->
 | shape | `all_reduce` ring fabric | `all_reduce` line fabric | `stack_sum` ring fabric | `stack_sum` line fabric |
 |---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.09 | 22.47 | 15.84 | 18.09 |
-| 64 rows | 25.90 | 26.65 | 22.71 | 26.91 |
-| 128 rows | 31.05 | 32.61 | 43.58 | 59.86 |
-| 512 rows | 69.94 | 88.37 | 108.05 | 152.63 |
-| decode batch 32 (1024 rows) | 121.87 | 159.21 | 193.85 | 287.49 |
-| prefill 2048 | 179.93 | 220.95 | 373.06 | 555.64 |
+| decode (batch 1, 32 rows) | 22.09 | 22.46 | 15.84 | 18.11 |
+| 64 rows | 25.92 | 26.66 | 22.71 | 26.91 |
+| 128 rows | 31.05 | 32.66 | 43.61 | 59.86 |
+| 512 rows | 69.89 | 88.46 | 108.11 | 152.71 |
+| decode batch 32 (1024 rows) | 121.78 | 159.01 | 193.78 | 287.39 |
+| prefill 2048 | 179.77 | 221.12 | 372.93 | 555.77 |
 <!-- /TABLE:fabric -->
 
 Six conclusions, all of which shaped the implementation:
@@ -255,13 +255,13 @@ means the cache size is not a binding constraint anyway.
 <!-- TABLE:moepar -->
 | phase | arm | experts/device | active/device | us |
 |---|---|---|---|---|
-| decode | unsharded, still gate-selected | 256 | 8 | 665.43 |
-| decode | **expert parallelism** (shipped) (mean local) | 64 | 2 | 248.17 |
-| decode | **expert parallelism** (shipped) (>= the expected maximum, 3.512) | 64 | 4 | 204.32 |
-| decode | intermediate sharded 4 ways | 256 | 8 | 472.71 |
-| prefill | unsharded, still gate-selected | 256 | 162 | 1638.32 |
-| prefill | **expert parallelism** (shipped) | 64 | 41 | 515.58 |
-| prefill | intermediate sharded 4 ways | 256 | 162 | 1299.36 |
+| decode | unsharded, still gate-selected | 256 | 8 | 665.04 |
+| decode | **expert parallelism** (shipped) (mean local) | 64 | 2 | 198.41 |
+| decode | **expert parallelism** (shipped) (>= the expected maximum, 3.512) | 64 | 4 | 205.54 |
+| decode | intermediate sharded 4 ways | 256 | 8 | 472.21 |
+| prefill | unsharded, still gate-selected | 256 | 162 | 1637.08 |
+| prefill | **expert parallelism** (shipped) | 64 | 41 | 514.98 |
+| prefill | intermediate sharded 4 ways | 256 | 162 | 1303.01 |
 <!-- /TABLE:moepar -->
 
 Read like for like — each arm at *its own* representative active count, which is what the layer
@@ -356,14 +356,14 @@ and clamps `in0_block_w` to `Kt`) against the local winner:
 <!-- TABLE:dense -->
 | role | inherited (realised) | us | local winner | us | delta | winner spread | repeatability | shipped |
 |---|---|---|---|---|---|---|---|---|
-| `attn_in` | (32,2) → 33/2 | 30.91 | 110/8 | 17.89 | 13.02 | 0.10 | 0.18 | **retuned (110, 8)**, 17.89 |
-| `gdn_in` | (110,2) → 110/2 | 48.77 | 33/8 | 20.40 | 28.37 | 0.19 | 0.11 | **retuned (110, 8)**, 20.55 |
-| `shared_down` | (48,16) → 55/4 | 9.19 | 8/4 | 8.57 | 0.62 | 0.21 | 0.37 | **retuned (8, 4)**, 8.57 |
-| `expert_select` | new role | — | 4/8 | 8.30 | — | 0.50 | 0.34 | **(8, 8)**, 8.33 |
-| `o_proj` | (16,16) → 22/16 | 9.30 | 33/8 | 9.29 | 0.01 | 0.80 | 0.15 | inherited |
-| `gdn_out` | (24,8) → 33/8 | 9.64 | 22/16 | 9.49 | 0.15 | 0.04 | 0.18 | inherited |
-| `shared_in` | (32,32) → 33/32 | 8.75 | 88/32 | 8.73 | 0.02 | 0.60 | 0.13 | inherited |
-| `router` | (32,32) → 33/32 | 9.00 | 66/32 | 8.86 | 0.14 | 0.38 | 0.18 | inherited |
+| `attn_in` | (32,2) → 33/2 | 30.93 | 110/8 | 17.92 | 13.01 | 0.18 | 0.31 | **retuned (110, 8)**, 17.92 |
+| `gdn_in` | (110,2) → 110/2 | 48.90 | 33/8 | 20.33 | 28.57 | 0.15 | 0.22 | **retuned (110, 8)**, 20.43 |
+| `shared_down` | (48,16) → 55/4 | 9.19 | 4/4 | 8.59 | 0.60 | 0.23 | 0.27 | **retuned (8, 4)**, 8.63 |
+| `expert_select` | new role | — | 8/8 | 8.33 | — | 0.32 | 0.28 | **(8, 8)**, 8.33 |
+| `o_proj` | (16,16) → 22/16 | 9.31 | 22/8 | 9.19 | 0.12 | 0.27 | 0.12 | inherited |
+| `gdn_out` | (24,8) → 33/8 | 9.31 | 22/8 | 9.20 | 0.11 | 0.12 | 0.13 | inherited |
+| `shared_in` | (32,32) → 33/32 | 8.79 | 33/32 | 8.79 | 0.00 | 0.30 | 0.31 | inherited |
+| `router` | (32,32) → 33/32 | 8.83 | 88/32 | 8.80 | 0.03 | 0.36 | 0.15 | inherited |
 <!-- /TABLE:dense -->
 
 `repeatability` is the probe's own noise floor for that role, read out of the same file: several
@@ -474,18 +474,18 @@ realised core count, and the winner:
 <!-- TABLE:sparse_ladder -->
 | active | 4 cores | 8 cores | 16 cores | 32 cores | 64 cores | winner |
 |---|---|---|---|---|---|---|
-| 4, `down` | — | **52.3** | 59.5 | 66.6 | 85.4 | 8 |
-| 4, `gate_up` | 82.7 | **62.4** | 64.1 | 70.0 | — | 8 |
-| 8, `down` | — | 62.2 | **61.9** | 68.9 | 88.0 | 16 |
-| 8, `gate_up` | 122.5 | 81.5 | **73.0** | 77.8 | — | 16 |
+| 4, `down` | — | **52.4** | 59.6 | 66.7 | 85.4 | 8 |
+| 4, `gate_up` | 82.7 | **62.4** | 64.3 | 70.0 | — | 8 |
+| 8, `down` | — | 62.1 | **61.9** | 68.9 | 88.1 | 16 |
+| 8, `gate_up` | 123.3 | 81.6 | **73.1** | 77.9 | — | 16 |
 | 16, `down` | — | 74.4 | **65.3** | 72.4 | 92.4 | 16 |
-| 16, `gate_up` | 180.3 | 109.5 | **86.8** | 90.1 | — | 16 |
-| 32, `down` | — | 120.4 | 83.1 | **80.4** | 101.4 | 32 |
-| 32, `gate_up` | 329.4 | 192.8 | 126.3 | **120.1** | — | 32 |
-| 41, `down` | — | 146.2 | 96.0 | **85.9** | 107.7 | 32 |
-| 41, `gate_up` | 414.7 | 240.8 | 150.1 | **139.3** | — | 32 |
-| 63, `down` | — | 235.6 | 145.0 | **105.3** | 124.7 | 32 |
-| 63, `gate_up` | 692.0 | 397.8 | 234.5 | **200.1** | — | 32 |
+| 16, `gate_up` | 180.2 | 109.5 | **86.8** | 90.4 | — | 16 |
+| 32, `down` | — | 120.5 | 83.0 | **80.4** | 102.3 | 32 |
+| 32, `gate_up` | 329.9 | 193.6 | 125.4 | **120.0** | — | 32 |
+| 41, `down` | — | 146.2 | 96.0 | **85.8** | 107.7 | 32 |
+| 41, `gate_up` | 414.5 | 240.2 | 150.2 | **139.5** | — | 32 |
+| 63, `down` | — | 236.2 | 144.9 | **105.0** | 124.8 | 32 |
+| 63, `gate_up` | 691.6 | 398.3 | 235.4 | **200.1** | — | 32 |
 <!-- /TABLE:sparse_ladder -->
 
 The `active ∈ {8, 16, 32, 41}` rows were added in round 2. Round 1 swept only 4 and 63, which left
@@ -661,18 +661,18 @@ process on the same device with the same weights, three builds per arm. All valu
 <!-- TABLE:ablayer -->
 | knob | arm | linear decode | full decode | linear prefill | full prefill |
 |---|---|---|---|---|---|
-| `ccl` | **`auto`** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.94–29.18 | 28.28–28.35 |
-| `ccl` | `stack_sum` | 0.611 | 0.500 | 29.28–29.53 | 28.62–28.65 |
-| `ccl` | `all_reduce` | 0.621 | 0.509 | 28.89–28.97 | 28.31–28.52 |
-| `ccl` | `rs_ag` | 0.621 | 0.508 | 29.02–29.26 | 28.22–28.48 |
-| `geometry` | **multichip-retuned** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.98–29.37 | 28.18–28.33 |
-| `geometry` | single-chip-inherited | 0.635 | 0.516–0.517 | 28.94–29.22 | 28.37–28.46 |
-| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.500–0.501 | 29.09–29.55 | 28.22–28.62 |
-| `routing` | `gather` | 0.668–0.669 | 0.559–0.560 | 29.32–29.81 | 28.60–28.99 |
-| `sparse` | **tp-rescaled** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.97–29.15 | 28.27–28.37 |
-| `sparse` | single-chip-inherited | 0.611 | 0.500 | 33.18–33.43 | 32.46–32.57 |
-| `cast` | **block-float** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.91–29.26 | 28.38–28.61 |
-| `cast` | `bf16` | 0.614 | 0.504 | 29.04–29.33 | 28.42–28.80 |
+| `ccl` | **`auto`** (shipped) | 0.610–0.611 | 0.500 | 28.92–29.26 | 28.19–28.34 |
+| `ccl` | `stack_sum` | 0.611 | 0.500–0.501 | 29.32–29.55 | 28.49–28.72 |
+| `ccl` | `all_reduce` | 0.621 | 0.508 | 28.93–29.33 | 28.28–28.49 |
+| `ccl` | `rs_ag` | 0.621 | 0.508 | 29.07–29.32 | 28.26–28.54 |
+| `geometry` | **multichip-retuned** (shipped) | 0.611 | 0.500 | 29.01–29.28 | 28.20–28.35 |
+| `geometry` | single-chip-inherited | 0.635 | 0.517 | 29.03–29.16 | 28.46–28.84 |
+| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.500 | 29.06–29.50 | 28.28–28.43 |
+| `routing` | `gather` | 0.668 | 0.559 | 29.49–29.67 | 28.45–28.89 |
+| `sparse` | **tp-rescaled** (shipped) | 0.611 | 0.500 | 29.11–29.25 | 28.25–28.42 |
+| `sparse` | single-chip-inherited | 0.610–0.611 | 0.500 | 33.00–33.73 | 32.38–32.65 |
+| `cast` | **block-float** (shipped) | 0.611 | 0.501 | 28.99–29.15 | 28.44–28.77 |
+| `cast` | `bf16` | 0.614 | 0.504 | 29.15–29.25 | 28.53–28.84 |
 <!-- /TABLE:ablayer -->
 
 Every row is at **batch 1**. That is why the `sparse` arm ties in the decode columns here and not in
@@ -720,13 +720,13 @@ Traced decode, three builds per arm, full_attention / linear_attention:
 <!-- TABLE:decode_batch -->
 | batch | mixer physical rows | off | on | delta |
 |---|---|---|---|---|
-| 1 | 32 | 0.500 / 0.610 | 0.500 / 0.610 | +0 / +0 us |
+| 1 | 32 | 0.500 / 0.611 | 0.500 / 0.610 | +0 / +1 us |
 | 2 | 64 | 0.578 / 0.705 | 0.575 / 0.703 | +3 / +2 us |
 | 4 | 128 | 0.634 / 0.815 | 0.639 / 0.820 | **-5 / -5 us** |
-| 8 | 256 | 0.787 / 1.002 | 0.784 / 1.000 | +3 / +2 us |
-| 13 | 416 | 1.620 / 2.062 | 1.607 / 2.051 | +13 / +11 us |
-| 16 | 512 | 1.827 / 2.270 | 1.792 / 2.242 | +35 / +28 us |
-| 32 | 1024 | 3.018 / 3.944 | 2.933 / 3.862 | **+85 / +82 us** |
+| 8 | 256 | 0.787 / 1.002 | 0.783 / 1.000 | +4 / +2 us |
+| 13 | 416 | 1.620 / 2.062 | 1.607 / 2.052 | +13 / +10 us |
+| 16 | 512 | 1.827 / 2.271 | 1.797 / 2.243 | +30 / +28 us |
+| 32 | 1024 | 3.019 / 3.946 | 2.932 / 3.862 | **+87 / +84 us** |
 <!-- /TABLE:decode_batch -->
 
 At batch 1 the guard skips the fold entirely (the tensor is already one tile row), which is why the
@@ -758,9 +758,9 @@ changed dispatch" from "the parallelisation helped".
 <!-- TABLE:bench -->
 | layer kind | phase | single-chip | 1x4 replication control | multichip | speedup | efficiency |
 |---|---|---|---|---|---|---|
-| linear_attention | prefill 2048 | 101.57 ms | 101.86 ms | **28.99 ms** | **3.504x** | 87.6% |
-| linear_attention | decode (traced) | 1.030 ms | 1.031 ms | **0.610 ms** | **1.689x** | 42.2% |
-| full_attention | prefill 2048 | 95.39 ms | 95.69 ms | **28.28 ms** | **3.373x** | 84.3% |
+| linear_attention | prefill 2048 | 101.49 ms | 101.94 ms | **29.33 ms** | **3.460x** | 86.5% |
+| linear_attention | decode (traced) | 1.031 ms | 1.032 ms | **0.611 ms** | **1.687x** | 42.2% |
+| full_attention | prefill 2048 | 95.36 ms | 95.68 ms | **28.44 ms** | **3.353x** | 83.8% |
 | full_attention | decode (traced) | 0.827 ms | 0.827 ms | **0.500 ms** | **1.654x** | 41.3% |
 <!-- /TABLE:bench -->
 
@@ -809,17 +809,17 @@ control:
 ```
 Observed anomaly:  prefill ReduceScatter device time is 7-15x the isolated probe for the same
                    [1,1,2048,2048] shape, and ~2x different between layer kinds.
-Evidence:          tracy/*/prefill_perf_report.summary.txt (114 us BF16 on 20 cores vs 1453 us BFP8
-                   on 12, full_attention; 98 vs 654 us, linear_attention; every sweep re-measures
+Evidence:          tracy/*/prefill_perf_report.summary.txt (100 us BF16 on 20 cores vs 1470 us BFP8
+                   on 12, full_attention; 97 vs 620 us, linear_attention; every sweep re-measures
                    these and the ratio, not the absolute, is the finding);
                    logs/probe_ccl.txt prefill_2048 rs_only_ring trace 102.19.
 Affected path:     the second per-layer collective, prefill, both layer kinds.
-Control:           decode mostly reproduces the probe (AllGather 12.70-13.10 us/op on the L1-operand
+Control:           decode mostly reproduces the probe (AllGather 12.74-13.13 us/op on the L1-operand
                    row, against the `stack_sum` probe row) -- with one exception, below, so the discrepancy is prefill-specific; and the `cast` arm removes the
                    block-float operand without moving the layer at all.
 Investigation:     CCL_CAST_BLOCKFLOAT implemented and A/B'd at the layer, three builds per arm.
-Second instance:   the same shipped `stack_sum` all-gather costs 33.69 us/op on full_attention and
-                   21.81 us/op on linear_attention at the same decode shape (the DRAM-operand rows of
+Second instance:   the same shipped `stack_sum` all-gather costs 33.79 us/op on full_attention and
+                   21.77 us/op on linear_attention at the same decode shape (the DRAM-operand rows of
                    `tracy/*/decode_perf_report_stacked.csv.gz`, 32 ops each), while the L1-operand
                    rows of the same two captures agree to within 4%. Review round 4 found this and it
                    is the same signature as the prefill one -- a collective's cost varying with what
@@ -877,9 +877,11 @@ Two consequences, both taken:
 
 Watcher and profiler evidence were kept in separate runs throughout, per `$tt-device-usage`.
 
-The first watcher attempt **failed outright**, and the failure is preserved rather than papered over:
-`logs/watcher_pytest_eth_enabled.txt.gz` — every selected test errors in ~15 s, **zero tests
-executed**, all at `mesh_device` setup:
+The first watcher attempt **failed outright**, and the failure is preserved rather than papered over
+and re-run on every sweep: `logs/watcher_pytest_eth_enabled.txt`. The control is itself unstable —
+some runs error every selected test in ~15 s with **zero tests executed**, others segfault inside
+`open_mesh_device` after the first few, because the mesh is not reliably reopenable once an ERISC
+program has failed to load. Either way it fails at `mesh_device` setup on:
 
 ```
 TT_FATAL: Program size (28656) too large for kernel config buffer (25600) on ACTIVE_ETH (assert.hpp:104)
@@ -1118,7 +1120,7 @@ been made on measurements that structurally excluded the collective the warning 
 | P2 — work log §14 said "no hang, no ARC/ERISC fault, no device reset was needed at any point" and "`tt-triage.py` was therefore not needed", contradicting README limitation 5, the committed triage capture and §16's own round-3 row | §14 rewritten to record the `all_gather_matmul_async` wedge, the `tt-triage` capture, the `tt-smi -r`, and the false-recovery lesson (an open/close check passed while the fabric was still wedged) |
 | P2 — "every collective arm at every shape is faster" and "never faster on any measured row" were contradicted by 4 of 72 rows | both restated to what the artifact shows, including the block-float exclusion |
 | smaller: a `114 us` collective row (97), category deltas quoted a point or so off the stacked CSVs, a `ReshapeView` share quoted a hundredth off the table beside it, and a `gdn_in` sentence added in round 5 whose two figures both disagreed with the table beside it | each corrected or replaced by a pointer to the generated column |
-| hard-check gap — `run_evidence.sh` discarded every probe's stderr, which is why the packet warning never reached an artifact | the first fix was wrong: the runtime prints these through its own logger, not to the probes' stderr, so collecting stderr produced an empty file. `logs/warning_census.py` censuses the **suite and watcher logs**, where they actually appear, into `logs/warning_census.txt` — one line per distinct class with counts, `--check` verifies it against the logs, and step 7 regenerates it. Three classes exist and README §7 classifies all three |
+| hard-check gap — `run_evidence.sh` discarded every probe's stderr, which is why the packet warning never reached an artifact | the first fix was wrong: the runtime prints these through its own logger, not to the probes' stderr, so collecting stderr produced an empty file. `logs/warning_census.py` censuses the **suite and watcher logs**, where they actually appear, into `logs/warning_census.txt` — one line per distinct class with counts, `--check` verifies it against the logs, and step 7 regenerates it. README §7 classifies every class the census finds |
 | hard-check gap — the audit's own self-test puts 1- and 2-decimal figures at a 0.23 / 0.12 false-positive rate, which is where every wrong prose figure in this round sat | stated in README §9, so a reader does not over-trust a pass: byte counts are pinned, ratios are only as good as being generated |
 
 ### Round 7 — `more-work-needed`
@@ -1151,17 +1153,44 @@ been shown to assert less than they claim in a way a review round did not alread
 
 | finding | resolution |
 |---|---|
-| P2 — round 7's packet restatement landed in one of the three places it named; README §2.5 still carried the rejected sentence, contradicted by §2.1's generated census in the same document | §2.5 now points at the census instead of paraphrasing it |
+| P2 — round 7's packet restatement landed in one of the three places it named; README §2.5 still carried the rejected sentence, contradicted by §2.1's generated census in the same document | §2.5 now points at the census instead of paraphrasing it — landed in round 9, for the same reason as the two rows below |
 | P2 — round 7's ring-vs-line restatement likewise landed in one of three; the module docstring said "ties" fifteen lines above its own corrected constant comment, and work log §3 conclusion 1 still said "tie up to 128 rows" over a table showing 14–37% | both corrected; the module no longer contradicts itself |
 | P2 — the ACTIVE_ETH control was a **stale duplicate** (a superseded `.gz` next to the current `.txt`), the program size quoted in four places came from the superseded run, and the current run contains an unclassified `Fatal Python error: Segmentation fault` | the `.gz` is deleted, the size requoted from the artifact (and its `ALLOWED_INT` whitelist entries dropped so it is checked), the instability recorded as part of limitation 1 — the control either errors every test or crashes partway, because the mesh is not reliably reopenable once an ERISC program has failed to load — and step 6 now says so out loud instead of swallowing it under `\|\| true` |
 | P2 — the header table's speedups were rounded up past what the generated table supports | the header quotes the generated figures |
 | hard-check gap — **`audit_figures.py` could not see a single `N.NNx` figure**: the `(?![\w])` guard rejected the `x`, so all 34 speedups, efficiencies and rejection ratios in both documents were unscanned. This is the direct cause of the header-table drift and of rounds 2, 5 and 6's ratio findings | `DECIMAL` now allows a unit suffix, the EP ratios are added to the derived pool, and the guard is verified to fire on an invented `9.99x` |
 | audit — `test_ccl_modes_agree` still never reached the `stack_sum` regime. Round 4's fix added a 32-token prefill case, but `prefill_forward` pads to `PREFILL_ALIGN` = 128 **before** the layer runs, so `auto` resolved to `all_reduce` in both cases and the `all_reduce` arm compared the shipped path with itself — twice over, in the two rounds that each thought they had fixed it | the test runs both **phases** now, re-derives the resolved spelling from `_physical_rows`, and asserts the decode case really is `stack_sum`. Measured on the mesh: decode's collective sees 32 physical rows, prefill's sees 128 |
-| audit — `local_decoder_config` accepted `n_kv_heads < tp` without requiring `tp % n_kv_heads == 0`, so a hypothetical 3-kv-head model would hand one device an empty k/v slice and shard the concatenation wrong, silently | guarded. Unreachable for this model, but `local_decoder_config` is documented as general in `tp` |
-| audit — `_free_unless_aliased` caught the `RuntimeError` from `buffer_address()` as "host tensor, nothing to protect", but the op raises it for per-core-allocated tensors too, where the addresses simply cannot be compared — and then freed | `is_per_core_allocated()` is checked first, so the ambiguous case returns instead of freeing |
+| audit — `local_decoder_config` accepted `n_kv_heads < tp` without requiring `tp % n_kv_heads == 0`, so a hypothetical 3-kv-head model would hand one device an empty k/v slice and shard the concatenation wrong, silently | guarded — **but not in round 8**: the edit script that was supposed to apply it aborted on a later hunk and wrote nothing, while this row and the commit message recorded it as done. Round 9 caught that. Landed and verified in round 9 |
+| audit — `_free_unless_aliased` caught the `RuntimeError` from `buffer_address()` as "host tensor, nothing to protect", but the op raises it for per-core-allocated tensors too, where the addresses simply cannot be compared — and then freed | `is_per_core_allocated()` is checked first, so the ambiguous case returns instead of freeing. Same story as the row above: recorded in round 8, actually landed in round 9 |
 | audit — the `gather` routing arm builds and uploads its index inside the forward, so it is not trace-safe and would trip the stage's own host-fallback guard | said out loud at the knob: a measurement arm, not a shippable path |
 | audit — `test_gate_selected_experts_not_dense` asserted `max <= top_k`, but `MOE_MASK_FLOOR` can legitimately make it `top_k + 1` (~6e-5 per call) | bound corrected to `top_k + 1` with the reason |
 | smaller: an 864-warning count attributed to the wrong setting, and "no row falls the other way" stated over a wider set than the two tabulated spellings | both scoped to what the artifact shows |
+
+### Round 9 — `more-work-needed`
+
+The reviewer again found **no correctness defect in the shipped path and no unearned rejection**. What
+it found instead was worse in kind and is worth recording plainly: **three of round 8's ten claimed
+resolutions were not in the tree, and this section recorded all three as done.**
+
+The mechanism was mundane and is the useful part. Two of the three code edits and one document edit
+were applied by a single script that asserts each hunk before writing the file at the end; a later
+hunk's assertion failed, the script exited, and **nothing was written** — but the round-8 write-up and
+commit message had already been drafted from the intent. One of the three was the
+`_free_unless_aliased` per-core-allocation hole, i.e. a self-identified use-after-free hazard
+certified as closed while it was open. Neither code item is reachable at this model's `tp=4`, so
+nothing shipped was at risk; the evidence record was the thing that was wrong.
+
+| finding | resolution |
+|---|---|
+| P1 — `is_per_core_allocated` appears nowhere in `tt/`; the `n_kv_heads < tp` guard is absent; README §2.5's packet row is byte-identical to the round-7 version — all three recorded as fixed in §16 | all three applied and **verified by grep against the file** rather than by the script's exit status, and the §16 rows above now say which round each actually landed in |
+| P2 — README §2.5's packet row contradicted §2.1's generated census on three counts ("every traced shape", "within 1%", "four of the 72 … none shipped") | replaced by a pointer to the census, which is what the row above claimed |
+| P2 — the ACTIVE_ETH documentation still described the artifact round 8 deleted: three citations to the `.gz`, and "zero tests executed" describing the superseded run, while the committed one segfaults | citations corrected to the `.txt`, and the instability written into README §7 and §13 rather than living only in a shell comment |
+| P2 — `DANGLING-CITATION` could not see a wrong `.gz` suffix: `CITATION` stopped at `.txt` because `.` is a word boundary, so a citation naming a deleted gzipped artifact resolved against the surviving plain file | the pattern takes an optional `.gz`. Same class as round 8's `N.NNx` finding: a guard that could not see the defect it was built for |
+| P2 — limitation 6 quoted a warning count that appears in no artifact, and cited two different `ccl_common.cpp` lines for one emit site | the count is a pointer to `warning_census.txt` (it moves every sweep), and the line citations are `:60-66` for the arithmetic and `:66` for the emit |
+| `_pcc_rows` skipped a test with zero hits, so a test that stopped emitting its PCC would vanish from the inventory instead of showing a 0 | zero is recorded |
+
+The process lesson, which is now the rule this stage follows: **an edit is not done because the script
+said so — it is done when the file says so.** Every fix in this round was verified by reading the file
+back before the write-up was touched.
 
 ### Checkpoint
 

@@ -14,7 +14,7 @@ One `ornith-ai/Ornith-1.0-35B` decoder layer, both layer kinds, sharded across t
 | Suite | **137 passed, 3 skipped** (`logs/pytest_full_suite.txt.gz`) |
 | PCC vs the single-chip TTNN baseline | 34 values, min **0.999892**, bar 0.999 |
 | PCC vs the float32 HF golden | 90 values, min **0.999851**, bar 0.995 |
-| Warmed 2048-token prefill | **3.50x** linear_attention, **3.37x** full_attention (§5.2's generated table has the exact figures and the efficiencies) |
+| Warmed 2048-token prefill | **3.46x** linear_attention, **3.35x** full_attention (§5.2's generated table has the exact figures and the efficiencies) |
 | Warmed traced decode | **1.69x** linear_attention, **1.65x** full_attention (§5.2, same source) |
 | Advertised context | **262144, unchanged**; per-device layer footprint falls 60–75% |
 | Advertised batch | **32, unchanged**, exercised on the mesh at 1 / 4 / 13 / 32, aligned and not |
@@ -88,12 +88,12 @@ before any code:
 <!-- TABLE:fabric -->
 | shape | `all_reduce` ring fabric | `all_reduce` line fabric | `stack_sum` ring fabric | `stack_sum` line fabric |
 |---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.09 | 22.47 | 15.84 | 18.09 |
-| 64 rows | 25.90 | 26.65 | 22.71 | 26.91 |
-| 128 rows | 31.05 | 32.61 | 43.58 | 59.86 |
-| 512 rows | 69.94 | 88.37 | 108.05 | 152.63 |
-| decode batch 32 (1024 rows) | 121.87 | 159.21 | 193.85 | 287.49 |
-| prefill 2048 | 179.93 | 220.95 | 373.06 | 555.64 |
+| decode (batch 1, 32 rows) | 22.09 | 22.46 | 15.84 | 18.11 |
+| 64 rows | 25.92 | 26.66 | 22.71 | 26.91 |
+| 128 rows | 31.05 | 32.66 | 43.61 | 59.86 |
+| 512 rows | 69.89 | 88.46 | 108.11 | 152.71 |
+| decode batch 32 (1024 rows) | 121.78 | 159.01 | 193.78 | 287.39 |
+| prefill 2048 | 179.77 | 221.12 | 372.93 | 555.77 |
 <!-- /TABLE:fabric -->
 
    Read per spelling, not per shape. For `all_reduce` the two fabrics are close below 512 rows and
@@ -127,12 +127,12 @@ before any code:
 <!-- TABLE:packet -->
 | shape | arm | bf16 8192 B (shipped) | bf16 4352 B | bfp8 8192 B (shipped) | bfp8 4352 B |
 |---|---|---|---|---|---|
-| decode tile | `stack_sum` | 15.84 | 17.18 | 14.82 | 14.77 |
+| decode tile | `stack_sum` | 15.84 | 17.17 | 14.84 | 14.77 |
 | decode tile | `all_reduce` | 22.09 | 22.08 | 21.44 | 21.43 |
-| decode batch 32 | `stack_sum` | 193.85 | 233.20 | 153.74 | 154.27 |
-| decode batch 32 | `all_reduce` | 121.87 | 135.14 | 86.43 | 85.77 |
-| prefill 2048 | `stack_sum` | 373.06 | 447.23 | 299.17 | 299.97 |
-| prefill 2048 | `all_reduce` | 179.93 | 196.87 | 152.88 | 152.92 |
+| decode batch 32 | `stack_sum` | 193.78 | 233.19 | 153.66 | 154.51 |
+| decode batch 32 | `all_reduce` | 121.78 | 135.11 | 86.46 | 85.92 |
+| prefill 2048 | `stack_sum` | 372.93 | 447.06 | 299.20 | 299.49 |
+| prefill 2048 | `all_reduce` | 179.77 | 196.80 | 152.89 | 152.95 |
 <!-- /TABLE:packet -->
 
    The bf16 collective is where the setting matters and the block-float one is a coin-flip. Counted
@@ -141,8 +141,8 @@ before any code:
 <!-- TABLE:packet_census -->
 | operand | rows | faster at 8192 B | slower at 8192 B | best gain | worst loss |
 |---|---|---|---|---|---|
-| bf16 | 72 | 67 | 5 | 18.3% | -0.8% |
-| bfloat8_b | 72 | 38 | 33 | 3.0% | -2.3% |
+| bf16 | 72 | 65 | 7 | 18.6% | -0.7% |
+| bfloat8_b | 72 | 37 | 35 | 2.7% | -2.2% |
 <!-- /TABLE:packet_census -->
 
    So bf16 gains up to 18% and gives up under a percent on the handful of rows that fall the other way, while
@@ -159,13 +159,13 @@ before any code:
 | layer kind | phase | arm | builds | best | spread |
 |---|---|---|---|---|---|
 | full_attention | decode (traced) | 4352 B (build default) | 3 | 0.502 ms | 0.000 ms |
-| full_attention | decode (traced) | 8192 B (shipped) | 3 | 0.500 ms | 0.001 ms |
-| full_attention | prefill 2048 | 4352 B (build default) | 3 | 28.22 ms | 0.14 ms |
-| full_attention | prefill 2048 | 8192 B (shipped) | 3 | 28.10 ms | 0.52 ms |
-| linear_attention | decode (traced) | 4352 B (build default) | 3 | 0.612 ms | 0.001 ms |
+| full_attention | decode (traced) | 8192 B (shipped) | 3 | 0.500 ms | 0.000 ms |
+| full_attention | prefill 2048 | 4352 B (build default) | 3 | 28.27 ms | 0.15 ms |
+| full_attention | prefill 2048 | 8192 B (shipped) | 3 | 28.23 ms | 0.40 ms |
+| linear_attention | decode (traced) | 4352 B (build default) | 3 | 0.612 ms | 0.000 ms |
 | linear_attention | decode (traced) | 8192 B (shipped) | 3 | 0.610 ms | 0.000 ms |
-| linear_attention | prefill 2048 | 4352 B (build default) | 3 | 29.04 ms | 0.49 ms |
-| linear_attention | prefill 2048 | 8192 B (shipped) | 3 | 29.06 ms | 0.24 ms |
+| linear_attention | prefill 2048 | 4352 B (build default) | 3 | 29.02 ms | 0.05 ms |
+| linear_attention | prefill 2048 | 8192 B (shipped) | 3 | 29.00 ms | 0.34 ms |
 <!-- /TABLE:packet_layer -->
 
    Decode is repeatably 2 us a step faster at 8192 B — three builds each, no overlap. Prefill is a
@@ -218,14 +218,14 @@ fabric):
 <!-- TABLE:ccl -->
 | shape | `all_reduce` Ring | `rs_ag` Ring | `rs_only` Ring | `all_reduce` Linear | `stack_sum` | `async` |
 |---|---|---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.09 | 22.08 | 14.44 | 26.50 | 15.84 | 33.35 |
-| 64 rows | 25.90 | 25.92 | 16.44 | 30.76 | 22.71 | 38.65 |
-| 96 rows | 27.67 | 27.66 | 16.72 | 34.06 | 29.30 | 43.15 |
-| 128 rows | 31.05 | 31.05 | 18.49 | 37.97 | 43.58 | 47.98 |
-| 256 rows | 42.56 | 42.56 | 24.60 | 53.10 | 76.65 | 66.11 |
-| 512 rows | 69.94 | 70.03 | 37.34 | 91.87 | 108.05 | 103.39 |
-| decode batch 32 (1024 rows) | 121.87 | 121.92 | 63.36 | 156.50 | 193.85 | 177.57 |
-| prefill 2048 | 179.93 | 179.91 | 102.25 | 250.48 | 373.06 | 325.05 |
+| decode (batch 1, 32 rows) | 22.09 | 22.11 | 14.42 | 26.49 | 15.84 | 33.45 |
+| 64 rows | 25.92 | 25.94 | 16.41 | 30.78 | 22.71 | 38.69 |
+| 96 rows | 27.67 | 27.68 | 16.73 | 34.06 | 29.30 | 43.19 |
+| 128 rows | 31.05 | 31.03 | 18.47 | 37.90 | 43.61 | 48.00 |
+| 256 rows | 42.55 | 42.54 | 24.60 | 53.06 | 76.56 | 66.08 |
+| 512 rows | 69.89 | 69.96 | 37.34 | 91.92 | 108.11 | 103.36 |
+| decode batch 32 (1024 rows) | 121.78 | 121.96 | 63.24 | 156.60 | 193.78 | 177.87 |
+| prefill 2048 | 179.77 | 179.88 | 102.14 | 250.55 | 372.93 | 324.95 |
 <!-- /TABLE:ccl -->
 
 So the layer pays **exactly two collectives**, one after the token mixer and one after the MoE, and
@@ -310,7 +310,7 @@ internal, costs 104 448 B per layer per device, and never reaches the delta rule
 | Sharded (reduce-scatter) residual | needs distributed RMSNorm (2 extra collectives) **and** a router-input gather; the reduce-scatter half saves about a third of one collective and the additions cost more than two | `logs/probe_ccl.txt` `rs_only_*` vs `all_reduce_*`; §2.2 |
 | Line fabric (`FABRIC_1D`) | slower on every traced row of both spellings; the shipped `stack_sum` at the batch-1 decode tile is about 14% behind and the gap grows with rows (§2.1) | `logs/probe_ccl.txt` `CCLFAB` rows |
 | `Topology.Linear` as the collectives' argument, under the ring fabric | slower at **every** measured traced shape | `logs/probe_ccl.txt` `CCL` rows |
-| The fabric's build-default 4352 B packet payload | on the **bf16** collective, 8192 B wins at every traced shape — about 8% on both shipped arms and up to 18% at the larger ones; on the **bfloat8_b** collective the two are within 1% either way, i.e. inside the probe's repeatability, and four of the 72 bf16 rows (all `rs_only`, none shipped) favour the default by under half a percent. So 8192 B is taken on the strength of the bf16 rows and costs nothing on the block-float ones (§2.1) | `logs/probe_ccl.txt` `CCLPKT` rows; `ab_single_vs_multichip.txt` `multichip-build-default-packet` |
+| The fabric's build-default 4352 B packet payload | §2.1's generated census counts every traced row of both operand dtypes rather than characterising them: bf16 favours 8192 B on the large majority, by up to 18%, giving up under a percent on the handful that fall the other way; block-float splits almost evenly with ±2–3% extremes and no consistent direction. So 8192 B is taken on the strength of the bf16 rows and costs nothing measurable on the block-float ones (§2.1) | `logs/probe_ccl.txt` `CCLPKT` rows; `ab_single_vs_multichip.txt` `multichip-build-default-packet` |
 | `ttnn.experimental.all_reduce_async` (DRAM and L1 operands) | correct here, and **1.5-1.9x slower than the shipped arm at every measured shape** | `logs/probe_ccl.txt`, `all_reduce_async` / `all_reduce_async_l1` rows |
 | Fused `matmul_reduce_scatter_async` at the row-parallel boundary | **slower than the unfused equivalent at every shape** with the replicated residual — §5.10's generated table has all three. The fused op also needs its matmul confined to a sub-grid so the collective's workers get free cores, which is part of why | `logs/probe_fused_ccl.txt` `o_proj` rows |
 | A **sharded** residual, with the fused producer and a gathered consumer | the fused producer alone (`fused_mm_rs_only`) does beat the shipped arm at 2 of the 3 shapes, and the consumer pays it back and more: at the `attn_in` boundary a gathered input costs about a third more than the replicated one at both prefill and batch 32. Net worse at every shape, at one of the two column-parallel consumers | `logs/probe_fused_ccl.txt` both boundaries |
@@ -375,13 +375,13 @@ all three arrangements, each at the active-expert count it actually runs at (tra
 <!-- TABLE:moepar -->
 | phase | arm | experts/device | active/device | us |
 |---|---|---|---|---|
-| decode | unsharded, still gate-selected | 256 | 8 | 665.43 |
-| decode | **expert parallelism** (shipped) (mean local) | 64 | 2 | 248.17 |
-| decode | **expert parallelism** (shipped) (>= the expected maximum, 3.512) | 64 | 4 | 204.32 |
-| decode | intermediate sharded 4 ways | 256 | 8 | 472.71 |
-| prefill | unsharded, still gate-selected | 256 | 162 | 1638.32 |
-| prefill | **expert parallelism** (shipped) | 64 | 41 | 515.58 |
-| prefill | intermediate sharded 4 ways | 256 | 162 | 1299.36 |
+| decode | unsharded, still gate-selected | 256 | 8 | 665.04 |
+| decode | **expert parallelism** (shipped) (mean local) | 64 | 2 | 198.41 |
+| decode | **expert parallelism** (shipped) (>= the expected maximum, 3.512) | 64 | 4 | 205.54 |
+| decode | intermediate sharded 4 ways | 256 | 8 | 472.21 |
+| prefill | unsharded, still gate-selected | 256 | 162 | 1637.08 |
+| prefill | **expert parallelism** (shipped) | 64 | 41 | 514.98 |
+| prefill | intermediate sharded 4 ways | 256 | 162 | 1303.01 |
 <!-- /TABLE:moepar -->
 
 The ratios those rows produce, computed from the artifact rather than transcribed — rounds 4, 5 and 6
@@ -390,11 +390,11 @@ each found a hand-derived version of them wrong:
 <!-- TABLE:moepar_ratios -->
 | comparison | basis | ratio |
 |---|---|---|
-| EP vs intermediate-sharded | decode, at the expected maximum (conservative) | **2.31x** |
-| EP vs unsharded, gate-selected | decode, at the expected maximum (conservative) | **3.26x** |
-| EP vs intermediate-sharded | decode, at the mean local count | **1.90x** |
-| EP vs unsharded, gate-selected | decode, at the mean local count | **2.68x** |
-| EP vs intermediate-sharded | prefill | **2.52x** |
+| EP vs intermediate-sharded | decode, at the expected maximum (conservative) | **2.30x** |
+| EP vs unsharded, gate-selected | decode, at the expected maximum (conservative) | **3.24x** |
+| EP vs intermediate-sharded | decode, at the mean local count | **2.38x** |
+| EP vs unsharded, gate-selected | decode, at the mean local count | **3.35x** |
+| EP vs intermediate-sharded | prefill | **2.53x** |
 | EP vs unsharded, gate-selected | prefill | **3.18x** |
 <!-- /TABLE:moepar_ratios -->
 
@@ -558,9 +558,9 @@ replay. Raw output: `logs/ab_single_vs_multichip.txt`.
 <!-- TABLE:bench -->
 | layer kind | phase | single-chip | 1x4 replication control | multichip | speedup | efficiency |
 |---|---|---|---|---|---|---|
-| linear_attention | prefill 2048 | 101.57 ms | 101.86 ms | **28.99 ms** | **3.504x** | 87.6% |
-| linear_attention | decode (traced) | 1.030 ms | 1.031 ms | **0.610 ms** | **1.689x** | 42.2% |
-| full_attention | prefill 2048 | 95.39 ms | 95.69 ms | **28.28 ms** | **3.373x** | 84.3% |
+| linear_attention | prefill 2048 | 101.49 ms | 101.94 ms | **29.33 ms** | **3.460x** | 86.5% |
+| linear_attention | decode (traced) | 1.031 ms | 1.032 ms | **0.611 ms** | **1.687x** | 42.2% |
+| full_attention | prefill 2048 | 95.36 ms | 95.68 ms | **28.44 ms** | **3.353x** | 83.8% |
 | full_attention | decode (traced) | 0.827 ms | 0.827 ms | **0.500 ms** | **1.654x** | 41.3% |
 <!-- /TABLE:bench -->
 
@@ -599,11 +599,11 @@ routed matmul rows are modelled with `--active-experts` (4 per device at batch-1
 <!-- TABLE:perf -->
 | | linear_attention decode | full_attention decode | linear_attention prefill | full_attention prefill |
 |---|---|---|---|---|
-| `SparseMatmul` (routed experts) | 17.74% | 21.60% | 75.04% | 74.03% |
+| `SparseMatmul` (routed experts) | 17.74% | 21.61% | 75.13% | 74.02% |
 | `TopK` (router) | 9.01% | 9.46% | 0.17% | 0.18% |
-| dense `Matmul` (all in0 layouts) | 13.12% | 9.40% | 1.10% | 1.06% |
-| **collectives (`AllGather` / `ReduceScatter`)** | **6.48%** | **9.07%** | **2.96%** | **5.70%** |
-| all data movement (`DM` category) | 8.18% | 10.90% | 3.23% | 5.70% |
+| dense `Matmul` (all in0 layouts) | 13.11% | 9.40% | 1.10% | 1.07% |
+| **collectives (`AllGather` / `ReduceScatter`)** | **6.49%** | **9.10%** | **2.85%** | **5.71%** |
+| all data movement (`DM` category) | 8.18% | 10.94% | 3.12% | 5.71% |
 | DRAM roofline (modeled ops) | 6.5% (33 GB/s) | 6.0% (31 GB/s) | 27.1% (139 GB/s) | 27.3% (140 GB/s) |
 <!-- /TABLE:perf -->
 
@@ -622,9 +622,9 @@ brackets — the control for whether a category is this stage's doing:
 <!-- TABLE:category -->
 | `Op Category` | linear decode | full decode | linear prefill | full prefill |
 |---|---|---|---|---|
-| `Compute` | 58.3% (72.5%) | 54.6% (71.5%) | 88.0% (92.1%) | 88.0% (94.1%) |
+| `Compute` | 58.3% (72.5%) | 54.6% (71.5%) | 88.1% (92.1%) | 88.0% (94.1%) |
 | `TM` (layout) | 22.3% (17.9%) | 19.6% (15.1%) | 4.8% (4.5%) | 4.2% (4.2%) |
-| `DM` (data movement) | 8.2% (1.6%) | 10.9% (1.1%) | 3.2% (0.3%) | 5.7% (0.0%) |
+| `DM` (data movement) | 8.2% (1.6%) | 10.9% (1.1%) | 3.1% (0.3%) | 5.7% (0.0%) |
 | `Other` | 11.3% (8.1%) | 14.9% (12.3%) | 4.0% (3.0%) | 2.1% (1.7%) |
 <!-- /TABLE:category -->
 
@@ -641,13 +641,13 @@ The rows behind it:
 <!-- TABLE:tm -->
 | op | linear decode | full decode |
 |---|---|---|
-| `Slice` | 5.31% | 5.58% |
+| `Slice` | 5.32% | 5.57% |
 | `UntilizeWithUnpadding` | 4.18% | 3.99% |
-| `FillPad` | 2.79% | 2.93% |
+| `FillPad` | 2.79% | 2.94% |
 | `ReshapeView` | 2.70% | 0.46% |
-| `Transpose` | 0.98% | 1.68% |
+| `Transpose` | 0.98% | 1.67% |
 | `TilizeWithValPadding` | 1.18% | 1.26% |
-| `Untilize` | 1.12% | 1.17% |
+| `Untilize` | 1.11% | 1.17% |
 | `Permute` | 1.04% | 1.09% |
 <!-- /TABLE:tm -->
 
@@ -706,18 +706,18 @@ per arm, so the spread is visible next to the difference. All values in ms.
 <!-- TABLE:ablayer -->
 | knob | arm | linear decode | full decode | linear prefill | full prefill |
 |---|---|---|---|---|---|
-| `ccl` | **`auto`** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.94–29.18 | 28.28–28.35 |
-| `ccl` | `stack_sum` | 0.611 | 0.500 | 29.28–29.53 | 28.62–28.65 |
-| `ccl` | `all_reduce` | 0.621 | 0.509 | 28.89–28.97 | 28.31–28.52 |
-| `ccl` | `rs_ag` | 0.621 | 0.508 | 29.02–29.26 | 28.22–28.48 |
-| `geometry` | **multichip-retuned** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.98–29.37 | 28.18–28.33 |
-| `geometry` | single-chip-inherited | 0.635 | 0.516–0.517 | 28.94–29.22 | 28.37–28.46 |
-| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.500–0.501 | 29.09–29.55 | 28.22–28.62 |
-| `routing` | `gather` | 0.668–0.669 | 0.559–0.560 | 29.32–29.81 | 28.60–28.99 |
-| `sparse` | **tp-rescaled** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.97–29.15 | 28.27–28.37 |
-| `sparse` | single-chip-inherited | 0.611 | 0.500 | 33.18–33.43 | 32.46–32.57 |
-| `cast` | **block-float** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.91–29.26 | 28.38–28.61 |
-| `cast` | `bf16` | 0.614 | 0.504 | 29.04–29.33 | 28.42–28.80 |
+| `ccl` | **`auto`** (shipped) | 0.610–0.611 | 0.500 | 28.92–29.26 | 28.19–28.34 |
+| `ccl` | `stack_sum` | 0.611 | 0.500–0.501 | 29.32–29.55 | 28.49–28.72 |
+| `ccl` | `all_reduce` | 0.621 | 0.508 | 28.93–29.33 | 28.28–28.49 |
+| `ccl` | `rs_ag` | 0.621 | 0.508 | 29.07–29.32 | 28.26–28.54 |
+| `geometry` | **multichip-retuned** (shipped) | 0.611 | 0.500 | 29.01–29.28 | 28.20–28.35 |
+| `geometry` | single-chip-inherited | 0.635 | 0.517 | 29.03–29.16 | 28.46–28.84 |
+| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.500 | 29.06–29.50 | 28.28–28.43 |
+| `routing` | `gather` | 0.668 | 0.559 | 29.49–29.67 | 28.45–28.89 |
+| `sparse` | **tp-rescaled** (shipped) | 0.611 | 0.500 | 29.11–29.25 | 28.25–28.42 |
+| `sparse` | single-chip-inherited | 0.610–0.611 | 0.500 | 33.00–33.73 | 32.38–32.65 |
+| `cast` | **block-float** (shipped) | 0.611 | 0.501 | 28.99–29.15 | 28.44–28.77 |
+| `cast` | `bf16` | 0.614 | 0.504 | 29.15–29.25 | 28.53–28.84 |
 <!-- /TABLE:ablayer -->
 
 All values in ms, and all at **batch 1** — which is why the `sparse` arm ties in the decode columns
@@ -750,14 +750,14 @@ the batch-1 decode tile:
 <!-- TABLE:dense -->
 | role | inherited (realised) | us | local winner | us | delta | winner spread | repeatability | shipped |
 |---|---|---|---|---|---|---|---|---|
-| `attn_in` | (32,2) → 33/2 | 30.91 | 110/8 | 17.89 | 13.02 | 0.10 | 0.18 | **retuned (110, 8)**, 17.89 |
-| `gdn_in` | (110,2) → 110/2 | 48.77 | 33/8 | 20.40 | 28.37 | 0.19 | 0.11 | **retuned (110, 8)**, 20.55 |
-| `shared_down` | (48,16) → 55/4 | 9.19 | 8/4 | 8.57 | 0.62 | 0.21 | 0.37 | **retuned (8, 4)**, 8.57 |
-| `expert_select` | new role | — | 4/8 | 8.30 | — | 0.50 | 0.34 | **(8, 8)**, 8.33 |
-| `o_proj` | (16,16) → 22/16 | 9.30 | 33/8 | 9.29 | 0.01 | 0.80 | 0.15 | inherited |
-| `gdn_out` | (24,8) → 33/8 | 9.64 | 22/16 | 9.49 | 0.15 | 0.04 | 0.18 | inherited |
-| `shared_in` | (32,32) → 33/32 | 8.75 | 88/32 | 8.73 | 0.02 | 0.60 | 0.13 | inherited |
-| `router` | (32,32) → 33/32 | 9.00 | 66/32 | 8.86 | 0.14 | 0.38 | 0.18 | inherited |
+| `attn_in` | (32,2) → 33/2 | 30.93 | 110/8 | 17.92 | 13.01 | 0.18 | 0.31 | **retuned (110, 8)**, 17.92 |
+| `gdn_in` | (110,2) → 110/2 | 48.90 | 33/8 | 20.33 | 28.57 | 0.15 | 0.22 | **retuned (110, 8)**, 20.43 |
+| `shared_down` | (48,16) → 55/4 | 9.19 | 4/4 | 8.59 | 0.60 | 0.23 | 0.27 | **retuned (8, 4)**, 8.63 |
+| `expert_select` | new role | — | 8/8 | 8.33 | — | 0.32 | 0.28 | **(8, 8)**, 8.33 |
+| `o_proj` | (16,16) → 22/16 | 9.31 | 22/8 | 9.19 | 0.12 | 0.27 | 0.12 | inherited |
+| `gdn_out` | (24,8) → 33/8 | 9.31 | 22/8 | 9.20 | 0.11 | 0.12 | 0.13 | inherited |
+| `shared_in` | (32,32) → 33/32 | 8.79 | 33/32 | 8.79 | 0.00 | 0.30 | 0.31 | inherited |
+| `router` | (32,32) → 33/32 | 8.83 | 88/32 | 8.80 | 0.03 | 0.36 | 0.15 | inherited |
 <!-- /TABLE:dense -->
 
 `repeatability` is this probe's own noise floor for that role, read out of the same file: several
@@ -840,18 +840,18 @@ policy. Best microseconds per realised core count:
 <!-- TABLE:sparse_ladder -->
 | active | 4 cores | 8 cores | 16 cores | 32 cores | 64 cores | winner |
 |---|---|---|---|---|---|---|
-| 4, `down` | — | **52.3** | 59.5 | 66.6 | 85.4 | 8 |
-| 4, `gate_up` | 82.7 | **62.4** | 64.1 | 70.0 | — | 8 |
-| 8, `down` | — | 62.2 | **61.9** | 68.9 | 88.0 | 16 |
-| 8, `gate_up` | 122.5 | 81.5 | **73.0** | 77.8 | — | 16 |
+| 4, `down` | — | **52.4** | 59.6 | 66.7 | 85.4 | 8 |
+| 4, `gate_up` | 82.7 | **62.4** | 64.3 | 70.0 | — | 8 |
+| 8, `down` | — | 62.1 | **61.9** | 68.9 | 88.1 | 16 |
+| 8, `gate_up` | 123.3 | 81.6 | **73.1** | 77.9 | — | 16 |
 | 16, `down` | — | 74.4 | **65.3** | 72.4 | 92.4 | 16 |
-| 16, `gate_up` | 180.3 | 109.5 | **86.8** | 90.1 | — | 16 |
-| 32, `down` | — | 120.4 | 83.1 | **80.4** | 101.4 | 32 |
-| 32, `gate_up` | 329.4 | 192.8 | 126.3 | **120.1** | — | 32 |
-| 41, `down` | — | 146.2 | 96.0 | **85.9** | 107.7 | 32 |
-| 41, `gate_up` | 414.7 | 240.8 | 150.1 | **139.3** | — | 32 |
-| 63, `down` | — | 235.6 | 145.0 | **105.3** | 124.7 | 32 |
-| 63, `gate_up` | 692.0 | 397.8 | 234.5 | **200.1** | — | 32 |
+| 16, `gate_up` | 180.2 | 109.5 | **86.8** | 90.4 | — | 16 |
+| 32, `down` | — | 120.5 | 83.0 | **80.4** | 102.3 | 32 |
+| 32, `gate_up` | 329.9 | 193.6 | 125.4 | **120.0** | — | 32 |
+| 41, `down` | — | 146.2 | 96.0 | **85.8** | 107.7 | 32 |
+| 41, `gate_up` | 414.5 | 240.2 | 150.2 | **139.5** | — | 32 |
+| 63, `down` | — | 236.2 | 144.9 | **105.0** | 124.8 | 32 |
+| 63, `gate_up` | 691.6 | 398.3 | 235.4 | **200.1** | — | 32 |
 <!-- /TABLE:sparse_ladder -->
 
 The ladder's winner tracks the shipped rule: 8 cores at the batch-1 decode point (measured active 4),
@@ -926,13 +926,13 @@ call site than the other in the same forward. `CCL_COMPACT_ROWS` folds `[b, t, d
 <!-- TABLE:decode_batch -->
 | batch | mixer physical rows | off | on | delta |
 |---|---|---|---|---|
-| 1 | 32 | 0.500 / 0.610 | 0.500 / 0.610 | +0 / +0 us |
+| 1 | 32 | 0.500 / 0.611 | 0.500 / 0.610 | +0 / +1 us |
 | 2 | 64 | 0.578 / 0.705 | 0.575 / 0.703 | +3 / +2 us |
 | 4 | 128 | 0.634 / 0.815 | 0.639 / 0.820 | **-5 / -5 us** |
-| 8 | 256 | 0.787 / 1.002 | 0.784 / 1.000 | +3 / +2 us |
-| 13 | 416 | 1.620 / 2.062 | 1.607 / 2.051 | +13 / +11 us |
-| 16 | 512 | 1.827 / 2.270 | 1.792 / 2.242 | +35 / +28 us |
-| 32 | 1024 | 3.018 / 3.944 | 2.933 / 3.862 | **+85 / +82 us** |
+| 8 | 256 | 0.787 / 1.002 | 0.783 / 1.000 | +4 / +2 us |
+| 13 | 416 | 1.620 / 2.062 | 1.607 / 2.052 | +13 / +10 us |
+| 16 | 512 | 1.827 / 2.271 | 1.797 / 2.243 | +30 / +28 us |
+| 32 | 1024 | 3.019 / 3.946 | 2.932 / 3.862 | **+87 / +84 us** |
 <!-- /TABLE:decode_batch -->
 
 (full_attention / linear_attention; positive delta = the fold is faster.) At batch 1 the guard skips
@@ -946,13 +946,13 @@ one harness at one set of batches — the sparse core rule's decode effect, at e
 <!-- TABLE:sparse_batch -->
 | batch | inherited rule | shipped rule | delta |
 |---|---|---|---|
-| 1 | 0.500 / 0.610 | 0.500 / 0.611 | +0 / -1 us |
+| 1 | 0.500 / 0.611 | 0.500 / 0.610 | +0 / +1 us |
 | 2 | 0.608 / 0.702 | 0.575 / 0.703 | +33 / -1 us |
-| 4 | 0.689 / 0.849 | 0.639 / 0.820 | +50 / +29 us |
+| 4 | 0.689 / 0.850 | 0.639 / 0.820 | +50 / +30 us |
 | 8 | 0.806 / 1.015 | 0.783 / 1.000 | +23 / +15 us |
-| 13 | 1.646 / 2.079 | 1.608 / 2.051 | +38 / +28 us |
-| 16 | 1.846 / 2.282 | 1.792 / 2.244 | +54 / +38 us |
-| 32 | 3.004 / 3.928 | 2.932 / 3.862 | +72 / +66 us |
+| 13 | 1.646 / 2.079 | 1.607 / 2.051 | +39 / +28 us |
+| 16 | 1.845 / 2.282 | 1.795 / 2.243 | +50 / +39 us |
+| 32 | 3.002 / 3.928 | 2.932 / 3.864 | +70 / +64 us |
 <!-- /TABLE:sparse_batch -->
 
 ### 5.10 The fused matmul+CCL family
@@ -968,12 +968,12 @@ Traced microseconds:
 <!-- TABLE:fused -->
 | boundary | arm | decode | decode batch 32 | prefill 2048 |
 |---|---|---|---|---|
-| `o_proj` | matmul + `all_reduce` | 40.80 | 185.09 | 293.70 |
-| `o_proj` | matmul + `stack_sum` (shipped at the decode tile) | 36.43 | 254.84 | 485.92 |
-| `o_proj` | **fused** matmul+reduce-scatter, then all-gather | 49.32 | 201.81 | 328.50 |
-| `o_proj` | **fused**, no gather — the sharded-residual bound | 42.83 | 149.19 | 263.39 |
-| `attn_in` | matmul on a replicated input (shipped: no collective) | 43.56 | 148.34 | 254.13 |
-| `attn_in` | all-gather + matmul — what a sharded residual would pay | 50.76 | 206.36 | 333.64 |
+| `o_proj` | matmul + `all_reduce` | 40.79 | 184.46 | 294.74 |
+| `o_proj` | matmul + `stack_sum` (shipped at the decode tile) | 36.42 | 254.32 | 488.21 |
+| `o_proj` | **fused** matmul+reduce-scatter, then all-gather | 49.36 | 201.72 | 328.25 |
+| `o_proj` | **fused**, no gather — the sharded-residual bound | 42.82 | 149.13 | 263.51 |
+| `attn_in` | matmul on a replicated input (shipped: no collective) | 43.54 | 150.04 | 264.00 |
+| `attn_in` | all-gather + matmul — what a sharded residual would pay | 50.77 | 204.37 | 336.29 |
 <!-- /TABLE:fused -->
 
 Three readings, all of which keep the shipped contract:
@@ -1054,7 +1054,7 @@ result covers every dump.
 
 **Runtime warnings are censused, not ignored.** `logs/warning_census.py` reads the committed suite
 and watcher logs and writes one line per distinct warning class with its count
-(`logs/warning_census.txt`). Four classes appear, all classified:
+(`logs/warning_census.txt`). Three classes appear in every sweep and a fourth intermittently, all classified:
 
 * `Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B` — the
   block-float half of the packet trade-off, measured and taken deliberately (§2.1, limitation 6). It
@@ -1064,9 +1064,10 @@ and watcher logs and writes one line per distinct warning class with its count
   container does not grant. Environmental, identical on the single-chip stage.
 * `Unknown motherboard 'B850M-C' … falling back to bus_id as tray_id` — host discovery on a board
   the topology table does not list. Cosmetic: this stage opens one 1x4 mesh and never uses tray ids.
-* `AICLK settled at 1343 MHz, within 5% of the requested 1350 MHz` — the ARC clock landing half a
-  percent below the request. Environmental, once per session, and it applies equally to the
-  single-chip baseline arm measured in the same sweep, so it cannot bias a speedup.
+* `AICLK settled at ... within 5% of the requested ...` — the ARC clock landing a fraction of a
+  percent below the request. Environmental, at most once per session, and it does not appear in every
+  sweep's census; when it does it applies equally to the single-chip baseline arm measured in the
+  same sweep, so it cannot bias a speedup.
 
 Review rounds 5 and 6 each turned on a warning that was sitting unread in a committed log, which is
 why the classes are now an artifact that a diff will show.
@@ -1080,9 +1081,15 @@ setup before any model code runs:
 TT_FATAL: Program size (28656) too large for kernel config buffer (25600) on ACTIVE_ETH (assert.hpp:104)
 ```
 
-That run is preserved verbatim as `logs/watcher_pytest_eth_enabled.txt.gz` — every selected test
-errors in ~15 s, zero tests executed. No environment knob grows that buffer, so the choice is watcher
-coverage on the 110 Tensix worker cores per chip or none at all. The uninstrumented cores are the
+The control is re-run from the committed bytes on every sweep and preserved verbatim as
+`logs/watcher_pytest_eth_enabled.txt`. **It is itself unstable, which is part of the finding**: some
+runs error every selected test in ~15 s with zero tests executed, others take a `Fatal Python error:
+Segmentation fault` inside `open_mesh_device` after the first few `TT_FATAL`s — i.e. once an ERISC
+program has failed to load, the mesh is not reliably reopenable in that process. The committed run is
+the second kind; `run_evidence.sh` detects it and says so rather than swallowing it under `|| true`.
+Both outcomes demonstrate the same hard limit and neither is a shipped configuration
+(`TT_METAL_WATCHER_DISABLE_ETH=1` ships). No environment knob grows that buffer, so the choice is
+watcher coverage on the 110 Tensix worker cores per chip or none at all. The uninstrumented cores are the
 fabric routers, which this stage does not author: they are stock `ttnn` 1D-fabric kernels, identical
 to what any `ttnn` CCL user runs. Every op this stage does author runs on the covered Tensix cores.
 
@@ -1116,10 +1123,12 @@ to what any `ttnn` CCL user runs. Every op this stage does author runs on the co
    that a repeat cannot take a whole sweep with it.
 6. **The fabric packet size cannot satisfy both collectives, so the runtime always warns.** The
    token mixer's collective carries bf16 (2048 B pages, ideal 8192 B) and the MoE's carries
-   `bfloat8_b` (1088 B pages, ideal 4352 B); one fabric setting serves both, so `ccl_common.cpp:63`
-   emits a suboptimal-packet warning for whichever dtype it is not — 864 per suite run at the
-   shipped setting, and a comparable count the other way before it (`logs/warning_census.txt`). The shipped 8192 B is chosen on measurement: it is worth up to 18% on the bf16 collective and
-   is within the probe's repeatability on the block-float one (§2.1). The warnings on the block-float
+   `bfloat8_b` (1088 B pages, ideal 4352 B); one fabric setting serves both, so `ccl_common.cpp:66`
+   emits a suboptimal-packet warning for whichever dtype it is not — `logs/warning_census.txt` carries
+   the per-sweep count for the shipped setting, in the hundreds, and the build default produced a
+   comparable count pointing the other way. The shipped 8192 B is chosen on measurement: §2.1's
+   generated census counts every traced row of both dtypes, and 8192 B wins the bf16 comparison
+   decisively while the block-float one splits almost evenly. The warnings on the block-float
    dispatches are therefore cosmetic on this layer, and `logs/warning_census.txt` carries every
    distinct warning class with its count so the next one is visible in an artifact rather than only in
    a log nobody greps.
@@ -1138,7 +1147,7 @@ to what any `ttnn` CCL user runs. Every op this stage does author runs on the co
    barrier/imbalance explanation as the remaining candidate rather than a demonstrated one. Pinning
    it needs per-device op timelines from the profiled run. It has two instances, not one: the prefill
    pair §5.8 discusses, and — found by review round 4 — the shipped decode `stack_sum` all-gather,
-   which costs 33.69 us/op on full_attention against 21.81 on linear_attention for the same shape while
+   which costs 33.79 us/op on full_attention against 21.77 on linear_attention for the same shape while
    the two captures' L1-operand rows agree to within 4%. Same signature, ~1.5% of the decode window.
    Nothing in the stage's conclusions rests on either: the collective share is quoted as an upper
    bound throughout.
@@ -1183,7 +1192,7 @@ doc/multichip_decoder/
 │   ├── probe_decode_batch.py / .txt           §5.7/§5.9 — collective shapes, and the fold and
 │   │                                          sparse-core A/Bs at batch 1..32
 │   ├── watcher_pytest.txt.gz                  §7 — 50 passed, 3 skipped, watcher on
-│   └── watcher_pytest_eth_enabled.txt.gz      §7 — the ACTIVE_ETH kernel-buffer failure, preserved
+│   └── watcher_pytest_eth_enabled.txt         §7 — the ACTIVE_ETH kernel-buffer failure, preserved
 ├── tracy/
 │   ├── run_profiling.sh                       4 captures, prefill and decode in separate runs
 │   ├── linear_attention/prefill_perf_report.{txt,csv.gz,summary.txt,console.txt}
@@ -1212,9 +1221,9 @@ about arbitrary values:
 <!-- TABLE:selftest -->
 | figure class | trials | coincidental matches | rate |
 |---|---|---|---|
-| `1-decimal-us` | 2000 | 452 | **0.226** |
-| `2-decimal` | 2000 | 303 | **0.151** |
-| `3-decimal-ms` | 2000 | 47 | **0.024** |
+| `1-decimal-us` | 2000 | 487 | **0.243** |
+| `2-decimal` | 2000 | 276 | **0.138** |
+| `3-decimal-ms` | 2000 | 50 | **0.025** |
 | `6-decimal-pcc` | 2000 | 147 | **0.073** |
 | `byte-count` | 2000 | 0 | **0.000** |
 <!-- /TABLE:selftest -->
