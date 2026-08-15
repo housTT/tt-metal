@@ -24,12 +24,28 @@ Arms:
 ``ag_stack_sum``
     ``ttnn.all_gather`` on a new leading axis followed by a local ``ttnn.sum`` — the spelling that
     moves 4x the bytes and reduces on-device.
-``all_reduce_async``
-    ``ttnn.experimental.all_reduce_async``. Recorded because it is the tuned experimental-tier op;
-    on Blackhole it is expected to refuse a DRAM input outright
-    (``all_reduce_async_device_operation.cpp``: "does not support blackhole dram").
+``all_reduce_async`` / ``all_reduce_async_l1``
+    ``ttnn.experimental.all_reduce_async``, the tuned experimental-tier op, on a DRAM and on an L1
+    operand. Rounds 0-2 of this stage recorded it as *refusing Blackhole DRAM outright* and escalated
+    that to "unavailable on this hardware"; review round 3 pointed out that the op's Blackhole guard
+    is DRAM-specific rather than architecture-specific, and retrying it turned up something else
+    again: the arm had been calling the op **wrong**. It needs two barrier semaphores
+    (``all_reduce_async.cpp:435``) and a ``cluster_axis`` (``:436``), and rounds 0-3 passed one and
+    ``None``. It never reached any Blackhole check at all. Called correctly it runs on a DRAM operand
+    on this hardware and is correct; these rows are what it costs.
+
+Fabric configs
+--------------
+``--fabric ring`` (the default, and what the decoder ships) configures ``FABRIC_1D_RING`` before the
+mesh is opened; ``--fabric line`` configures ``FABRIC_1D``. The fabric config, not the ``topology``
+argument, is what actually selects how a collective traverses the mesh, so the two are separate
+questions and rounds 0-3 of this stage conflated them: the ``Ring``/``Linear`` arms below vary only
+the ops' argument, all under a ring fabric. The line **fabric** is measured by running this probe a
+second time with ``--fabric line``; those rows are tagged ``CCLFAB`` (with the fabric and the arm's
+topology argument as columns) so they cannot be read as ring-fabric rows.
 
     python .../doc/multichip_decoder/logs/probe_ccl.py
+    python .../doc/multichip_decoder/logs/probe_ccl.py --fabric line
 """
 
 from __future__ import annotations
@@ -98,13 +114,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=32)
     ap.add_argument("--links", type=int, default=2)
+    ap.add_argument(
+        "--fabric",
+        default="ring",
+        choices=["ring", "line"],
+        help="fabric config set before open_mesh_device: FABRIC_1D_RING (shipped) or FABRIC_1D",
+    )
     args = ap.parse_args()
 
-    ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING)
+    ring_fabric = args.fabric == "ring"
+    fabric = ttnn.FabricConfig.FABRIC_1D_RING if ring_fabric else ttnn.FabricConfig.FABRIC_1D
+    # Ring-fabric rows keep the historical `CCL` tag and column order; the line-fabric run is tagged
+    # separately so no reader (or table generator) can mistake one fabric's rows for the other's.
+    tag = "CCL" if ring_fabric else "CCLFAB"
+    ttnn.set_fabric_config(fabric)
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 4), l1_small_size=24576, trace_region_size=0)
     n = mesh.get_num_devices()
-    print(f"# CCL sweep, {n} devices, FABRIC_1D_RING, num_links={args.links}")
-    print("# columns: shape arm mode us correct_pcc")
+    print(f"# CCL sweep, {n} devices, {fabric.name}, num_links={args.links}")
+    if ring_fabric:
+        print("# columns: shape arm mode us correct_pcc")
+    else:
+        print("# columns: fabric shape arm mode us correct_pcc")
     try:
         for name, shape in SHAPES:
             host = torch.randn(*shape, dtype=torch.float32) * 0.1
@@ -155,43 +185,64 @@ def main():
 
             arms["ag_stack_sum"] = ag_stack_sum
 
-            def all_reduce_async():
-                grid = mesh.compute_with_storage_grid_size()
-                crs = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))})
-                sems = {
-                    "barrier": [ttnn.create_global_semaphore(mesh, crs, 0)],
-                    "rs": [ttnn.create_global_semaphore(mesh, crs, 0) for _ in range(3)],
-                    "ag": [ttnn.create_global_semaphore(mesh, crs, 0) for _ in range(2)],
+            # Semaphores and the L1 copy are hoisted out of the timed closures: they are setup, and
+            # allocating them per call would time host work the shipped path would never do.
+            crs = ttnn.CoreRangeSet(
+                {
+                    ttnn.CoreRange(
+                        ttnn.CoreCoord(0, 0),
+                        ttnn.CoreCoord(
+                            mesh.compute_with_storage_grid_size().x - 1, mesh.compute_with_storage_grid_size().y - 1
+                        ),
+                    )
                 }
+            )
+            async_sems = {
+                # TWO barrier semaphores: `all_reduce_async.cpp:435` asserts the size and rounds 0-3
+                # of this stage passed one, so the op never reached any Blackhole-specific check.
+                "barrier": [ttnn.create_global_semaphore(mesh, crs, 0) for _ in range(2)],
+                "rs": [ttnn.create_global_semaphore(mesh, crs, 0) for _ in range(3)],
+                "ag": [ttnn.create_global_semaphore(mesh, crs, 0) for _ in range(2)],
+            }
+            tt_l1 = ttnn.to_memory_config(tt, ttnn.L1_MEMORY_CONFIG)
+
+            def all_reduce_async(operand=tt, mem=ttnn.DRAM_MEMORY_CONFIG):
                 return ttnn.experimental.all_reduce_async(
-                    tt,
-                    cluster_axis=None,
+                    operand,
+                    # `cluster_axis=1` — the mesh is 1x4, so axis 1 is the four devices.
+                    # `all_reduce_async.cpp:436` requires it ("Cluster axis is required for all
+                    # gather"); passing None is what rounds 0-3 did.
+                    cluster_axis=1,
                     mesh_device=mesh,
-                    barrier_semaphores=sems["barrier"],
-                    rs_global_semaphores=sems["rs"],
-                    ag_global_semaphores=sems["ag"],
+                    barrier_semaphores=async_sems["barrier"],
+                    rs_global_semaphores=async_sems["rs"],
+                    ag_global_semaphores=async_sems["ag"],
                     math_op=ttnn.ReduceType.Sum,
                     topology=ttnn.Topology.Linear,
                     num_links=args.links,
+                    memory_config=mem,
                 )
 
             arms["all_reduce_async"] = all_reduce_async
+            arms["all_reduce_async_l1"] = lambda: all_reduce_async(tt_l1, ttnn.L1_MEMORY_CONFIG)
 
+            row = name if ring_fabric else f"{args.fabric} {name}"
             for arm, build in arms.items():
                 try:
                     probe = build()
                     value = check(probe, scattered=arm.startswith("rs_only"))
                     ttnn.deallocate(probe)
                 except Exception as exc:  # noqa: BLE001 - a refused arm is a result
-                    print(f"CCL {name} {arm} - FAIL {type(exc).__name__}: {str(exc).splitlines()[0][:110]}")
+                    print(f"{tag} {row} {arm} - FAIL {type(exc).__name__}: {str(exc).splitlines()[0][:110]}")
                     continue
                 for mode, fn in (("eager", timed_eager), ("trace", timed_trace)):
                     try:
                         us = fn(mesh, build, iters=args.iters)
-                        print(f"CCL {name} {arm} {mode} {us:.2f} {value:.6f}", flush=True)
+                        print(f"{tag} {row} {arm} {mode} {us:.2f} {value:.6f}", flush=True)
                     except Exception as exc:  # noqa: BLE001
-                        print(f"CCL {name} {arm} {mode} FAIL {type(exc).__name__}: {str(exc).splitlines()[0][:110]}")
+                        print(f"{tag} {row} {arm} {mode} FAIL {type(exc).__name__}: {str(exc).splitlines()[0][:110]}")
             ttnn.deallocate(tt)
+            ttnn.deallocate(tt_l1)
     finally:
         ttnn.close_mesh_device(mesh)
         ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)

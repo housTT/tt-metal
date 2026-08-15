@@ -103,6 +103,12 @@ SPARSE_DECODE_CORES = {
     32: {"gate_up": 32, "down": 32},
 }
 
+#: The same, for **prefill**. Every prefill expert group is a full 32 rows, so the bound saturates at
+#: ``min(64, 32*8) = 64`` at every sequence length and batch and the geometry is one pair of numbers.
+#: Review round 3 found the prefill row of README section 5.7's table was derivation-only — the spy
+#: below used to be installed after ``prefill_forward`` returned — so it is pinned here as well.
+SPARSE_PREFILL_CORES = {"gate_up": 32, "down": 32}
+
 #: The mesh every test opens, and the fabric it needs. ``l1_small_size`` matches the optimized
 #: suite; the CCL ops allocate their semaphores out of it.
 DEVICE_PARAMS = [
@@ -764,30 +770,44 @@ def test_prefill_continuation(mesh_device, layer_idx):
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 def test_unaligned_max_context(mesh_device, layer_idx):
-    """A ``max_context`` that is not a multiple of the internal prefill alignment must work."""
+    """A ``max_context`` that is not a multiple of the internal prefill alignment must work.
+
+    Against the HF golden, not just against finiteness: 5000 is well inside the range the reference
+    can run (``test_long_context_pcc`` takes it to 8000), and review round 3 pointed out that one of
+    the three levels at which this stage claims non-aligned support was asserting shape and variance
+    only. The cache write is what the unaligned ``max_context`` actually stresses, so the decode step
+    at slot ``max_context - 1`` is checked against the reference's continuation as well.
+    """
     source = default_weight_source()
     max_context = 5000
+    x = make_activations(1, max_context, seed=77)
+    decode_x = make_activations(1, 1, seed=78)
+    ref_prefill, ref_decode = run_reference(layer_idx, source, x, decode_x=[decode_x], decode_steps=1)
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=max_context)
-    out = decoder.prefill_forward(
-        to_device(mesh_device, make_activations(1, max_context, seed=77)), page_table=page_table
-    )
+    out = decoder.prefill_forward(to_device(mesh_device, x), page_table=page_table)
     assert list(out.shape) == [1, max_context, hf_config().hidden_size]
-    tail = to_host(mesh_device, ttnn.slice(out, [0, max_context - 64, 0], [1, max_context, hf_config().hidden_size]))
+    host_out = to_host(mesh_device, out)
     ttnn.deallocate(out)
-    assert torch.isfinite(tail.float()).all()
-    assert tail.float().std() > 0.01
+    value = pcc(ref_prefill, host_out)
+    tail = host_out[:, max_context - 64 :, :].float()
+    assert torch.isfinite(tail).all()
+    assert tail.std() > 0.01
     current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([max_context - 1]))
-    got = to_host(
-        mesh_device,
-        decoder.decode_forward(
-            to_device(mesh_device, make_activations(1, 1, seed=78)),
-            current_pos=current_pos,
-            rot_idxs=rot_idxs,
-            page_table=page_table,
-        ),
-    ).float()
-    assert torch.isfinite(got).all()
-    logger.info(f"multichip unaligned max_context={max_context} layer={layer_idx} prefill+decode ok")
+    dec = decoder.decode_forward(
+        to_device(mesh_device, decode_x),
+        current_pos=current_pos,
+        rot_idxs=rot_idxs,
+        page_table=page_table,
+    )
+    host_dec = to_host(mesh_device, dec)
+    ttnn.deallocate(dec)
+    dvalue = pcc(ref_decode[0], host_dec)
+    assert torch.isfinite(host_dec.float()).all()
+    logger.info(
+        f"multichip unaligned max_context={max_context} layer={layer_idx}: "
+        f"prefill PCC={value:.6f} decode PCC={dvalue:.6f}"
+    )
+    assert value > PCC_BAR and dvalue > PCC_BAR
 
 
 # --------------------------------------------------------------------------------------
@@ -1344,26 +1364,28 @@ def test_sparse_cores_match_the_local_sweep(mesh_device, layer_idx, batch, monke
     above 1, which four documents had asserted it did not, on the strength of a batch-1-only A/B.
 
     This pins the realised grid at every advertised decode batch against
-    :data:`SPARSE_DECODE_CORES`, which is transcribed from the shipped policy and cross-checked
-    against the sweep's winner. A silently different geometry is indistinguishable from the intended
-    one in every other measurement.
+    :data:`SPARSE_DECODE_CORES`, and the prefill grid against :data:`SPARSE_PREFILL_CORES`, both
+    transcribed from the shipped policy and cross-checked against the sweep's winner. A silently
+    different geometry is indistinguishable from the intended one in every other measurement.
     """
     source = default_weight_source()
     decoder, page_table, _ = build_decoder(
         mesh_device, layer_idx, source, batch=batch, max_context=1024, num_blocks=64 * batch
     )
-    seen: dict[tuple[int, int], int] = {}
+    seen: dict[str, dict[tuple[int, int], int]] = {"prefill": {}, "decode": {}}
+    phase = ["prefill"]
     original = ttnn.sparse_matmul
 
     def spy(a, b, *args, program_config=None, **kwargs):
         grid = program_config.compute_with_storage_grid_size
-        seen[(int(b.shape[-2]), int(b.shape[-1]))] = grid.x * grid.y
+        seen[phase[0]][(int(b.shape[-2]), int(b.shape[-1]))] = grid.x * grid.y
         return original(a, b, *args, program_config=program_config, **kwargs)
 
+    monkeypatch.setattr(ttnn, "sparse_matmul", spy)
     ttnn.deallocate(
         decoder.prefill_forward(to_device(mesh_device, make_activations(batch, 128, seed=77)), page_table=page_table)
     )
-    monkeypatch.setattr(ttnn, "sparse_matmul", spy)
+    phase[0] = "decode"
     current_pos, rot_idxs = decode_inputs(mesh_device, torch.full((batch,), 128, dtype=torch.int32))
     ttnn.deallocate(
         decoder.decode_forward(
@@ -1378,12 +1400,14 @@ def test_sparse_cores_match_the_local_sweep(mesh_device, layer_idx, batch, monke
         "gate_up": (cfg.dim, 2 * cfg.moe_intermediate_size),
         "down": (cfg.moe_intermediate_size, cfg.dim),
     }
-    got = {role: seen[shape] for role, shape in roles.items() if shape in seen}
-    logger.info(f"multichip sparse cores layer={layer_idx} batch={batch}: {got}")
-    assert set(got) == set(roles), f"missing a routed matmul at batch {batch}: saw {sorted(seen)}"
-    for role, cores in got.items():
-        want = SPARSE_DECODE_CORES[batch][role]
-        assert cores == want, f"{role} at batch {batch} ran on {cores} cores, expected {want}"
+    for phase_name, expected in (("prefill", SPARSE_PREFILL_CORES), ("decode", SPARSE_DECODE_CORES[batch])):
+        calls = seen[phase_name]
+        got = {role: calls[shape] for role, shape in roles.items() if shape in calls}
+        logger.info(f"multichip sparse cores layer={layer_idx} batch={batch} {phase_name}: {got}")
+        assert set(got) == set(roles), f"missing a routed {phase_name} matmul at batch {batch}: saw {sorted(calls)}"
+        for role, cores in got.items():
+            want = expected[role]
+            assert cores == want, f"{role} at {phase_name} batch {batch} ran on {cores} cores, expected {want}"
 
 
 # --------------------------------------------------------------------------------------

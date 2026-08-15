@@ -1,0 +1,66 @@
+# fused matmul+CCL sweep, 4 devices, FABRIC_1D_RING, num_links=2, grid 11x10
+# columns: boundary shape arm mode us pcc
+# ARM o_proj mm_then_all_reduce residual_in=replicated residual_out=replicated collective=after_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM o_proj mm_then_stack_sum residual_in=replicated residual_out=replicated collective=after_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM o_proj fused_mm_rs_then_ag residual_in=replicated residual_out=replicated collective=fused_into_matmul+gather ccl_dtype=bfloat16 persistent_buffers=intermediate+output+3_semaphores
+# ARM o_proj fused_mm_rs_only residual_in=replicated residual_out=sharded_dim3_4way collective=fused_into_matmul ccl_dtype=bfloat16 persistent_buffers=intermediate+output+3_semaphores
+# ARM attn_in mm_replicated residual_in=replicated residual_out=sharded_heads collective=none ccl_dtype=n/a persistent_buffers=none
+# ARM attn_in ag_then_mm residual_in=sharded_dim3_4way residual_out=sharded_heads collective=before_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM attn_in fused_ag_mm residual_in=sharded_dim3_4way residual_out=sharded_heads collective=fused_into_matmul ccl_dtype=bfloat16 persistent_buffers=output+2_semaphores (HUNG - see triage/)
+FUSED o_proj decode mm_then_all_reduce eager 148.30 0.999837
+FUSED o_proj decode mm_then_all_reduce trace 40.76 0.999837
+FUSED o_proj decode mm_then_stack_sum eager 68.02 0.999838
+FUSED o_proj decode mm_then_stack_sum trace 37.74 0.999838
+FUSED o_proj decode fused_mm_rs_then_ag eager 138.18 0.999837
+FUSED o_proj decode fused_mm_rs_then_ag trace 49.36 0.999837
+FUSED o_proj decode fused_mm_rs_only eager 111.59 0.999837
+FUSED o_proj decode fused_mm_rs_only trace 42.51 0.999837
+FUSED attn_in decode fused_ag_mm - SKIPPED hung the mesh at this shape; see triage/, rerun with --fused-ag
+FUSED attn_in decode mm_replicated eager 44.41 0.999609
+FUSED attn_in decode mm_replicated trace 43.55 0.999609
+FUSED attn_in decode ag_then_mm eager 81.23 0.999609
+FUSED attn_in decode ag_then_mm trace 51.01 0.999609
+# fused matmul+CCL sweep, 4 devices, FABRIC_1D_RING, num_links=2, grid 11x10
+# columns: boundary shape arm mode us pcc
+# ARM o_proj mm_then_all_reduce residual_in=replicated residual_out=replicated collective=after_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM o_proj mm_then_stack_sum residual_in=replicated residual_out=replicated collective=after_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM o_proj fused_mm_rs_then_ag residual_in=replicated residual_out=replicated collective=fused_into_matmul+gather ccl_dtype=bfloat16 persistent_buffers=intermediate+output+3_semaphores
+# ARM o_proj fused_mm_rs_only residual_in=replicated residual_out=sharded_dim3_4way collective=fused_into_matmul ccl_dtype=bfloat16 persistent_buffers=intermediate+output+3_semaphores
+# ARM attn_in mm_replicated residual_in=replicated residual_out=sharded_heads collective=none ccl_dtype=n/a persistent_buffers=none
+# ARM attn_in ag_then_mm residual_in=sharded_dim3_4way residual_out=sharded_heads collective=before_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM attn_in fused_ag_mm residual_in=sharded_dim3_4way residual_out=sharded_heads collective=fused_into_matmul ccl_dtype=bfloat16 persistent_buffers=output+2_semaphores (HUNG - see triage/)
+FUSED o_proj decode_b32 mm_then_all_reduce eager 197.88 0.999837
+FUSED o_proj decode_b32 mm_then_all_reduce trace 198.35 0.999837
+FUSED o_proj decode_b32 mm_then_stack_sum eager 298.79 0.999838
+FUSED o_proj decode_b32 mm_then_stack_sum trace 294.81 0.999838
+FUSED o_proj decode_b32 fused_mm_rs_then_ag eager 219.96 0.999837
+FUSED o_proj decode_b32 fused_mm_rs_then_ag trace 216.67 0.999837
+FUSED o_proj decode_b32 fused_mm_rs_only eager 168.55 0.999837
+FUSED o_proj decode_b32 fused_mm_rs_only trace 165.32 0.999837
+FUSED attn_in decode_b32 fused_ag_mm - SKIPPED hung the mesh at this shape; see triage/, rerun with --fused-ag
+FUSED attn_in decode_b32 mm_replicated eager 142.75 0.999612
+FUSED attn_in decode_b32 mm_replicated trace 146.40 0.999612
+FUSED attn_in decode_b32 ag_then_mm eager 202.89 0.999612
+FUSED attn_in decode_b32 ag_then_mm trace 206.10 0.999612
+# fused matmul+CCL sweep, 4 devices, FABRIC_1D_RING, num_links=2, grid 11x10
+# columns: boundary shape arm mode us pcc
+# ARM o_proj mm_then_all_reduce residual_in=replicated residual_out=replicated collective=after_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM o_proj mm_then_stack_sum residual_in=replicated residual_out=replicated collective=after_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM o_proj fused_mm_rs_then_ag residual_in=replicated residual_out=replicated collective=fused_into_matmul+gather ccl_dtype=bfloat16 persistent_buffers=intermediate+output+3_semaphores
+# ARM o_proj fused_mm_rs_only residual_in=replicated residual_out=sharded_dim3_4way collective=fused_into_matmul ccl_dtype=bfloat16 persistent_buffers=intermediate+output+3_semaphores
+# ARM attn_in mm_replicated residual_in=replicated residual_out=sharded_heads collective=none ccl_dtype=n/a persistent_buffers=none
+# ARM attn_in ag_then_mm residual_in=sharded_dim3_4way residual_out=sharded_heads collective=before_matmul ccl_dtype=bfloat16 persistent_buffers=none
+# ARM attn_in fused_ag_mm residual_in=sharded_dim3_4way residual_out=sharded_heads collective=fused_into_matmul ccl_dtype=bfloat16 persistent_buffers=output+2_semaphores (HUNG - see triage/)
+FUSED o_proj prefill_2048 mm_then_all_reduce eager 309.04 0.999837
+FUSED o_proj prefill_2048 mm_then_all_reduce trace 311.49 0.999837
+FUSED o_proj prefill_2048 mm_then_stack_sum eager 561.74 0.999838
+FUSED o_proj prefill_2048 mm_then_stack_sum trace 560.76 0.999838
+FUSED o_proj prefill_2048 fused_mm_rs_then_ag eager 359.95 0.999837
+FUSED o_proj prefill_2048 fused_mm_rs_then_ag trace 356.31 0.999837
+FUSED o_proj prefill_2048 fused_mm_rs_only eager 274.26 0.999837
+FUSED o_proj prefill_2048 fused_mm_rs_only trace 272.17 0.999837
+FUSED attn_in prefill_2048 fused_ag_mm - SKIPPED hung the mesh at this shape; see triage/, rerun with --fused-ag
+FUSED attn_in prefill_2048 mm_replicated eager 245.67 0.999612
+FUSED attn_in prefill_2048 mm_replicated trace 261.60 0.999612
+FUSED attn_in prefill_2048 ag_then_mm eager 343.13 0.999612
+FUSED attn_in prefill_2048 ag_then_mm trace 349.79 0.999612

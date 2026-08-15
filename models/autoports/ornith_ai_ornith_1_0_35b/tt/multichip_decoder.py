@@ -8,8 +8,11 @@ Target hardware: the 4-chip Blackhole ``p300c`` ring on this host (2 x p300 dual
 ring for every collective. ``ttnn.Topology.Ring`` is additionally passed to the ops that still accept
 it (``all_reduce``, ``reduce_scatter``); ``ttnn.all_gather`` deprecated and **ignores** both
 ``topology`` and ``num_links`` (``all_gather_nanobind.cpp``), so the shipped decode collective takes
-the ring from the fabric config alone. ``probe_ccl.py`` uses the identical spelling, so the measured
-Ring-vs-Linear comparison is a comparison of fabric configs, which is where the difference lives.
+the ring from the fabric config alone. The fabric config and the ``topology`` argument are measured
+**separately**: ``probe_ccl.py --fabric line`` reconfigures the fabric in its own process and tags
+its rows ``CCLFAB`` (the ring fabric ties the line fabric at the decode tile and wins from 512 rows
+up), while the ``CCL`` rows vary only the ops' argument under the ring fabric. Rounds 0-3 of this
+stage quoted the second comparison as if it were the first.
 
 Baseline
 --------
@@ -66,9 +69,11 @@ Two dims do not divide by 4 and are handled explicitly rather than by rounding t
   columns are exact zeros, and :meth:`MultichipDecoder._gdn_project` slices the 8 real ones back
   out. The padding is internal and never reaches the delta rule.
 
-Both collectives are ``ttnn.all_reduce`` over the whole mesh. The alternatives (sharded residual via
-``reduce_scatter`` + ``all_gather``, fused matmul-CCL) are measured in
-``doc/multichip_decoder/logs/probe_ccl.txt`` and rejected there.
+Each collective is spelled by :data:`CCL_MODE`: ``all_gather`` onto a new axis plus a local sum at
+the decode tile, ``ttnn.all_reduce`` above it and for prefill. The alternatives — the sharded
+residual, the tuned ``all_reduce_async``, and the two fused matmul+CCL ops — are measured in
+``doc/multichip_decoder/logs/probe_ccl.txt`` and ``probe_fused_ccl.txt`` and rejected there, each on
+a number or an exact op-contract blocker rather than on an API error.
 
 Contract
 --------
@@ -141,7 +146,12 @@ __all__ = [
 DEFAULT_MESH_SHAPE = (1, 4)
 
 #: Fabric to configure **before** ``ttnn.open_mesh_device``. The ring is physical, so the 1D ring
-#: fabric gives both directions; ``FABRIC_1D`` (line) works and is measured as the rejected arm.
+#: fabric gives both directions. Both comparisons are in ``probe_ccl.txt``, and they are different
+#: comparisons: the ``CCL`` rows are ``Topology.Ring`` against ``Topology.Linear`` **as the
+#: collectives' argument under this fabric**, and the ``CCLFAB`` rows are this fabric against
+#: ``FABRIC_1D`` (a second process, since the fabric is set before the mesh is opened). The fabrics
+#: tie at the decode tile and at 64 rows, where both are latency-bound, and the ring wins 1.3-1.4x
+#: from 512 rows up.
 DEFAULT_FABRIC_CONFIG = ttnn.FabricConfig.FABRIC_1D_RING
 
 #: Topology passed to the collectives that still accept one. ``ttnn.all_reduce`` and
@@ -173,16 +183,18 @@ DEFAULT_TP = 4
 #:   * ``ttnn.all_reduce`` and an explicit ``reduce_scatter`` + ``all_gather`` are the same number to
 #:     two decimal places at every shape — the stable all-reduce lowers to exactly that pair — so
 #:     ``"rs_ag"`` exists to make that identity checkable, not because it is a separate candidate.
-#:   * ``Topology.Ring`` beats ``Topology.Linear`` at every shape, which is the physical ring being
-#:     real; ``FABRIC_1D_RING`` + ``Ring`` is therefore what the layer configures.
-#:   * ``ttnn.experimental.all_reduce_async`` — the tuned experimental-tier op — **refuses a
-#:     Blackhole DRAM input outright** (``all_reduce_async_device_operation.cpp``: "does not support
-#:     blackhole dram as it does not use an accessor to get the noc address"). Recorded as a
-#:     hardware-side refusal rather than a slow arm.
+#:   * ``Topology.Ring`` beats ``Topology.Linear`` as the ops' argument at every traced shape, which
+#:     is the physical ring being real; the ``CCLFAB`` rows say the same of the fabric config itself
+#:     above 64 rows. ``FABRIC_1D_RING`` + ``Ring`` is therefore what the layer configures.
+#:   * ``ttnn.experimental.all_reduce_async`` — the tuned experimental-tier op — runs correctly here
+#:     and is **1.5-1.9x slower than the shipped arm at every measured shape** — roughly double at the
+#:     decode tile and 1.7x at the 2048-token prefill chunk; ``probe_ccl.txt`` has the row. Rounds 0-3
+#:     of this stage recorded it as refusing Blackhole DRAM; it does not, and the arm had simply been
+#:     calling it with one barrier semaphore and no ``cluster_axis``. Rejected on measurement.
 #:   * ``"stack_sum"`` (``all_gather`` onto a new leading axis, then a local ``ttnn.sum``) moves 4x
 #:     the bytes and is the **winner below the crossover** anyway: at the batch-1 decode tile it is
 #:     roughly half the all-reduce, because at that size both are latency-bound and it is one fabric
-#:     phase instead of two. It loses by a growing margin from 128 rows up.
+#:     phase instead of two. It loses from 96 rows up.
 CCL_MODE = "auto"
 
 #: Physical activation rows at or below which ``"auto"`` picks ``"stack_sum"``. The crossover is
@@ -200,16 +212,18 @@ CCL_STACK_SUM_MAX_ROWS = 64
 #: dtype), so the second per-layer collective is handed a block-float tensor while the first gets
 #: ``bfloat16``. In the prefill profile those two are the same logical shape and wildly different
 #: cost: ``tracy/full_attention/prefill_perf_report.txt`` has the BF16 reduce-scatter at ~100 us on 20
-#: cores and the BFP8 one at ~1465 us on 12 cores, 4.7% of the whole prefill window and the largest
-#: non-sparse item in it. That reads as an obvious win, and it is not one.
+#: cores and the BFP8 one **an order of magnitude above it** on 12 cores — a few percent of the whole
+#: prefill window, and the largest non-sparse item in it. (No absolute figure is quoted here, for the
+#: reason :data:`CCL_STACK_SUM_MAX_ROWS` gives: this file states no run-varying timing. README §5.8
+#: carries the row, regenerated from the profile by ``logs/make_tables.py``.) That reads as an obvious
+#: win, and it is not one.
 #:
 #: The ``cast`` arm of ``doc/multichip_decoder/logs/ab_layer_knobs.txt`` measures it at the layer:
 #: casting up costs ~5 us on every decode step and moves warmed prefill by **nothing** — the arms'
-#: three-build ranges overlap on both layer kinds. So the profiler's ~1465 us is not data movement
-#: this layer pays; it is the collective's barrier absorbing the per-device expert-load imbalance that
-#: expert parallelism creates, attributed to the op that waits. Removing the block-float operand — the
-#: only difference between the two collectives — changes the block-float row's cost and not the
-#: layer's, which is what distinguishes the two explanations.
+#: three-build ranges overlap on both layer kinds. So that row is **not** data movement this layer
+#: pays: removing the block-float operand changes its cost and not the layer's. What
+#: it *is* remains open — a collective barrier absorbing device skew is the candidate — and README
+#: limitation 7 records it as a candidate rather than a finding.
 #:
 #: Kept as a knob rather than deleted because that null result is the control for the anomaly, and
 #: because a future dtype policy could move the boundary.
@@ -242,9 +256,9 @@ CCL_CAST_BLOCKFLOAT = False
 #:
 #: So at prefill only ``down`` moves, and decode geometry changes at **every batch above 1** — the
 #: opposite of what that earlier comment claimed. Both are measured rather than argued:
-#: ``ab_layer_knobs.txt``'s ``sparse`` arm has the prefill effect (about 4 ms a layer on both layer
-#: kinds) and ``probe_decode_batch.txt``'s ``SPARSEB`` rows have the decode effect at batch 1..32
-#: (a tie at batch 1 by construction, and a win of 15-72 us a step at every batch above it).
+#: ``ab_layer_knobs.txt``'s ``sparse`` arm has the prefill effect (several milliseconds a layer on
+#: both layer kinds) and ``probe_decode_batch.txt``'s ``SPARSEB`` rows have the decode effect at batch
+#: 1..32 (a tie at batch 1 by construction, and tens of microseconds a step at every batch above it).
 #: ``probe_sparse_matmul_local.txt`` is the isolated ladder the rule is checked against, and
 #: ``test_sparse_cores_match_the_local_sweep`` pins the realised grid at every advertised batch.
 #: The rescale is additionally gated on ``tp > 1``, so a layer built on a 1-device mesh reproduces
@@ -313,8 +327,9 @@ ROUTING_SELECT_MODE = "select_matmul"
 #: ``in0_block_w`` is additionally bounded above by the residual norm's per-core shard width when the
 #: shard is carried into the projection (``_shard_feeds_projection`` re-derives ``mcast_in0``'s
 #: ``block_w % in0_block_w == 0`` rule): the 2048-wide norm over ``NORM_SHARD_CORES`` = 8 cores gives
-#: 8 tiles per core, so 8 is the largest cap that keeps the carry legal. The sweep's 16 and 32 rows
-#: fail to build against a sharded ``in0`` for exactly that reason and are recorded as failures.
+#: 8 tiles per core, so 8 is the largest cap that keeps the carry legal. Caps of 16 and 32 do build
+#: against an interleaved ``in0`` and are measured — they are simply slower — and the only two
+#: ``FAIL`` rows in the sweep are a different constraint, ``cores=4, in0_block_w=32``.
 MULTICHIP_DECODE_MATMUL_GEOMETRY = {
     "attn_in": (110, 8),
     "gdn_in": (110, 8),
@@ -440,6 +455,27 @@ def _replicate_mapper(mesh_device):
     return ttnn.replicate_tensor_to_mesh_mapper(mesh_device)
 
 
+def _free_unless_aliased(tensor, keep) -> None:
+    """``ttnn.deallocate(tensor)``, unless it shares a device buffer with ``keep``.
+
+    ``ttnn.reshape`` returns a *new* tensor when the request needs a relayout and may return a view
+    over the same buffer when it does not. Freeing the input of such a view would free the survivor's
+    storage. Every fold :meth:`MultichipDecoder._all_reduce` performs changes the physical row count,
+    so a relayout is dispatched and the two are distinct — but review round 3 pointed out that the
+    object-identity check that used to guard this would not notice if that ever stopped being true,
+    and an aliased free is a use-after-free, not a leak. Buffer addresses are what ``deallocate``
+    operates on, so they are what is compared.
+    """
+    if tensor is keep:
+        return
+    try:
+        if tensor.buffer_address() == keep.buffer_address():
+            return
+    except RuntimeError:  # no device buffer to alias (host tensor); nothing to protect
+        pass
+    ttnn.deallocate(tensor)
+
+
 # --------------------------------------------------------------------------------------
 # MoE
 # --------------------------------------------------------------------------------------
@@ -458,7 +494,7 @@ class MultichipMoE(OptimizedMoE):
       output tile count. Sharding the intermediate keeps 8 loop iterations and cuts ``Nt`` from 32
       to 8 tiles, i.e. it removes parallelism the op was already short of. Expert parallelism keeps
       the full ``Nt`` and the tuned geometry, and cuts the loop count to a mean of 2 (an *expected
-      maximum* over the four devices of 3.51 at 8 active experts, which is what the step waits for)
+      maximum* over the four devices of 3.512 at 8 active experts, which is what the step waits for)
       — the single largest item of the decode window.
     * every ``num_experts``-wide intermediate — the packed gate/up output, its two unpacking slices,
       the SwiGLU product, the scored activation, the down output and the expert reduction — becomes
@@ -707,11 +743,10 @@ class MultichipDecoder(OptimizedDecoder):
         )
         if compact:
             packed = ttnn.reshape(tensor, [1, 1, dims[0] * dims[1], dims[2]])
-            ttnn.deallocate(tensor)
+            _free_unless_aliased(tensor, packed)
             reduced = self._all_reduce(packed)
             out = ttnn.reshape(reduced, dims)
-            if out is not reduced:
-                ttnn.deallocate(reduced)
+            _free_unless_aliased(reduced, out)
             return out
         mode = CCL_MODE
         if mode == "auto":

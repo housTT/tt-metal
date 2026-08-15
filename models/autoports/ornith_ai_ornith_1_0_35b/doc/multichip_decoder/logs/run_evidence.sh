@@ -22,7 +22,7 @@ has() { [[ " $STEPS " == *" $1 "* ]]; }
 
 # ---------------------------------------------------------------- 1. full pytest suite
 if has suite; then
-  echo "=== step 1/6: full pytest suite (including the advertised-context cases) ==="
+  echo "=== step 1/7: full pytest suite (including the advertised-context cases) ==="
   python -m pytest "$TEST" -v -p no:randomly > "$LOGS/pytest_full_suite.txt" 2>&1 || {
     echo "!!! suite failed; see $LOGS/pytest_full_suite.txt" >&2; exit 1;
   }
@@ -36,7 +36,7 @@ fi
 #     separates "the mesh changed dispatch" from "the parallelisation helped";
 #   * this stage on the 4-chip mesh.
 if has bench; then
-  echo "=== step 2/6: warmed prefill / traced decode, three arms ==="
+  echo "=== step 2/7: warmed prefill / traced decode, three arms ==="
   {
     echo "# bench.py, real Ornith-1.0-35B weights, batch 1, 2048-token warmed prefill, 32 traced decode replays"
     python "$LOGS/bench.py" --impl optimized  --mesh 1x1 --layers 0,3 --weights real --tag single-chip-baseline
@@ -48,15 +48,21 @@ fi
 
 # ---------------------------------------------------------------- 3. whole-layer A/B knobs
 if has ab; then
-  echo "=== step 3/6: whole-layer A/B: CCL spelling, decode geometry, routing narrowing, sparse cores ==="
+  echo "=== step 3/7: whole-layer A/B: CCL spelling, decode geometry, routing narrowing, sparse cores ==="
   python "$LOGS/ab_layer_knobs.py" 2>/dev/null | grep -E "^ABLAYER|^#" > "$LOGS/ab_layer_knobs.txt"
   cat "$LOGS/ab_layer_knobs.txt"
 fi
 
 # ---------------------------------------------------------------- 4. isolated probes
 if has probes; then
-  echo "=== step 4/6: isolated op probes (CCL, dense + sparse geometry, EP, footprint, decode batch) ==="
-  python "$LOGS/probe_ccl.py" 2>/dev/null | grep -E "^CCL|^#" > "$LOGS/probe_ccl.txt"
+  echo "=== step 4/7: isolated op probes (CCL, dense + sparse geometry, EP, footprint, decode batch) ==="
+  # Two processes, one per fabric config: `set_fabric_config` is a before-open_mesh_device setting,
+  # so the line fabric cannot be an arm inside the ring-fabric run. The line-fabric rows carry the
+  # `CCLFAB` tag and an extra fabric column.
+  {
+    python "$LOGS/probe_ccl.py" 2>/dev/null | grep -E "^CCL |^#"
+    python "$LOGS/probe_ccl.py" --fabric line 2>/dev/null | grep -E "^CCLFAB|^#"
+  } > "$LOGS/probe_ccl.txt"
   python "$LOGS/probe_dense_matmul.py" 2>/dev/null | grep -E "^DENSE|^#" > "$LOGS/probe_dense_matmul.txt"
   {
     python "$LOGS/probe_expert_parallel.py" --phase decode 2>/dev/null | grep -E "^MOEPAR|^#"
@@ -74,6 +80,15 @@ if has probes; then
     python "$LOGS/probe_sparse_matmul_local.py" --experts 64 --active "$a" 2>/dev/null \
       | grep -E "^SPARSEL|^#" >> "$LOGS/probe_sparse_matmul_local.txt"
   done
+  # The fused matmul+CCL family, one process per shape under `timeout`: `all_gather_matmul_async`
+  # hung the mesh once (doc/multichip_decoder/triage/), and although that arm is off by default,
+  # process isolation means a fused-CCL hang cannot take the rest of the sweep with it.
+  : > "$LOGS/.fused.tmp"
+  for sh in decode decode_b32 prefill_2048; do
+    timeout 900 python "$LOGS/probe_fused_ccl.py" --shapes "$sh" 2>/dev/null \
+      | grep -E "^FUSED|^#" >> "$LOGS/.fused.tmp" || echo "# shape $sh did not complete" >> "$LOGS/.fused.tmp"
+  done
+  mv "$LOGS/.fused.tmp" "$LOGS/probe_fused_ccl.txt"
   # One process per batch, for the same reason: this probe builds ~7 decoders per batch and the CCL
   # semaphores they allocate out of L1_SMALL are not reclaimed while the mesh stays open.
   : > "$LOGS/.decode_batch.tmp"
@@ -86,12 +101,12 @@ if has probes; then
   rm -f "$LOGS/.decode_batch.tmp"
   wc -l "$LOGS/probe_ccl.txt" "$LOGS/probe_dense_matmul.txt" "$LOGS/probe_expert_parallel.txt" \
         "$LOGS/probe_footprint_local.txt" "$LOGS/probe_sparse_matmul_local.txt" \
-        "$LOGS/probe_decode_batch.txt"
+        "$LOGS/probe_decode_batch.txt" "$LOGS/probe_fused_ccl.txt"
 fi
 
 # ---------------------------------------------------------------- 5. tt-perf-report via Tracy
 if has tracy; then
-  echo "=== step 5/6: device profiling + tt-perf-report (NO watcher in this process) ==="
+  echo "=== step 5/7: device profiling + tt-perf-report (NO watcher in this process) ==="
   bash "$DOC/tracy/run_profiling.sh"
 fi
 
@@ -111,7 +126,7 @@ fi
 # stage does not author (they are stock `ttnn` 1D-fabric kernels). Recorded as a limitation in
 # README §8.
 if has watcher; then
-  echo "=== step 6/6: watcher run over the state-, trace- and collective-critical subset ==="
+  echo "=== step 6/7: watcher run over the state-, trace- and collective-critical subset ==="
   rm -f generated/watcher/watcher.log
   TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=1 TT_METAL_WATCHER_DISABLE_ETH=1 \
   python -m pytest "$TEST" -v -p no:randomly \
@@ -121,6 +136,16 @@ if has watcher; then
     }
   tail -1 "$LOGS/watcher_pytest.txt"
   cp generated/watcher/watcher.log "$DOC/watcher/watcher_log.txt"
+  # The control for the paragraph above, re-run from the committed bytes every sweep: the same
+  # subset with ACTIVE_ETH instrumentation left on. Every test is expected to error at setup, so a
+  # non-zero exit here is the result, not a failure of the sweep. Review round 3 noted that this
+  # artifact used to predate the sweep it sat next to.
+  TT_METAL_WATCHER=10 TT_METAL_WATCHER_APPEND=1 \
+  python -m pytest "$TEST" -v -p no:randomly \
+    -k "traced_decode or traced_replay or determinism or stress or collectives or zero_local_active or kv_cache_is_local or ccl_modes or ragged or batched or output_is_identical or permuted_page_table or continuation" \
+    > "$LOGS/watcher_pytest_eth_enabled.txt" 2>&1 || true
+  tail -1 "$LOGS/watcher_pytest_eth_enabled.txt"
+  rm -f generated/watcher/watcher.log
   python "$DOC/watcher/census.py" > /dev/null
   grep -E "fatal-class|TOTAL|dumps:" "$DOC/watcher/census_summary.txt"
 fi
@@ -133,5 +158,21 @@ for f in "$LOGS/pytest_full_suite.txt" "$LOGS/watcher_pytest.txt" \
          "$LOGS/watcher_pytest_eth_enabled.txt" "$DOC/watcher/watcher_log.txt"; do
   if [ -f "$f" ] && [ "$(stat -c%s "$f")" -gt 500000 ]; then gzip -9 -f "$f"; fi
 done
+
+# ---------------------------------------------------------------- 7. tables, then the figure audit
+# Every table in README.md and work_log.md is generated from the artifacts this sweep just wrote, so
+# a re-measurement cannot leave a stale table behind; `make_tables.py` reports which ones moved.
+echo "=== step 7/7: regenerate tables, then audit every quoted figure ==="
+python "$LOGS/make_tables.py"
+# Every measured figure the documents quote must exist in a committed artifact. Ported in review
+# round 3, which asked for it after rounds 1, 2 and 3 each found quoted-figure errors that no
+# hard check could see. It runs last because it checks the artifacts the steps above just wrote.
+python "$DOC/audit_figures.py" --selftest
+# The behavioural fingerprint of every source these artifacts measure. `check_freshness` compares it
+# instead of mtimes when it exists, so a later documentation-only edit to the decoder or the suite
+# does not read as a stale sweep -- and a change to the *code* still does, decided by hashing the
+# comment- and docstring-stripped AST rather than by whoever is holding the pen.
+python "$DOC/audit_figures.py" --stamp
+python "$DOC/audit_figures.py"
 
 echo "=== done ==="

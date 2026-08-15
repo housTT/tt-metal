@@ -10,7 +10,7 @@ devices and 256 top-8 routed experts, the routed half of the MoE can be split ei
     inherited chain on its own expert block and produces a partial sum over experts; the layer's
     existing MoE collective closes it. Per device the sparse matmul loops once per *local* active
     expert, which is a random variable: 8 distinct experts into 4 blocks of 64, mean 2 per device
-    and an expected maximum over the four of 3.51 (the step waits for the slowest device).
+    and an expected maximum over the four of 3.512 (the step waits for the slowest device).
 ``tp``
     all 256 experts on every device with the intermediate sharded 4 ways (gate/up 128 columns each,
     down 128 rows). Every device loops over all 8 active experts, at a quarter of the output width.
@@ -47,8 +47,15 @@ def arms(cfg, tp, phase):
 
     The layer always calls ``_routed_experts`` with one 32-token expert group, so the phases differ
     only in how many experts that group activates: 8 at batch-1 decode (one token, top-8) and, for a
-    full 32-token prefill group, the expected distinct union of 256 draws --
-    ``E*(1-(1-1/E)^(32*top_k))``, i.e. ~162 of 256 globally and ~41 of 64 on one device under EP.
+    full 32-token prefill group, the expected distinct union of the draws that reach *this* arm.
+
+    The draw count is where review round 2 found this stage's arithmetic wrong, and round 4 found the
+    same error still living here: a 32-token group makes ``32 * top_k`` = 256 draws **globally**, but
+    under EP only a quarter of them land on any one device, so the local union is
+    ``64 * (1 - (1 - 1/64)^64)`` ~ 41 of 64 and not ``64 * (1 - (1 - 1/64)^256)`` ~ 63. The unsharded
+    and intermediate-TP arms hold all 256 experts and see all 256 draws, so they use the global
+    count. 63 is kept in the EP sweep as well, so the rows the earlier over-count used stay in the
+    artifact and the two can be compared directly.
     """
     e, i, k = cfg.num_experts, cfg.moe_intermediate_size, cfg.num_experts_per_tok
     if phase == "decode":
@@ -57,11 +64,19 @@ def arms(cfg, tp, phase):
             ("ep", e // tp, i, list(range(1, k + 1))),
             ("tp", e, i // tp, [k]),
         ]
-    union = lambda n: max(1, round(n * (1 - (1 - 1 / n) ** (TILE * k))))
+    union = lambda n, draws: max(1, round(n * (1 - (1 - 1 / n) ** draws)))
+    local, glob = e // tp, union(e, TILE * k)
     return [
-        ("single", e, i, [union(e)]),
-        ("ep", e // tp, i, sorted({union(e // tp), e // tp, max(1, union(e // tp) // 2)})),
-        ("tp", e, i // tp, [union(e)]),
+        ("single", e, i, [glob]),
+        (
+            "ep",
+            local,
+            i,
+            sorted(
+                {union(local, TILE * k // tp), union(local, TILE * k), local, max(1, union(local, TILE * k // tp) // 2)}
+            ),
+        ),
+        ("tp", e, i // tp, [glob]),
     ]
 
 

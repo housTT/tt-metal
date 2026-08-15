@@ -104,17 +104,39 @@ def time_op(fn, iters, warmup=3, repeats=3):
     return min(samples), max(samples) - min(samples)
 
 
-def shipped_choice(role, active, experts, nt):
-    """What each rule picks for ``role`` here, as ``(inherited_realised, multichip_realised, cap)``.
+#: Group row counts the shipped layer actually calls the routed chain with, and what each one is.
+#: Decode passes the batch (one token per sequence); prefill always passes a full 32-row expert group.
+SHIPPED_GROUP_ROWS = [
+    (1, "decode batch 1"),
+    (2, "decode batch 2"),
+    (4, "decode batch 4"),
+    (8, "decode batch 8"),
+    (32, "prefill group / decode batch 32"),
+]
+
+
+def active_bound(rows, experts, top_k=8):
+    """``OptimizedMoE._active_expert_bound``: the geometry input the shipped code actually uses.
+
+    Not the realised active-expert count. The two are different numbers and review round 3 found
+    this probe printing the second where the layer uses the first: the rule keys off an *upper
+    bound* from the row count (``min(experts, rows * top_k)``), so every prefill group selects its
+    geometry at ``min(64, 32*8) = 64`` no matter how many experts the router happens to light up.
+    """
+    return min(experts, rows * top_k)
+
+
+def shipped_choice(role, bound, nt):
+    """What each rule picks for ``role`` at this bound, as ``(inherited, multichip, cap)`` cores.
 
     Both the inherited target and this stage's rescaled one are reduced to the largest divisor of
     ``Nt`` at or below the target, which is what ``_sparse_matmul_config`` does and therefore what
-    actually runs. Printing the *target* instead would have hidden the whole finding: at
-    ``active = 63`` the inherited target is 31, which realises as 16 cores, not 31.
+    actually runs. Printing the *target* instead would have hidden the whole finding: at a bound of
+    63 the inherited target is 31, which realises as 16 cores, not 31.
     """
-    inherited = _largest_divisor_at_most(nt, max(1, _sparse_cores(role, active)))
+    inherited = _largest_divisor_at_most(nt, max(1, _sparse_cores(role, bound)))
     scale = SPARSE_CORES_PER_ACTIVE[role] if MC.SPARSE_SCALE_CORES_BY_TP else 1
-    multichip = _largest_divisor_at_most(nt, max(1, _sparse_cores(role, active * scale)))
+    multichip = _largest_divisor_at_most(nt, max(1, _sparse_cores(role, bound * scale)))
     cap = None
     if role == "gate_up":
         cap = SPARSE_GATE_UP_IN0_BLOCK_W[multichip > SPARSE_MIN_CORES]
@@ -144,7 +166,9 @@ def main():
         "batch-1 decode count; 41 is the expected distinct union for a 32-token prefill group, "
         "E*(1-(1-1/E)^(32*top_k/tp)) at E=64 — the draws are divided by tp because only that "
         "fraction lands on this device, which review round 2 found missing (it gave 63). "
-        "run_evidence.sh sweeps 4/8/16/32/63 so the whole decode-to-prefill range is bracketed.",
+        "run_evidence.sh sweeps 4/8/16/32/41/63 so the whole decode-to-prefill range is bracketed. "
+        "This flag sets how many experts the timed matmul loops over; it is NOT the geometry input "
+        "-- see `active_bound`, which the `# SHIPPED` header block reports separately.",
     )
     args = ap.parse_args()
 
@@ -159,12 +183,17 @@ def main():
         f"# grid {grid.x}x{grid.y}  weight={args.weight_dtype} act={args.act_dtype} "
         f"fidelity={args.fidelity} active={args.active}/{experts}"
     )
+    # The geometry both rules select, at every operating point the layer produces. This is a
+    # function of the *bound*, not of `--active`, so it is the same block in every run of the sweep.
     for role, nt in (("gate_up", 2 * I // TILE), ("down", H // TILE)):
-        inherited, multichip, cap = shipped_choice(role, args.active, experts, nt)
-        print(
-            f"# SHIPPED role={role} active={args.active} Nt={nt} inherited_realised_cores={inherited} "
-            f"multichip_realised_cores={multichip} in0_block_w={cap}"
-        )
+        for rows, label in SHIPPED_GROUP_ROWS:
+            bound = active_bound(rows, experts)
+            inherited, multichip, cap = shipped_choice(role, bound, nt)
+            print(
+                f"# SHIPPED role={role} group_rows={rows} active_bound={bound} Nt={nt} "
+                f"inherited_realised_cores={inherited} multichip_realised_cores={multichip} "
+                f"in0_block_w={cap} ({label})"
+            )
     try:
         ckc = ttnn.init_device_compute_kernel_config(
             mesh.arch(), math_fidelity=fid, math_approx_mode=False, fp32_dest_acc_en=False, packer_l1_acc=False
