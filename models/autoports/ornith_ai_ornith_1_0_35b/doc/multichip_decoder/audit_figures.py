@@ -188,6 +188,10 @@ DERIVED: dict[str, tuple[str, str]] = {
 #: artifacts by construction, because the committed artifacts are the last sweep. Listed individually
 #: rather than exempted by pattern, so adding one is a deliberate act.
 HISTORICAL = {
+    # Values a review round found *wrong* and the documents now quote as the wrong value, in the
+    # round-by-round record of what was corrected. They must not resolve against today's artifacts.
+    "0.9935",  # round 5: the pre-round-4 sampled expert-partition PCC
+    "52538",  # round 5: the stale watcher line count, quoted in the finding that corrected it
     "8.44",
     "8.62",
     "9.98",
@@ -232,7 +236,6 @@ ALLOWED = {
     "1500",  # "~1500 us", a deliberate rounding of a per-op-report row (excluded from the pool)
     "0.999938",
     "0.999924",  # historical: a PCC pair round 3 found quoted with no run behind it
-    "0.9935",  # the expert-partition weight PCC, quoted rounded from its two logged values
     "1.4",  # DECODE_SPEEDUP_BAR: a policy threshold in the suite, not a measurement
     "48.0",  # PREFILL_MS_BAR: the same
 }
@@ -244,6 +247,11 @@ ALLOWED_INT = {
     "1024",  # per-device o_proj K, and the packed gate/up width
     "2560",  # per-device attn_in width
     "3136",  # per-device gdn_in width
+    # K+V summed: the artifact prints the two 142 606 336 B halves separately and README section 6's
+    # table rolls them into one row, on both the per-device and the single-chip side.
+    "285212672",
+    "142606336",
+    "10000",  # "~10 000 rows", an approximation of the uncommitted raw ops CSV's size
     "9216",  # global attn_in width
     "12352",  # global gdn_in width
     "4096",  # global o_proj/gdn_out K
@@ -280,11 +288,18 @@ ALLOWED_INT = {
 
 DECIMAL = re.compile(r"(?<![\w.])(\d+\.\d+)(?![\w])")
 INTEGER = re.compile(r"(?<![\w.])(\d{4,})(?![\w.])")
+#: The same, as both documents actually format large numbers: groups of three separated by spaces.
+SPACED_INTEGER = re.compile(r"(?<![\w.])(\d{1,3}(?: \d{3})+)(?![\w.])")
 
-#: Values quoted with their label, which must appear together in an artifact.
+#: Values quoted with their label, which must appear together in an artifact. Counts below the 4-digit
+#: integer threshold are invisible to `INTEGER`, so anything quoted *with* its label is checked this
+#: way instead. Review round 5 found the watcher census's dump and detail-line counts stale in four
+#: places for exactly that reason.
 LABELLED = [
     re.compile(r"\b(\d+ (?:passed|skipped|failed|deselected))\b"),
     re.compile(r"\b(fatal-class matches: \d+)"),
+    re.compile(r"\b(?:over |across )?(\d+) dumps\b"),
+    re.compile(r"\bfree over (\d+) detail lines\b"),
 ]
 
 #: An artifact filename mentioned in prose.
@@ -723,6 +738,14 @@ def scan_documents(blobs, tokens) -> list:
                 if scope is not None and sourced(value, tokens):
                     continue
                 problems.append(f"UNSOURCED-DECIMAL  {doc.name}: {value}")
+            # Space-separated thousands (`52 538`, `333 565 956`) are how both documents format byte
+            # counts and line counts; the raw `INTEGER` pattern cannot see them, which review round 5
+            # found hiding a stale line count. Normalise them into the same scan.
+            for value in SPACED_INTEGER.findall(paragraph):
+                packed = value.replace(" ", "")
+                if packed in ALLOWED_INT or packed in DERIVED or sourced(packed, pool) or sourced(packed, tokens):
+                    continue
+                problems.append(f"UNSOURCED-INT  {doc.name}: {value}")
             for value in INTEGER.findall(paragraph):
                 if value in ALLOWED_INT or value in DERIVED or sourced(value, pool) or sourced(value, tokens):
                     continue

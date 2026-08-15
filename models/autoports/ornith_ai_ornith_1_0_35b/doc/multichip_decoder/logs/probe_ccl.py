@@ -56,6 +56,7 @@ import time
 import torch
 
 import ttnn
+from models.autoports.ornith_ai_ornith_1_0_35b.tt import multichip_decoder as MC
 
 SHAPES = [
     ("decode", (1, 1, 32, 2048)),
@@ -120,18 +121,36 @@ def main():
         choices=["ring", "line"],
         help="fabric config set before open_mesh_device: FABRIC_1D_RING (shipped) or FABRIC_1D",
     )
+    ap.add_argument(
+        "--packet-bytes",
+        type=int,
+        default=MC.DEFAULT_FABRIC_PACKET_BYTES,
+        help="fabric max packet payload (FabricRouterConfig.max_packet_payload_size_bytes). Defaults "
+        "to what the layer ships. 0 leaves the build default (4352 B here), which is the arm the "
+        "runtime warns about on every CCL dispatch (ccl_common.cpp:63) and which review round 5 "
+        "found unmeasured; rows at any non-shipped value are tagged CCLPKT.",
+    )
     args = ap.parse_args()
 
     ring_fabric = args.fabric == "ring"
     fabric = ttnn.FabricConfig.FABRIC_1D_RING if ring_fabric else ttnn.FabricConfig.FABRIC_1D
     # Ring-fabric rows keep the historical `CCL` tag and column order; the line-fabric run is tagged
-    # separately so no reader (or table generator) can mistake one fabric's rows for the other's.
+    # separately so no reader (or table generator) can mistake one fabric's rows for the other's, and
+    # a packet-size override gets a third tag for the same reason.
     tag = "CCL" if ring_fabric else "CCLFAB"
-    ttnn.set_fabric_config(fabric)
+    if args.packet_bytes != MC.DEFAULT_FABRIC_PACKET_BYTES:
+        tag = "CCLPKT"
+    if args.packet_bytes:
+        ttnn.set_fabric_config(fabric, router_config=MC.fabric_router_config(args.packet_bytes))
+    else:
+        ttnn.set_fabric_config(fabric)
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 4), l1_small_size=24576, trace_region_size=0)
     n = mesh.get_num_devices()
-    print(f"# CCL sweep, {n} devices, {fabric.name}, num_links={args.links}")
-    if ring_fabric:
+    payload = ttnn.get_tt_fabric_max_payload_size_bytes()
+    print(f"# CCL sweep, {n} devices, {fabric.name}, num_links={args.links}, max_payload={payload} B")
+    if tag == "CCLPKT":
+        print("# columns: packet_bytes shape arm mode us correct_pcc")
+    elif ring_fabric:
         print("# columns: shape arm mode us correct_pcc")
     else:
         print("# columns: fabric shape arm mode us correct_pcc")
@@ -226,7 +245,11 @@ def main():
             arms["all_reduce_async"] = all_reduce_async
             arms["all_reduce_async_l1"] = lambda: all_reduce_async(tt_l1, ttnn.L1_MEMORY_CONFIG)
 
-            row = name if ring_fabric else f"{args.fabric} {name}"
+            row = name
+            if tag == "CCLPKT":
+                row = f"{payload} {name}"
+            elif not ring_fabric:
+                row = f"{args.fabric} {name}"
             for arm, build in arms.items():
                 try:
                     probe = build()

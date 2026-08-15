@@ -141,12 +141,27 @@ def bench_decode(mesh, decoder, page_table, cfg, iters, prefill_len=128, warmups
     return elapsed / iters, finite, prefill_t, decode_t, (host if want_out else None)
 
 
-def open_mesh(name, fabric: bool):
+def open_mesh(name, fabric: bool, packet_bytes: int | None = None):
+    """Open the mesh, configuring the fabric first when this arm needs one.
+
+    ``packet_bytes`` overrides the fabric's max packet payload; ``0`` leaves the build default, which
+    is the arm the runtime warns about (see `multichip_decoder.DEFAULT_FABRIC_PACKET_BYTES`) and the
+    reason this is a flag rather than a constant — the shipped value has to be earned at the layer,
+    not just in the isolated CCL probe.
+    """
     shape = MESHES[name]
     if fabric and shape != (1, 1):
-        from models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder import DEFAULT_FABRIC_CONFIG
+        from models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder import (
+            DEFAULT_FABRIC_CONFIG,
+            DEFAULT_FABRIC_PACKET_BYTES,
+            fabric_router_config,
+        )
 
-        ttnn.set_fabric_config(DEFAULT_FABRIC_CONFIG)
+        chosen = DEFAULT_FABRIC_PACKET_BYTES if packet_bytes is None else packet_bytes
+        if chosen:
+            ttnn.set_fabric_config(DEFAULT_FABRIC_CONFIG, router_config=fabric_router_config(chosen))
+        else:
+            ttnn.set_fabric_config(DEFAULT_FABRIC_CONFIG)
     return ttnn.open_mesh_device(ttnn.MeshShape(*shape), l1_small_size=24576, trace_region_size=0)
 
 
@@ -160,13 +175,20 @@ def main():
     ap.add_argument("--phase", default="both", choices=["prefill", "decode", "both"])
     ap.add_argument("--weights", default="real", choices=["real", "synthetic"])
     ap.add_argument("--pcc", action="store_true", help="also run the HF float32 golden and print prefill PCC")
+    ap.add_argument(
+        "--packet-bytes",
+        type=int,
+        default=None,
+        help="fabric max packet payload for this arm; 0 means the build default (the arm the runtime "
+        "warns about). Default: what the layer ships.",
+    )
     ap.add_argument("--tag", default="")
     ap.add_argument("--json", default="")
     args = ap.parse_args()
 
     layers = [int(v) for v in args.layers.split(",")]
     cfg = R.load_text_config()
-    mesh = open_mesh(args.mesh, fabric=args.impl == "multichip" or args.mesh != "1x1")
+    mesh = open_mesh(args.mesh, fabric=args.impl == "multichip" or args.mesh != "1x1", packet_bytes=args.packet_bytes)
     rows = []
     try:
         for layer_idx in layers:

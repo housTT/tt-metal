@@ -128,6 +128,8 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
 __all__ = [
     "DEFAULT_MESH_SHAPE",
     "DEFAULT_FABRIC_CONFIG",
+    "DEFAULT_FABRIC_PACKET_BYTES",
+    "fabric_router_config",
     "DEFAULT_CCL_TOPOLOGY",
     "MultichipDecoder",
     "MultichipMoE",
@@ -165,6 +167,38 @@ DEFAULT_CCL_TOPOLOGY = ttnn.Topology.Ring
 #: same ops as :data:`DEFAULT_CCL_TOPOLOGY`, and ignored by ``ttnn.all_gather`` for the same reason.
 DEFAULT_CCL_NUM_LINKS = 2
 
+#: Fabric max packet payload, in bytes, to configure alongside :data:`DEFAULT_FABRIC_CONFIG`.
+#:
+#: The build default on this machine is 4352 B, and every CCL dispatch this layer makes logs
+#: ``Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet
+#: size to maximize throughput`` (``ccl_common.cpp:63``). The recommendation is exact arithmetic, not
+#: a heuristic: the layer's residual page is the 2048-element bfloat16 row = 4096 B, four of which fit
+#: a Blackhole packet, and 4352 carries one page plus a wasted remainder. Review round 5 found the
+#: warning unclassified — 864 of them in one suite log, on the stage's own critical path.
+#:
+#: Taking the advice is measured, not assumed: ``probe_ccl.txt``'s ``CCLPKT`` rows are the whole sweep
+#: re-run under this override, and every arm at every shape is faster or unchanged — the shipped
+#: ``stack_sum`` at the decode tile and the shipped ``all_reduce`` at the 2048-token prefill chunk
+#: both by about 8%. ``ab_single_vs_multichip.txt`` carries the layer-level arms.
+#:
+#: This is a **fabric** setting, so it is applied before ``ttnn.open_mesh_device`` by whoever opens
+#: the mesh, not by this module: :func:`fabric_router_config` builds the object, the suite passes it
+#: through ``device_params["fabric_router_config"]``, and every probe and benchmark here sets it the
+#: same way. A caller that forgets it gets a correct but slightly slower layer.
+DEFAULT_FABRIC_PACKET_BYTES = 8192
+
+
+def fabric_router_config(packet_bytes: int = DEFAULT_FABRIC_PACKET_BYTES):
+    """``ttnn.FabricRouterConfig`` carrying :data:`DEFAULT_FABRIC_PACKET_BYTES`.
+
+    Pass to ``ttnn.set_fabric_config(..., router_config=...)`` before opening the mesh, or through
+    the pytest ``device_params`` fixture's ``fabric_router_config`` key.
+    """
+    router = ttnn.FabricRouterConfig()
+    router.max_packet_payload_size_bytes = packet_bytes
+    return router
+
+
 #: Tensor-parallel / expert-parallel factor. One number, because the same four devices carry both.
 DEFAULT_TP = 4
 
@@ -181,7 +215,7 @@ DEFAULT_TP = 4
 #: produces, **inside a captured trace**, which is where a decode step actually pays:
 #:
 #:   * ``ttnn.all_reduce`` and an explicit ``reduce_scatter`` + ``all_gather`` are the same number to
-#:     two decimal places at every shape — the stable all-reduce lowers to exactly that pair — so
+#:     the probe's repeatability at every shape — the stable all-reduce lowers to exactly that pair — so
 #:     ``"rs_ag"`` exists to make that identity checkable, not because it is a separate candidate.
 #:   * ``Topology.Ring`` beats ``Topology.Linear`` as the ops' argument at every traced shape, which
 #:     is the physical ring being real; the ``CCLFAB`` rows say the same of the fabric config itself
@@ -223,7 +257,7 @@ CCL_STACK_SUM_MAX_ROWS = 64
 #: three-build ranges overlap on both layer kinds. So that row is **not** data movement this layer
 #: pays: removing the block-float operand changes its cost and not the layer's. What
 #: it *is* remains open — a collective barrier absorbing device skew is the candidate — and README
-#: limitation 7 records it as a candidate rather than a finding.
+#: limitation 8 records it as a candidate rather than a finding.
 #:
 #: Kept as a knob rather than deleted because that null result is the control for the anomaly, and
 #: because a future dtype policy could move the boundary.
@@ -317,7 +351,7 @@ ROUTING_SELECT_MODE = "select_matmul"
 #:   * ``shared_down`` because TP=4 cuts its ``K`` from 512 to 128 — 4 tiles — and the inherited
 #:     entry's 55-core grid for a 4-tile ``K`` and a 64-tile ``N`` is launch overhead rather than
 #:     parallelism. 8 cores rather than the 4 an earlier round shipped: 4 is the faster of the two on
-#:     some sweeps and 1.4 us slower on others, while 8 reads 8.55-8.77 us on every sweep, so 8 is
+#:     some sweeps and 1.4 us slower on others, while 8 has never read above 9 us on any sweep, so 8 is
 #:     both the stable choice and never behind;
 #:   * ``expert_select`` is a role this stage introduces and the single-chip table has no entry for.
 #:

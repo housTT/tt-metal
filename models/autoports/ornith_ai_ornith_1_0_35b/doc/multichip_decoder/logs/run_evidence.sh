@@ -42,6 +42,11 @@ if has bench; then
     python "$LOGS/bench.py" --impl optimized  --mesh 1x1 --layers 0,3 --weights real --tag single-chip-baseline
     python "$LOGS/bench.py" --impl optimized  --mesh 1x4 --layers 0,3 --weights real --tag replication-control
     python "$LOGS/bench.py" --impl multichip --mesh 1x4 --layers 0,3 --weights real --tag multichip
+    # A fourth arm: the shipped path on the fabric's *build-default* packet size, which is what the
+    # runtime warns about on every CCL dispatch. The isolated probe says 8192 B is worth 4-18% on the
+    # collectives; this is what that is worth at the layer.
+    python "$LOGS/bench.py" --impl multichip --mesh 1x4 --layers 0,3 --weights real \
+      --packet-bytes 0 --tag multichip-build-default-packet
   } 2>/dev/null | grep -E "^BENCH|^#" > "$LOGS/ab_single_vs_multichip.txt"
   cat "$LOGS/ab_single_vs_multichip.txt"
 fi
@@ -62,6 +67,9 @@ if has probes; then
   {
     python "$LOGS/probe_ccl.py" 2>/dev/null | grep -E "^CCL |^#"
     python "$LOGS/probe_ccl.py" --fabric line 2>/dev/null | grep -E "^CCLFAB|^#"
+    # The build-default packet size, i.e. the arm the runtime warns about. A third process, because
+    # the packet size is part of the fabric configuration and is set before the mesh opens.
+    python "$LOGS/probe_ccl.py" --packet-bytes 0 2>/dev/null | grep -E "^CCLPKT|^#"
   } > "$LOGS/probe_ccl.txt"
   python "$LOGS/probe_dense_matmul.py" 2>/dev/null | grep -E "^DENSE|^#" > "$LOGS/probe_dense_matmul.txt"
   {

@@ -104,11 +104,20 @@ SPARSE_DECODE_CORES = {
     32: {"gate_up": 32, "down": 32},
 }
 
+#: The same, for **prefill**. Every prefill expert group is a full 32 rows, so the bound saturates at
+#: ``min(64, 32*8) = 64`` at every sequence length and batch and the geometry is one pair of numbers.
+#: Review round 3 found the prefill row of README section 5.7's table was derivation-only — the spy
+#: below used to be installed after ``prefill_forward`` returned — so it is pinned here as well.
+SPARSE_PREFILL_CORES = {"gate_up": 32, "down": 32}
+
 #: The active-expert count a full 32-token prefill group produces on one device, and the band the
 #: suite holds it to. ``tracy/run_profiling.sh`` passes :data:`PREFILL_ACTIVE_MODEL` to
 #: ``tt-perf-report --active-experts`` and ``probe_sparse_matmul_local.py`` sweeps at it, so it is a
 #: modelling input for every prefill DRAM and FLOPs figure rather than a description. Expectation:
 #: ``64 * (1 - (1 - 1/64)^(32*8/4))`` = 40.6, measured 39-44 across layer kinds and sweeps.
+PREFILL_ACTIVE_MODEL = 41
+PREFILL_ACTIVE_BAND = (30, 55)
+
 #: Bar for a BFP4 expert weight block against the float checkpoint. See
 #: `test_expert_partition_is_disjoint_and_complete`; the quantisation itself costs ~7e-3 here.
 EXPERT_WEIGHT_BAR = 0.99
@@ -119,19 +128,18 @@ DECODE_SPEEDUP_BAR = 1.4
 #: Warmed 2048-token prefill wall-clock bar, milliseconds. See `test_perf_prefill`.
 PREFILL_MS_BAR = 48.0
 
-PREFILL_ACTIVE_MODEL = 41
-PREFILL_ACTIVE_BAND = (30, 55)
-
-#: The same, for **prefill**. Every prefill expert group is a full 32 rows, so the bound saturates at
-#: ``min(64, 32*8) = 64`` at every sequence length and batch and the geometry is one pair of numbers.
-#: Review round 3 found the prefill row of README section 5.7's table was derivation-only — the spy
-#: below used to be installed after ``prefill_forward`` returned — so it is pinned here as well.
-SPARSE_PREFILL_CORES = {"gate_up": 32, "down": 32}
-
 #: The mesh every test opens, and the fabric it needs. ``l1_small_size`` matches the optimized
 #: suite; the CCL ops allocate their semaphores out of it.
 DEVICE_PARAMS = [
-    {"l1_small_size": 24576, "trace_region_size": 0, "fabric_config": DEFAULT_FABRIC_CONFIG},
+    {
+        "l1_small_size": 24576,
+        "trace_region_size": 0,
+        "fabric_config": DEFAULT_FABRIC_CONFIG,
+        # The fabric packet size the runtime asks for on this layer's 2048-element pages. Measured,
+        # not assumed: `probe_ccl.txt`'s `CCLPKT` rows. Review round 5 found 864 warnings a suite
+        # recommending it, unclassified, on the stage's own critical path.
+        "fabric_router_config": MC.fabric_router_config(),
+    },
 ]
 
 pytestmark = [

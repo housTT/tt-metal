@@ -59,6 +59,7 @@ import time
 import torch
 
 import ttnn
+from models.autoports.ornith_ai_ornith_1_0_35b.tt import multichip_decoder as MC
 
 #: ``M`` values: the batch-1 decode tile, the batch-32 decode tile, and the shipped prefill chunk.
 ROWS = [("decode", 32), ("decode_b32", 32 * 32), ("prefill_2048", 2048)]
@@ -152,7 +153,7 @@ def main():
     )
     args = ap.parse_args()
 
-    ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING)
+    ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING, router_config=MC.fabric_router_config())
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 4), l1_small_size=24576, trace_region_size=0)
     n = mesh.get_num_devices()
     grid = mesh.compute_with_storage_grid_size()

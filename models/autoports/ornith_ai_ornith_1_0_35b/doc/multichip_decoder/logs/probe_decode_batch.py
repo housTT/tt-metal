@@ -166,7 +166,7 @@ def main():
     args = ap.parse_args()
 
     cfg = R.load_text_config()
-    ttnn.set_fabric_config(MC.DEFAULT_FABRIC_CONFIG)
+    ttnn.set_fabric_config(MC.DEFAULT_FABRIC_CONFIG, router_config=MC.fabric_router_config())
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(*MC.DEFAULT_MESH_SHAPE), l1_small_size=24576, trace_region_size=0)
     shipped = {name: getattr(MC, name) for name, _ in KNOBS.values()}
     print("# what the two per-layer collectives are handed at decode, and the cost of compacting it")

@@ -194,7 +194,7 @@ def measure(mesh, cfg, sd, layer_idx, reference):
 
 def main():
     cfg = R.load_text_config()
-    ttnn.set_fabric_config(MC.DEFAULT_FABRIC_CONFIG)
+    ttnn.set_fabric_config(MC.DEFAULT_FABRIC_CONFIG, router_config=MC.fabric_router_config())
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(*MC.DEFAULT_MESH_SHAPE), l1_small_size=24576, trace_region_size=0)
     reference = single_chip_terms()
     print(f"# Measured PER-DEVICE layer footprint at the full {CONTEXT}-token context, batch 1, TP=EP=4.")
