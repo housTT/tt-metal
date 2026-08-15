@@ -169,7 +169,9 @@ before any code:
 | linear_attention | prefill 2048 | 8192 B (shipped) | 3 | 29.06 ms | 0.17 ms |
 <!-- /TABLE:packet_layer -->
 
-   Decode is repeatably 2 us a step faster at 8192 B — three builds each, no overlap. Prefill is a
+   Decode's best-of-three is 2 us a step faster at 8192 B on both layer kinds; the arms are cleanly
+   separated on linear_attention and overlap by one build on full_attention (the generated table's
+   `spread` column shows which). Prefill is a
    wash: the two arms' three-build ranges overlap on both layer kinds, which is what the sweep-to-
    sweep prefill spread predicts. So the layer-level claim is "faster at decode, indistinguishable at
    prefill, never slower", and the isolated collective rows above are where the size of the effect is
@@ -323,7 +325,7 @@ internal, costs 104 448 B per layer per device, and never reaches the delta rule
 | `ttnn.gather` for the local-expert narrowing | 57–58 us/step slower at the layer than the one-hot selection matmul, and both are bit-equal | `logs/ab_layer_knobs.txt` `routing` arms; `test_routing_select_modes_agree` |
 | Inheriting the single-chip decode matmul geometry | 23–24 us/step slower on linear_attention, 14 us/step on full_attention | `logs/ab_layer_knobs.txt` `geometry` arms |
 | Inheriting the single-chip routed sparse-matmul core rule | **4.0–4.6 ms/layer** slower on 2048-token prefill, and 16–71 us/step slower at decode batch 4 and above | `logs/ab_layer_knobs.txt` `sparse` arms and `logs/probe_decode_batch.txt` `SPARSEB` rows; `logs/probe_sparse_matmul_local.txt`; §5.7 |
-| Casting the MoE's block-float output to bf16 before its collective | costs a few microseconds on every decode step (3 us on both layer kinds in §5.5's generated table) and moves prefill by nothing, despite the profiler attributing ~1500 us to that collective — see §5.8, where the null result doubles as the control for that anomaly | `logs/ab_layer_knobs.txt` `cast` arms |
+| Casting the MoE's block-float output to bf16 before its collective | costs a few microseconds on every decode step (3–4 us, §5.5's generated table) and moves prefill by nothing, despite the profiler attributing ~1500 us to that collective — see §5.8, where the null result doubles as the control for that anomaly | `logs/ab_layer_knobs.txt` `cast` arms |
 
 ---
 
@@ -888,7 +890,7 @@ precision policy.
 
 That reads as an obvious win, and it is not one. `CCL_CAST_BLOCKFLOAT` casts the operand up to
 `bfloat16` before the collective; the `cast` arm of `ab_layer_knobs.txt` measures it at the layer.
-Casting up **costs a few microseconds on every decode step — 3 us on both layer kinds in the table above — and moves warmed prefill by nothing** — the arms'
+Casting up **costs a few microseconds on every decode step — 3 us on linear_attention and 4 on full_attention in the table above — and moves warmed prefill by nothing** — the arms'
 three-build ranges overlap on both layer kinds. It is therefore off.
 
 The null result is the useful part: it is the control that classifies the anomaly. Removing the

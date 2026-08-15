@@ -621,9 +621,11 @@ Everything else the mesh has to prove:
   batch 4** until review round 1, while the README and two `context_contract` fields claimed 32; TP=4
   changes the per-device head counts that `nlp_create_qkv_heads_decode`, `paged_fused_update_cache`
   and `sdpa_decode` are all bounded by, so the claim was not merely undocumented but unverified. The
-  `seq_len` parameter came from round 2, which found the same shape of gap one level down: batched
-  non-aligned prefill is the only path where `CCL_COMPACT_ROWS` fires in **prefill**, and every
-  prefill test was either batch 1 or tile-aligned. Both now pass on both layer kinds (batch 32:
+  `seq_len` parameter came from round 2, which believed it was closing the same shape of gap one
+  level down — batched non-aligned prefill being the only path where `CCL_COMPACT_ROWS` could fire in
+  **prefill**. Round 8's correctness audit showed that premise was wrong (prefill pads to
+  `PREFILL_ALIGN` first, so the fold is decode-only), but the parameter earns its place anyway as the
+  suite's only batched non-aligned prefill coverage. Both now pass on both layer kinds (batch 32:
   prefill 0.999937/0.999934, decode 0.999926/0.999919 on full_attention).
 * `test_permuted_page_table` (shuffled block mapping, prefill 0.999914 / decode 0.999903),
   `test_batched_decode_ragged_positions` (4 users at distinct absolute positions 37/130/200/64 over
@@ -741,9 +743,9 @@ the regression is 0.6% at one batch against 2.1–3.0% at the advertised bound. 
 
 Correctness is covered by the same batch parametrization the round added:
 `test_batched_prefill_decode_pcc[1,4,13,32]` passes on both layer kinds with the fold on. Round 2
-then found the prefill half of the fold untested — it fires only when `b > 1` **and** `seq_len` is
-not tile-aligned, and every prefill test was one or the other — so that test now also runs
-`seq_len = 130`. The same probe was extended with the `SPARSEB` arm §7b needed, so both rounds'
+then believed the prefill half of the fold untested — on the premise that it fires when `b > 1` and
+`seq_len` is not tile-aligned — so that test now also runs `seq_len = 130`. Round 8 showed the fold
+cannot fire in prefill at all; the parameter stays for the non-aligned batched prefill coverage. The same probe was extended with the `SPARSEB` arm §7b needed, so both rounds'
 batch-scaling questions are answered on one harness at one set of batches.
 
 ---
@@ -1207,6 +1209,28 @@ consecutive round with that finding.
 | P2 — the `cast` arm's decode cost was quoted as "5–6 us" in four places against a committed 3 us on both layer kinds | requoted from the generated table, and stated as "a few microseconds" where the exact figure will move |
 | `kv_head_owner` raised `ZeroDivisionError` for `n_kv_heads > tp`, a config `local_decoder_config` explicitly accepts — the same generality gap as the `n_kv_heads < tp` hole round 8 found, in the adjacent function | handles both directions: the ordinary split returns the first of this device's consecutive heads |
 | smaller: three different `ccl_common.cpp` line citations for one emit site, a stale "eleven sweeps" count, and a work-log sentence that read as summarising the collective rows while scoped to the bench rows | each corrected |
+
+### Round 11 — `clean-pass`
+
+An eleventh independent reviewer, given rounds 1-10 as claims to verify. **No required work.** It
+confirmed every goal-contract item met, all four round-10 fixes genuinely in the tree, and — for the
+ninth consecutive round — no correctness defect in the shipped path and no unearned rejection.
+
+What it re-derived independently rather than reading: the comment-stripped AST fingerprints of all
+four measured sources against `logs/source_stamp.json` (so the committed sweep measured the code that
+is in the tree); the 34 baseline and 90 HF-golden PCC counts and minima, recounted from the suite log
+with its own regex; the four speedup/efficiency figures; the two-collectives-per-layer count from the
+Tracy captures rather than from the suite's spy; the §5.8 anomaly rows; the per-device sharding
+arithmetic for `attn_in`, `o_proj` and `gdn_in` by hand from `from_state_dict`; and the mask-floor
+zero-contribution argument from the inherited source.
+
+Its three "other concerns" were documentation-only and are closed here anyway:
+
+| concern | resolution |
+|---|---|
+| README §2.1 said the packet arms show "no overlap" across three builds; true on linear_attention, but the full_attention arms overlap by one build | restated as best-of-three with the overlap named, pointing at the generated table's `spread` column |
+| the `cast` arm's decode cost was quoted as "3 us on both layer kinds"; the committed rows are 3 us on linear and 4 on full | corrected in all three sites |
+| two sentences in §11's narrative still stated round 2's "the fold fires in prefill" premise as fact, though §16 and every other document record the round-8 correction | both restated as the premise round 2 held and round 8 refuted |
 
 ### Checkpoint
 

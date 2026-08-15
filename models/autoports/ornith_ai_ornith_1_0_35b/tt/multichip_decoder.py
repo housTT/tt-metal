@@ -260,7 +260,7 @@ CCL_STACK_SUM_MAX_ROWS = 64
 #:
 #: The ``cast`` arm of ``doc/multichip_decoder/logs/ab_layer_knobs.txt`` measures it at the layer:
 #: casting up costs a few microseconds on every decode step (README section 5.5's generated table has
-#: the pair; it is 3 us on both layer kinds in the committed sweep) and moves warmed prefill by
+#: the pair; it is 3-4 us depending on the layer kind in the committed sweep) and moves warmed prefill by
 #: **nothing** — the arms'
 #: three-build ranges overlap on both layer kinds. So that row is **not** data movement this layer
 #: pays: removing the block-float operand changes its cost and not the layer's. What
