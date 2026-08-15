@@ -940,4 +940,4 @@ deliberately excluded from every commit.
 |---|---|---|---|
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 0 | `914163b92b1` |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 1 | `e3915a376f0`, SHA record `ca6674393a1` |
-| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 2 | recorded below after the round-2 commit |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | 2 | `80563b120e4` |
