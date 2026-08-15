@@ -10,8 +10,9 @@ it (``all_reduce``, ``reduce_scatter``); ``ttnn.all_gather`` deprecated and **ig
 ``topology`` and ``num_links`` (``all_gather_nanobind.cpp``), so the shipped decode collective takes
 the ring from the fabric config alone. The fabric config and the ``topology`` argument are measured
 **separately**: ``probe_ccl.py --fabric line`` reconfigures the fabric in its own process and tags
-its rows ``CCLFAB`` (the ring fabric ties the line fabric at the decode tile and wins from 512 rows
-up), while the ``CCL`` rows vary only the ops' argument under the ring fabric. Rounds 0-3 of this
+its rows ``CCLFAB`` (the ring fabric is ahead on every traced row of both shipped spellings, by about
+14% on the ``stack_sum`` the layer picks at the decode tile), while the ``CCL`` rows vary only the
+ops' argument under the ring fabric. Rounds 0-3 of this
 stage quoted the second comparison as if it were the first.
 
 Baseline
@@ -314,7 +315,10 @@ SPARSE_SCALE_CORES_BY_TP = True
 #:
 #: Off at batch 1, where ``[1, 1, dim]`` is already one tile row and the reshape would be pure
 #: overhead: the guard compares the physical row count against ``align_up(b * t, 32)`` and only folds
-#: when it is strictly larger. ``doc/multichip_decoder/logs/probe_decode_batch.txt`` records both the
+#: when it is strictly larger. It is therefore a **decode-only** path in practice: ``prefill_forward``
+#: pads every chunk to ``PREFILL_ALIGN`` before ``_block`` runs, so a prefill operand's physical row
+#: count already equals ``align_up(b * t, 32)`` and the guard is false at every prefill shape. Round
+#: 8's correctness audit found an earlier comment claiming a batched non-aligned prefill reached it. ``doc/multichip_decoder/logs/probe_decode_batch.txt`` records both the
 #: measured shapes at each call site and the traced-decode A/B at batch 1/4/13/32.
 CCL_COMPACT_ROWS = True
 
@@ -325,6 +329,13 @@ CCL_COMPACT_ROWS = True
 #: exact zeros and one bfloat16 value, and ``test_routing_select_modes_agree`` asserts the two give
 #: identical layer output. Measured end to end by the ``routing`` arms of
 #: ``doc/multichip_decoder/logs/ab_layer_knobs.txt``.
+#:
+#: ``"gather"`` is a **measurement arm, not a shippable path, and it is not trace-safe**: its index
+#: tensor is built with ``torch`` and uploaded on first sight of each routed shape, i.e. inside the
+#: forward. That is a host write, illegal under trace capture and exactly what the stage's
+#: no-host-fallback guard forbids — which is why ``test_no_host_fallback_in_forward`` runs the
+#: shipped mode only. Round 8's correctness audit asked for that to be said here rather than implied
+#: by the default. It is kept because a rejected alternative has to stay runnable to stay honest.
 ROUTING_SELECT_MODE = "select_matmul"
 
 #: Per-role ``(core target, in0_block_w cap)`` for the dense decode matmuls, **re-swept at the

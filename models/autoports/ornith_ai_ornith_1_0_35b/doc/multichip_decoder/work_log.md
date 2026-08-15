@@ -95,14 +95,14 @@ Traced microseconds:
 <!-- TABLE:ccl -->
 | shape | `all_reduce` Ring | `rs_ag` Ring | `rs_only` Ring | `all_reduce` Linear | `stack_sum` | `async` |
 |---|---|---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.11 | 22.12 | 14.43 | 26.50 | 15.83 | 33.31 |
-| 64 rows | 25.93 | 25.92 | 16.45 | 30.76 | 22.71 | 38.88 |
-| 96 rows | 27.63 | 27.66 | 16.71 | 34.04 | 29.31 | 43.14 |
-| 128 rows | 31.04 | 31.04 | 18.49 | 37.87 | 43.65 | 48.00 |
-| 256 rows | 42.53 | 42.57 | 24.63 | 53.11 | 76.52 | 66.15 |
-| 512 rows | 69.84 | 69.98 | 37.39 | 91.91 | 108.03 | 103.22 |
-| decode batch 32 (1024 rows) | 121.84 | 121.89 | 63.28 | 156.55 | 193.93 | 177.70 |
-| prefill 2048 | 179.80 | 179.75 | 102.21 | 250.76 | 373.07 | 325.13 |
+| decode (batch 1, 32 rows) | 22.09 | 22.08 | 14.44 | 26.50 | 15.84 | 33.35 |
+| 64 rows | 25.90 | 25.92 | 16.44 | 30.76 | 22.71 | 38.65 |
+| 96 rows | 27.67 | 27.66 | 16.72 | 34.06 | 29.30 | 43.15 |
+| 128 rows | 31.05 | 31.05 | 18.49 | 37.97 | 43.58 | 47.98 |
+| 256 rows | 42.56 | 42.56 | 24.60 | 53.10 | 76.65 | 66.11 |
+| 512 rows | 69.94 | 70.03 | 37.34 | 91.87 | 108.05 | 103.39 |
+| decode batch 32 (1024 rows) | 121.87 | 121.92 | 63.36 | 156.50 | 193.85 | 177.57 |
+| prefill 2048 | 179.93 | 179.91 | 102.25 | 250.48 | 373.06 | 325.05 |
 <!-- /TABLE:ccl -->
 
 These are the **traced** rows, and every one of them is under `FABRIC_1D_RING`: they vary the ops'
@@ -117,21 +117,23 @@ needs its own process because `set_fabric_config` runs before `open_mesh_device`
 <!-- TABLE:fabric -->
 | shape | `all_reduce` ring fabric | `all_reduce` line fabric | `stack_sum` ring fabric | `stack_sum` line fabric |
 |---|---|---|---|---|
-| decode (batch 1, 32 rows) | 22.11 | 22.48 | 15.83 | 18.08 |
-| 64 rows | 25.93 | 26.68 | 22.71 | 26.87 |
-| 128 rows | 31.04 | 32.61 | 43.65 | 59.89 |
-| 512 rows | 69.84 | 88.42 | 108.03 | 152.63 |
-| decode batch 32 (1024 rows) | 121.84 | 159.17 | 193.93 | 287.43 |
-| prefill 2048 | 179.80 | 220.89 | 373.07 | 556.13 |
+| decode (batch 1, 32 rows) | 22.09 | 22.47 | 15.84 | 18.09 |
+| 64 rows | 25.90 | 26.65 | 22.71 | 26.91 |
+| 128 rows | 31.05 | 32.61 | 43.58 | 59.86 |
+| 512 rows | 69.94 | 88.37 | 108.05 | 152.63 |
+| decode batch 32 (1024 rows) | 121.87 | 159.21 | 193.85 | 287.49 |
+| prefill 2048 | 179.93 | 220.95 | 373.06 | 555.64 |
 <!-- /TABLE:fabric -->
 
 Six conclusions, all of which shaped the implementation:
 
 1. **The ring wins both comparisons, and they are two comparisons.** As the ops' *argument*,
    `Topology.Ring` beats `Topology.Linear` at every traced shape (the table above). As the *fabric
-   config*, `FABRIC_1D_RING` ties `FABRIC_1D` up to 128 rows — latency-bound, so the ring's second
-   direction has nothing to carry, and individual rows there fall either way — and wins from 512 rows
-   up, which is the prefill regime. `FABRIC_1D_RING` is what the layer configures, and `ttnn.Topology.Ring` is passed to the
+   config*, `FABRIC_1D_RING` is ahead of `FABRIC_1D` on **every** traced row of both shipped
+   spellings — including about 14% at the batch-1 decode tile on the `stack_sum` the layer actually
+   picks there, growing with rows. An earlier reading of this table called it a tie up to 128 rows;
+   that was the `all_reduce` row alone, and review round 7 corrected it. The fabric config is
+   load-bearing at decode, not marginal. `FABRIC_1D_RING` is what the layer configures, and `ttnn.Topology.Ring` is passed to the
    ops that still accept it; `ttnn.all_gather` marks both `topology` and `num_links` deprecated and
    ignored, so the `stack_sum` path takes the ring from the fabric config alone. Rounds 0-3 of this
    stage asserted the fabric comparison while measuring only the argument one; the line-fabric rows
@@ -253,13 +255,13 @@ means the cache size is not a binding constraint anyway.
 <!-- TABLE:moepar -->
 | phase | arm | experts/device | active/device | us |
 |---|---|---|---|---|
-| decode | unsharded, still gate-selected | 256 | 8 | 665.02 |
-| decode | **expert parallelism** (shipped) (mean local) | 64 | 2 | 196.96 |
-| decode | **expert parallelism** (shipped) (>= the expected maximum, 3.512) | 64 | 4 | 204.56 |
-| decode | intermediate sharded 4 ways | 256 | 8 | 472.74 |
-| prefill | unsharded, still gate-selected | 256 | 162 | 1640.63 |
-| prefill | **expert parallelism** (shipped) | 64 | 41 | 513.77 |
-| prefill | intermediate sharded 4 ways | 256 | 162 | 1299.29 |
+| decode | unsharded, still gate-selected | 256 | 8 | 665.43 |
+| decode | **expert parallelism** (shipped) (mean local) | 64 | 2 | 248.17 |
+| decode | **expert parallelism** (shipped) (>= the expected maximum, 3.512) | 64 | 4 | 204.32 |
+| decode | intermediate sharded 4 ways | 256 | 8 | 472.71 |
+| prefill | unsharded, still gate-selected | 256 | 162 | 1638.32 |
+| prefill | **expert parallelism** (shipped) | 64 | 41 | 515.58 |
+| prefill | intermediate sharded 4 ways | 256 | 162 | 1299.36 |
 <!-- /TABLE:moepar -->
 
 Read like for like — each arm at *its own* representative active count, which is what the layer
@@ -354,14 +356,14 @@ and clamps `in0_block_w` to `Kt`) against the local winner:
 <!-- TABLE:dense -->
 | role | inherited (realised) | us | local winner | us | delta | winner spread | repeatability | shipped |
 |---|---|---|---|---|---|---|---|---|
-| `attn_in` | (32,2) → 33/2 | 30.92 | 110/8 | 17.85 | 13.07 | 0.21 | 0.22 | **retuned (110, 8)**, 17.85 |
-| `gdn_in` | (110,2) → 110/2 | 48.79 | 33/8 | 20.35 | 28.44 | 0.10 | 0.15 | **retuned (110, 8)**, 20.41 |
-| `shared_down` | (48,16) → 55/4 | 9.17 | 4/4 | 8.44 | 0.73 | 0.33 | 3.86 | **retuned (8, 4)**, 8.52 |
-| `expert_select` | new role | — | 55/8 | 8.29 | — | 0.23 | 0.20 | **(8, 8)**, 8.37 |
-| `o_proj` | (16,16) → 22/16 | 9.39 | 22/8 | 9.21 | 0.18 | 0.42 | 0.19 | inherited |
-| `gdn_out` | (24,8) → 33/8 | 9.49 | 33/16 | 9.41 | 0.08 | 0.15 | 0.19 | inherited |
-| `shared_in` | (32,32) → 33/32 | 8.64 | 33/32 | 8.64 | 0.00 | 0.13 | 0.09 | inherited |
-| `router` | (32,32) → 33/32 | 8.88 | 22/32 | 8.85 | 0.03 | 0.25 | 0.03 | inherited |
+| `attn_in` | (32,2) → 33/2 | 30.91 | 110/8 | 17.89 | 13.02 | 0.10 | 0.18 | **retuned (110, 8)**, 17.89 |
+| `gdn_in` | (110,2) → 110/2 | 48.77 | 33/8 | 20.40 | 28.37 | 0.19 | 0.11 | **retuned (110, 8)**, 20.55 |
+| `shared_down` | (48,16) → 55/4 | 9.19 | 8/4 | 8.57 | 0.62 | 0.21 | 0.37 | **retuned (8, 4)**, 8.57 |
+| `expert_select` | new role | — | 4/8 | 8.30 | — | 0.50 | 0.34 | **(8, 8)**, 8.33 |
+| `o_proj` | (16,16) → 22/16 | 9.30 | 33/8 | 9.29 | 0.01 | 0.80 | 0.15 | inherited |
+| `gdn_out` | (24,8) → 33/8 | 9.64 | 22/16 | 9.49 | 0.15 | 0.04 | 0.18 | inherited |
+| `shared_in` | (32,32) → 33/32 | 8.75 | 88/32 | 8.73 | 0.02 | 0.60 | 0.13 | inherited |
+| `router` | (32,32) → 33/32 | 9.00 | 66/32 | 8.86 | 0.14 | 0.38 | 0.18 | inherited |
 <!-- /TABLE:dense -->
 
 `repeatability` is the probe's own noise floor for that role, read out of the same file: several
@@ -472,18 +474,18 @@ realised core count, and the winner:
 <!-- TABLE:sparse_ladder -->
 | active | 4 cores | 8 cores | 16 cores | 32 cores | 64 cores | winner |
 |---|---|---|---|---|---|---|
-| 4, `down` | — | **52.3** | 59.5 | 66.7 | 85.4 | 8 |
-| 4, `gate_up` | 82.7 | **62.5** | 64.2 | 70.1 | — | 8 |
+| 4, `down` | — | **52.3** | 59.5 | 66.6 | 85.4 | 8 |
+| 4, `gate_up` | 82.7 | **62.4** | 64.1 | 70.0 | — | 8 |
 | 8, `down` | — | 62.2 | **61.9** | 68.9 | 88.0 | 16 |
-| 8, `gate_up` | 122.5 | 81.5 | **73.1** | 77.9 | — | 16 |
-| 16, `down` | — | 75.2 | **65.3** | 72.4 | 92.4 | 16 |
-| 16, `gate_up` | 180.3 | 109.6 | **86.8** | 90.0 | — | 16 |
-| 32, `down` | — | 119.9 | 83.0 | **80.3** | 102.2 | 32 |
-| 32, `gate_up` | 330.1 | 192.8 | 125.5 | **120.1** | — | 32 |
-| 41, `down` | — | 146.2 | 96.0 | **85.8** | 107.7 | 32 |
-| 41, `gate_up` | 414.5 | 240.9 | 151.1 | **140.2** | — | 32 |
-| 63, `down` | — | 235.7 | 145.6 | **105.8** | 124.8 | 32 |
-| 63, `gate_up` | 691.6 | 398.6 | 234.9 | **199.3** | — | 32 |
+| 8, `gate_up` | 122.5 | 81.5 | **73.0** | 77.8 | — | 16 |
+| 16, `down` | — | 74.4 | **65.3** | 72.4 | 92.4 | 16 |
+| 16, `gate_up` | 180.3 | 109.5 | **86.8** | 90.1 | — | 16 |
+| 32, `down` | — | 120.4 | 83.1 | **80.4** | 101.4 | 32 |
+| 32, `gate_up` | 329.4 | 192.8 | 126.3 | **120.1** | — | 32 |
+| 41, `down` | — | 146.2 | 96.0 | **85.9** | 107.7 | 32 |
+| 41, `gate_up` | 414.7 | 240.8 | 150.1 | **139.3** | — | 32 |
+| 63, `down` | — | 235.6 | 145.0 | **105.3** | 124.7 | 32 |
+| 63, `gate_up` | 692.0 | 397.8 | 234.5 | **200.1** | — | 32 |
 <!-- /TABLE:sparse_ladder -->
 
 The `active ∈ {8, 16, 32, 41}` rows were added in round 2. Round 1 swept only 4 and 63, which left
@@ -641,7 +643,7 @@ Everything else the mesh has to prove:
 * `test_repeated_run_stress` — 12 prefill + 4-step-decode cycles over `[96, 130, 257]`, repeats
   bit-identical, **DRAM growth 0 bytes** on both layer kinds.
 * `test_ccl_modes_agree` and `test_routing_select_modes_agree` — the rejected arms agree with the
-  shipped one (worst PCC 0.999996 over the 12 cases, and bit-equal respectively), so the A/B
+  shipped one (worst PCC over the 12 cases, and bit-equal respectively), so the A/B
   numbers in §3 and §11 compare implementations that compute the same thing.
 * `test_no_host_fallback_in_forward` — prefill and decode clean for
   `ttnn.{from_torch, to_torch, as_tensor, from_device, to_device}` and **all** `torch` ops, on both
@@ -659,18 +661,18 @@ process on the same device with the same weights, three builds per arm. All valu
 <!-- TABLE:ablayer -->
 | knob | arm | linear decode | full decode | linear prefill | full prefill |
 |---|---|---|---|---|---|
-| `ccl` | **`auto`** (shipped) | 0.611 | 0.500–0.501 | 28.97–29.09 | 28.31–28.49 |
-| `ccl` | `stack_sum` | 0.611 | 0.500–0.501 | 29.23–29.50 | 28.35–28.51 |
-| `ccl` | `all_reduce` | 0.621 | 0.508–0.509 | 28.94–29.41 | 28.19–28.55 |
-| `ccl` | `rs_ag` | 0.621 | 0.508 | 29.01–30.46 | 28.56–28.69 |
-| `geometry` | **multichip-retuned** (shipped) | 0.611 | 0.500–0.501 | 28.97–29.27 | 28.30–28.48 |
-| `geometry` | single-chip-inherited | 0.635 | 0.516–0.517 | 29.02–29.37 | 28.07–28.39 |
-| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.500–0.501 | 28.88–28.97 | 28.25–28.66 |
-| `routing` | `gather` | 0.668 | 0.559–0.560 | 29.29–29.54 | 28.53–28.88 |
-| `sparse` | **tp-rescaled** (shipped) | 0.611 | 0.500–0.662 | 28.85–28.96 | 28.42–28.51 |
-| `sparse` | single-chip-inherited | 0.611 | 0.500–0.501 | 32.98–33.19 | 32.19–32.66 |
-| `cast` | **block-float** (shipped) | 0.611 | 0.500 | 28.91–29.10 | 28.15–28.45 |
-| `cast` | `bf16` | 0.614 | 0.504 | 29.09–29.35 | 28.25–28.63 |
+| `ccl` | **`auto`** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.94–29.18 | 28.28–28.35 |
+| `ccl` | `stack_sum` | 0.611 | 0.500 | 29.28–29.53 | 28.62–28.65 |
+| `ccl` | `all_reduce` | 0.621 | 0.509 | 28.89–28.97 | 28.31–28.52 |
+| `ccl` | `rs_ag` | 0.621 | 0.508 | 29.02–29.26 | 28.22–28.48 |
+| `geometry` | **multichip-retuned** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.98–29.37 | 28.18–28.33 |
+| `geometry` | single-chip-inherited | 0.635 | 0.516–0.517 | 28.94–29.22 | 28.37–28.46 |
+| `routing` | **`select_matmul`** (shipped) | 0.611 | 0.500–0.501 | 29.09–29.55 | 28.22–28.62 |
+| `routing` | `gather` | 0.668–0.669 | 0.559–0.560 | 29.32–29.81 | 28.60–28.99 |
+| `sparse` | **tp-rescaled** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.97–29.15 | 28.27–28.37 |
+| `sparse` | single-chip-inherited | 0.611 | 0.500 | 33.18–33.43 | 32.46–32.57 |
+| `cast` | **block-float** (shipped) | 0.610–0.611 | 0.500–0.501 | 28.91–29.26 | 28.38–28.61 |
+| `cast` | `bf16` | 0.614 | 0.504 | 29.04–29.33 | 28.42–28.80 |
 <!-- /TABLE:ablayer -->
 
 Every row is at **batch 1**. That is why the `sparse` arm ties in the decode columns here and not in
@@ -718,13 +720,13 @@ Traced decode, three builds per arm, full_attention / linear_attention:
 <!-- TABLE:decode_batch -->
 | batch | mixer physical rows | off | on | delta |
 |---|---|---|---|---|
-| 1 | 32 | 0.500 / 0.611 | 0.500 / 0.611 | +0 / +0 us |
+| 1 | 32 | 0.500 / 0.610 | 0.500 / 0.610 | +0 / +0 us |
 | 2 | 64 | 0.578 / 0.705 | 0.575 / 0.703 | +3 / +2 us |
 | 4 | 128 | 0.634 / 0.815 | 0.639 / 0.820 | **-5 / -5 us** |
-| 8 | 256 | 0.787 / 1.003 | 0.783 / 1.000 | +4 / +3 us |
+| 8 | 256 | 0.787 / 1.002 | 0.784 / 1.000 | +3 / +2 us |
 | 13 | 416 | 1.620 / 2.062 | 1.607 / 2.051 | +13 / +11 us |
-| 16 | 512 | 1.827 / 2.271 | 1.794 / 2.243 | +33 / +28 us |
-| 32 | 1024 | 3.018 / 3.945 | 2.932 / 3.862 | **+86 / +83 us** |
+| 16 | 512 | 1.827 / 2.270 | 1.792 / 2.242 | +35 / +28 us |
+| 32 | 1024 | 3.018 / 3.944 | 2.933 / 3.862 | **+85 / +82 us** |
 <!-- /TABLE:decode_batch -->
 
 At batch 1 the guard skips the fold entirely (the tensor is already one tile row), which is why the
@@ -756,9 +758,9 @@ changed dispatch" from "the parallelisation helped".
 <!-- TABLE:bench -->
 | layer kind | phase | single-chip | 1x4 replication control | multichip | speedup | efficiency |
 |---|---|---|---|---|---|---|
-| linear_attention | prefill 2048 | 101.58 ms | 101.78 ms | **29.33 ms** | **3.463x** | 86.6% |
-| linear_attention | decode (traced) | 1.031 ms | 1.032 ms | **0.610 ms** | **1.690x** | 42.3% |
-| full_attention | prefill 2048 | 95.41 ms | 95.64 ms | **28.24 ms** | **3.379x** | 84.5% |
+| linear_attention | prefill 2048 | 101.57 ms | 101.86 ms | **28.99 ms** | **3.504x** | 87.6% |
+| linear_attention | decode (traced) | 1.030 ms | 1.031 ms | **0.610 ms** | **1.689x** | 42.2% |
+| full_attention | prefill 2048 | 95.39 ms | 95.69 ms | **28.28 ms** | **3.373x** | 84.3% |
 | full_attention | decode (traced) | 0.827 ms | 0.827 ms | **0.500 ms** | **1.654x** | 41.3% |
 <!-- /TABLE:bench -->
 
@@ -807,17 +809,17 @@ control:
 ```
 Observed anomaly:  prefill ReduceScatter device time is 7-15x the isolated probe for the same
                    [1,1,2048,2048] shape, and ~2x different between layer kinds.
-Evidence:          tracy/*/prefill_perf_report.summary.txt (101 us BF16 on 20 cores vs 1477 us BFP8
-                   on 12, full_attention; 100 vs 631 us, linear_attention; every sweep re-measures
+Evidence:          tracy/*/prefill_perf_report.summary.txt (114 us BF16 on 20 cores vs 1453 us BFP8
+                   on 12, full_attention; 98 vs 654 us, linear_attention; every sweep re-measures
                    these and the ratio, not the absolute, is the finding);
                    logs/probe_ccl.txt prefill_2048 rs_only_ring trace 102.19.
 Affected path:     the second per-layer collective, prefill, both layer kinds.
-Control:           decode mostly reproduces the probe (AllGather 12.71-13.19 us/op on the L1-operand
+Control:           decode mostly reproduces the probe (AllGather 12.70-13.10 us/op on the L1-operand
                    row, against the `stack_sum` probe row) -- with one exception, below, so the discrepancy is prefill-specific; and the `cast` arm removes the
                    block-float operand without moving the layer at all.
 Investigation:     CCL_CAST_BLOCKFLOAT implemented and A/B'd at the layer, three builds per arm.
-Second instance:   the same shipped `stack_sum` all-gather costs 33.73 us/op on full_attention and
-                   21.85 us/op on linear_attention at the same decode shape (the DRAM-operand rows of
+Second instance:   the same shipped `stack_sum` all-gather costs 33.69 us/op on full_attention and
+                   21.81 us/op on linear_attention at the same decode shape (the DRAM-operand rows of
                    `tracy/*/decode_perf_report_stacked.csv.gz`, 32 ops each), while the L1-operand
                    rows of the same two captures agree to within 4%. Review round 4 found this and it
                    is the same signature as the prefill one -- a collective's cost varying with what
@@ -880,7 +882,7 @@ The first watcher attempt **failed outright**, and the failure is preserved rath
 executed**, all at `mesh_device` setup:
 
 ```
-TT_FATAL: Program size (29040) too large for kernel config buffer (25600) on ACTIVE_ETH (assert.hpp:104)
+TT_FATAL: Program size (28656) too large for kernel config buffer (25600) on ACTIVE_ETH (assert.hpp:104)
 ```
 
 With watcher instrumenting the ACTIVE_ETH cores, the 1D-fabric ERISC program does not fit the
@@ -1020,7 +1022,7 @@ without validating the story told about it.
 | P1 — the "inherited realises 16/8" attribution is wrong; the shipped inherited path realises 32/16 and only `down` moves at prefill | re-derived from `_active_expert_bound` rather than from an assumed active count, corrected in all five places, and the derivation is now printed into the artifact by `shipped_choice()` (§7b) |
 | P2 — `--active-experts 63` contradicted by the stage's own measured 39–44 | the formula was missing the `/tp` division. Corrected to 41, cross-checked against the measurement, and the prefill rooflines restated at the corrected input; the sweep was extended to `active ∈ {4,8,16,32,41,63}` so the geometry decision is verified at the corrected point (§12c) |
 | P2 — README §5.5's crossover sentence describes the pre-fold behaviour | restated in terms of the post-fold row count: decode always takes `stack_sum`, and the crossover is what makes the fold worth doing |
-| P2 — batched non-aligned prefill is the only path where the fold fires in prefill, and nothing tested it | `test_batched_prefill_decode_pcc` now runs `seq_len ∈ {192, 130}` at every batch |
+| P2 — batched non-aligned prefill is the only path where the fold fires in prefill, and nothing tested it | `test_batched_prefill_decode_pcc` now runs `seq_len ∈ {192, 130}` at every batch. The premise turned out to be wrong, which round 8's correctness audit caught: prefill pads to `PREFILL_ALIGN` before the layer runs, so the fold's guard is false at *every* prefill shape and it is a decode-only path. The added parameter is still worth having — it is the only batched non-aligned prefill coverage — but it does not exercise the fold |
 | the `1x1 output subblock` advisory count, the three different figures for the BFP8 collective row, "2048 extra columns", "the ring wins at every shape" (true only of the traced rows), the EP-vs-TP label, `census.py`'s remaining `CLASSIFICATION.md` comments, the artifact tree's `.gz` names | each corrected in place |
 | `SPARSE_SCALE_CORES_BY_TP` was not `tp`-gated, so a 1-device build would not reproduce `OptimizedMoE` | gated on `self.tp > 1` |
 | §5.8 cited "39–44 across devices" for the imbalance mechanism; that range is across layer kinds | the mechanism is now stated as an open candidate, not a finding, and README limitation 9 records it (§12b) |
@@ -1060,7 +1062,8 @@ they are the same failure mode round 3 named:
   docstring said ~41. That is round 2's `--active-experts` error surviving in the one place round 2
   did not look. Corrected to `32 * top_k / tp` draws for the arm that only sees a quarter of them;
   the sweep keeps 63 as well, so the two are side by side in the artifact. It had been *understating*
-  the EP win at prefill (2.5x against intermediate-TP at the corrected point, not 1.85x).
+  the EP win at prefill (2.5x against intermediate-TP at the corrected point, against a smaller
+  ratio at the over-counted one).
 * the freshness half of `audit_figures.py` compared mtimes, so a documentation-only edit to
   `multichip_decoder.py` after a sweep reported every one of the 31 artifacts as stale and the only
   remedies were a 90-minute re-run or a hand-restored mtime. It now compares a hash of the
@@ -1109,12 +1112,12 @@ been made on measurements that structurally excluded the collective the warning 
 
 | finding | resolution |
 |---|---|
-| P1 — the shipped 8192 B packet produced 864 warnings asking for 4352 B, and the knob had been measured only on `bfloat16` operands. The layer's *second* collective carries `bfloat8_b` (1088 B tile pages, ideal 4352 B), the README's page arithmetic was wrong (4096 B, and 4 x 4096 is not 8192), and the block-float collective is exactly where the stage's unexplained 15x anomaly lives | `probe_ccl.py --dtype bfloat8_b` added and swept at both packet sizes. The result settles it: bf16 gains on 66 of 72 traced rows (up to 18.5%, giving up at most 0.6% on the six that fall the other way) and **block-float is net-neutral** — 37 rows faster, 34 slower, extremes ±2-3% with no shape favouring either size consistently. README §2.1 generates that census, because rounds 5, 6 and 7 each found a hand-written characterisation of it overstated. One fabric setting serves both dtypes, so the warning cannot be driven to zero; it is now a limitation (§8 item 6) rather than an omission, with `logs/warning_census.txt` carrying every distinct warning class and its count so the next one is visible in an artifact. The layer A/B now runs **three builds per arm**: decode is repeatably 2 us/step faster at 8192 B, prefill is a wash. The anomaly does not move with packet size, which removes the candidate round 6 raised and leaves §12b's barrier explanation where it was |
+| P1 — the shipped 8192 B packet produced 864 warnings asking for 4352 B, and the knob had been measured only on `bfloat16` operands. The layer's *second* collective carries `bfloat8_b` (1088 B tile pages, ideal 4352 B), the README's page arithmetic was wrong (4096 B, and 4 x 4096 is not 8192), and the block-float collective is exactly where the stage's unexplained 15x anomaly lives | `probe_ccl.py --dtype bfloat8_b` added and swept at both packet sizes. The result settles it: bf16 gains on the large majority of the 72 traced rows (up to 18%, giving up under a percent on the handful that fall the other way) and **block-float is net-neutral** — an almost even split, extremes ±2-3% with no shape favouring either size consistently. README §2.1 generates that census, because rounds 5, 6 and 7 each found a hand-written characterisation of it overstated. One fabric setting serves both dtypes, so the warning cannot be driven to zero; it is now a limitation (§8 item 6) rather than an omission, with `logs/warning_census.txt` carrying every distinct warning class and its count so the next one is visible in an artifact. The layer A/B now runs **three builds per arm**: decode is repeatably 2 us/step faster at 8192 B, prefill is a wash. The anomaly does not move with packet size, which removes the candidate round 6 raised and leaves §12b's barrier explanation where it was |
 | P2 — the watcher stack-headroom figure was wrong in both documents, and the round-5 guard that was supposed to catch it **could not fail**: its `LABELLED` patterns captured bare digits, so the check asked whether "20" appeared anywhere in 31 artifacts | figures corrected from the artifact; the check now matches value *and* label on one artifact line, and asserts that a pattern never captures a bare number so this class of vacuous guard cannot be added again |
-| P2 — the EP-vs-alternatives ratios in two documents did not follow from the artifact: 2.3x/3.3x against a measured 2.06x/2.91x, and round 5 had restated them by hand from the same rows | generated. `table_moepar_ratios` computes them from `probe_expert_parallel.txt`; three rounds of hand-derivation produced three wrong pairs, which is enough |
+| P2 — the EP-vs-alternatives ratios in two documents did not follow from the artifact (the hand-written pair was about 12% adrift of the rows), and round 5 had restated them by hand from the same rows | generated. `table_moepar_ratios` computes them from `probe_expert_parallel.txt`; three rounds of hand-derivation produced three wrong pairs, which is enough |
 | P2 — work log §14 said "no hang, no ARC/ERISC fault, no device reset was needed at any point" and "`tt-triage.py` was therefore not needed", contradicting README limitation 5, the committed triage capture and §16's own round-3 row | §14 rewritten to record the `all_gather_matmul_async` wedge, the `tt-triage` capture, the `tt-smi -r`, and the false-recovery lesson (an open/close check passed while the fabric was still wedged) |
 | P2 — "every collective arm at every shape is faster" and "never faster on any measured row" were contradicted by 4 of 72 rows | both restated to what the artifact shows, including the block-float exclusion |
-| smaller: a `114 us` collective row (97), category deltas quoted as 4.3/6.9 points (4.4/4.5 and 6.6/9.8), `2.69%` against a table saying 2.70%, and a `gdn_in` sentence added in round 5 whose two figures both disagreed with the table beside it | each corrected or replaced by a pointer to the generated column |
+| smaller: a `114 us` collective row (97), category deltas quoted a point or so off the stacked CSVs, a `ReshapeView` share quoted a hundredth off the table beside it, and a `gdn_in` sentence added in round 5 whose two figures both disagreed with the table beside it | each corrected or replaced by a pointer to the generated column |
 | hard-check gap — `run_evidence.sh` discarded every probe's stderr, which is why the packet warning never reached an artifact | the first fix was wrong: the runtime prints these through its own logger, not to the probes' stderr, so collecting stderr produced an empty file. `logs/warning_census.py` censuses the **suite and watcher logs**, where they actually appear, into `logs/warning_census.txt` — one line per distinct class with counts, `--check` verifies it against the logs, and step 7 regenerates it. Three classes exist and README §7 classifies all three |
 | hard-check gap — the audit's own self-test puts 1- and 2-decimal figures at a 0.23 / 0.12 false-positive rate, which is where every wrong prose figure in this round sat | stated in README §9, so a reader does not over-trust a pass: byte counts are pinned, ratios are only as good as being generated |
 
@@ -1128,16 +1131,37 @@ because three consecutive rounds of hand-correction each produced a new wrong va
 
 | finding | resolution |
 |---|---|
-| P2 — the two-dtype packet claim was overstated in all three places it appears ("faster at every shape", "within 1% either way"): 6 of 72 bf16 rows fall the other way, and 21 of 72 block-float rows exceed ±1% | replaced by a **generated census** (README §2.1): 66/72 bf16 rows faster by up to 18.5% and at most 0.6% given up, block-float 37 faster / 34 slower with ±2-3% extremes and no consistent direction. The conclusion is unchanged and now says what the rows say |
+| P2 — the two-dtype packet claim was overstated in all three places it appears ("faster at every shape", "within 1% either way"): 6 of 72 bf16 rows fall the other way, and 21 of 72 block-float rows exceed ±1% | replaced by a **generated census** (README §2.1): the large majority of the 72 bf16 rows faster by up to 18% with under a percent given up on the rest, block-float an almost even split with ±2-3% extremes and no consistent direction. The conclusion is unchanged and now says what the rows say |
 | P2 — a probe-warnings artifact was cited as committed evidence in two places and does not exist; it was superseded by `warning_census.txt` before it landed | both citations corrected, and `audit_figures.py` grew a `DANGLING-CITATION` check: every filename a document cites must exist in the autoport tree, the repo, or `.agents`. Verified it fails on an invented filename — `scoped_tokens` used to fall back to the global pool for an unresolvable citation, which is why this was invisible |
 | P2 — the collectives share (6.8–9.4% / 3.0–5.9%) and the DRAM roofline (5.9–6.5%) in §5.4 and limitation 2 were from a superseded sweep and disagreed with the generated table 400 lines above | both replaced by pointers to `TABLE:perf`, which carries them per layer kind and regenerates every sweep |
-| P2 — README §9 quoted the audit self-test's own false-positive rates as 0.23/0.12 against a recorded 0.248/0.150 — a wrong 2-decimal figure inside the sentence explaining that 2-decimal figures are weakly checked | the self-test table is generated now (`TABLE:selftest`) |
+| P2 — README §9 quoted the audit self-test's own false-positive rates a couple of hundredths below what the artifact records — a wrong 2-decimal figure inside the sentence explaining that 2-decimal figures are weakly checked | the self-test table is generated now (`TABLE:selftest`) |
 | P2 — the ring-vs-line characterization ("tie to within a few tenths up to 128 rows") was read off the `all_reduce` rows; on the `stack_sum` spelling the layer actually picks at the decode tile, the ring is ~14% ahead and no line-fabric row wins anywhere | restated per spelling in README §2.1, §2.5 and the module docstring: the fabric config is load-bearing at decode, not marginal |
 | smaller: "1.3-1.4x from 512 rows up" (the real span is 1.23-1.49x), a `DM` delta quoted as "seven to ten" points against 6.6/9.8, and "about 860 warnings either way" | each corrected or made a pointer to the generated table |
 
 `audit_figures.py` now carries five checks that can each fail on a real defect: unsourced figures,
 derived-expression mismatches, artifact freshness by code fingerprint, labelled value-and-label pairs,
 and dangling citations. Rounds 5, 6 and 7 each found one of them missing or vacuous.
+
+### Round 8 — `more-work-needed`
+
+Four P2s from the reviewer, plus six findings from a line-by-line correctness audit it ran alongside
+the review. The reviewer again found no correctness defect and no unearned rejection; the audit found
+two **test** defects and three latent code issues, which is the first time this stage's own tests have
+been shown to assert less than they claim in a way a review round did not already know about.
+
+| finding | resolution |
+|---|---|
+| P2 — round 7's packet restatement landed in one of the three places it named; README §2.5 still carried the rejected sentence, contradicted by §2.1's generated census in the same document | §2.5 now points at the census instead of paraphrasing it |
+| P2 — round 7's ring-vs-line restatement likewise landed in one of three; the module docstring said "ties" fifteen lines above its own corrected constant comment, and work log §3 conclusion 1 still said "tie up to 128 rows" over a table showing 14–37% | both corrected; the module no longer contradicts itself |
+| P2 — the ACTIVE_ETH control was a **stale duplicate** (a superseded `.gz` next to the current `.txt`), the program size quoted in four places came from the superseded run, and the current run contains an unclassified `Fatal Python error: Segmentation fault` | the `.gz` is deleted, the size requoted from the artifact (and its `ALLOWED_INT` whitelist entries dropped so it is checked), the instability recorded as part of limitation 1 — the control either errors every test or crashes partway, because the mesh is not reliably reopenable once an ERISC program has failed to load — and step 6 now says so out loud instead of swallowing it under `\|\| true` |
+| P2 — the header table's speedups were rounded up past what the generated table supports | the header quotes the generated figures |
+| hard-check gap — **`audit_figures.py` could not see a single `N.NNx` figure**: the `(?![\w])` guard rejected the `x`, so all 34 speedups, efficiencies and rejection ratios in both documents were unscanned. This is the direct cause of the header-table drift and of rounds 2, 5 and 6's ratio findings | `DECIMAL` now allows a unit suffix, the EP ratios are added to the derived pool, and the guard is verified to fire on an invented `9.99x` |
+| audit — `test_ccl_modes_agree` still never reached the `stack_sum` regime. Round 4's fix added a 32-token prefill case, but `prefill_forward` pads to `PREFILL_ALIGN` = 128 **before** the layer runs, so `auto` resolved to `all_reduce` in both cases and the `all_reduce` arm compared the shipped path with itself — twice over, in the two rounds that each thought they had fixed it | the test runs both **phases** now, re-derives the resolved spelling from `_physical_rows`, and asserts the decode case really is `stack_sum`. Measured on the mesh: decode's collective sees 32 physical rows, prefill's sees 128 |
+| audit — `local_decoder_config` accepted `n_kv_heads < tp` without requiring `tp % n_kv_heads == 0`, so a hypothetical 3-kv-head model would hand one device an empty k/v slice and shard the concatenation wrong, silently | guarded. Unreachable for this model, but `local_decoder_config` is documented as general in `tp` |
+| audit — `_free_unless_aliased` caught the `RuntimeError` from `buffer_address()` as "host tensor, nothing to protect", but the op raises it for per-core-allocated tensors too, where the addresses simply cannot be compared — and then freed | `is_per_core_allocated()` is checked first, so the ambiguous case returns instead of freeing |
+| audit — the `gather` routing arm builds and uploads its index inside the forward, so it is not trace-safe and would trip the stage's own host-fallback guard | said out loud at the knob: a measurement arm, not a shippable path |
+| audit — `test_gate_selected_experts_not_dense` asserted `max <= top_k`, but `MOE_MASK_FLOOR` can legitimately make it `top_k + 1` (~6e-5 per call) | bound corrected to `top_k + 1` with the reason |
+| smaller: an 864-warning count attributed to the wrong setting, and "no row falls the other way" stated over a wider set than the two tabulated spellings | both scoped to what the artifact shows |
 
 ### Checkpoint
 

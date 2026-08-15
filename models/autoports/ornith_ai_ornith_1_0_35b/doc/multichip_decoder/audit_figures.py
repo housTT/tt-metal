@@ -267,7 +267,6 @@ ALLOWED_INT = {
     "5000",  # the unaligned max_context case
     "1465",  # the BFP8 collective row, quoted from the per-op report (excluded from the pool)
     "25600",  # the ACTIVE_ETH kernel config buffer
-    "29040",  # the watcher-instrumented ERISC program size
     "2026",  # the year in dates
     "1024",
     "1532032",  # worker L1 unreserved, from the footprint probe header
@@ -284,11 +283,13 @@ ALLOWED_INT = {
     "50000",
     "500000",
     "45943",
-    "29040",
     "25600",
 }
 
-DECIMAL = re.compile(r"(?<![\w.])(\d+\.\d+)(?![\w])")
+#: A decimal figure. The trailing guard allows a *unit* suffix (``3.46x``, ``0.5s``) but not a longer
+#: word, because a speedup written ``3.46x`` is exactly the class this stage's conclusions rest on and
+#: review round 8 found all 34 of them invisible to the old ``(?![\w])`` form.
+DECIMAL = re.compile(r"(?<![\w.])(\d+\.\d+)(?=x\b|[^\w.]|$)")
 INTEGER = re.compile(r"(?<![\w.])(\d{4,})(?![\w.])")
 #: The same, as both documents actually format large numbers: groups of three separated by spaces.
 SPACED_INTEGER = re.compile(r"(?<![\w.])(\d{1,3}(?: \d{3})+)(?![\w.])")
@@ -346,6 +347,9 @@ MEASURED = [
     re.compile(r"(?:^|\s)(\d[\d,]*)\s+(?:TOTAL|passed|failed|deselected|lines?)\b"),
     re.compile(r":\s*(\d+)\s*$"),
     re.compile(r"(?:^|[|\s])(-?\d+\.?\d*)(?=[|\s]|$)"),
+    # Parenthesised sizes, which is how the runtime prints them in an assertion:
+    # `Program size (28656) too large for kernel config buffer (25600)`.
+    re.compile(r"\((\d+)\)"),
 ]
 
 
@@ -553,6 +557,49 @@ def derived_from_artifacts() -> set:
                     for digits in (0, 1):
                         tokens.add(f"{value:.{digits}f}")
                         tokens.add(f"{abs(value):.{digits}f}")
+
+    # The EP-vs-alternatives ratios README section 3 generates from `probe_expert_parallel.txt`.
+    moepar = read_blob(DOC / "logs" / "probe_expert_parallel.txt")
+    if moepar:
+        rows = []
+        for line in moepar.splitlines():
+            parts = line.split()
+            if parts and parts[0] == "MOEPAR":
+                rows.append((parts[1], parts[2], int(parts[5]), float(parts[7])))
+        for phase, active in (("decode", 4), ("decode", 2), ("prefill", 41)):
+            picked = [r for r in rows if r[0] == phase and r[1] == "ep"]
+            if not picked:
+                continue
+            ep = min(picked, key=lambda r: abs(r[2] - active))
+            for arm in ("tp", "single"):
+                other = [r for r in rows if r[0] == phase and r[1] == arm]
+                if other:
+                    for digits in (1, 2):
+                        tokens.add(f"{other[0][3] / ep[3]:.{digits}f}")
+
+    # The three-build packet arms' best/spread, which README section 2.1 generates from the bench log.
+    bench = read_blob(DOC / "logs" / "ab_single_vs_multichip.txt")
+    if bench:
+        arms: dict = {}
+        for line in bench.splitlines():
+            parts = line.split()
+            if not parts or parts[0] != "BENCH" or "packet" not in line:
+                continue
+            tag = next(x for x in parts if x.startswith("tag="))[4:]
+            kind = next(x for x in parts if x.startswith("("))
+            if "prefill" in parts:
+                key, value = (kind, "prefill", "8192" in tag), float(
+                    next(x for x in parts if x.startswith("wall="))[5:]
+                )
+            else:
+                key, value = (kind, "decode", "8192" in tag), float(
+                    next(x for x in parts if x.startswith("wall/iter="))[10:]
+                )
+            arms.setdefault(key, []).append(value)
+        for key, values in arms.items():
+            digits = 2 if key[1] == "prefill" else 3
+            tokens.add(f"{min(values):.{digits}f}")
+            tokens.add(f"{max(values) - min(values):.{digits}f}")
 
     selftest_text = read_blob(DOC / "logs" / "audit_selftest.txt")
     if selftest_text:

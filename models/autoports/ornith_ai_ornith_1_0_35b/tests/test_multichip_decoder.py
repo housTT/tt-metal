@@ -61,7 +61,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder import (
     local_decoder_config,
     num_blocks_for_context,
 )
-from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import TILE, OptimizedDecoder
+from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import TILE, OptimizedDecoder, _physical_rows
 
 DOC_DIR = Path(__file__).resolve().parents[1] / "doc" / "functional_decoder"
 
@@ -1041,7 +1041,13 @@ def test_gate_selected_experts_not_dense(mesh_device, layer_idx, monkeypatch):
     )
     assert seen, "no sparse_matmul was dispatched in decode — the routed path is not the sparse one"
     top_k = decoder.global_cfg.num_experts_per_tok
-    assert max(seen) <= top_k, f"decode activated {max(seen)} local experts, more than the global top-{top_k}"
+    # `top_k + 1`, not `top_k`: `MOE_MASK_FLOOR` floors the mask at local expert 0, so a device whose
+    # block holds all `top_k` selected experts *and* does not include local expert 0 among them runs
+    # one more. That is ~6e-5 per call rather than impossible, and round 8's correctness audit found
+    # the tighter bound would have been a rare flake rather than a real assertion.
+    assert max(seen) <= top_k + 1, (
+        f"decode activated {max(seen)} local experts, more than the global top-{top_k} plus the " "floored expert"
+    )
     assert max(seen) < decoder.cfg.num_experts, "decode is running every local expert, i.e. densely"
 
     # The prefill count is asserted too, because it is a *modelling input* elsewhere and not just a
@@ -1102,33 +1108,71 @@ def test_routing_select_modes_agree(mesh_device, layer_idx, monkeypatch):
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
-@pytest.mark.parametrize("seq_len", [32, 128], ids=["stack_sum_regime", "all_reduce_regime"])
+@pytest.mark.parametrize("phase", ["decode", "prefill"])
 @pytest.mark.parametrize("mode", ["all_reduce", "rs_ag", "stack_sum"])
-def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode, seq_len):
+def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode, phase):
     """Every collective spelling produces the same layer output, so the knob is a latency knob.
 
-    Run on **both sides of the ``auto`` crossover**. Review round 4 pointed out that the single
-    128-token shape this used to run put ``auto`` above ``CCL_STACK_SUM_MAX_ROWS``, so ``auto``
-    resolved to ``all_reduce`` and the ``all_reduce`` arm was comparing the shipped path with itself
-    — a determinism check presented as an agreement check. At 32 rows ``auto`` is ``stack_sum``, so
-    between the two shapes every arm is compared against a genuinely different spelling once.
+    Run on **both sides of the ``auto`` crossover**, which means running both *phases* rather than two
+    prefill lengths. Round 4 found the original single-shape version comparing the shipped path with
+    itself; round 8's correctness audit found the two-length replacement doing the same thing, for a
+    subtler reason: ``prefill_forward`` pads every chunk to ``PREFILL_ALIGN`` = 128 rows **before**
+    the layer runs, so a 32-token prefill still hands the collective 128 physical rows and ``auto``
+    still resolves to ``all_reduce``. No prefill shape can reach the ``stack_sum`` regime at all.
+
+    Decode can, and is where the layer actually ships it: a batch-1 step is one 32-row tile, so
+    ``auto`` is ``stack_sum`` there. Between the two phases every arm is now compared against a
+    genuinely different spelling once, and the assertion below re-derives which one from
+    ``_physical_rows`` rather than from the logical length.
     """
     source = default_weight_source()
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
-    x = to_device(mesh_device, make_activations(1, seq_len, seed=85))
+    seen = []
+    original = MC.MultichipDecoder._all_reduce
+
+    def spy(self, tensor):
+        seen.append(_physical_rows(tensor.shape))
+        return original(self, tensor)
+
+    monkeypatch.setattr(MC.MultichipDecoder, "_all_reduce", spy)
+
+    def run():
+        decoder.reset_state()
+        prefilled = decoder.prefill_forward(
+            to_device(mesh_device, make_activations(1, 128, seed=85)), page_table=page_table
+        )
+        if phase == "prefill":
+            return to_host(mesh_device, prefilled)
+        ttnn.deallocate(prefilled)
+        current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128]))
+        return to_host(
+            mesh_device,
+            decoder.decode_forward(
+                to_device(mesh_device, make_activations(1, 1, seed=86)),
+                current_pos=current_pos,
+                rot_idxs=rot_idxs,
+                page_table=page_table,
+            ),
+        )
+
     monkeypatch.setattr(MC, "CCL_MODE", "auto")
-    decoder.reset_state()
-    want = to_host(mesh_device, decoder.prefill_forward(x, page_table=page_table))
-    resolved = "stack_sum" if seq_len <= MC.CCL_STACK_SUM_MAX_ROWS else "all_reduce"
+    want = run()
+    rows = seen[-1] if phase == "decode" else max(seen)
+    resolved = "stack_sum" if rows <= MC.CCL_STACK_SUM_MAX_ROWS else "all_reduce"
+    seen.clear()
     monkeypatch.setattr(MC, "CCL_MODE", mode)
-    decoder.reset_state()
-    got = to_host(mesh_device, decoder.prefill_forward(x, page_table=page_table))
+    got = run()
     value = pcc(want, got)
     logger.info(
-        f"multichip CCL_MODE={mode} layer={layer_idx} seq_len={seq_len} (auto={resolved}): "
-        f"PCC vs auto = {value:.6f}"
+        f"multichip CCL_MODE={mode} layer={layer_idx} phase={phase}: last collective saw {rows} "
+        f"physical rows so auto={resolved}; PCC vs auto = {value:.6f}"
     )
     assert value > 0.9999, f"CCL_MODE={mode} changed the result (PCC {value})"
+    if phase == "decode":
+        assert resolved == "stack_sum", (
+            f"decode's collective saw {rows} physical rows, so `auto` did not pick stack_sum and this "
+            "test is not covering the crossover it exists for"
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -1655,7 +1699,7 @@ def test_perf_prefill(mesh_device, layer_idx, seq_len):
     # This test exists to be profiled between signposts, but review round 4 pointed out that it
     # asserted nothing at all, so nothing in the suite gated the prefill speedup the README quotes.
     # The bar is the single-chip baseline's warmed prefill (~95-102 ms) divided by a conservative 2x,
-    # against a measured 3.36-3.47x: it fails a lost parallelisation and tolerates a slow machine.
+    # against a measured 3.3-3.5x: it fails a lost parallelisation and tolerates a slow machine.
     assert elapsed * 1e3 < PREFILL_MS_BAR, (
         f"warmed multichip prefill {elapsed * 1e3:.2f} ms is above the {PREFILL_MS_BAR} ms bar; the "
         "single-chip baseline is ~95-102 ms, so this is at most a 2x speedup"

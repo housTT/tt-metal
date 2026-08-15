@@ -132,13 +132,17 @@ fi
 # `TT_METAL_WATCHER_APPEND=1`: watcher truncates its log on each device open and this subset opens
 # the mesh once per test, so without it the committed log would hold only the last test's session.
 # `TT_METAL_WATCHER_DISABLE_ETH=1` is REQUIRED here and is a hard tool limit, not a choice. With
-# watcher instrumenting the ACTIVE_ETH cores, the 1D-fabric ERISC program grows to 29040 B against a
-# 25600 B ACTIVE_ETH kernel config buffer on Blackhole, so *every* test in this subset fails at
-# `mesh_device` setup, before any model code runs:
-#     TT_FATAL: Program size (29040) too large for kernel config buffer (25600) on ACTIVE_ETH
+# watcher instrumenting the ACTIVE_ETH cores, the 1D-fabric ERISC program grows to 28656 B against a
+# 25600 B ACTIVE_ETH kernel config buffer on Blackhole, so tests in this subset fail at `mesh_device`
+# setup, before any model code runs:
+#     TT_FATAL: Program size (28656) too large for kernel config buffer (25600) on ACTIVE_ETH
 #              (assert.hpp:104)
-# That signature is reproduced in `logs/watcher_pytest_eth_enabled.txt.gz` (every selected test errors in ~15 s, zero
-# tests executed). There is no environment knob that grows that buffer, so the choice is watcher
+# That signature is reproduced in `logs/watcher_pytest_eth_enabled.txt`. The control run is itself
+# unstable, which is part of the finding: some runs error every selected test in ~15 s, others take a
+# `Fatal Python error: Segmentation fault` inside `open_mesh_device` after the first few TT_FATALs,
+# i.e. the mesh is not reliably reopenable once an ERISC program has failed to load. Both outcomes
+# demonstrate the same hard limit and neither is a shipped configuration. There is no environment knob
+# that grows that buffer, so the choice is watcher
 # coverage on the 110 Tensix worker cores per chip or no watcher coverage at all. The Tensix cores
 # are where every op in this stage runs; the uninstrumented cores are the fabric routers, which this
 # stage does not author (they are stock `ttnn` 1D-fabric kernels). Recorded as a limitation in
@@ -163,6 +167,12 @@ if has watcher; then
     -k "traced_decode or traced_replay or determinism or stress or collectives or zero_local_active or kv_cache_is_local or ccl_modes or ragged or batched or output_is_identical or permuted_page_table or continuation" \
     > "$LOGS/watcher_pytest_eth_enabled.txt" 2>&1 || true
   tail -1 "$LOGS/watcher_pytest_eth_enabled.txt"
+  # A crash in the control is a *result*, not a silent non-zero exit: say so out loud. The control is
+  # expected to fail (that is the point), so this never aborts the sweep -- but review round 8 found a
+  # segfault sitting unremarked in this artifact, which is exactly what an unread `|| true` produces.
+  if grep -qE "Fatal Python error|Segmentation fault" "$LOGS/watcher_pytest_eth_enabled.txt"; then
+    echo "note: the ACTIVE_ETH control crashed rather than erroring cleanly; see README limitation 1" >&2
+  fi
   rm -f generated/watcher/watcher.log
   python "$DOC/watcher/census.py" > /dev/null
   grep -E "fatal-class|TOTAL|dumps:" "$DOC/watcher/census_summary.txt"
