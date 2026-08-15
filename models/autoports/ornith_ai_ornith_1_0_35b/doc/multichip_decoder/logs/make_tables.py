@@ -164,6 +164,46 @@ def table_packet() -> str:
     return "\n".join(out)
 
 
+def table_packet_census() -> str:
+    """Every traced row of both dtypes at both packet sizes, counted rather than characterised.
+
+    Rounds 5, 6 and 7 each found a *sentence* about this comparison overstated while the rows
+    themselves were fine, so the sentence is now a generated census: how many rows move which way,
+    and by how much at the extremes.
+    """
+    text = read(LOGS / "probe_ccl.txt")
+
+    def rows(tag, prefix):
+        out = {}
+        for shape, arm, us in re.findall(rf"^{tag} {prefix}(\S+) (\S+) trace ([0-9.]+)", text, re.M):
+            out[(shape, arm)] = float(us)
+        return out
+
+    out = [
+        "| operand | rows | faster at 8192 B | slower at 8192 B | best gain | worst loss |",
+        "|---|---|---|---|---|---|",
+    ]
+    for label, shipped_tag, other_tag in (("bf16", "CCL", "CCLPKT"), ("bfloat8_b", "CCLBF8", "CCLBF8PKT")):
+        shipped, other = rows(shipped_tag, ""), rows(other_tag, r"\d+ ")
+        deltas = [(other[k] - shipped[k]) / other[k] * 100 for k in shipped if k in other]
+        faster = [d for d in deltas if d > 0]
+        slower = [d for d in deltas if d < 0]
+        out.append(
+            f"| {label} | {len(deltas)} | {len(faster)} | {len(slower)} | " f"{max(deltas):.1f}% | {min(deltas):.1f}% |"
+        )
+    return "\n".join(out)
+
+
+def table_selftest() -> str:
+    """The audit's own false-positive rate per figure class, from ``logs/audit_selftest.txt``."""
+    out = ["| figure class | trials | coincidental matches | rate |", "|---|---|---|---|"]
+    for line in read(LOGS / "audit_selftest.txt").splitlines():
+        p = line.split()
+        if len(p) == 4 and not line.startswith("#"):
+            out.append(f"| `{p[0]}` | {p[1]} | {p[2]} | **{float(p[3]):.3f}** |")
+    return "\n".join(out)
+
+
 def table_fabric() -> str:
     """Ring fabric against line fabric, on the two arms the layer actually ships.
 
@@ -647,6 +687,8 @@ TABLES = {
     "fabric": table_fabric,
     "packet": table_packet,
     "packet_layer": table_packet_layer,
+    "packet_census": table_packet_census,
+    "selftest": table_selftest,
     "ablayer": table_ablayer,
     "perf": table_perf,
     "category": table_category,

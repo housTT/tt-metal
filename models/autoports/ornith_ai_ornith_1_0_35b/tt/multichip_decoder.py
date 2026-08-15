@@ -152,8 +152,9 @@ DEFAULT_MESH_SHAPE = (1, 4)
 #: comparisons: the ``CCL`` rows are ``Topology.Ring`` against ``Topology.Linear`` **as the
 #: collectives' argument under this fabric**, and the ``CCLFAB`` rows are this fabric against
 #: ``FABRIC_1D`` (a second process, since the fabric is set before the mesh is opened). The fabrics
-#: tie at the decode tile and at 64 rows, where both are latency-bound, and the ring wins 1.3-1.4x
-#: from 512 rows up.
+#: are close on ``all_reduce`` below 512 rows, but the ring is ahead on **every** traced row of both
+#: spellings, and on the ``stack_sum`` spelling this layer actually picks at the decode tile it is
+#: ahead by about 14% there and more as rows grow. The fabric config is load-bearing at decode.
 DEFAULT_FABRIC_CONFIG = ttnn.FabricConfig.FABRIC_1D_RING
 
 #: Topology passed to the collectives that still accept one. ``ttnn.all_reduce`` and

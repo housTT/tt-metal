@@ -96,11 +96,13 @@ before any code:
 | prefill 2048 | 179.80 | 220.89 | 373.07 | 556.13 |
 <!-- /TABLE:fabric -->
 
-   The two fabrics tie to within a few tenths of a microsecond up to 128 rows — individual rows fall
-   either way, because at that size both are latency-bound and the ring's second direction has
-   nothing to carry — and the ring pulls away from 512 rows up, which is the prefill regime. So the
-   line fabric is never materially ahead and is 1.3-1.4x behind where the bytes are, and the layer
-   configures the ring.
+   Read per spelling, not per shape. For `all_reduce` the two fabrics are close below 512 rows and
+   the ring pulls away above it. For **`stack_sum` — the spelling `CCL_MODE="auto"` actually picks at
+   the batch-1 decode tile** — the ring is ahead everywhere, including by about 14% at that tile and
+   more as rows grow. No row in the whole line-fabric set falls the other way for either spelling, so
+   the decode critical path depends on the ring fabric materially rather than marginally: this is a
+   load-bearing configuration line, not a default worth inheriting by accident. Round 7 found the
+   earlier "tie to within a few tenths" reading taken from the `all_reduce` rows alone.
 
    The `ccl` table in §5.5's neighbourhood (`logs/probe_ccl.txt`, `CCL` rows) is the *other*
    question: `Topology.Ring` against `Topology.Linear` as the op's argument, both under the ring
@@ -133,12 +135,22 @@ before any code:
 | prefill 2048 | `all_reduce` | 179.80 | 196.78 | 153.01 | 152.97 |
 <!-- /TABLE:packet -->
 
-   The bf16 collective is where the setting matters: 8192 B is faster at every shape, by about 8% on
-   both shipped arms at their operating points and up to 18% at the larger ones. The **bfloat8_b**
-   collective is indifferent — every arm at every shape is within 1% either way, which is inside this
-   probe's repeatability — so the 4352 B the runtime asks for on those pages buys nothing measurable,
-   and the warning it emits is cosmetic on this layer. Review round 6 found the first version of this
-   decision made on bf16 rows alone.
+   The bf16 collective is where the setting matters and the block-float one is a coin-flip. Counted
+   over all 72 traced rows of each, rather than characterised:
+
+<!-- TABLE:packet_census -->
+| operand | rows | faster at 8192 B | slower at 8192 B | best gain | worst loss |
+|---|---|---|---|---|---|
+| bf16 | 72 | 66 | 6 | 18.5% | -0.6% |
+| bfloat8_b | 72 | 37 | 34 | 2.9% | -2.3% |
+<!-- /TABLE:packet_census -->
+
+   So bf16 gains up to 18.5% and gives up at most 0.6% on the six rows that fall the other way, while
+   block-float is **net-neutral** — it splits almost evenly and its extremes are ±2–3% in both
+   directions, with no shape favouring either size consistently. The 4352 B the runtime asks for on
+   the block-float pages therefore buys nothing, and 8192 B is taken on the bf16 rows. Rounds 5, 6 and
+   7 each found a *sentence* about this comparison overstated while the rows were fine, which is why
+   the sentence is now a generated census.
 
    At the layer the difference is small, as a category that is 3–9% of the window implies. Round 6
    pointed out that one build per arm cannot resolve it, so the pair runs **three builds each**:
@@ -296,7 +308,7 @@ internal, costs 104 448 B per layer per device, and never reaches the delta rule
 | alternative | why rejected | evidence |
 |---|---|---|
 | Sharded (reduce-scatter) residual | needs distributed RMSNorm (2 extra collectives) **and** a router-input gather; the reduce-scatter half saves about a third of one collective and the additions cost more than two | `logs/probe_ccl.txt` `rs_only_*` vs `all_reduce_*`; §2.2 |
-| Line fabric (`FABRIC_1D`) | ties the ring at the decode tile and at 64 rows, 1.3-1.4x slower from 512 rows up | `logs/probe_ccl.txt` `CCLFAB` rows |
+| Line fabric (`FABRIC_1D`) | slower on every traced row of both spellings; the shipped `stack_sum` at the batch-1 decode tile is about 14% behind and the gap grows with rows (§2.1) | `logs/probe_ccl.txt` `CCLFAB` rows |
 | `Topology.Linear` as the collectives' argument, under the ring fabric | slower at **every** measured traced shape | `logs/probe_ccl.txt` `CCL` rows |
 | The fabric's build-default 4352 B packet payload | on the **bf16** collective, 8192 B wins at every traced shape — about 8% on both shipped arms and up to 18% at the larger ones; on the **bfloat8_b** collective the two are within 1% either way, i.e. inside the probe's repeatability, and four of the 72 bf16 rows (all `rs_only`, none shipped) favour the default by under half a percent. So 8192 B is taken on the strength of the bf16 rows and costs nothing on the block-float ones (§2.1) | `logs/probe_ccl.txt` `CCLPKT` rows; `ab_single_vs_multichip.txt` `multichip-build-default-packet` |
 | `ttnn.experimental.all_reduce_async` (DRAM and L1 operands) | correct here, and **1.5-1.9x slower than the shipped arm at every measured shape** | `logs/probe_ccl.txt`, `all_reduce_async` / `all_reduce_async_l1` rows |
@@ -641,7 +653,7 @@ are the inherited paged-cache and norm boundaries. The one row this stage moves 
 (the `ReshapeView` row of the table above), which includes `CCL_COMPACT_ROWS`' fold around the collective — and §5.9
 measures that fold as a **net win** of 85–88 us a step at batch 32, so it pays for its own layout
 cost several times over. On the whole category the multichip-minus-single-chip delta is about four
-points at decode on both layer kinds, against a `DM` delta of seven to ten points that is the
+points at decode on both layer kinds, against a `DM` delta of six to ten points that is the
 collectives themselves — both readable off the table above, and neither large enough to make layout
 this stage's problem rather than the one it inherited.
 
@@ -651,7 +663,8 @@ six op-code rows do not sum to the window. Neither changes a decision here.
 
 Findings this drove:
 
-* **Communication is 6.8–9.4% of decode and 3.0–5.9% of prefill.** (The row counts the fabric ops.
+* **Communication is the collectives row of the table above — under 10% of decode and under 6% of
+  prefill.** (That row counts the fabric ops.
   `stack_sum`'s local `ttnn.sum` — `FastReduceNC`, 2 ops a step — adds about a point at decode, so
   the all-in decode figure is about a point higher; it is compute, not fabric, and it is the price of
   the spelling that wins at the decode tile.) That is an upper bound on the
@@ -1073,8 +1086,9 @@ to what any `ttnn` CCL user runs. Every op this stage does author runs on the co
 1. **Watcher does not cover the ACTIVE_ETH cores on this configuration.** Hard tool limit, evidence
    and reasoning in §7.
 2. **Decode parallel efficiency is 41–42%, not ~100%.** Batch-1 decode is launch- and latency-bound
-   (5.9–6.5% of the DRAM roofline), so dividing the work by four does not divide the time by four.
-   The collectives are only 6.8–9.4% of the window, so this is not a communication problem and no
+   (about 6% of the DRAM roofline — §5.4's table has both layer kinds), so dividing the work by four
+   does not divide the time by four. The collectives are under a tenth of the window, so this is not a
+   communication problem and no
    collective-shape change would fix it. Prefill, which is compute-bound, reaches 84–87%.
 3. **The `shared_down` retune is an op-level win that the layer cannot resolve.** The inherited
    55-core point is 0.51–0.68 us behind the winner on every sweep, against a 0.25–0.35 us probe
@@ -1096,12 +1110,12 @@ to what any `ttnn` CCL user runs. Every op this stage does author runs on the co
 6. **The fabric packet size cannot satisfy both collectives, so the runtime always warns.** The
    token mixer's collective carries bf16 (2048 B pages, ideal 8192 B) and the MoE's carries
    `bfloat8_b` (1088 B pages, ideal 4352 B); one fabric setting serves both, so `ccl_common.cpp:63`
-   emits a suboptimal-packet warning for whichever dtype it is not — about 860 per suite run either
-   way. The shipped 8192 B is chosen on measurement: it is worth up to 18% on the bf16 collective and
+   emits a suboptimal-packet warning for whichever dtype it is not — 864 per suite run at the
+   shipped setting, and a comparable count the other way before it (`logs/warning_census.txt`). The shipped 8192 B is chosen on measurement: it is worth up to 18% on the bf16 collective and
    is within the probe's repeatability on the block-float one (§2.1). The warnings on the block-float
-   dispatches are therefore cosmetic on this layer, and `logs/probe_warnings.txt` carries the
-   distinct warning text from every probe so the next class of them is visible in an artifact rather
-   than only in a log nobody greps.
+   dispatches are therefore cosmetic on this layer, and `logs/warning_census.txt` carries every
+   distinct warning class with its count so the next one is visible in an artifact rather than only in
+   a log nobody greps.
 7. **The kv cache is halved, not quartered.** `n_kv_heads = 2 < tp = 4`. Deliberate (§2.4): it buys
    zero attention traffic across the fabric. A head_dim split would quarter the cache and put a
    cross-device reduction on the decode critical path.
@@ -1186,9 +1200,20 @@ decimal and every 4+ digit integer in this README, the work log, the context con
 script must appear in a committed artifact as a *labelled* measurement, or be declared as an
 expression over sourced values. `logs/run_evidence.sh` runs it last. `logs/audit_selftest.txt` records
 what a pass is worth — the false-positive rate per figure class, measured by asking the same question
-about arbitrary values — and it is worth reading before trusting a pass: byte counts are pinned hard
-(0.000 false-positive rate), while 1- and 2-decimal figures sit at 0.23 and 0.12, so a wrong ratio or
-percentage can survive the audit by coincidence. That is why every table here is **generated** rather
+about arbitrary values:
+
+<!-- TABLE:selftest -->
+| figure class | trials | coincidental matches | rate |
+|---|---|---|---|
+| `1-decimal-us` | 2000 | 496 | **0.248** |
+| `2-decimal` | 2000 | 301 | **0.150** |
+| `3-decimal-ms` | 2000 | 43 | **0.021** |
+| `6-decimal-pcc` | 2000 | 149 | **0.074** |
+| `byte-count` | 2000 | 0 | **0.000** |
+<!-- /TABLE:selftest -->
+
+Read it before trusting a pass: byte counts are pinned hard, while 1- and 2-decimal figures can
+survive the audit by coincidence a quarter and a seventh of the time. That is why every table here is **generated** rather
 than checked, and why review rounds 4, 5 and 6 each found a wrong hand-written ratio next to a correct
 generated table. The remaining hand-written figures are the ones prose needs to argue with; the
 numbers a decision rests on live in the tables.

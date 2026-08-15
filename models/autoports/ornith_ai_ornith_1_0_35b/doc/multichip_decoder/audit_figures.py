@@ -252,6 +252,7 @@ ALLOWED_INT = {
     "285212672",
     "142606336",
     "10000",  # "~10 000 rows", an approximation of the uncommitted raw ops CSV's size
+    "2000",  # audit_selftest.py's trial count per figure class, a constant of the self-test
     "15232",  # Blackhole max packet payload, a constant of ccl_common.cpp's arithmetic
     "9216",  # global attn_in width
     "12352",  # global gdn_in width
@@ -533,6 +534,33 @@ def derived_from_artifacts() -> set:
                     if cat in theirs:
                         tokens.add(f"{abs(value - theirs[cat]):.1f}")
 
+    # The packet census's percentages (README section 2.1) and the audit self-test's own rates
+    # (section 9), both of which are generated tables computed from artifacts rather than rows in one.
+    ccl_text = read_blob(DOC / "logs" / "probe_ccl.txt")
+    if ccl_text:
+
+        def _rows(tag, prefix):
+            return {
+                (shape, arm): float(us)
+                for shape, arm, us in re.findall(rf"^{tag} {prefix}(\S+) (\S+) trace ([0-9.]+)", ccl_text, re.M)
+            }
+
+        for shipped_tag, other_tag in (("CCL", "CCLPKT"), ("CCLBF8", "CCLBF8PKT")):
+            shipped, other = _rows(shipped_tag, ""), _rows(other_tag, r"\d+ ")
+            deltas = [(other[k] - shipped[k]) / other[k] * 100 for k in shipped if k in other]
+            if deltas:
+                for value in (max(deltas), min(deltas)):
+                    for digits in (0, 1):
+                        tokens.add(f"{value:.{digits}f}")
+                        tokens.add(f"{abs(value):.{digits}f}")
+
+    selftest_text = read_blob(DOC / "logs" / "audit_selftest.txt")
+    if selftest_text:
+        for line in selftest_text.splitlines():
+            parts = line.split()
+            if len(parts) == 4 and not line.startswith("#"):
+                tokens.add(f"{float(parts[3]):.3f}")
+
     dense = read_blob(DOC / "logs" / "probe_dense_matmul.txt")
     if dense:
         # The `repeatability` column of README section 5.6: the widest disagreement between repeated
@@ -743,6 +771,67 @@ def contract_section(text: str) -> str:
     return json.dumps(owned, indent=1)
 
 
+#: Filenames a document may cite that are not artifacts in the pool: generators, the documents
+#: themselves, and files belonging to other stages.
+CITATION_EXEMPT = {
+    "README.md",
+    "work_log.md",
+    "context_contract.json",
+    "audit_figures.py",
+    "make_tables.py",
+    "warning_census.py",
+    "census.py",
+    "run_evidence.sh",
+    "run_profiling.sh",
+    "bench.py",
+    "conftest.py",
+    "args.json",  # `args.json` in bench.py is an argparse attribute, not a filename
+    "index.json",  # a suffix of the HF snapshot's model.safetensors.index.json, outside the repo
+}
+
+
+def check_citations() -> list:
+    """Every ``foo.txt``-shaped filename a document cites must exist somewhere in the stage tree.
+
+    Review round 7 found README limitation 6 and a work-log row citing `logs/probe_warnings.txt`, a
+    file that was superseded before it ever landed. `scoped_tokens` silently falls back to the global
+    pool when a citation matches no artifact, so a dangling reference was invisible to every other
+    check here.
+    """
+    # The whole autoport tree, not just this stage's directory: the context contract legitimately
+    # cites the earlier stages' probes and scripts, and this module cites the inherited decoder. Plus
+    # every tracked file in the repo, because the probes and the work log cite tt-metal's own tools
+    # (`tt-triage.py`, the pre-commit hooks) and the HF snapshot's `index.json`.
+    known = {p.name for p in ROOT.rglob("*")} | {p.name.removesuffix(".gz") for p in ROOT.rglob("*")}
+    try:
+        import subprocess
+
+        tracked = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "--full-name", ":/"], capture_output=True, text=True, check=True
+        ).stdout
+        known |= {line.rsplit("/", 1)[-1] for line in tracked.splitlines()}
+    except Exception:  # noqa: BLE001 - a non-git checkout still gets the autoport-tree check
+        pass
+    agents = ROOT.parents[2] / ".agents"  # skills and harness notes, cited by the work log, untracked
+    if agents.is_dir():
+        known |= {p.name for p in agents.rglob("*")}
+    problems = []
+    for doc in DOCS:
+        text = read_blob(doc)
+        if text is None:
+            continue
+        if doc == CONTRACT:
+            text = contract_section(text)
+        for name in sorted(set(CITATION.findall(text))):
+            # `CITATION` matches from a word boundary, so a brace-expanded or hyphenated citation
+            # (`{prefill,decode}_perf_report.txt`, `tt-triage.txt`) yields a suffix of the real name.
+            # A suffix match is a real citation; anything that matches nothing in the tree is not.
+            if name in CITATION_EXEMPT or name == doc.name or any(k.endswith(name) for k in known):
+                continue
+            problems.append(f"DANGLING-CITATION  {doc.name}: {name}")
+    return problems
+
+
 def scan_documents(blobs, tokens) -> list:
     """Every decimal and 4+ digit integer in every document must trace to an artifact."""
     problems, cache = [], {}
@@ -822,7 +911,9 @@ def main() -> int:
         write_source_stamp()
         print(f"wrote {SOURCE_STAMP}")
         return 0
-    problems = check_missing() + check_derived(tokens) + scan_documents(blobs, tokens) + check_freshness()
+    problems = (
+        check_missing() + check_derived(tokens) + scan_documents(blobs, tokens) + check_freshness() + check_citations()
+    )
     for problem in problems:
         print(problem)
     print(f"{len(problems)} problem(s); {len(blobs)} artifacts, {len(tokens)} measured tokens")
