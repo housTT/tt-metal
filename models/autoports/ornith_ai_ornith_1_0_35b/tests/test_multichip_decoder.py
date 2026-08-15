@@ -741,12 +741,13 @@ def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch, seq_len):
     stage found this test pinned at batch 4 while three documents claimed batch 32, which is exactly
     the class of defect the contract's own notes record being caught twice before.
 
-    ``seq_len`` 130 is not a multiple of the 32-token tile, and it is here for a reason round 2 of the
-    review found: ``CCL_COMPACT_ROWS`` folds ``[b, t, dim]`` to ``[1, 1, b*t, dim]`` whenever the
-    physical row count exceeds the folded one, which in **prefill** happens only when ``b > 1`` and
-    ``t`` is not tile-aligned. Every other prefill test is either batch 1 or tile-aligned, so before
-    this parameter the prefill side of that fold was never executed — the same shape of defect as the
-    batch pinning above, one layer down.
+    ``seq_len`` 130 is not a multiple of the 32-token tile. Round 2 of the review added it believing
+    it would exercise the prefill side of the ``CCL_COMPACT_ROWS`` fold; round 8's correctness audit
+    showed it cannot — ``prefill_forward`` pads every chunk to ``PREFILL_ALIGN`` = 128 rows before the
+    layer runs, so a prefill operand's physical row count always equals ``align_up(b * t, 32)`` and
+    the fold's strict-greater guard is false at every prefill shape and batch. The fold is
+    decode-only, and §5.9's decode batches are where it is covered. The parameter stays because it is
+    the suite's only batched **non-aligned prefill** coverage, which is worth having on its own.
     """
     source = default_weight_source()
     x = make_activations(batch, seq_len, seed=51 + seq_len)
@@ -1796,7 +1797,7 @@ def test_multichip_beats_single_chip_traced_decode(mesh_device, layer_idx):
         f"single-chip-replicated {timings['single-chip-replicated'] * 1e3:.3f} ms -> multichip "
         f"{timings['multichip'] * 1e3:.3f} ms ({speedup:.2f}x)"
     )
-    # A real bar, not `> 1.0`: the measured speedup is 1.65-1.68x on both layer kinds across every
+    # A real bar, not `> 1.0`: the measured speedup is 1.65-1.69x on both layer kinds across every
     # sweep this stage ran, so 1.4x leaves ample room for machine noise while still failing if the
     # parallelisation regresses. Review round 4 pointed out that `> 1.0` gated nothing the README's
     # figures depend on.

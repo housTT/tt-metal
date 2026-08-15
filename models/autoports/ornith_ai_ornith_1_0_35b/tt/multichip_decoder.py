@@ -173,16 +173,18 @@ DEFAULT_CCL_NUM_LINKS = 2
 #:
 #: The build default on this machine is 4352 B. The two per-layer collectives carry **different
 #: dtypes** — the token mixer's is ``bfloat16`` and the MoE's is ``bfloat8_b`` — so their tile pages
-#: are 2048 B and 1088 B, and ``ccl_common.cpp:60-66`` derives a different ideal packet for each:
+#: are 2048 B and 1088 B, and ``ccl_common.cpp:60-61`` derives a different ideal packet for each (and warns from ``:64-70``):
 #: ``min(15232/page, 4) * page`` is 8192 B for the first and 4352 B for the second. One fabric
 #: setting serves both, so the runtime warns about whichever it is not; the warning cannot be driven
 #: to zero, and rounds 5 and 6 each found a version of this file treating it as if it could.
 #:
 #: Measured on both dtypes (``probe_ccl.txt``: ``CCL``/``CCLPKT`` for bf16, ``CCLBF8``/``CCLBF8PKT``
-#: for block-float). The bf16 collective prefers 8192 B at every traced shape — about 8% on both
-#: shipped arms and up to 18% at the larger ones. The block-float collective is **indifferent**:
-#: every arm at every shape is within 1% either way, inside the probe's repeatability. So 8192 B is
-#: taken on the bf16 rows and costs nothing on the others. ``ab_single_vs_multichip.txt`` carries the
+#: for block-float). README section 2.1 generates the census; it counts rows rather than
+#: characterising them, because three review rounds each found a characterisation of this comparison
+#: overstated. bf16 favours 8192 B on the large majority of its 72 traced rows, by up to 18%, and
+#: gives up under a percent on the handful that fall the other way; block-float splits almost evenly,
+#: with extremes of a few percent in both directions and no shape favouring either size consistently.
+#: So 8192 B is taken on the bf16 rows and costs nothing measurable on the others. ``ab_single_vs_multichip.txt`` carries the
 #: layer-level arms, where the difference is at or below the build-to-build spread.
 #:
 #: This is a **fabric** setting, so it is applied before ``ttnn.open_mesh_device`` by whoever opens
@@ -257,7 +259,9 @@ CCL_STACK_SUM_MAX_ROWS = 64
 #: win, and it is not one.
 #:
 #: The ``cast`` arm of ``doc/multichip_decoder/logs/ab_layer_knobs.txt`` measures it at the layer:
-#: casting up costs ~5 us on every decode step and moves warmed prefill by **nothing** — the arms'
+#: casting up costs a few microseconds on every decode step (README section 5.5's generated table has
+#: the pair; it is 3 us on both layer kinds in the committed sweep) and moves warmed prefill by
+#: **nothing** — the arms'
 #: three-build ranges overlap on both layer kinds. So that row is **not** data movement this layer
 #: pays: removing the block-float operand changes its cost and not the layer's. What
 #: it *is* remains open — a collective barrier absorbing device skew is the candidate — and README
@@ -499,7 +503,16 @@ _BLOCK_FLOAT_DTYPES = (ttnn.bfloat8_b, ttnn.bfloat4_b)
 
 
 def kv_head_owner(kv_heads: int, tp: int, device: int) -> int:
-    """Which global kv head device ``device`` owns when ``kv_heads < tp``."""
+    """Which global kv head ``device`` owns the *first* of, for either sharding direction.
+
+    ``kv_heads < tp`` (this model: 2 over 4) is the sharing case — a group of ``tp // kv_heads``
+    devices owns one head each. ``kv_heads >= tp`` is the ordinary split, where each device owns
+    ``kv_heads // tp`` consecutive heads and this returns the first. The old form divided ``tp`` by
+    the head count unconditionally and raised ``ZeroDivisionError`` on the second case, which
+    ``local_decoder_config`` explicitly accepts; round 10 found the gap next to the one round 8 fixed.
+    """
+    if kv_heads >= tp:
+        return device * (kv_heads // tp)
     return device // (tp // kv_heads)
 
 

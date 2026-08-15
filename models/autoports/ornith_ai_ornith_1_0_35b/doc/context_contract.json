@@ -291,7 +291,7 @@
   ],
   "max_decode_batch": 32,
   "max_prefill_batch": 32,
-  "batch_note": "Unchanged from the single-chip stage and re-verified on the mesh rather than inherited: TP=4 changes the per-device head counts that every batch-sensitive decode op is bounded by \u2014 nlp_create_qkv_heads_decode (a 32-user op limit), paged_fused_update_cache (2 x batch cores) and sdpa_decode (one core per page-table row) all see n_heads 16 -> 4 and n_kv_heads 2 -> 1. Each batch is run at a tile-aligned prefill length (192) and a non-aligned one (130); the second is the only shape where the CCL_COMPACT_ROWS fold fires in prefill.",
+  "batch_note": "Unchanged from the single-chip stage and re-verified on the mesh rather than inherited: TP=4 changes the per-device head counts that every batch-sensitive decode op is bounded by \u2014 nlp_create_qkv_heads_decode (a 32-user op limit), paged_fused_update_cache (2 x batch cores) and sdpa_decode (one core per page-table row) all see n_heads 16 -> 4 and n_kv_heads 2 -> 1. (An earlier note claimed the non-aligned batched case also exercised the CCL_COMPACT_ROWS fold in prefill; it does not -- the fold is decode-only, because prefill pads to PREFILL_ALIGN before the layer runs. The case is kept as the suite's only batched non-aligned prefill coverage.)",
   "tested_prefill_lengths_per_batch": [
    192,
    130
