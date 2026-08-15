@@ -252,6 +252,7 @@ ALLOWED_INT = {
     "285212672",
     "142606336",
     "10000",  # "~10 000 rows", an approximation of the uncommitted raw ops CSV's size
+    "15232",  # Blackhole max packet payload, a constant of ccl_common.cpp's arithmetic
     "9216",  # global attn_in width
     "12352",  # global gdn_in width
     "4096",  # global o_proj/gdn_out K
@@ -298,8 +299,17 @@ SPACED_INTEGER = re.compile(r"(?<![\w.])(\d{1,3}(?: \d{3})+)(?![\w.])")
 LABELLED = [
     re.compile(r"\b(\d+ (?:passed|skipped|failed|deselected))\b"),
     re.compile(r"\b(fatal-class matches: \d+)"),
-    re.compile(r"\b(?:over |across )?(\d+) dumps\b"),
-    re.compile(r"\bfree over (\d+) detail lines\b"),
+]
+
+#: ``(pattern, label)`` where the pattern captures the *number* and ``label`` is the word the artifact
+#: prints next to it. Checked as "this number appears on a line that mentions this label", which
+#: survives the artifacts writing it the other way round (``dumps: 58``) or with ANSI codes in
+#: between, and unlike a bare-substring test it can actually fail. Review round 6 found the first
+#: version of these two patterns capturing only the digits, which made the check ask whether "20"
+#: appeared anywhere in 31 artifacts.
+LABELLED_PAIRS = [
+    (re.compile(r"\b(\d+) dumps\b"), "dumps"),
+    (re.compile(r"\bfree over (\d+) detail lines\b"), "detail"),
 ]
 
 #: An artifact filename mentioned in prose.
@@ -404,7 +414,24 @@ def sourced(value: str, tokens) -> bool:
     return value in tokens or plain in tokens
 
 
+def labelled_pair_in_artifacts(value: str, label: str, blobs) -> bool:
+    """Does some artifact print ``value`` on a line that also mentions ``label``?"""
+    for text in blobs.values():
+        for line in text.splitlines():
+            if label in line and re.search(rf"(?<![\w.]){re.escape(value)}(?![\w.])", line):
+                return True
+    return False
+
+
 def phrase_in_artifacts(phrase: str, blobs) -> bool:
+    """Is this exact ``value label`` phrase printed by an artifact?
+
+    The phrase must be captured *whole* by its `LABELLED` pattern: review round 6 found two patterns
+    capturing only the digits, which made the check ask whether the substring "20" appeared anywhere
+    in 31 artifacts. It always does, so those two patterns could not fail. Anything added here needs
+    its capture group around the label as well as the number.
+    """
+    assert not phrase.strip().isdigit(), f"LABELLED pattern captured a bare number ({phrase!r}), not a phrase"
     return any(phrase in text for text in blobs.values())
 
 
@@ -754,6 +781,10 @@ def scan_documents(blobs, tokens) -> list:
                 for phrase in pattern.findall(paragraph):
                     if not phrase_in_artifacts(phrase, blobs):
                         problems.append(f"UNSOURCED-LABELLED  {doc.name}: {phrase!r}")
+            for pattern, label in LABELLED_PAIRS:
+                for value in pattern.findall(paragraph):
+                    if not labelled_pair_in_artifacts(value, label, blobs):
+                        problems.append(f"UNSOURCED-LABELLED  {doc.name}: {value} {label}")
     return problems
 
 

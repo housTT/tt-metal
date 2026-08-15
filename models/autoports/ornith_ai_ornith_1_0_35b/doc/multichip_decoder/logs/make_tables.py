@@ -86,6 +86,33 @@ def table_bench() -> str:
     return "\n".join(out)
 
 
+def table_packet_layer() -> str:
+    """The packet-size pair at the layer, three builds each, from ``ab_single_vs_multichip.txt``."""
+    rows = {}
+    for line in read(LOGS / "ab_single_vs_multichip.txt").splitlines():
+        p = line.split()
+        if not p or p[0] != "BENCH":
+            continue
+        tag = next(x for x in p if x.startswith("tag="))[4:]
+        if "packet" not in tag:
+            continue
+        arm = "8192 B (shipped)" if "8192" in tag else "4352 B (build default)"
+        kind = next(x for x in p if x.startswith("(")).strip("()")
+        if "prefill" in p:
+            phase, value = "prefill 2048", float(next(x for x in p if x.startswith("wall="))[5:])
+        else:
+            phase, value = "decode (traced)", float(next(x for x in p if x.startswith("wall/iter="))[10:])
+        rows.setdefault((kind, phase, arm), []).append(value)
+    out = ["| layer kind | phase | arm | builds | best | spread |", "|---|---|---|---|---|---|"]
+    for (kind, phase, arm), values in sorted(rows.items()):
+        digits = 2 if "prefill" in phase else 3
+        out.append(
+            f"| {kind} | {phase} | {arm} | {len(values)} | {min(values):.{digits}f} ms | "
+            f"{max(values) - min(values):.{digits}f} ms |"
+        )
+    return "\n".join(out)
+
+
 def table_ccl() -> str:
     text = read(LOGS / "probe_ccl.txt")
     shapes = [
@@ -111,30 +138,29 @@ def table_ccl() -> str:
 
 
 def table_packet() -> str:
-    """The fabric packet size the runtime asks for, against the build default it warns about.
+    """The fabric packet size the runtime asks for, on **both** operand dtypes the layer runs.
 
-    Traced microseconds per collective at the shapes the layer produces. `CCL` rows are the shipped
-    configuration (8192 B); `CCLPKT` rows are the same sweep at the build default (4352 B), which is
-    what every CCL dispatch warned about until review round 5 measured it.
+    The two per-layer collectives carry different dtypes (bf16 from the token mixer, bfloat8_b from
+    the MoE), so they have different tile page sizes and different ideal packet sizes, and one fabric
+    setting has to serve both. Review round 6 found this decision made on the bf16 rows alone.
     """
     text = read(LOGS / "probe_ccl.txt")
-    shapes = [
-        ("decode", "decode (batch 1, 32 rows)"),
-        ("rows128", "128 rows"),
-        ("rows512", "512 rows"),
-        ("decode_b32", "decode batch 32 (1024 rows)"),
-        ("prefill_2048", "prefill 2048"),
+    shapes = [("decode", "decode tile"), ("decode_b32", "decode batch 32"), ("prefill_2048", "prefill 2048")]
+    arms = [("ag_stack_sum", "`stack_sum`"), ("all_reduce_ring", "`all_reduce`")]
+    cols = [
+        ("CCL", "", "bf16 8192 B (shipped)"),
+        ("CCLPKT", r"\d+ ", "bf16 4352 B"),
+        ("CCLBF8", "", "bfp8 8192 B (shipped)"),
+        ("CCLBF8PKT", r"\d+ ", "bfp8 4352 B"),
     ]
-    arms = [("all_reduce_ring", "`all_reduce`"), ("ag_stack_sum", "`stack_sum`")]
-    head = [f"{label} {size}" for _, label in arms for size in ("8192 B (shipped)", "4352 B (default)")]
-    out = ["| shape | " + " | ".join(head) + " |", "|---" * (len(head) + 1) + "|"]
+    out = ["| shape | arm | " + " | ".join(c[2] for c in cols) + " |", "|---" * (len(cols) + 2) + "|"]
     for key, label in shapes:
-        cells = []
-        for arm, _ in arms:
-            for tag, prefix in (("CCL", ""), ("CCLPKT", r"\d+ ")):
+        for arm, arm_label in arms:
+            cells = []
+            for tag, prefix, _ in cols:
                 m = re.search(rf"^{tag} {prefix}{key} {arm} trace ([0-9.]+)", text, re.M)
                 cells.append(m.group(1) if m else "—")
-        out.append(f"| {label} | " + " | ".join(cells) + " |")
+            out.append(f"| {label} | {arm_label} | " + " | ".join(cells) + " |")
     return "\n".join(out)
 
 
@@ -210,6 +236,39 @@ def table_moepar() -> str:
                 if arm == "ep" and phase == "decode":
                     note = " (mean local)" if index == 0 else " (>= the expected maximum, 3.512)"
                 out.append(f"| {phase} | {labels[arm]}{note} | {experts} | {active} | {us:.2f} |")
+    return "\n".join(out)
+
+
+def table_moepar_ratios() -> str:
+    """The EP-vs-alternatives ratios, computed rather than transcribed.
+
+    Review round 4 asked for the arms to be priced on one basis, round 5 restated the ratios by hand
+    and round 6 found the new pair wrong too — 12-13% out, in the flattering direction, and in a
+    figure class the audit's own self-test puts at a 23% false-positive rate. So they are generated
+    from the same rows the table above is.
+    """
+    rows = []
+    for line in read(LOGS / "probe_expert_parallel.txt").splitlines():
+        p = line.split()
+        if p and p[0] == "MOEPAR":
+            rows.append((p[1], p[2], int(p[5]), float(p[7])))
+
+    def pick(phase, arm, active=None):
+        picked = [r for r in rows if r[0] == phase and r[1] == arm]
+        if active is not None:
+            picked = [min(picked, key=lambda r: abs(r[2] - active))]
+        return picked[0]
+
+    out = ["| comparison | basis | ratio |", "|---|---|---|"]
+    for phase, active, label in (
+        ("decode", 4, "decode, at the expected maximum (conservative)"),
+        ("decode", 2, "decode, at the mean local count"),
+        ("prefill", 41, "prefill"),
+    ):
+        ep = pick(phase, "ep", active)
+        for arm, name in (("tp", "intermediate-sharded"), ("single", "unsharded, gate-selected")):
+            other = pick(phase, arm)
+            out.append(f"| EP vs {name} | {label} | **{other[3] / ep[3]:.2f}x** |")
     return "\n".join(out)
 
 
@@ -584,8 +643,10 @@ TABLES = {
     "bench": table_bench,
     "ccl": table_ccl,
     "moepar": table_moepar,
+    "moepar_ratios": table_moepar_ratios,
     "fabric": table_fabric,
     "packet": table_packet,
+    "packet_layer": table_packet_layer,
     "ablayer": table_ablayer,
     "perf": table_perf,
     "category": table_category,

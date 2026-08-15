@@ -122,6 +122,16 @@ def main():
         help="fabric config set before open_mesh_device: FABRIC_1D_RING (shipped) or FABRIC_1D",
     )
     ap.add_argument(
+        "--dtype",
+        default="bfloat16",
+        choices=["bfloat16", "bfloat8_b"],
+        help="operand dtype. The layer runs BOTH: the token mixer's collective carries bfloat16 and "
+        "the MoE's carries bfloat8_b (the inherited routed-expert activation dtype). They have "
+        "different tile page sizes -- 2048 B and 1088 B -- and therefore different ideal fabric "
+        "packet sizes, which is what review round 6 found this probe blind to. bfloat8_b rows are "
+        "tagged CCLBF8.",
+    )
+    ap.add_argument(
         "--packet-bytes",
         type=int,
         default=MC.DEFAULT_FABRIC_PACKET_BYTES,
@@ -138,8 +148,10 @@ def main():
     # separately so no reader (or table generator) can mistake one fabric's rows for the other's, and
     # a packet-size override gets a third tag for the same reason.
     tag = "CCL" if ring_fabric else "CCLFAB"
+    if args.dtype != "bfloat16":
+        tag = "CCLBF8"
     if args.packet_bytes != MC.DEFAULT_FABRIC_PACKET_BYTES:
-        tag = "CCLPKT"
+        tag = tag + "PKT" if tag == "CCLBF8" else "CCLPKT"
     if args.packet_bytes:
         ttnn.set_fabric_config(fabric, router_config=MC.fabric_router_config(args.packet_bytes))
     else:
@@ -148,7 +160,7 @@ def main():
     n = mesh.get_num_devices()
     payload = ttnn.get_tt_fabric_max_payload_size_bytes()
     print(f"# CCL sweep, {n} devices, {fabric.name}, num_links={args.links}, max_payload={payload} B")
-    if tag == "CCLPKT":
+    if tag.endswith("PKT"):
         print("# columns: packet_bytes shape arm mode us correct_pcc")
     elif ring_fabric:
         print("# columns: shape arm mode us correct_pcc")
@@ -158,9 +170,10 @@ def main():
         for name, shape in SHAPES:
             host = torch.randn(*shape, dtype=torch.float32) * 0.1
             per_device = torch.stack([host * (d + 1) for d in range(n)], dim=0)
+            operand_dtype = ttnn.bfloat16 if args.dtype == "bfloat16" else ttnn.bfloat8_b
             tt = ttnn.from_torch(
                 per_device.reshape(n * shape[0], *shape[1:]).to(torch.bfloat16),
-                dtype=ttnn.bfloat16,
+                dtype=operand_dtype,
                 layout=ttnn.TILE_LAYOUT,
                 device=mesh,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
@@ -246,7 +259,7 @@ def main():
             arms["all_reduce_async_l1"] = lambda: all_reduce_async(tt_l1, ttnn.L1_MEMORY_CONFIG)
 
             row = name
-            if tag == "CCLPKT":
+            if tag.endswith("PKT"):
                 row = f"{payload} {name}"
             elif not ring_fabric:
                 row = f"{args.fabric} {name}"

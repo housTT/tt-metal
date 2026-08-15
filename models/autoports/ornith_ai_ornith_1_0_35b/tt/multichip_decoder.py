@@ -169,17 +169,19 @@ DEFAULT_CCL_NUM_LINKS = 2
 
 #: Fabric max packet payload, in bytes, to configure alongside :data:`DEFAULT_FABRIC_CONFIG`.
 #:
-#: The build default on this machine is 4352 B, and every CCL dispatch this layer makes logs
-#: ``Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet
-#: size to maximize throughput`` (``ccl_common.cpp:63``). The recommendation is exact arithmetic, not
-#: a heuristic: the layer's residual page is the 2048-element bfloat16 row = 4096 B, four of which fit
-#: a Blackhole packet, and 4352 carries one page plus a wasted remainder. Review round 5 found the
-#: warning unclassified — 864 of them in one suite log, on the stage's own critical path.
+#: The build default on this machine is 4352 B. The two per-layer collectives carry **different
+#: dtypes** — the token mixer's is ``bfloat16`` and the MoE's is ``bfloat8_b`` — so their tile pages
+#: are 2048 B and 1088 B, and ``ccl_common.cpp:60`` derives a different ideal packet for each:
+#: ``min(15232/page, 4) * page`` is 8192 B for the first and 4352 B for the second. One fabric
+#: setting serves both, so the runtime warns about whichever it is not; the warning cannot be driven
+#: to zero, and rounds 5 and 6 each found a version of this file treating it as if it could.
 #:
-#: Taking the advice is measured, not assumed: ``probe_ccl.txt``'s ``CCLPKT`` rows are the whole sweep
-#: re-run under this override, and every arm at every shape is faster or unchanged — the shipped
-#: ``stack_sum`` at the decode tile and the shipped ``all_reduce`` at the 2048-token prefill chunk
-#: both by about 8%. ``ab_single_vs_multichip.txt`` carries the layer-level arms.
+#: Measured on both dtypes (``probe_ccl.txt``: ``CCL``/``CCLPKT`` for bf16, ``CCLBF8``/``CCLBF8PKT``
+#: for block-float). The bf16 collective prefers 8192 B at every traced shape — about 8% on both
+#: shipped arms and up to 18% at the larger ones. The block-float collective is **indifferent**:
+#: every arm at every shape is within 1% either way, inside the probe's repeatability. So 8192 B is
+#: taken on the bf16 rows and costs nothing on the others. ``ab_single_vs_multichip.txt`` carries the
+#: layer-level arms, where the difference is at or below the build-to-build spread.
 #:
 #: This is a **fabric** setting, so it is applied before ``ttnn.open_mesh_device`` by whoever opens
 #: the mesh, not by this module: :func:`fabric_router_config` builds the object, the suite passes it
@@ -257,7 +259,7 @@ CCL_STACK_SUM_MAX_ROWS = 64
 #: three-build ranges overlap on both layer kinds. So that row is **not** data movement this layer
 #: pays: removing the block-float operand changes its cost and not the layer's. What
 #: it *is* remains open — a collective barrier absorbing device skew is the candidate — and README
-#: limitation 8 records it as a candidate rather than a finding.
+#: limitation 9 records it as a candidate rather than a finding.
 #:
 #: Kept as a knob rather than deleted because that null result is the control for the anomaly, and
 #: because a future dtype policy could move the boundary.

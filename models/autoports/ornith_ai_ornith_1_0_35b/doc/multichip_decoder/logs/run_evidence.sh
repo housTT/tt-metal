@@ -42,11 +42,16 @@ if has bench; then
     python "$LOGS/bench.py" --impl optimized  --mesh 1x1 --layers 0,3 --weights real --tag single-chip-baseline
     python "$LOGS/bench.py" --impl optimized  --mesh 1x4 --layers 0,3 --weights real --tag replication-control
     python "$LOGS/bench.py" --impl multichip --mesh 1x4 --layers 0,3 --weights real --tag multichip
-    # A fourth arm: the shipped path on the fabric's *build-default* packet size, which is what the
-    # runtime warns about on every CCL dispatch. The isolated probe says 8192 B is worth 4-18% on the
-    # collectives; this is what that is worth at the layer.
-    python "$LOGS/bench.py" --impl multichip --mesh 1x4 --layers 0,3 --weights real \
-      --packet-bytes 0 --tag multichip-build-default-packet
+    # The packet-size pair, **three builds each**: the layer-level difference is smaller than the
+    # build-to-build spread of a single prefill measurement, so one build per arm cannot resolve it
+    # and review round 6 was right to say so. Three builds each makes the decode difference (which is
+    # repeatable) and the prefill non-difference (which is not) both visible in the artifact.
+    for build in 1 2 3; do
+      python "$LOGS/bench.py" --impl multichip --mesh 1x4 --layers 0,3 --weights real \
+        --tag "multichip-packet-8192-build$build"
+      python "$LOGS/bench.py" --impl multichip --mesh 1x4 --layers 0,3 --weights real \
+        --packet-bytes 0 --tag "multichip-build-default-packet-build$build"
+    done
   } 2>/dev/null | grep -E "^BENCH|^#" > "$LOGS/ab_single_vs_multichip.txt"
   cat "$LOGS/ab_single_vs_multichip.txt"
 fi
@@ -61,15 +66,20 @@ fi
 # ---------------------------------------------------------------- 4. isolated probes
 if has probes; then
   echo "=== step 4/7: isolated op probes (CCL, dense + sparse geometry, EP, footprint, decode batch) ==="
-  # Two processes, one per fabric config: `set_fabric_config` is a before-open_mesh_device setting,
-  # so the line fabric cannot be an arm inside the ring-fabric run. The line-fabric rows carry the
-  # `CCLFAB` tag and an extra fabric column.
+  # Five processes: `set_fabric_config` is a before-open_mesh_device setting, so neither the line
+  # fabric nor a packet size can be an arm inside the ring-fabric run; line-fabric rows carry the
+  # `CCLFAB` tag and an extra fabric column. The layer's two collectives carry different dtypes
+  # (bf16 from the token mixer, bfloat8_b from the MoE) whose ideal packet sizes differ, and review
+  # round 6 found the packet decision made on bf16 rows alone. Runtime warnings are censused from the
+  # suite and watcher logs in step 7 (`warning_census.py`), which is where the runtime prints them --
+  # rounds 5 and 6 each turned on a warning that no artifact carried.
   {
     python "$LOGS/probe_ccl.py" 2>/dev/null | grep -E "^CCL |^#"
     python "$LOGS/probe_ccl.py" --fabric line 2>/dev/null | grep -E "^CCLFAB|^#"
-    # The build-default packet size, i.e. the arm the runtime warns about. A third process, because
-    # the packet size is part of the fabric configuration and is set before the mesh opens.
     python "$LOGS/probe_ccl.py" --packet-bytes 0 2>/dev/null | grep -E "^CCLPKT|^#"
+    python "$LOGS/probe_ccl.py" --dtype bfloat8_b 2>/dev/null | grep -E "^CCLBF8 |^#"
+    python "$LOGS/probe_ccl.py" --dtype bfloat8_b --packet-bytes 0 2>/dev/null \
+      | grep -E "^CCLBF8PKT|^#"
   } > "$LOGS/probe_ccl.txt"
   python "$LOGS/probe_dense_matmul.py" 2>/dev/null | grep -E "^DENSE|^#" > "$LOGS/probe_dense_matmul.txt"
   {
@@ -172,6 +182,9 @@ done
 # a re-measurement cannot leave a stale table behind; `make_tables.py` reports which ones moved.
 echo "=== step 7/7: regenerate tables, then audit every quoted figure ==="
 python "$LOGS/make_tables.py"
+# One line per distinct runtime warning class in the committed logs, with counts. Two review rounds in
+# a row turned on a warning that was sitting unread in a log, so the classes are an artifact now.
+python "$LOGS/warning_census.py"
 # The stamp certifies "these artifacts measured this code", so it is only honest after a run that
 # regenerated *all* of them. A partial run (STEPS="suite") leaves the rest untouched, and review
 # round 4 pointed out that stamping there would certify artifacts nothing had re-measured.
