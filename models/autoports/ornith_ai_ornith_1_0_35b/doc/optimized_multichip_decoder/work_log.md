@@ -832,6 +832,33 @@ Three consequences for later stages: the full model must not silently fall back 
 decomposition back for a shape where it wins, it must bring `logs/probe_replay_divergence.py` evidence
 for the spelling it intends to use.
 
-## 12. Commits
+## 12. Review and commits
 
-Recorded after `$stage-review` returns `clean-pass`; see README section 9.
+`$stage-review` ran seven rounds, each with a fresh independent subagent, and the last returned
+`clean-pass` with no required work. What the earlier rounds actually changed is worth recording,
+because most of it was not cosmetic:
+
+| round | what it found | what changed |
+|---|---|---|
+| 1 | the divergence control covered one layer kind and one replay pattern while claiming both; the preserved "failing run" artifact contained no failure | the control was widened — and then **reproduced the divergence**, which is how the collective bug was found at all |
+| 2 | the shipped collective was 14 us/step slower than an arm the stage had itself measured; OPT-009's persistent buffers were priced from the wrong row | the collective decision was re-taken: `ttnn.all_reduce` replaced the async gather, cutting the correctness fix's price from 17 to 3-4 us/step |
+| 3 | the accounting declared a dispatch gap of zero that the same CSV's gap column contradicted | §5.4 rewritten as a four-term reconciliation including the gap column |
+| 4 | the attribution control had drifted to 0/240 and could not support "inherited, not introduced" | re-run at 600 rounds, where it reproduces |
+| 5 | four numeric claims outside the generated tables were wrong at once | the accounting, router PCC, gate parts and share tables became generated; the contract's performance block became derived |
+| 6 | one `1e+26` survived; the prose guard silently scanned nothing for the source file; `_free_unless_aliased` was passed the wrong survivor for one of two tensors | run-varying figures removed from prose entirely, guard path fixed and made a hard failure, alias guard corrected |
+| 7 | `clean-pass` | three sentences softened, the fastest-arm census committed as an artifact |
+
+The through-line: every round but the last found a figure in prose that no run produced. That is why
+the stage ends with two committed guards (`make_tables.py --check`, `check_prose_figures.py`), a
+staleness check and a fastest-arm check, all wired into `run_evidence.sh` — the discipline is
+mechanical now rather than editorial.
+
+### Commits
+
+| repo | branch | SHA | what |
+|---|---|---|---|
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `4127fa65916` | the whole stage: `tt/multichip_decoder.py`, `tests/test_multichip_decoder.py`, `doc/context_contract.json`, `doc/optimized_multichip_decoder/` |
+
+Not pushed, as autonomous bringup requires. Two paths in the worktree are **not** stage-owned and are
+deliberately excluded from that commit: `.agents/skills/tt-device-usage/SKILL.md` (modified) and
+`.agents/fast-models-fast-feedback.md` (untracked), both of which predate this stage.
