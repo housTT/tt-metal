@@ -132,6 +132,18 @@ class TTSampling(LightweightModule):
         self._line_all_gather_supports_buffer_key = False
         self._line_all_gather_supports_dtype = False
         self.pad_to_power_of_2 = getattr(args, "pad_logits_to_power_of_2", False)
+        # Optional grouped local top-k. `ttnn.topk`'s runtime is linear in the width of the
+        # dimension it reduces and independent of every other dimension, so a wide per-device
+        # vocabulary shard is expensive purely because it is wide: measured on a 1x4 Blackhole ring,
+        # a 62080-wide shard costs ~9.9 ms while the same element count arranged as 32 rows of 1940
+        # costs ~0.33 ms. Splitting the shard into `topk_num_groups` groups turns one width-V
+        # reduction into a width-V/G reduction plus a width-(G * max_top_k) one and is exact: each
+        # group contributes its own top-`max_top_k`, so no member of the shard's true top-k can be
+        # dropped. Default 1 keeps every existing caller on the single-reduction path. One caveat,
+        # about ties rather than values: `_adjust_values_for_tiebreak`'s documented bound - more
+        # than `max_top_k` maxima tied at one value may not surface the lowest global id - then
+        # applies per *group* instead of once per shard.
+        self.topk_num_groups = int(getattr(args, "topk_num_groups", 1) or 1)
         if callable(self._line_all_gather):
             try:
                 line_all_gather_sig = inspect.signature(self._line_all_gather)
@@ -362,6 +374,154 @@ class TTSampling(LightweightModule):
             mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, dims=(None, None), mesh_shape=self.cluster_shape),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
+        self._create_grouped_topk_tensors(padded_per_device, indices_dtype)
+
+    def _create_grouped_topk_tensors(self, padded_per_device, indices_dtype):
+        """Persistent buffers for the grouped local top-k (``args.topk_num_groups > 1``)."""
+        self.tt_group_indices_tensor = None
+        self.tt_group_offsets = None
+        self.tt_group_stage2_indices_tensor = None
+        groups = self.topk_num_groups
+        if groups <= 1:
+            return
+        if self.multi_step_reduction:
+            raise ValueError("topk_num_groups is only supported on the multi-device local top-k path")
+        if padded_per_device % groups:
+            raise ValueError(
+                f"topk_num_groups {groups} must divide the per-device vocabulary width {padded_per_device}"
+            )
+        per_group = padded_per_device // groups
+        if per_group % ttnn.TILE_SIZE:
+            raise ValueError(
+                f"topk_num_groups {groups} gives a group width of {per_group}, which is not a multiple of "
+                f"{ttnn.TILE_SIZE}; a non-tile-aligned reduction width would read the tile padding"
+            )
+        if per_group < self.max_top_k:
+            raise ValueError(f"group width {per_group} is smaller than max_top_k {self.max_top_k}")
+        if self.pad_to_power_of_2:
+            # The two knobs answer the same question ("the reduction is too wide") in incompatible
+            # ways: padding widens the shard to the next power of 2, grouping narrows it. Refusing
+            # is better than silently honouring one - and the padded width would usually break the
+            # divisibility check above anyway.
+            raise ValueError("topk_num_groups and pad_logits_to_power_of_2 cannot be combined; pick one")
+        replicate = ttnn.ShardTensor2dMesh(self.mesh_device, dims=(None, None), mesh_shape=self.cluster_shape)
+        # ttnn.topk's `indices_tensor` is a preallocated workspace shaped like its *input*; the
+        # indices it returns are positions in that input, not values read out of the buffer. Both
+        # stages therefore get a zero-filled scratch buffer of the right shape, and the mapping from
+        # a stage-1 position to a shard-local vocabulary index is done explicitly by adding
+        # `tt_group_offsets`.
+        self.tt_group_indices_tensor = ttnn.from_torch(
+            torch.zeros(1, groups, self.max_batch_size, per_group, dtype=torch.int32),
+            dtype=indices_dtype,
+            layout=ttnn.Layout.TILE,
+            device=self.mesh_device,
+            mesh_mapper=replicate,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        self.tt_group_offsets = ttnn.from_torch(
+            (torch.arange(groups, dtype=torch.int64) * per_group).reshape(1, groups, 1, 1),
+            dtype=ttnn.int32,
+            layout=ttnn.Layout.TILE,
+            device=self.mesh_device,
+            mesh_mapper=replicate,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        self.tt_group_stage2_indices_tensor = ttnn.from_torch(
+            torch.zeros(1, 1, self.max_batch_size, groups * self.max_top_k, dtype=torch.int32),
+            dtype=indices_dtype,
+            layout=ttnn.Layout.TILE,
+            device=self.mesh_device,
+            mesh_mapper=replicate,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        logger.info(
+            f"TTSampling: grouped local top-k enabled - {groups} groups of {per_group} over a "
+            f"{padded_per_device}-wide vocabulary shard"
+        )
+
+    def _local_topk(self, x_bf16):
+        """Per-device top-``max_top_k`` over the vocabulary shard.
+
+        Returns ``(values, indices)`` where ``indices`` are **shard-local vocabulary positions**,
+        which is what the caller then offsets by ``device_id * padded_per_device``.
+        """
+        if self.topk_num_groups <= 1:
+            if self.pad_to_power_of_2 and not is_power_of_2(x_bf16.shape[-1]):
+                padded_value = upper_power_of_2(x_bf16.shape[-1])
+                x_bf16 = ttnn.pad(
+                    x_bf16,
+                    [(0, 0), (0, 0), (0, 0), (0, padded_value - x_bf16.shape[-1])],
+                    value=-sys.float_info.max,
+                    sub_core_grids=self.sub_core_grids,
+                )
+            return ttnn.topk(
+                x_bf16,
+                k=self.max_top_k,
+                dim=-1,
+                sub_core_grids=self.sub_core_grid_topk,
+                indices_tensor=self.tt_indices_tensor,
+                # Break exact-value ties by lowest index instead of array position, so which
+                # of a set of tied candidates enters the top-k does not depend on placement.
+                # Best effort only, and only where the LLK has the network at all (see
+                # self._topk_stable) -- the stable bitonic network is an open LLK issue
+                # (tenstorrent/tt-metal#33492); _adjust_values_for_tiebreak is what actually
+                # guarantees the greedy pick.
+                stable=self._topk_stable,
+            )
+        return self._local_topk_grouped(x_bf16)
+
+    def _local_topk_grouped(self, x_bf16):
+        """Two-stage exact top-k: per-group reduction, then a reduction over the group winners.
+
+        Stage 1 sees the shard as ``groups`` independent rows of ``per_group`` columns, which is a
+        slice-and-concat onto a new leading axis rather than a flat reshape - the flat form is a
+        strided gather and measured ~40 % more expensive at this shape. Stage 2 reduces the
+        ``groups * max_top_k`` winners. Stage 2's own indices are positions in the winner array, so
+        the shard-local vocabulary indices are recovered with one ``ttnn.gather``.
+        """
+        rows = int(x_bf16.shape[-2])
+        width = int(x_bf16.shape[-1])
+        groups = self.topk_num_groups
+        per_group = width // groups
+        parts = [ttnn.slice(x_bf16, [0, 0, 0, g * per_group], [1, 1, rows, (g + 1) * per_group]) for g in range(groups)]
+        stacked = ttnn.concat(parts, dim=1)
+        for part in parts:
+            ttnn.deallocate(part)
+        group_values, group_positions = ttnn.topk(
+            stacked,
+            k=self.max_top_k,
+            dim=-1,
+            sub_core_grids=self.sub_core_grid_topk,
+            indices_tensor=self.tt_group_indices_tensor,
+            stable=self._topk_stable,
+        )
+        ttnn.deallocate(stacked)
+        group_indices = ttnn.add(
+            ttnn.typecast(group_positions, ttnn.int32),
+            self.tt_group_offsets,
+            dtype=ttnn.int32,
+        )
+        ttnn.deallocate(group_positions)
+        # [1, groups, rows, k] -> [1, 1, rows, groups * k] with the row axis outermost.
+        values_rowmajor = ttnn.permute(group_values, [0, 2, 1, 3])
+        indices_rowmajor = ttnn.permute(group_indices, [0, 2, 1, 3])
+        ttnn.deallocate(group_values)
+        ttnn.deallocate(group_indices)
+        candidate_values = ttnn.reshape(values_rowmajor, [1, 1, rows, groups * self.max_top_k])
+        candidate_indices = ttnn.reshape(indices_rowmajor, [1, 1, rows, groups * self.max_top_k])
+        topk_values, candidate_positions = ttnn.topk(
+            candidate_values,
+            k=self.max_top_k,
+            dim=-1,
+            sub_core_grids=self.sub_core_grid_topk,
+            indices_tensor=self.tt_group_stage2_indices_tensor,
+            stable=self._topk_stable,
+        )
+        topk_indices = ttnn.gather(candidate_indices, dim=-1, index=candidate_positions)
+        ttnn.deallocate(candidate_values)
+        ttnn.deallocate(candidate_indices)
+        ttnn.deallocate(candidate_positions)
+        return topk_values, topk_indices
 
     def _create_invalid_vocab_mask(self):
         self.tt_invalid_vocab_mask = None
@@ -831,33 +991,10 @@ class TTSampling(LightweightModule):
                 ttnn.deallocate(topk_indices_list[i])
 
         else:
-            # apply padding to the input tensor if needed
-            # if number is not power of 2, pad to upper power of 2
-            # pad only last dimension with float::min value to upper_power_of_2
-            # This is necessary to use full optimization in the topk operation.
-            if self.pad_to_power_of_2 and not is_power_of_2(x_bf16.shape[-1]):
-                padded_value = upper_power_of_2(x_bf16.shape[-1])
-                x_bf16 = ttnn.pad(
-                    x_bf16,
-                    [(0, 0), (0, 0), (0, 0), (0, padded_value - x_bf16.shape[-1])],
-                    value=-sys.float_info.max,
-                    sub_core_grids=self.sub_core_grids,
-                )
-            # Perform local top-k on each device
-            topk_values, topk_indices = ttnn.topk(
-                x_bf16,
-                k=self.max_top_k,
-                dim=-1,
-                sub_core_grids=self.sub_core_grid_topk,
-                indices_tensor=self.tt_indices_tensor,
-                # Break exact-value ties by lowest index instead of array position, so which
-                # of a set of tied candidates enters the top-k does not depend on placement.
-                # Best effort only, and only where the LLK has the network at all (see
-                # self._topk_stable) -- the stable bitonic network is an open LLK issue
-                # (tenstorrent/tt-metal#33492); _adjust_values_for_tiebreak is what actually
-                # guarantees the greedy pick.
-                stable=self._topk_stable,
-            )
+            # Perform local top-k on each device. `_local_topk` owns the power-of-2 padding and the
+            # optional grouped two-stage reduction; both spellings return shard-local vocabulary
+            # indices, which is what the device-offset add below expects.
+            topk_values, topk_indices = self._local_topk(x_bf16)
 
             # For 1D meshes use `cluster_axis=None`. For 2D meshes, use the configured gather axis.
             sampling_cluster_axis = self._get_sampling_cluster_axis()

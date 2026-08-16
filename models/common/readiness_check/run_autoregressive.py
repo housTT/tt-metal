@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 from models.common.readiness_check.contract import (
     BUILD_GENERATOR_FUNCTION_NAME,
@@ -40,6 +40,7 @@ from models.common.readiness_check.contract import (
     BuildGeneratorFn,
     Generator,
 )
+from models.common.readiness_check.hf_model import load_hf_reference_model
 from models.common.readiness_check.mesh_device import (
     add_mesh_device_args,
     close_readiness_mesh_device,
@@ -87,7 +88,7 @@ def _hf_generate_greedy(
     (prompt stripped). Stops early on EOS; HF handles multi-EOS configs
     (e.g. Llama 3.1's eos_token_id list) automatically.
     """
-    model = AutoModelForCausalLM.from_pretrained(hf_model_id, trust_remote_code=True).eval().to(device)
+    model = load_hf_reference_model(hf_model_id, trust_remote_code=True).eval().to(device)
     tokenizer = AutoTokenizer.from_pretrained(hf_model_id, trust_remote_code=True)
     pad_id = tokenizer.pad_token_id
     if pad_id is None:

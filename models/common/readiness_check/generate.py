@@ -38,13 +38,14 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 try:
     from tqdm.auto import tqdm
 except ImportError:
     tqdm = None
 
+from models.common.readiness_check.hf_model import load_hf_reference_model
 from models.common.readiness_check.schema import Reference, ReferenceEntry, save_reference
 
 DEFAULT_K = 100
@@ -127,6 +128,15 @@ def _chat_or_plain_prompt_tokens(tokenizer, prompt_text: str, *, chat_template: 
             add_generation_prompt=True,
             tokenize=True,
         )
+        # transformers >= 5 returns a BatchEncoding here rather than a bare list of ids, and a
+        # BatchEncoding iterates over its *keys* — so the plain list comprehension below turns into
+        # int("input_ids"). Normalise both shapes.
+        if hasattr(prompt_tokens, "keys") and "input_ids" in prompt_tokens:
+            prompt_tokens = prompt_tokens["input_ids"]
+        if hasattr(prompt_tokens, "tolist"):
+            prompt_tokens = prompt_tokens.tolist()
+        while prompt_tokens and isinstance(prompt_tokens[0], (list, tuple)):
+            prompt_tokens = prompt_tokens[0]
     else:
         prompt_tokens = tokenizer.encode(prompt_text, add_special_tokens=True)
 
@@ -320,7 +330,7 @@ def generate_reference(
 
     print(f"Loading model {hf_model_id} on {device}...")
     tokenizer = AutoTokenizer.from_pretrained(hf_model_id, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(hf_model_id, trust_remote_code=True).eval().to(device)
+    model = load_hf_reference_model(hf_model_id, trust_remote_code=True).eval().to(device)
 
     # Get token IDs
     stop_ids = _generation_stop_ids(tokenizer, model)
