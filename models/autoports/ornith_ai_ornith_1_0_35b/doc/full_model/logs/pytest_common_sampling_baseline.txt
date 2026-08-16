@@ -1,0 +1,282 @@
+2026-08-16 16:29:20.892 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+[1m============================= test session starts ==============================[0m
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/ornith/ornith-pyenv/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/ornith/tt-metal
+configfile: pytest.ini
+plugins: timeout-2.4.0, benchmark-5.2.3, anyio-4.14.2, cov-7.0.0, repeat-0.9.4, github-actions-annotate-failures-0.3.0, split-0.11.0, dash-2.15.0
+timeout: 1800.0s
+timeout method: signal
+timeout func_only: False
+[1mcollecting ... [0mcollected 15 items
+
+models/common/tests/test_sampling.py::test_seed_manager_seed_params_do_not_fallback_to_slot_zero [32mPASSED[0m
+models/common/tests/test_sampling.py::test_seed_counter_position_alignment_skips_out_of_bounds_slots [32mPASSED[0m
+models/common/tests/test_sampling.py::test_slot_remap_condense_relabels_destination_and_vacates_source [32mPASSED[0m
+models/common/tests/test_sampling.py::test_slot_remap_identity_is_a_noop [32mPASSED[0m
+models/common/tests/test_sampling.py::test_broadcast_sampling_params_preserves_none_list_fields [32mPASSED[0m
+models/common/tests/test_sampling.py::test_format_sampling_params_uses_device_argmax_sentinel_for_greedy_rows [32mPASSED[0m
+models/common/tests/test_sampling.py::test_log_probs_calculation[blackhole-fabric_linear-shape0] 2026-08-16 16:29:22.609 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-16 16:29:22.609 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-16 16:29:22.609 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-16 16:29:22.609 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-16 16:29:22.620 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-16 16:29:22.621 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-16 16:29:22.701 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:173)
+2026-08-16 16:29:22.701 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-16 16:29:22.701 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
+2026-08-16 16:29:22.701 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-16 16:29:22.702 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
+2026-08-16 16:29:22.938 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
+2026-08-16 16:29:23.055 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:437)
+2026-08-16 16:29:23.055 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:499)
+2026-08-16 16:29:23.055 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-16 16:29:23.055 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2410)
+2026-08-16 16:29:23.056 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2418)
+2026-08-16 16:29:23.056 | INFO     | conftest:mesh_device:612 - No trace region size for 4
+2026-08-16 16:29:23.056 | info     |           Metal | Fabric config changed from FabricConfig::DISABLED to FabricConfig::FABRIC_1D, reinitializing control plane (metal_env.cpp:337)
+2026-08-16 16:29:23.056 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:437)
+2026-08-16 16:29:23.056 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:499)
+2026-08-16 16:29:23.056 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2410)
+2026-08-16 16:29:23.056 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2418)
+2026-08-16 16:29:23.096 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.097 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.097 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.098 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.098 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.099 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.099 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.100 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:23.100 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-16 16:29:23.126 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:550)
+2026-08-16 16:29:23.127 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:550)
+2026-08-16 16:29:23.128 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:550)
+2026-08-16 16:29:23.128 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:550)
+2026-08-16 16:29:23.128 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-16 16:29:23.128 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D (fabric_firmware_initializer.cpp:313)
+2026-08-16 16:29:23.793 | DEBUG    | conftest:mesh_device:630 - multidevice with 4 devices is created
+2026-08-16 16:29:23.799 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:23.799 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:23.799 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:23.845 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:23.845 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:23.845 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+[31mFAILED[0m2026-08-16 16:29:23.999 | INFO     | conftest:pytest_runtest_teardown:1189 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+models/common/tests/test_sampling.py::test_log_probs_calculation_shard_tensor_2d_mesh_1x8[blackhole-fabric_linear-mesh_device0] [33mSKIPPED[0m
+models/common/tests/test_sampling.py::test_log_probs_returns_none_when_disabled[blackhole-fabric_linear-shape0] 2026-08-16 16:29:24.303 | INFO     | conftest:mesh_device:612 - No trace region size for 4
+2026-08-16 16:29:24.303 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D to FabricConfig::FABRIC_1D, reinitializing control plane (metal_env.cpp:337)
+2026-08-16 16:29:24.303 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:437)
+2026-08-16 16:29:24.303 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:499)
+2026-08-16 16:29:24.304 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2410)
+2026-08-16 16:29:24.304 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2418)
+2026-08-16 16:29:24.353 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.354 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.354 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.354 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.354 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.354 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.355 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.355 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 16:29:24.355 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-16 16:29:24.366 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:550)
+2026-08-16 16:29:24.367 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:550)
+2026-08-16 16:29:24.367 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:550)
+2026-08-16 16:29:24.368 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:550)
+2026-08-16 16:29:24.368 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-16 16:29:24.368 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D (fabric_firmware_initializer.cpp:313)
+2026-08-16 16:29:24.440 | DEBUG    | conftest:mesh_device:630 - multidevice with 4 devices is created
+2026-08-16 16:29:24.443 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:24.443 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:24.443 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:24.465 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:24.465 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 16:29:24.465 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+[32mPASSED[0m
+models/common/tests/test_sampling.py::test_log_probs_with_sub_core_grids_on_galaxy[blackhole-mesh_device0-fabric_linear-shape0] [33mSKIPPED[0m
+models/common/tests/test_sampling.py::test_top_k_log_probs_on_galaxy[blackhole-mesh_device0-tg-shape0] [33mSKIPPED[0m
+models/common/tests/test_sampling.py::test_top_k_log_probs_returns_none_when_not_needed[blackhole-mesh_device0-tg-shape0] [33mSKIPPED[0m
+models/common/tests/test_sampling.py::test_per_user_logprobs_enabled[blackhole-mesh_device0-tg-shape0] [33mSKIPPED[0m
+models/common/tests/test_sampling.py::test_set_log_probs_mode_validation[blackhole-mesh_device0-tg-shape0] [33mSKIPPED[0m
+models/common/tests/test_sampling.py::test_top_k_logprobs_pcc_torch_vs_tt[blackhole-mesh_device0-tg-shape0] [33mSKIPPED[0m
+
+=================================== FAILURES ===================================
+[31m[1m__________ test_log_probs_calculation[blackhole-fabric_linear-shape0] __________[0m
+
+shape = [1, 1, 32, 151936], mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    [0m[37m@pytest[39;49;00m.mark.parametrize([90m[39;49;00m
+        [33m"[39;49;00m[33mshape[39;49;00m[33m"[39;49;00m,[90m[39;49;00m
+        [[90m[39;49;00m
+            [[94m1[39;49;00m, [94m1[39;49;00m, [94m32[39;49;00m, [94m8[39;49;00m * [94m18992[39;49;00m],  [90m# Qwen3 on T3K[39;49;00m[90m[39;49;00m
+        ],[90m[39;49;00m
+    )[90m[39;49;00m
+    [37m@pytest[39;49;00m.mark.parametrize([90m[39;49;00m
+        [33m"[39;49;00m[33mdevice_params[39;49;00m[33m"[39;49;00m,[90m[39;49;00m
+        [[90m[39;49;00m
+            ({[33m"[39;49;00m[33mfabric_config[39;49;00m[33m"[39;49;00m: ttnn.FabricConfig.FABRIC_1D}),[90m[39;49;00m
+        ],[90m[39;49;00m
+        indirect=[[33m"[39;49;00m[33mdevice_params[39;49;00m[33m"[39;49;00m],[90m[39;49;00m
+        ids=[[33m"[39;49;00m[33mfabric_linear[39;49;00m[33m"[39;49;00m],[90m[39;49;00m
+    )[90m[39;49;00m
+    [94mdef[39;49;00m[90m [39;49;00m[92mtest_log_probs_calculation[39;49;00m(shape, mesh_device):[90m[39;49;00m
+        seed = [94m1234[39;49;00m[90m[39;49;00m
+        torch.manual_seed(seed)[90m[39;49;00m
+    [90m[39;49;00m
+        log_probs_calculator = LogProbsCalculator(mesh_device)[90m[39;49;00m
+    [90m[39;49;00m
+        torch_tensor = torch.randn(shape)[90m[39;49;00m
+        [90m# shuffle the tensor in last 2 dimensions[39;49;00m[90m[39;49;00m
+        [94mfor[39;49;00m i [95min[39;49;00m [96mrange[39;49;00m(shape[-[94m2[39;49;00m]):[90m[39;49;00m
+            torch_tensor[:, :, i, :] = torch_tensor[:, :, i, torch.randperm(shape[-[94m1[39;49;00m])][90m[39;49;00m
+    [90m[39;49;00m
+        argmax_tensor = torch.argmax(torch_tensor, dim=-[94m1[39;49;00m, keepdim=[94mTrue[39;49;00m)[90m[39;49;00m
+        indices_tensor = argmax_tensor.reshape([90m[39;49;00m
+            argmax_tensor.shape[[94m0[39;49;00m], argmax_tensor.shape[[94m1[39;49;00m], argmax_tensor.shape[-[94m1[39;49;00m], argmax_tensor.shape[-[94m2[39;49;00m][90m[39;49;00m
+        )[90m[39;49;00m
+        [90m# Push inputs to device[39;49;00m[90m[39;49;00m
+        logits_tensor = ttnn.from_torch([90m[39;49;00m
+            torch_tensor,[90m[39;49;00m
+            device=mesh_device,[90m[39;49;00m
+            dtype=ttnn.bfloat16,[90m[39;49;00m
+            layout=ttnn.TILE_LAYOUT,[90m[39;49;00m
+            mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-[94m1[39;49;00m),[90m[39;49;00m
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,[90m[39;49;00m
+        )[90m[39;49;00m
+    [90m[39;49;00m
+        ttnn_indices_tensor = ttnn.from_torch([90m[39;49;00m
+            indices_tensor,[90m[39;49;00m
+            device=mesh_device,[90m[39;49;00m
+            dtype=ttnn.int32,[90m[39;49;00m
+            layout=ttnn.TILE_LAYOUT,[90m[39;49;00m
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),[90m[39;49;00m
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,[90m[39;49;00m
+        )[90m[39;49;00m
+    [90m[39;49;00m
+        log_probs_calculator.set_log_probs_mode([94mTrue[39;49;00m)[90m[39;49;00m
+        tt_log_probs = log_probs_calculator.calculate_log_probs(logits_tensor, ttnn_indices_tensor)[90m[39;49;00m
+>       log_probs_tt_host = ttnn.to_torch(tt_log_probs, mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=[94m3[39;49;00m))[90m[39;49;00m
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[90m[39;49;00m
+
+[1m[31mmodels/common/tests/test_sampling.py[0m:235:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+[1m[31mttnn/ttnn/decorators.py[0m:650: in __call__
+    [0mresult = [96mself[39;49;00m.function(*function_args, **function_kwargs)[90m[39;49;00m
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[90m[39;49;00m
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+tensor = None, dtype = None
+
+    [0m[37m@ttnn[39;49;00m.register_python_operation(name=[33m"[39;49;00m[33mttnn.to_torch[39;49;00m[33m"[39;49;00m, golden_function=_golden_function)[90m[39;49;00m
+    [94mdef[39;49;00m[90m [39;49;00m[92mto_torch[39;49;00m([90m[39;49;00m
+        tensor: ttnn.Tensor,[90m[39;49;00m
+        dtype: Optional[[33m"[39;49;00m[33mtorch.dtype[39;49;00m[33m"[39;49;00m] = [94mNone[39;49;00m,[90m[39;49;00m
+        *,[90m[39;49;00m
+        torch_rank: Optional[[96mint[39;49;00m] = [94mNone[39;49;00m,[90m[39;49;00m
+        mesh_composer: Optional[ttnn.CppMeshToTensor] = [94mNone[39;49;00m,[90m[39;49;00m
+        device: Optional[ttnn.MeshDevice] = [94mNone[39;49;00m,[90m[39;49;00m
+        cq_id: Optional[[96mint[39;49;00m] = [94mNone[39;49;00m,[90m[39;49;00m
+    ) -> [33m"[39;49;00m[33mtorch.Tensor[39;49;00m[33m"[39;49;00m:[90m[39;49;00m
+    [90m    [39;49;00m[33m"""[39;49;00m
+    [33m    Converts the `ttnn.Tensor` tensor into a `torch.Tensor`. It does not call to_layout for bfloat8_b or bfloat4_b as we now convert[39;49;00m
+    [33m    to tile layout during tensor.to_torch().[39;49;00m
+    [33m[39;49;00m
+    [33m    Args:[39;49;00m
+    [33m        tensor (ttnn.Tensor): the input tensor.[39;49;00m
+    [33m        dtype (torch.dtype, optional): the desired `torch` data type of returned tensor. Defaults to `None`.[39;49;00m
+    [33m[39;49;00m
+    [33m    Keyword Args:[39;49;00m
+    [33m        torch_rank (int, optional): Desired rank of the `torch.Tensor`. Defaults to `None`.[39;49;00m
+    [33m            Will use `torch.squeeze` operation to remove dimensions until the desired rank is reached. If not possible, the operation will raise an error.[39;49;00m
+    [33m        mesh_composer (ttnn.CppMeshToTensor, optional): The desired `ttnn` mesh composer. Defaults to `None`.[39;49;00m
+    [33m        device (ttnn.MeshDevice, optional): The `ttnn` device of the input tensor. Defaults to `None`.[39;49;00m
+    [33m        cq_id (int, optional): The command queue ID to use. Defaults to `0`.[39;49;00m
+    [33m[39;49;00m
+    [33m    Returns:[39;49;00m
+    [33m        torch.Tensor: The converted `torch` tensor.[39;49;00m
+    [33m    """[39;49;00m[90m[39;49;00m
+        [94mimport[39;49;00m[90m [39;49;00m[04m[96mtorch[39;49;00m[90m[39;49;00m
+    [90m[39;49;00m
+>       [94mif[39;49;00m tensor.dtype == ttnn.DataType.FP8_E4M3:[90m[39;49;00m
+           ^^^^^^^^^^^^[90m[39;49;00m
+[1m[31mE       AttributeError: 'NoneType' object has no attribute 'dtype'[0m
+
+[1m[31mttnn/ttnn/operations/core.py[0m:409: AttributeError
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/ornith/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+1.33s setup    models/common/tests/test_sampling.py::test_log_probs_calculation[blackhole-fabric_linear-shape0]
+0.28s setup    models/common/tests/test_sampling.py::test_log_probs_returns_none_when_disabled[blackhole-fabric_linear-shape0]
+0.16s setup    models/common/tests/test_sampling.py::test_log_probs_with_sub_core_grids_on_galaxy[blackhole-mesh_device0-fabric_linear-shape0]
+0.16s setup    models/common/tests/test_sampling.py::test_log_probs_calculation_shard_tensor_2d_mesh_1x8[blackhole-fabric_linear-mesh_device0]
+0.16s setup    models/common/tests/test_sampling.py::test_seed_manager_seed_params_do_not_fallback_to_slot_zero
+0.16s setup    models/common/tests/test_sampling.py::test_format_sampling_params_uses_device_argmax_sentinel_for_greedy_rows
+0.15s setup    models/common/tests/test_sampling.py::test_top_k_logprobs_pcc_torch_vs_tt[blackhole-mesh_device0-tg-shape0]
+0.15s setup    models/common/tests/test_sampling.py::test_top_k_log_probs_on_galaxy[blackhole-mesh_device0-tg-shape0]
+0.15s setup    models/common/tests/test_sampling.py::test_seed_counter_position_alignment_skips_out_of_bounds_slots
+0.14s setup    models/common/tests/test_sampling.py::test_set_log_probs_mode_validation[blackhole-mesh_device0-tg-shape0]
+0.14s setup    models/common/tests/test_sampling.py::test_slot_remap_identity_is_a_noop
+0.14s setup    models/common/tests/test_sampling.py::test_per_user_logprobs_enabled[blackhole-mesh_device0-tg-shape0]
+0.14s setup    models/common/tests/test_sampling.py::test_slot_remap_condense_relabels_destination_and_vacates_source
+0.14s setup    models/common/tests/test_sampling.py::test_broadcast_sampling_params_preserves_none_list_fields
+0.14s setup    models/common/tests/test_sampling.py::test_top_k_log_probs_returns_none_when_not_needed[blackhole-mesh_device0-tg-shape0]
+0.12s teardown models/common/tests/test_sampling.py::test_log_probs_calculation[blackhole-fabric_linear-shape0]
+0.12s teardown models/common/tests/test_sampling.py::test_log_probs_returns_none_when_disabled[blackhole-fabric_linear-shape0]
+0.05s call     models/common/tests/test_sampling.py::test_log_probs_calculation[blackhole-fabric_linear-shape0]
+0.02s call     models/common/tests/test_sampling.py::test_log_probs_returns_none_when_disabled[blackhole-fabric_linear-shape0]
+
+(6 durations < 0.005s hidden.  Use -vv to show these durations.)
+[36m[1m=========================== short test summary info ============================[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_seed_manager_seed_params_do_not_fallback_to_slot_zero[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_seed_counter_position_alignment_skips_out_of_bounds_slots[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_slot_remap_condense_relabels_destination_and_vacates_source[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_slot_remap_identity_is_a_noop[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_broadcast_sampling_params_preserves_none_list_fields[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_format_sampling_params_uses_device_argmax_sentinel_for_greedy_rows[0m
+[32mPASSED[0m models/common/tests/test_sampling.py::[1mtest_log_probs_returns_none_when_disabled[blackhole-fabric_linear-shape0][0m
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:266: Requested more devices (8) than available (4). Test not applicable for machine
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:386: Requested more devices (32) than available (4). Test not applicable for machine
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:480: Requested more devices (32) than available (4). Test not applicable for machine
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:535: Requested more devices (32) than available (4). Test not applicable for machine
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:571: Requested more devices (32) than available (4). Test not applicable for machine
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:614: Requested more devices (32) than available (4). Test not applicable for machine
+[33mSKIPPED[0m [1] models/common/tests/test_sampling.py:666: Requested more devices (32) than available (4). Test not applicable for machine
+[31mFAILED[0m models/common/tests/test_sampling.py::[1mtest_log_probs_calculation[blackhole-fabric_linear-shape0][0m - AttributeError: 'NoneType' object has no attribute 'dtype'
+[31m==================== [31m[1m1 failed[0m, [32m7 passed[0m, [33m7 skipped[0m[31m in 3.94s[0m[31m ====================[0m
+nanobind: leaked 2 instances!
+ - leaked instance 0x75434d4c93e8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x75434db0d338 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 37 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - ... skipped remainder
+nanobind: leaked 311 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "load_sub_device_manager"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "to_json"
+ - leaked function "dram_grid_size"
+ - leaked function "device"
+ - leaked function "cpu"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-16 16:29:26.858 | info     |    BuildKernels | JIT cache stats: 67/67 hits (100.0%) [67 cached, 91 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-16 16:29:26.858 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-16 16:29:26.872 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-16 16:29:26.872 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
+2026-08-16 16:29:27.364 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
+2026-08-16 16:29:27.365 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
+2026-08-16 16:29:27.365 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)

@@ -1,0 +1,437 @@
+2026-08-16 21:03:00.334 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-08-16 21:03:00.495 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-16 21:03:00.496 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-16 21:03:00.496 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-16 21:03:00.496 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-16 21:03:00.508 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-16 21:03:00.508 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-16 21:03:00.588 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:173)
+2026-08-16 21:03:00.588 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-16 21:03:00.588 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:150)
+2026-08-16 21:03:00.588 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-16 21:03:00.590 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
+2026-08-16 21:03:00.793 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
+2026-08-16 21:03:00.911 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:437)
+2026-08-16 21:03:00.911 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:499)
+2026-08-16 21:03:00.911 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-16 21:03:00.911 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2410)
+2026-08-16 21:03:00.911 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2418)
+2026-08-16 21:03:00.957 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.957 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.958 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.958 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.959 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.959 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.960 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.960 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:107)
+2026-08-16 21:03:00.961 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-16 21:03:01.001 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:550)
+2026-08-16 21:03:01.005 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:550)
+2026-08-16 21:03:01.005 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:550)
+2026-08-16 21:03:01.006 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:550)
+2026-08-16 21:03:01.006 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-16 21:03:01.006 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-16 21:03:01.682 | INFO     | __main__:main:195 - === readiness check: autoregressive ===
+Prompt (28 tokens):
+<|im_start|>user
+Write a short, clear explanation of how a rainbow forms, for a curious ten-year-old.<|im_end|>
+<|im_start|>assistant
+<think>
+
+Running HF reference on cpu...
+Loading ornith-ai/Ornith-1.0-35B as Qwen3_5MoeForConditionalGeneration (checkpoint declares architectures=['Qwen3_5MoeForConditionalGeneration'])
+Fetching 16 files:   0%|          | 0/16 [00:00<?, ?it/s]Fetching 16 files: 100%|██████████| 16/16 [00:00<00:00, 69399.03it/s]
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+Loading weights:   0%|          | 0/1026 [00:00<?, ?it/s]Loading weights:   1%|▏         | 14/1026 [00:00<00:22, 45.80it/s]Loading weights:   3%|▎         | 32/1026 [00:00<00:17, 55.65it/s]Loading weights:   5%|▍         | 50/1026 [00:00<00:16, 59.49it/s]Loading weights:   6%|▌         | 59/1026 [00:01<00:20, 46.41it/s]Loading weights:   8%|▊         | 83/1026 [00:01<00:14, 63.91it/s]Loading weights:  10%|▉         | 101/1026 [00:01<00:13, 67.71it/s]Loading weights:  12%|█▏        | 119/1026 [00:01<00:13, 69.14it/s]Loading weights:  12%|█▏        | 128/1026 [00:02<00:15, 56.15it/s]Loading weights:  15%|█▍        | 152/1026 [00:02<00:12, 67.29it/s]Loading weights:  17%|█▋        | 170/1026 [00:03<00:22, 38.38it/s]Loading weights:  18%|█▊        | 188/1026 [00:04<00:27, 30.41it/s]Loading weights:  19%|█▉        | 197/1026 [00:04<00:34, 24.29it/s]Loading weights:  22%|██▏       | 221/1026 [00:05<00:24, 32.91it/s]Loading weights:  23%|██▎       | 239/1026 [00:05<00:20, 37.50it/s]Loading weights:  25%|██▌       | 257/1026 [00:05<00:18, 41.62it/s]Loading weights:  26%|██▌       | 266/1026 [00:06<00:21, 35.67it/s]Loading weights:  28%|██▊       | 290/1026 [00:06<00:16, 45.82it/s]Loading weights:  30%|███       | 308/1026 [00:06<00:14, 50.33it/s]Loading weights:  32%|███▏      | 326/1026 [00:07<00:12, 53.91it/s]Loading weights:  33%|███▎      | 335/1026 [00:07<00:17, 40.01it/s]Loading weights:  35%|███▍      | 358/1026 [00:07<00:12, 55.44it/s]Loading weights:  36%|███▌      | 366/1026 [00:08<00:15, 43.11it/s]Loading weights:  37%|███▋      | 376/1026 [00:08<00:14, 44.75it/s]Loading weights:  37%|███▋      | 382/1026 [00:08<00:18, 34.84it/s]Loading weights:  38%|███▊      | 394/1026 [00:09<00:15, 40.74it/s]Loading weights:  39%|███▉      | 400/1026 [00:09<00:20, 31.23it/s]Loading weights:  39%|███▉      | 404/1026 [00:09<00:27, 22.31it/s]Loading weights:  42%|████▏     | 427/1026 [00:10<00:14, 42.56it/s]Loading weights:  42%|████▏     | 435/1026 [00:10<00:17, 33.61it/s]Loading weights:  43%|████▎     | 445/1026 [00:10<00:15, 37.14it/s]Loading weights:  44%|████▍     | 451/1026 [00:11<00:21, 27.10it/s]Loading weights:  45%|████▌     | 463/1026 [00:11<00:18, 30.98it/s]Loading weights:  46%|████▌     | 468/1026 [00:11<00:23, 23.76it/s]Loading weights:  46%|████▌     | 472/1026 [00:12<00:26, 21.21it/s]Loading weights:  46%|████▋     | 475/1026 [00:13<00:49, 11.09it/s]Loading weights:  48%|████▊     | 496/1026 [00:13<00:23, 22.23it/s]Loading weights:  49%|████▊     | 500/1026 [00:13<00:29, 17.67it/s]Loading weights:  50%|█████     | 514/1026 [00:14<00:21, 23.66it/s]Loading weights:  50%|█████     | 518/1026 [00:14<00:27, 18.25it/s]Loading weights:  52%|█████▏    | 532/1026 [00:15<00:20, 24.36it/s]Loading weights:  52%|█████▏    | 536/1026 [00:15<00:26, 18.75it/s]Loading weights:  53%|█████▎    | 541/1026 [00:15<00:27, 17.96it/s]Loading weights:  53%|█████▎    | 544/1026 [00:16<00:33, 14.18it/s]Loading weights:  55%|█████▌    | 565/1026 [00:16<00:16, 27.17it/s]Loading weights:  55%|█████▌    | 569/1026 [00:17<00:23, 19.46it/s]Loading weights:  57%|█████▋    | 583/1026 [00:17<00:16, 26.82it/s]Loading weights:  57%|█████▋    | 587/1026 [00:18<00:22, 19.09it/s]Loading weights:  59%|█████▊    | 601/1026 [00:18<00:17, 24.77it/s]Loading weights:  59%|█████▉    | 605/1026 [00:18<00:21, 19.96it/s]Loading weights:  59%|█████▉    | 610/1026 [00:19<00:21, 19.01it/s]Loading weights:  60%|█████▉    | 613/1026 [00:19<00:30, 13.61it/s]Loading weights:  62%|██████▏   | 634/1026 [00:20<00:15, 25.11it/s]Loading weights:  62%|██████▏   | 637/1026 [00:20<00:20, 18.54it/s]Loading weights:  64%|██████▎   | 652/1026 [00:20<00:15, 24.47it/s]Loading weights:  64%|██████▍   | 655/1026 [00:21<00:19, 19.07it/s]Loading weights:  65%|██████▌   | 670/1026 [00:21<00:14, 25.20it/s]Loading weights:  66%|██████▌   | 673/1026 [00:22<00:18, 18.70it/s]Loading weights:  66%|██████▌   | 679/1026 [00:22<00:19, 18.19it/s]Loading weights:  66%|██████▋   | 681/1026 [00:23<00:24, 13.99it/s]Loading weights: 100%|██████████| 1026/1026 [00:23<00:00, 44.52it/s]
+[transformers] The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+HF produced 128 tokens.
+Building TT generator...
+Fetching 30 files:   0%|          | 0/30 [00:00<?, ?it/s]Fetching 30 files: 100%|██████████| 30/30 [00:00<00:00, 60669.78it/s]
+2026-08-16 21:04:18.218 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:454 - building OrnithModel: 40 layer(s) 0.. tp=4 max_context=262144 policy=optimized vocab=248320->248320
+2026-08-16 21:04:18.507 | info     |           Metal | Pinned source memory start address 0x761711223aa8 must be aligned 64 B (dispatch.cpp:1192)
+2026-08-16 21:04:18.508 | info     |           Metal | Pinned source memory start address 0x761711223aa8 must be aligned 64 B (dispatch.cpp:1192)
+2026-08-16 21:04:18.508 | info     |           Metal | Pinned source memory start address 0x761711223aa8 must be aligned 64 B (dispatch.cpp:1192)
+2026-08-16 21:04:18.508 | info     |           Metal | Pinned source memory start address 0x761711223aa8 must be aligned 64 B (dispatch.cpp:1192)
+2026-08-16 21:04:18.797 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:18.797 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:18.797 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:26.894 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:26.894 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:26.895 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:27.032 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 0 (linear_attention) loaded
+2026-08-16 21:04:32.031 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 1 (linear_attention) loaded
+2026-08-16 21:04:37.043 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 2 (linear_attention) loaded
+2026-08-16 21:04:37.997 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:37.997 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:37.997 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:04:42.081 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 3 (full_attention) loaded
+2026-08-16 21:04:46.927 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 4 (linear_attention) loaded
+2026-08-16 21:04:51.678 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 5 (linear_attention) loaded
+2026-08-16 21:04:56.459 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 6 (linear_attention) loaded
+2026-08-16 21:05:01.340 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 7 (full_attention) loaded
+2026-08-16 21:05:06.054 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 8 (linear_attention) loaded
+2026-08-16 21:05:10.738 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 9 (linear_attention) loaded
+2026-08-16 21:05:15.389 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 10 (linear_attention) loaded
+2026-08-16 21:05:20.114 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 11 (full_attention) loaded
+2026-08-16 21:05:24.837 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 12 (linear_attention) loaded
+2026-08-16 21:05:29.624 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 13 (linear_attention) loaded
+2026-08-16 21:05:34.458 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 14 (linear_attention) loaded
+2026-08-16 21:05:39.447 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 15 (full_attention) loaded
+2026-08-16 21:05:44.316 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 16 (linear_attention) loaded
+2026-08-16 21:05:49.232 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 17 (linear_attention) loaded
+2026-08-16 21:05:54.024 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 18 (linear_attention) loaded
+2026-08-16 21:05:58.937 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 19 (full_attention) loaded
+2026-08-16 21:06:03.793 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 20 (linear_attention) loaded
+2026-08-16 21:06:08.614 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 21 (linear_attention) loaded
+2026-08-16 21:06:13.240 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 22 (linear_attention) loaded
+2026-08-16 21:06:17.752 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 23 (full_attention) loaded
+2026-08-16 21:06:22.398 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 24 (linear_attention) loaded
+2026-08-16 21:06:27.094 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 25 (linear_attention) loaded
+2026-08-16 21:06:31.913 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 26 (linear_attention) loaded
+2026-08-16 21:06:36.684 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 27 (full_attention) loaded
+2026-08-16 21:06:41.167 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 28 (linear_attention) loaded
+2026-08-16 21:06:45.701 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 29 (linear_attention) loaded
+2026-08-16 21:06:50.229 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 30 (linear_attention) loaded
+2026-08-16 21:06:54.705 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 31 (full_attention) loaded
+2026-08-16 21:06:59.243 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 32 (linear_attention) loaded
+2026-08-16 21:07:03.501 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 33 (linear_attention) loaded
+2026-08-16 21:07:07.796 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 34 (linear_attention) loaded
+2026-08-16 21:07:12.126 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 35 (full_attention) loaded
+2026-08-16 21:07:16.484 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 36 (linear_attention) loaded
+2026-08-16 21:07:20.798 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 37 (linear_attention) loaded
+2026-08-16 21:07:25.114 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 38 (linear_attention) loaded
+2026-08-16 21:07:29.456 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:from_pretrained:540 -   layer 39 (full_attention) loaded
+2026-08-16 21:07:29.538 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:build_generator:764 - model weights loaded in 191.3 s
+2026-08-16 21:07:29.541 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:29.545 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:29.825 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 0 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:29.826 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:29.826 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:29.978 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 1 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:29.979 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:29.979 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.140 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 2 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:30.141 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.142 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.143 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.143 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.298 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 4 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:30.299 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.300 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.454 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 5 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:30.455 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.455 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.614 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 6 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:30.615 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.616 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.616 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.617 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.757 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 8 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:30.757 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.758 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.899 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 9 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:30.900 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:30.900 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.041 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 10 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.042 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.042 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.043 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.043 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.183 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 12 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.184 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.184 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.324 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 13 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.325 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.325 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.466 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 14 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.467 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.467 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.468 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.468 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.626 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 16 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.626 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.627 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.775 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 17 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.776 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.776 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.913 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 18 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:31.914 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.914 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.915 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:31.915 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.056 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 20 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.057 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.057 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.203 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 21 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.204 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.204 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.349 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 22 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.350 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.351 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.351 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.352 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.491 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 24 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.492 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.492 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.634 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 25 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.635 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.635 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.772 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 26 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.773 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.773 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.774 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.774 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.952 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 28 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:32.953 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:32.953 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.134 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 29 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.135 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.136 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.275 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 30 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.276 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.276 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.277 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.277 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.418 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 32 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.419 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.419 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.560 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 33 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.560 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.561 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.696 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 34 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.697 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.698 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.698 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.699 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.835 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 36 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.836 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.836 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.980 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 37 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:33.981 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:33.981 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:34.121 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder:allocate_state:1418 - layer 38 batch 1: ttnn.conv1d accepted 16/16 prefill block lengths [128, 256, 384, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048]
+2026-08-16 21:07:34.122 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:34.122 | warning  |              Op | ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used (tilize_device_operation.cpp:248)
+2026-08-16 21:07:34.125 | INFO     | models.autoports.ornith_ai_ornith_1_0_35b.tt.model:_share_fused_gate_buffers:698 - fused-router-gate buffers shared across 40 layers (row counts [32])
+2026-08-16 21:07:34.175 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.175 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.175 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.282 | INFO     | models.common.sampling.tt_sampling:_create_grouped_topk_tensors:437 - TTSampling: grouped local top-k enabled - 20 groups of 3104 over a 62080-wide vocabulary shard
+2026-08-16 21:07:34.284 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.284 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.284 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.373 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:_ensure_decode_trace:237 - compiling the state wipe before anything is captured
+2026-08-16 21:07:34.377 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:_ensure_decode_trace:240 - warm-compiling the decode graph before trace capture
+2026-08-16 21:07:34.429 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.429 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.429 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.445 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.445 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.445 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.542 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.542 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.542 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.544 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 144, dfb size: 64, return value: 208 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.544 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.544 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.549 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.573 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 160, dfb size: 48, return value: 208 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.573 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.573 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.596 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:34.596 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:34.596 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:34.596 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:34.606 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.609 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.657 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.660 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.663 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.665 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.668 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.670 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.673 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.676 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.678 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.680 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.683 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.685 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.688 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.690 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.693 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.695 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.698 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.700 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.703 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.705 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.707 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.710 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.712 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.715 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.717 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.720 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.722 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.725 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.727 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.730 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.732 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.735 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.737 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.739 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.742 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.744 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.746 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 32-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:34.762 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:_ensure_decode_trace:244 - warm-compiling the sampling graph on a non-trace logits tensor
+2026-08-16 21:07:34.764 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.764 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.764 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.776 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 128, return value: 256 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.776 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.776 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.779 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.779 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.779 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.794 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 128, return value: 256 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.794 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.794 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.807 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.807 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.807 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.814 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 64, dfb size: 48, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.814 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.814 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.831 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.831 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.831 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.833 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.833 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.833 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.842 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.842 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.842 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.859 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 112, dfb size: 288, return value: 400 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.859 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.859 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:34.865 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:_ensure_decode_trace:260 - capturing the model decode trace and the sampling trace
+2026-08-16 21:07:35.083 | warning  |           Metal | Allocating device buffers is unsafe due to the existence of an active trace. These buffers may be corrupted once a trace is executed. (allocator.cpp:123)
+2026-08-16 21:07:35.120 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.120 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.120 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.132 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.132 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.132 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.182 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 128, dfb size: 128, return value: 256 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.182 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.182 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.190 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 160, dfb size: 144, return value: 304 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.190 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.190 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.197 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.197 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.197 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.198 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.198 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.198 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.204 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 144, dfb size: 64, return value: 208 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.204 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.204 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.209 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 160, dfb size: 48, return value: 208 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.209 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.209 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.211 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.230 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:35.230 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:35.230 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:35.230 | warning  |              Op | Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-08-16 21:07:35.234 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.238 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.259 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 80, dfb size: 32, return value: 112 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.259 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.259 | info     |           Metal | Finalize dfb: dfb_offset == base_offset: 0, dfb size: 0, return value: 0 (dataflow_buffer.cpp:1695)
+2026-08-16 21:07:35.271 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.276 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.279 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.283 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.286 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.290 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.294 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.297 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.300 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.304 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.308 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.312 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.315 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.318 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.322 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.326 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.329 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.332 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.336 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.340 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.343 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.347 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.350 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.354 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.357 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.361 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.365 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.368 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.371 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.375 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.379 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.382 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.385 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.389 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.393 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.396 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.399 | DEBUG    | models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder:_expert_mem:1311 - MoE expert intermediates for a 32-token group of a 128-token call: peak 5.3 MiB against a 51.4 MiB L1 budget -> BufferType.L1
+2026-08-16 21:07:35.411 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:_ensure_traces_replay_safe:339 - re-capturing the decode traces: 107 program(s) were compiled after capture, and their kernel binaries would be overwritten by the next replay
+2026-08-16 21:07:35.412 | DEBUG    | models.common.sampling.generator:reset_trace:132 - Resetting sampling trace (penalties=False, log_probs=False, force_argmax=False, trace_id=MeshTraceId(1))
+2026-08-16 21:07:38.672 | INFO     | _readiness_generator_ornith_ai_ornith_1_0_35b:generate:641 - generate: prompt=28 tokens=128 TTFT=327.9 ms decode=41.75 t/s/u (23.95 ms/token) mode=device
+2026-08-16 21:07:38.672 | DEBUG    | models.common.sampling.generator:reset_trace:132 - Resetting sampling trace (penalties=False, log_probs=False, force_argmax=False, trace_id=MeshTraceId(3))
+2026-08-16 21:07:39.141 | INFO     | __main__:_write:50 - wrote models/autoports/ornith_ai_ornith_1_0_35b/doc/full_model/readiness_autoregressive_chat.json
+Running TT autoregressive generation...
+TT produced 128 tokens.
+
+Saved HF completion → /home/ttuser/dev/ornith/tt-metal/models/autoports/ornith_ai_ornith_1_0_35b/readiness_autoregressive_chat/hf_completion.txt
+Saved TT completion → /home/ttuser/dev/ornith/tt-metal/models/autoports/ornith_ai_ornith_1_0_35b/readiness_autoregressive_chat/tt_completion.txt
+Saved metadata     → /home/ttuser/dev/ornith/tt-metal/models/autoports/ornith_ai_ornith_1_0_35b/readiness_autoregressive_chat/autoregressive_meta.json
+{
+  "autoregressive": "see json"
+}
+READINESS_OK
+nanobind: leaked 1 instances!
+ - leaked instance 0x763b4ab99cc8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 36 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - ... skipped remainder
+nanobind: leaked 311 functions!
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function "clear_loaded_sub_device_manager"
+ - leaked function "initialize_fast_dispatch"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__ne__"
+ - leaked function ""
+ - leaked function "to_json"
+ - leaked function "UnregisterProgramRealtimeProfilerCallback"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-16 21:07:40.605 | info     |    BuildKernels | JIT cache stats: 942/942 hits (100.0%) [942 cached, 586 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-16 21:07:40.605 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-16 21:07:40.632 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-16 21:07:40.632 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
+2026-08-16 21:07:41.249 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
+2026-08-16 21:07:41.250 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
+2026-08-16 21:07:41.250 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
