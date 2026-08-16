@@ -52,7 +52,6 @@ from models.autoports.ornith_ai_ornith_1_0_35b.reference import hf_reference as 
 from models.autoports.ornith_ai_ornith_1_0_35b.tt import multichip_decoder as MC
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model_config import OrnithDecoderConfig
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder import (
-    CCL_STACK_SUM_MAX_ROWS,
     DEFAULT_CCL_TOPOLOGY,
     DEFAULT_FABRIC_CONFIG,
     DEFAULT_MESH_SHAPE,
@@ -525,14 +524,25 @@ def test_collectives_per_forward(mesh_device, layer_idx, monkeypatch):
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
     calls: list[str] = []
 
-    for name in ("all_reduce", "all_gather", "reduce_scatter"):
-        original = getattr(ttnn, name)
+    # `all_gather_async` is watched alongside the `ttnn` collectives so that every spelling the knobs
+    # can select is counted. The shipped one is `ttnn.all_reduce` at every shape
+    # (doc/optimized_multichip_decoder/work_log.md section 11: the stack-sum crossover's fast
+    # spelling is the one that diverges across devices, and of the two correct spellings all_reduce
+    # is the faster). The test's claim is about the COUNT and placement of collectives, and the
+    # assertion below additionally pins which spelling ships.
+    for namespace, name in (
+        (ttnn, "all_reduce"),
+        (ttnn, "all_gather"),
+        (ttnn, "reduce_scatter"),
+        (ttnn.experimental, "all_gather_async"),
+    ):
+        original = getattr(namespace, name)
 
         def spy(*args, _name=name, _orig=original, **kwargs):
             calls.append(_name)
             return _orig(*args, **kwargs)
 
-        monkeypatch.setattr(ttnn, name, spy)
+        monkeypatch.setattr(namespace, name, spy)
 
     x = to_device(mesh_device, make_activations(1, 256, seed=63))
     ttnn.deallocate(decoder.prefill_forward(x, page_table=page_table))
@@ -551,10 +561,19 @@ def test_collectives_per_forward(mesh_device, layer_idx, monkeypatch):
     logger.info(f"multichip collectives layer={layer_idx}: prefill {prefill_calls}, decode {decode_calls}")
     # Prefill is above the stack-sum crossover, so both collectives are `ttnn.all_reduce`.
     assert prefill_calls == ["all_reduce", "all_reduce"], prefill_calls
-    # Batch-1 decode is one 32-row tile, at or below CCL_STACK_SUM_MAX_ROWS, so both are the
-    # all_gather-plus-local-sum spelling.
-    assert 32 <= CCL_STACK_SUM_MAX_ROWS
-    assert decode_calls == ["all_gather", "all_gather"], decode_calls
+    # Decode now takes `ttnn.all_reduce` too. The multichip stage's stack-sum crossover was measured
+    # against the deprecated `ttnn.all_gather`, and that is the spelling that diverges across devices
+    # under sustained traced replay; with it removed, the stable op is both correct and the faster of
+    # the two remaining candidates at the decode tile (work_log section 11).
+    want = {"all_reduce": "all_reduce", "rs_ag": "reduce_scatter", "stack_sum": "all_gather"}.get(
+        MC.CCL_MODE, "all_gather_async"
+    )
+    # Exact equality, not a prefix-and-length check: two collectives, both the shipped spelling.
+    # `rs_ag` is the one mode that lowers to two ops per collective, so it has its own expectation.
+    expected = [want, "all_gather", want, "all_gather"] if MC.CCL_MODE == "rs_ag" else [want, want]
+    assert decode_calls == expected, decode_calls
+    # And the deprecated semaphore-free gather is NOT what the shipped default reaches.
+    assert MC.CCL_MODE == "all_reduce", f"the shipped decode collective changed: CCL_MODE is {MC.CCL_MODE!r}"
 
 
 # --------------------------------------------------------------------------------------
@@ -1109,8 +1128,202 @@ def test_routing_select_modes_agree(mesh_device, layer_idx, monkeypatch):
 
 
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("candidate", ["fused_gate", "fused_gate_local"])
+def test_router_modes_agree(mesh_device, layer_idx, candidate, monkeypatch):
+    """The fused router gate and the inherited ``topk`` chain agree on the layer and on the route.
+
+    ``ROUTER_MODE="fused_gate"`` is a **precision change**, not only a fusion: the
+    ``generalized_moe_gate`` kernel reads bfloat16 logits where the ``topk`` chain reads float32, so
+    the two can in principle select different experts near the top-8/top-9 boundary. That is exactly
+    the thing a router change has to be measured on, because a swapped expert is a different
+    computation and not a rounded value.
+
+    Both quantities are checked on real checkpoint weights and on the traced-shape decode path: the
+    per-token selected-expert SET taken from the dense routing vector, and the layer output against
+    the same float32 HF golden the rest of the suite uses. The optimized stage rejected this op
+    without timing it and without this measurement; this test is what makes the shipped default
+    answerable.
+    """
+    source = default_weight_source()
+    prefill_len, steps = 128, 8
+    x = make_activations(1, prefill_len, seed=61)
+    decode_x = [make_activations(1, 1, seed=6100 + i) for i in range(steps)]
+    _, ref_decode = run_reference(layer_idx, source, x, decode_x=decode_x, decode_steps=steps)
+
+    def run(mode):
+        monkeypatch.setattr(MC, "ROUTER_MODE", mode)
+        decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
+        # `allocate_state` is where the gate buffers are built, and `build_decoder` has already run
+        # it under whatever mode was active then; re-run it so the mode under test is the one the
+        # buffers (and therefore the decode path) reflect.
+        decoder.allocate_state(1)
+        ttnn.deallocate(decoder.prefill_forward(to_device(mesh_device, x), page_table=page_table))
+        outs, routes = [], []
+        for step in range(steps):
+            current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([prefill_len + step]))
+            decoder.moe._captured_route = None
+            out = decoder.decode_forward(
+                to_device(mesh_device, decode_x[step]),
+                current_pos=current_pos,
+                rot_idxs=rot_idxs,
+                page_table=page_table,
+            )
+            outs.append(to_host(mesh_device, out))
+            routes.append(decoder.moe._captured_route)
+            ttnn.deallocate(out)
+        del decoder, page_table
+        return outs, routes
+
+    # Capture the device-local routing vector each step without changing the forward: the wrapper
+    # stashes what `routing_weights` returned, which is the narrowed 64-wide block this device runs.
+    # It is read back to HOST here rather than kept as a handle - `OptimizedMoE.forward` frees the
+    # routing tensor before the caller ever sees it, so holding the handle is a use-after-free (the
+    # first version of this test segfaulted on exactly that).
+    original = MC.MultichipMoE.routing_weights
+
+    def capture(self, x_in):
+        out = original(self, x_in)
+        self._captured_route = torch.cat(shards(mesh_device, out), dim=-1)
+        return out
+
+    monkeypatch.setattr(MC.MultichipMoE, "routing_weights", capture)
+
+    want_outs, want_routes = run("topk")
+    got_outs, got_routes = run(candidate)
+
+    agree, total = 0, 0
+    for step in range(steps):
+        a = (want_routes[step][0, 0, 0] != 0).nonzero().flatten().tolist()
+        b = (got_routes[step][0, 0, 0] != 0).nonzero().flatten().tolist()
+        agree += int(set(a) == set(b))
+        total += 1
+        want_value = pcc(ref_decode[step], want_outs[step])
+        got_value = pcc(ref_decode[step], got_outs[step])
+        cross = pcc(want_outs[step], got_outs[step])
+        logger.info(
+            f"multichip router modes layer={layer_idx} candidate={candidate} step={step}: "
+            f"topk-vs-golden PCC {want_value:.6f}, "
+            f"{candidate}-vs-golden PCC {got_value:.6f}, {candidate}-vs-topk PCC {cross:.6f}, "
+            f"expert sets {'equal' if set(a) == set(b) else f'{a} vs {b}'}"
+        )
+        assert got_value > PCC_BAR, f"{candidate} decode step {step} PCC {got_value} <= {PCC_BAR}"
+        assert cross > BASELINE_BAR, f"the two router modes disagree at the layer (PCC {cross})"
+    logger.info(
+        f"multichip router modes layer={layer_idx} candidate={candidate}: "
+        f"identical expert set on {agree}/{total} decode steps"
+    )
+    # ASSERTED, not only logged. The whole defence of a float32 -> bfloat16 router-logit change is
+    # that expert selection is discrete and does not move; review round 1 of this stage pointed out
+    # that the documents claimed the change was "gated" on this quantity while the test merely
+    # printed it, so a future change that swapped one expert on one step would still have passed.
+    assert agree == total, (
+        f"{candidate} selected a different expert set on {total - agree}/{total} decode steps; "
+        "the router-mode change is only admissible while the discrete selection is unchanged"
+    )
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_decode_runs_the_fused_router_gate(mesh_device, layer_idx, monkeypatch):
+    """The shipped default actually reaches the kernel, and prefill actually does not.
+
+    A policy that only exists in a module constant is not implemented. This pins both halves of
+    :data:`~...multichip_decoder.ROUTER_MODE`'s contract in the measured runtime path: exactly one
+    ``generalized_moe_gate`` call and **no** ``ttnn.topk`` in a decode forward, and the reverse in a
+    prefill forward, where the gate op's one-token-per-core shape would need 19 sequential calls for
+    a 2048-token chunk and ``TopK`` is 0.17% of the window.
+    """
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
+    counts = {"gate": 0, "topk": 0}
+    gate_original = ttnn.experimental.deepseek.moe.generalized_moe_gate
+    topk_original = ttnn.topk
+
+    def gate_spy(*args, **kwargs):
+        counts["gate"] += 1
+        return gate_original(*args, **kwargs)
+
+    def topk_spy(*args, **kwargs):
+        counts["topk"] += 1
+        return topk_original(*args, **kwargs)
+
+    monkeypatch.setattr(ttnn.experimental.deepseek.moe, "generalized_moe_gate", gate_spy)
+    monkeypatch.setattr(ttnn, "topk", topk_spy)
+
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 128, seed=63)), page_table=page_table)
+    )
+    prefill_counts = dict(counts)
+    counts["gate"] = counts["topk"] = 0
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([128]))
+    ttnn.deallocate(
+        decoder.decode_forward(
+            to_device(mesh_device, make_activations(1, 1, seed=64)),
+            current_pos=current_pos,
+            rot_idxs=rot_idxs,
+            page_table=page_table,
+        )
+    )
+    logger.info(f"multichip router op census layer={layer_idx}: prefill {prefill_counts}, decode {counts}")
+    assert counts["gate"] == 1, f"decode ran {counts['gate']} generalized_moe_gate calls, expected exactly 1"
+    assert counts["topk"] == 0, f"decode still ran {counts['topk']} ttnn.topk calls"
+    assert prefill_counts["gate"] == 0, "prefill ran the one-token-per-core gate op"
+    assert prefill_counts["topk"] == 1, f"prefill ran {prefill_counts['topk']} ttnn.topk calls, expected 1"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("batch", [1, 4, 32, 40, 56])
+def test_fused_router_gate_covers_every_supported_batch(mesh_device, layer_idx, batch, monkeypatch):
+    """The fused gate is reached at every supported batch, not only at batch 1.
+
+    ``routing_weights`` falls back to the ``topk`` chain **silently** when the gate buffers for a
+    decode row count were not prepared, which is correct and slower. A silent fallback that nothing
+    checks is a performance cliff nobody would notice, so the row counts the advertised contract can
+    produce are pinned: ``align_up(batch, 32)`` is 32 up to batch 32 and 64 at the 40 and 56 the
+    single-chip suite exercises above the dedicated decode op's limit. All are far below the 110-core
+    ceiling. Review round 1 of this stage found only batch 1 covered.
+    """
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024, batch=batch)
+    counts = {"gate": 0, "topk": 0}
+    gate_original = ttnn.experimental.deepseek.moe.generalized_moe_gate
+    topk_original = ttnn.topk
+
+    def gate_spy(*args, **kwargs):
+        counts["gate"] += 1
+        return gate_original(*args, **kwargs)
+
+    def topk_spy(*args, **kwargs):
+        counts["topk"] += 1
+        return topk_original(*args, **kwargs)
+
+    ttnn.deallocate(
+        decoder.prefill_forward(
+            to_device(mesh_device, make_activations(batch, 128, seed=65 + batch)), page_table=page_table
+        )
+    )
+    monkeypatch.setattr(ttnn.experimental.deepseek.moe, "generalized_moe_gate", gate_spy)
+    monkeypatch.setattr(ttnn, "topk", topk_spy)
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.full((batch,), 128, dtype=torch.int32))
+    ttnn.deallocate(
+        decoder.decode_forward(
+            to_device(mesh_device, make_activations(batch, 1, seed=66 + batch)),
+            current_pos=current_pos,
+            rot_idxs=rot_idxs,
+            page_table=page_table,
+        )
+    )
+    rows = ((batch + TILE - 1) // TILE) * TILE
+    logger.info(f"multichip router op census layer={layer_idx} batch={batch} decode rows={rows}: {counts}")
+    assert counts["gate"] == 1, (
+        f"decode at batch {batch} ({rows} router rows) ran {counts['gate']} gate calls and "
+        f"{counts['topk']} ttnn.topk calls - the fused gate silently fell back"
+    )
+    assert counts["topk"] == 0
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 @pytest.mark.parametrize("phase", ["decode", "prefill"])
-@pytest.mark.parametrize("mode", ["all_reduce", "rs_ag", "stack_sum"])
+@pytest.mark.parametrize("mode", ["rs_ag", "stack_sum", "stack_sum_async"])
 def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode, phase):
     """Every collective spelling produces the same layer output, so the knob is a latency knob.
 
@@ -1121,10 +1334,11 @@ def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode, phase):
     the layer runs, so a 32-token prefill still hands the collective 128 physical rows and ``auto``
     still resolves to ``all_reduce``. No prefill shape can reach the ``stack_sum`` regime at all.
 
-    Decode can, and is where the layer actually ships it: a batch-1 step is one 32-row tile, so
-    ``auto`` is ``stack_sum`` there. Between the two phases every arm is now compared against a
-    genuinely different spelling once, and the assertion below re-derives which one from
-    ``_physical_rows`` rather than from the logical length.
+    Decode can: a batch-1 step is one 32-row tile, so ``auto`` resolves to a stack-sum spelling there
+    while the shipped ``CCL_MODE`` is ``all_reduce`` at every shape. The **reference arm is the
+    shipped default**, and the parametrized arms are the alternatives, so no case compares the
+    shipped path with itself — the tautology round 4 and round 8 of the previous stage each caught a
+    version of. ``all_reduce`` is therefore absent from the arm list: it *is* the reference now.
     """
     source = default_weight_source()
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
@@ -1156,23 +1370,23 @@ def test_ccl_modes_agree(mesh_device, layer_idx, monkeypatch, mode, phase):
             ),
         )
 
-    monkeypatch.setattr(MC, "CCL_MODE", "auto")
-    want = run()
+    want = run()  # the shipped default, whatever CCL_MODE is set to at module level
     rows = seen[-1] if phase == "decode" else max(seen)
-    resolved = "stack_sum" if rows <= MC.CCL_STACK_SUM_MAX_ROWS else "all_reduce"
+    resolved = MC.AUTO_STACK_SUM_MODE if rows <= MC.CCL_STACK_SUM_MAX_ROWS else "all_reduce"
     seen.clear()
     monkeypatch.setattr(MC, "CCL_MODE", mode)
     got = run()
     value = pcc(want, got)
     logger.info(
         f"multichip CCL_MODE={mode} layer={layer_idx} phase={phase}: last collective saw {rows} "
-        f"physical rows so auto={resolved}; PCC vs auto = {value:.6f}"
+        f"physical rows so `auto` would resolve to {resolved}; PCC vs the shipped default "
+        f"({MC.CCL_MODE}) = {value:.6f}"
     )
     assert value > 0.9999, f"CCL_MODE={mode} changed the result (PCC {value})"
     if phase == "decode":
-        assert resolved == "stack_sum", (
-            f"decode's collective saw {rows} physical rows, so `auto` did not pick stack_sum and this "
-            "test is not covering the crossover it exists for"
+        assert rows <= MC.CCL_STACK_SUM_MAX_ROWS, (
+            f"decode's collective saw {rows} physical rows, so the `auto`/`stack_sum` arms are not "
+            "covering the crossover regime this test exists for"
         )
 
 

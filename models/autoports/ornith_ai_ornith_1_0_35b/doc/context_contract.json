@@ -1,6 +1,6 @@
 {
  "hf_model_id": "ornith-ai/Ornith-1.0-35B",
- "stage": "multichip-decoder",
+ "stage": "optimized-multichip-decoder",
  "target": "single decoder layer, both layer kinds, 1x4 Blackhole (p300c) mesh under FABRIC_1D_RING; the 1x1 mesh remains the single-chip baseline",
  "_flat_keys_note": "hf_advertised_context and current_supported_context mirror advertised.context_length and supported.context_length. They exist because .agents/scripts/check_context_contract.py resolves the context with first_int(), a flat mapping.get() over the top level with no recursion, so the nested objects below are invisible to it and 06-full-model.check.sh would exit 2 (critical). Keep the two in sync; the nested objects remain authoritative for humans.",
  "hf_advertised_context": 262144,
@@ -73,7 +73,7 @@
     40,
     56
    ],
-   "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (functional stage: PCC 0.999895 - 0.999975; the fused stage's own range is in doc/fused_decoder/README.md \u00a72.4, generated from its run). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid.",
+   "per_user_positions": "test_batched_decode_ragged_positions[4,13]: every user decodes at a DISTINCT absolute position over a shuffled disjoint page table, each compared against its own HF golden (functional stage: PCC 0.999895 - 0.999975; the fused stage's own range is in doc/fused_decoder/README.md §2.4, generated from its run). A decode path that read only current_pos[0] would fail this. Batch 13 also covers a batch with no rectangular factor pair for the one-user-per-core shard grid.",
    "tested_batches_note": "1/4/13/32 are the functional stage's; 40 and 56 are added by the fused stage to cover the two fallbacks its dedicated decode ops need (nlp_create_qkv_heads_decode above 32 users, paged_fused_update_cache above 2*batch cores). Review round 11 added 5 and 8: per_core_M equals the batch for the four token-mixer roles, so every batch from 1 to 8 is a distinct tuned decode config class and 5 is where o_proj's in0_block_w narrows. Batches 5 and 8 are asserted by the OPTIMIZED stage's suite only: they were added there because per_core_M equals the batch for the token-mixer roles, which is a property of the optimized decoder's tuned configs and not of the fused decoder, whose suite parametrises 4 and 32. So the fused_decoder.capability_note's 'every capability row is re-asserted by the identically named fused test' holds for every row that existed when it was written and not for these two - review round 15 caught the list growing under a claim that did not grow with it."
   }
  },
@@ -148,7 +148,7 @@
   "moe_sparsity_group_tokens": 32,
   "moe_tokens_per_sparse_matmul_call": 256,
   "padding_policy": "Each internal prefill block is zero-padded up to the physical alignment. For full_attention the padded key/value rows are exact zeros at absolute positions beyond the logical end and are excluded from every real query by causality. For linear_attention the padded steps are neutralised by zeroing beta (kills the delta write) and g (kills the decay), making each padded step an exact identity on the recurrent state, and the conv history is taken from the real tail at the logical length. Outputs are sliced back to the logical length.",
-  "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk \u2014 one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
+  "rope_table_rows": "align_up(max_context, prefill_chunk) + prefill_chunk — one alignment of headroom so a final block's padded window is always in range even when max_context is not a multiple of the alignment."
  },
  "optimized_decoder": {
   "stage": "optimized-decoder",
@@ -201,7 +201,7 @@
   },
   "named_limitations": [
    "ttnn.topk is single-core on the 256-wide routing dim (48 us/step). Its multi-core path needs a power-of-two width >= 8192; padding the logits with -inf to 8192 is correct but measured ~3x slower than the single-core 256 call (doc/optimized_decoder/logs/probe_decode_micro.txt).",
-   "ttnn.sparse_matmul nnz is left inferred at runtime because pinning it REPRODUCIBLY WEDGED THE DEVICE at this model's shapes. After the padded-row routing mask the batch-1 decode sparsity holds exactly num_experts_per_tok non-zeros, so the exact-count invariant nnz requires is satisfiable; doc/optimized_decoder/logs/probe_sparse_matmul.py --nnz --active 8 passes nnz=8 against a sparsity tensor with exactly 8 non-zeros and the first candidate hung inside SparseMatmulDeviceOperation, despite the op's own comment that the sender validates count_nonzero(sparsity) against nnz on device and fails loudly instead of deadlocking (tt-metal #45943). tt-triage evidence: doc/optimized_decoder/triage/; one tt-smi -r recovered the card and the 1x1 mesh smoke passed. work_log.md \u00a74.8 has the incident and recovery table. This is worth reporting upstream: the documented on-device validation does not fire here.",
+   "ttnn.sparse_matmul nnz is left inferred at runtime because pinning it REPRODUCIBLY WEDGED THE DEVICE at this model's shapes. After the padded-row routing mask the batch-1 decode sparsity holds exactly num_experts_per_tok non-zeros, so the exact-count invariant nnz requires is satisfiable; doc/optimized_decoder/logs/probe_sparse_matmul.py --nnz --active 8 passes nnz=8 against a sparsity tensor with exactly 8 non-zeros and the first candidate hung inside SparseMatmulDeviceOperation, despite the op's own comment that the sender validates count_nonzero(sparsity) against nnz on device and fails loudly instead of deadlocking (tt-metal #45943). tt-triage evidence: doc/optimized_decoder/triage/; one tt-smi -r recovered the card and the 1x1 mesh smoke passed. work_log.md §4.8 has the incident and recovery table. This is worth reporting upstream: the documented on-device validation does not fire here.",
    "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig loses to an explicit 1D mcast_in0 config on every dense decode role here, even measured without its activation-reshard cost, because the op pins its compute grid to the 8 DRAM banks."
   ]
  },
@@ -291,10 +291,123 @@
   ],
   "max_decode_batch": 32,
   "max_prefill_batch": 32,
-  "batch_note": "Unchanged from the single-chip stage and re-verified on the mesh rather than inherited: TP=4 changes the per-device head counts that every batch-sensitive decode op is bounded by \u2014 nlp_create_qkv_heads_decode (a 32-user op limit), paged_fused_update_cache (2 x batch cores) and sdpa_decode (one core per page-table row) all see n_heads 16 -> 4 and n_kv_heads 2 -> 1. (An earlier note claimed the non-aligned batched case also exercised the CCL_COMPACT_ROWS fold in prefill; it does not -- the fold is decode-only, because prefill pads to PREFILL_ALIGN before the layer runs. The case is kept as the suite's only batched non-aligned prefill coverage.)",
+  "batch_note": "Unchanged from the single-chip stage and re-verified on the mesh rather than inherited: TP=4 changes the per-device head counts that every batch-sensitive decode op is bounded by — nlp_create_qkv_heads_decode (a 32-user op limit), paged_fused_update_cache (2 x batch cores) and sdpa_decode (one core per page-table row) all see n_heads 16 -> 4 and n_kv_heads 2 -> 1. (An earlier note claimed the non-aligned batched case also exercised the CCL_COMPACT_ROWS fold in prefill; it does not -- the fold is decode-only, because prefill pads to PREFILL_ALIGN before the layer runs. The case is kept as the suite's only batched non-aligned prefill coverage.)",
   "tested_prefill_lengths_per_batch": [
    192,
    130
   ]
+ },
+ "optimized_multichip_decoder": {
+  "stage": "optimized-multichip-decoder",
+  "implementation": "tt/multichip_decoder.py (optimized IN PLACE; there is no separate class or file)",
+  "tests": "tests/test_multichip_decoder.py",
+  "baseline": "the same file as delivered by the multichip stage, reachable in one binary with ROUTER_MODE='topk' or bench.py --router-mode topk",
+  "capability_change": "NONE. The advertised 262144-token context, the batch bound of 32, non-aligned logical sequence lengths, the public prefill/decode signature, the paged KV cache geometry and dtype, the DeltaNet state shapes and the replicated inter-layer residual contract are all unchanged. Per-device footprint is unchanged to within four small persistent buffers (below).",
+  "context_length": 262144,
+  "capability_note": "Every capability row under 'tested' and under 'multichip_decoder' is re-asserted by the identically named test in tests/test_multichip_decoder.py, which is the SAME suite the multichip stage shipped - this stage optimizes in place and adds tests rather than replacing them. Final run: 153 passed, 3 skipped (doc/optimized_multichip_decoder/logs/pytest_full_suite.txt.gz), against the multichip stage's 137 passed, 3 skipped. Sixteen of the 153 are new here: test_router_modes_agree (2 layer kinds x 2 candidate router modes), test_decode_runs_the_fused_router_gate (2) and test_fused_router_gate_covers_every_supported_batch (2 x 5 batches). test_ccl_modes_agree keeps its count - it gained the stack_sum_async arm and lost the all_reduce one, which is now the reference rather than an arm.",
+  "performance_change": {
+   "warmed_traced_decode_batch1_ms": {
+    "linear_attention": {
+     "before": 0.61,
+     "after": 0.564
+    },
+    "full_attention": {
+     "before": 0.5,
+     "after": 0.453
+    }
+   },
+   "warmed_prefill_2048_ms": {
+    "linear_attention": {
+     "before": 28.98,
+     "after": 29.56
+    },
+    "full_attention": {
+     "before": 28.42,
+     "after": 28.41
+    }
+   },
+   "note": "Derived from doc/optimized_multichip_decoder/logs/ab_before_after.txt by logs/make_tables.py, which is also what generates the README's tables - review rounds 2-4 each found this block hand-edited and stale, so it is no longer hand-edited. Both arms come from one sweep; the before arm restores all three of this stage's behavioural knobs (--router-mode topk --ccl-mode auto --auto-stack-sum stack_sum), which is stage 4's shipped path exactly. Decode is the net of two opposite moves: the fused router gate and the collective correctness fix, which pull in opposite directions and interact by about 8 us - README section 1 states both contexts. Prefill moves within the build-to-build spread and is not claimed as a change.",
+   "parallel_efficiency_decode_batch1": {
+    "before": "41-42%",
+    "after": "45.7% linear_attention, 45.6% full_attention"
+   }
+  },
+  "router_precision_delta": {
+   "what": "At DECODE only, the router's ttnn.topk(k=8) over 256 experts plus the ttnn.softmax over the kept 8 are replaced by one ttnn.experimental.deepseek.moe.generalized_moe_gate call. That kernel reads bfloat16 logits, so the stored router logits change from float32 to bfloat16. The router MATMUL is unchanged: bfloat16 weight, HiFi4, float32 accumulation.",
+   "why_it_is_safe_here": "Expert selection is discrete, so this is gated on the selected set rather than on PCC alone, and gated is meant literally: test_router_modes_agree asserts `agree == total` on the per-token top-8 set as well as PCC against the float32 chain and the float32 HF golden, on real checkpoint weights. Measured: identical sets on 8/8 decode steps for both layer kinds and both candidate fused modes, golden PCC matching the float32 chain to five or six decimal places. doc/optimized_multichip_decoder/logs/probe_gate.txt adds 32 random-normal-logit tokens, also 32/32 identical - while ttnn.topk on the same bfloat16 logits agrees on only 31/32, so bfloat16 logits can move a selection and this kernel's ranking tracks float32 more closely than a bfloat16 topk does.",
+   "prefill_unchanged": "Prefill keeps the float32 topk chain. The gate op is one token per core, so a 2048-token chunk would need 19 sequential calls, and TopK is 0.17% of the prefill window. test_decode_runs_the_fused_router_gate pins both halves.",
+   "fallback": "ROUTER_MODE='topk' restores the inherited chain exactly, and a decode row count for which the gate buffers were not prepared falls back to it automatically.",
+   "batch_coverage": "test_fused_router_gate_covers_every_supported_batch pins that the fused gate is actually reached - one gate call, zero ttnn.topk calls - at batches 1, 4, 32, 40 and 56 on both layer kinds, i.e. at both decode row counts (32 and 64) the advertised contract can produce. The fallback to the topk chain is silent by design, so it is checked rather than assumed."
+  },
+  "footprint_delta": {
+   "direction": "increase, negligible",
+   "per_device_added_bytes": 278528,
+   "per_device_added_bytes_note": "Five persistent per-layer tensors the fused gate needs at the decode row count. At the advertised batch bound of 32 the decode row count is align_up(32, 32) = 32, so: bias, input-indices, output-scores and output-indices are each allocated at the (32, 32) height shard over 32 cores = 32 x 32 x 32 x 2 B = 65536 B, i.e. 262144 B for the four; plus a 1 x 1 x 32 x 256 x 2 B = 16384 B ROW_MAJOR scatter base. Total 278528 B. (An earlier version of this field said 141312 B, which was arithmetic that did not match its own note; review round 1 caught it.) At batches 40 and 56 the row count is 64 and the total doubles to 557056 B. The three global semaphores the stack_sum_async arm needs are NOT allocated on the shipped path: allocate_state only creates them when a mode that uses them is selected, and CCL_MODE='all_reduce' does not.",
+   "share_of_per_device_layer": "0.083% of the multichip stage's measured 333565956 B for a full_attention layer at the full advertised context (0.167% at 64 rows). DRAM headroom stays 102x. No capability reduction is required by this stage and none is taken."
+  },
+  "internal_shape_policy_delta": {
+   "public_contract": "UNCHANGED. No public argument, shape, dtype or divisibility requirement changes.",
+   "decode_router_rows": "The fused gate is one token per core, so it covers decode row counts up to the 110-core worker grid; the layer's decode row count is align_up(batch, 32), i.e. 32 at the advertised bound of 32 and 64 at the batches 40 and 56 the single-chip suite exercises. Above 110 rows routing_weights keeps the topk chain, which is correct and slower.",
+   "gate_buffer_lifetime": "The four gate tensors are built by MultichipMoE.prepare_decode_gate, called from MultichipDecoder.allocate_state - setup, which is explicitly allowed host calls. routing_weights does a dict lookup and never a build, so no decode forward performs a host write and test_no_host_fallback_in_forward still holds.",
+   "scatter_operand_layout": "NEW and internal only. The gate's two outputs are taken to ROW_MAJOR before the slice that feeds ttnn.scatter, and the scatter base is a persistent ROW_MAJOR buffer. ttnn.scatter converts non-ROW_MAJOR operands itself (scatter.cpp:164/193/233), and the [rows, 1, k] -> [1, 1, rows, k] reshape its operand contract needs is a metadata view in ROW_MAJOR and a 13.8 us tile gather in TILE. No public shape changes."
+  },
+  "inter_layer_residual_contract": {
+   "tensor": "hidden / residual stream",
+   "logical_shape": "[batch, seq, 2048]",
+   "dtype": "bfloat16",
+   "layout": "TILE",
+   "memory_config": "DRAM interleaved",
+   "mesh_distribution": "REPLICATED, bitwise identical on all four devices (tests/test_multichip_decoder.py::test_output_is_identical_on_every_device asserts torch.equal, not PCC)",
+   "collectives_at_the_boundary": "NONE. Both of the layer's collectives are inside it, immediately before each residual add, so a stack of layers needs no boundary conversion.",
+   "do_not_change_without": "re-running doc/multichip_decoder/logs/probe_fused_ccl.py. The sharded/fractured residual family was measured at BOTH boundaries including the consuming column-parallel projection and is net worse at every shape; the replicated residual is also what keeps both RMSNorms exact and local and what makes the full-width activation available to expert parallelism."
+  },
+  "named_limitations": [
+   "Batch-1 decode reaches ~7% of the DRAM roofline. The binding constraint is op count - 83 device ops per step on full_attention, 98 on linear_attention, at a few microseconds each - not bandwidth. The four-term accounting (device time, op-to-op gap, profiled wall, un-profiled wall) is a generated table in README section 5.4; its reading is that most of the profiled gap is Tracy's own dispatch instrumentation, and that linear_attention keeps a residual of order 90 us that full_attention does not. That residual is inherited and unchanged in kind from stage 4, is the largest single unexplained term in the stage, and needs per-device op timelines to settle.",
+   "ttnn.topk has a floor rather than a slope below width 256: the TOPKW ladder in doc/optimized_multichip_decoder/logs/probe_gate.txt (generated as a table in work_log.md section 3.1) shows width 32 and width 64 each costing most of what width 256 costs. The two chunked stages therefore sum to more than the single 256-wide call, which is what makes the exact two-stage top-8 decomposition not worth its relayout. Worth reporting upstream.",
+   "The one-hot narrowing matmul rounds a float32 activation to bfloat16 regardless of weight dtype or compute-kernel config (measured maxdiff 1.9e-3), which is the exact op-contract blocker for the threshold rewrite in doc/optimized_multichip_decoder/work_log.md section 3.2. Worth reporting upstream.",
+   "ttnn.all_reduce, the shipped decode collective, exposes no persistent-buffer argument. The async family that does was measured in full: persistence is worth ~11% within it (see the generated table in README section 4.1b) but the whole family is behind both the deprecated gather on latency and ttnn.all_reduce on the correctness-plus-latency comparison that chose the shipped collective. Rejected on measurement. Figures: doc/optimized_multichip_decoder/README.md section 4.1b, from logs/probe_ccl_persistent.txt.",
+   "The cross-device divergence of collective_correctness_delta is fixed by rate plus a mechanism argument, not by root cause. The exact failing mechanism inside ttnn.all_gather is not established and would need per-device op timelines or a watcher-instrumented single failing replay, which the measured per-round rate puts beyond this stage's watcher budget. The full log of the ORIGINAL suite failure that started the investigation was lost to run_evidence.sh rewriting a fixed filename - a process failure recorded as one, with the surviving output in logs/traced_replay_divergence_failure.txt and the hole closed in the script.",
+   "Two tt-perf-report fidelity advisories were implemented as knobs and measured at the layer rather than handed off, and both are ties inside the harness's 0.001 ms resolution: HiFi2 for the decode router matmul (ROUTER_DECODE_FIDELITY) and HiFi2 for the float32 DeltaNet recurrent-state matmuls (PrecisionPolicy.state_fidelity). The inherited HiFi4 ships for both - a tie is not a reason to weaken a discrete routing decision or an fp32 recurrent state. The state advisory additionally mis-fires: its text names BFP8 on an FP32 x FP32 row, which is reported as a tt-perf-report improvement candidate."
+  ],
+  "collective_correctness_delta": {
+   "what": "CCL_MODE = 'all_reduce'. The multichip stage used a crossover: ttnn.all_reduce above 64 physical rows and, below it (every batch-1 decode step), ttnn.all_gather onto a new leading axis plus a local sum. ttnn.all_gather is the deprecated op and takes no semaphore. This stage takes ttnn.all_reduce at every shape.",
+   "why": "The deprecated spelling produces a different result on one device from the others under sustained traced replay. Measured over 600 rounds per arm, 150 per (layer kind x replay pattern), with the counts, the rate, the worst magnitude and the Fisher p all derived into the 'measured' block below by doc/optimized_multichip_decoder/logs/make_tables.py rather than typed here - they vary run to run and five review rounds were spent on hand-typed copies of them. The finding is stable: the deprecated ttnn.all_gather diverges under this stage's router AND under the multichip stage's own topk router at a comparable rate - so the hazard is inherited, not introduced here - against zero for ttnn.all_reduce and zero for ttnn.experimental.all_gather_async with two gather semaphores plus a barrier semaphore. The worst rounds are many orders of magnitude outside the range of any activation in the layer; a correct all-reduce is bitwise identical on every device by construction, so any non-zero value is a fault. Ledger: work_log.md section 11.",
+   "why_all_reduce_and_not_the_async_gather": "Both are clean, so the choice is latency, and the collective arm of logs/ab_layer_knobs.txt picks all_reduce: it costs 3 us/step against the diverging op and is 14 us/step ahead of the async gather. Figures in README section 4.1.",
+   "cost": "3 us/step, i.e. about 5% of the router gate's win.",
+   "pinned_by": "tests/test_multichip_decoder.py::test_collectives_per_forward asserts the decode forward makes exactly two ttnn.all_reduce calls and that CCL_MODE is 'all_reduce'; test_ccl_modes_agree compares every alternative spelling against the shipped default; test_traced_replay_does_not_leak is the cross-device equality check that caught it and is unchanged.",
+   "for_the_full_model": "Do not let the stack fall back to the stack-sum crossover without bringing divergence evidence for the spelling it intends to use. The root cause inside ttnn.all_gather is not pinned - the fix is verified by rate over a large sample plus a mechanism argument (the op takes no semaphore), not by mechanism alone - so the guard is the mode assertion above plus logs/probe_replay_divergence.py, which is a small self-contained reproducer worth reporting upstream.",
+   "measured": {
+    "deprecated_all_gather_diverged_rounds": 16,
+    "deprecated_all_gather_rounds": 1200,
+    "deprecated_all_gather_rate": "1.3%",
+    "deprecated_all_gather_worst_abs_diff": "1.989e+19",
+    "synchronized_candidates_diverged_rounds": 0,
+    "synchronized_candidates_rounds": 1200,
+    "fisher_exact_one_sided_p": "1.5e-05",
+    "per_arm": {
+     "all_reduce": {
+      "rounds": 600,
+      "diverged": 0,
+      "worst_abs_diff": "0.000e+00"
+     },
+     "attribution": {
+      "rounds": 600,
+      "diverged": 6,
+      "worst_abs_diff": "1.435e+07"
+     },
+     "stack_sum": {
+      "rounds": 600,
+      "diverged": 10,
+      "worst_abs_diff": "1.989e+19"
+     },
+     "stack_sum_async": {
+      "rounds": 600,
+      "diverged": 0,
+      "worst_abs_diff": "0.000e+00"
+     }
+    },
+    "source": "doc/optimized_multichip_decoder/logs/probe_replay_divergence{,_ab,_allreduce}.txt, tabulated in README section 4.1"
+   }
+  }
  }
 }

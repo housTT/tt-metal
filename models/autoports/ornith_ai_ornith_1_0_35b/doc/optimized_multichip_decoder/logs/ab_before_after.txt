@@ -1,0 +1,12 @@
+BENCH impl=multichip mesh=1x4 weights=real tag=before-optimized-multichip layer=0 (linear_attention) prefill seq_len=2048 wall=28.98 ms tok/s=70666.5
+BENCH impl=multichip mesh=1x4 weights=real tag=before-optimized-multichip layer=0 (linear_attention) decode(traced) iters=32 wall/iter=0.610 ms steps/s=1638.2 finite=True
+BENCH impl=multichip mesh=1x4 weights=real tag=before-optimized-multichip layer=3 (full_attention) prefill seq_len=2048 wall=28.42 ms tok/s=72067.4
+BENCH impl=multichip mesh=1x4 weights=real tag=before-optimized-multichip layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.500 ms steps/s=1998.3 finite=True
+BENCH impl=multichip mesh=1x4 weights=real tag=after-optimized-multichip layer=0 (linear_attention) prefill seq_len=2048 wall=29.56 ms tok/s=69273.1
+BENCH impl=multichip mesh=1x4 weights=real tag=after-optimized-multichip layer=0 (linear_attention) decode(traced) iters=32 wall/iter=0.564 ms steps/s=1772.6 finite=True
+BENCH impl=multichip mesh=1x4 weights=real tag=after-optimized-multichip layer=3 (full_attention) prefill seq_len=2048 wall=28.41 ms tok/s=72088.6
+BENCH impl=multichip mesh=1x4 weights=real tag=after-optimized-multichip layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.453 ms steps/s=2206.6 finite=True
+BENCH impl=optimized mesh=1x1 weights=real tag=single-chip-baseline layer=0 (linear_attention) prefill seq_len=2048 wall=101.73 ms tok/s=20132.6
+BENCH impl=optimized mesh=1x1 weights=real tag=single-chip-baseline layer=0 (linear_attention) decode(traced) iters=32 wall/iter=1.030 ms steps/s=970.8 finite=True
+BENCH impl=optimized mesh=1x1 weights=real tag=single-chip-baseline layer=3 (full_attention) prefill seq_len=2048 wall=95.40 ms tok/s=21467.4
+BENCH impl=optimized mesh=1x1 weights=real tag=single-chip-baseline layer=3 (full_attention) decode(traced) iters=32 wall/iter=0.827 ms steps/s=1209.4 finite=True

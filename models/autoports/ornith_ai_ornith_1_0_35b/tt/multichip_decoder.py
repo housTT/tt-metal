@@ -235,7 +235,27 @@ DEFAULT_TP = 4
 #:     the bytes and is the **winner below the crossover** anyway: at the batch-1 decode tile it is
 #:     roughly half the all-reduce, because at that size both are latency-bound and it is one fabric
 #:     phase instead of two. It loses from 96 rows up.
-CCL_MODE = "auto"
+#:   * ``"stack_sum_async"`` is ``"stack_sum"`` with ``ttnn.experimental.all_gather_async`` in place of
+#:     the deprecated ``ttnn.all_gather``, given two persistent global semaphores and a persistent
+#:     **barrier** semaphore built at construction. It exists because the deprecated op takes no
+#:     semaphore at all, and this stage reproduced a cross-device divergence under sustained traced
+#:     replay with it — on BOTH router modes, i.e. on the path stage 4 shipped
+#:     (``logs/probe_replay_divergence.txt``, ``doc/optimized_multichip_decoder/work_log.md`` §11).
+#:     the correctness evidence and the price are in work_log §11.
+#:
+#: **This stage ships ``"all_reduce"``, not ``"auto"``.** The multichip stage's crossover was measured
+#: against the deprecated ``ttnn.all_gather`` spelling of ``stack_sum``, and that spelling is the one
+#: that diverges across devices under sustained traced replay (§11 of
+#: ``doc/optimized_multichip_decoder/work_log.md``, whose generated table carries the counts and the
+#: magnitudes; they are not repeated here, because a figure in a docstring is a figure nothing
+#: regenerates).
+#: Removing it leaves two correct candidates below the crossover, and ``ttnn.all_reduce`` wins both
+#: comparisons: zero diverged rounds against the deprecated op's non-zero count
+#: (``logs/probe_replay_divergence*.txt``, tabulated in README section 4.1) and the faster of the two
+#: at the layer (``logs/ab_layer_knobs.txt``, ``collective`` arm). So the crossover is void rather
+#: than moved: the stable op is the right answer at every shape now, and ``"auto"`` is kept only as a
+#: measurement arm.
+CCL_MODE = "all_reduce"
 
 #: Physical activation rows at or below which ``"auto"`` picks ``"stack_sum"``. The crossover is
 #: measured, not modelled (``probe_ccl.txt``, ``trace`` rows, which amortise the fixed per-replay
@@ -245,6 +265,16 @@ CCL_MODE = "auto"
 #: measure the layer-level effect of this switch end to end, and README section 5.5 tabulates it;
 #: no figure is quoted here, because this file states no run-varying absolute timing.
 CCL_STACK_SUM_MAX_ROWS = 64
+
+#: What ``CCL_MODE="auto"`` resolves to at or below :data:`CCL_STACK_SUM_MAX_ROWS`. **Neither value
+#: ships**: :data:`CCL_MODE` is ``"all_reduce"``, so ``"auto"`` is a measurement arm only.
+#: ``"stack_sum"`` is the multichip stage's choice and the faster of the two, and it is the spelling
+#: that diverges across devices - on this stage's router and on the multichip stage's alike
+#: (``doc/optimized_multichip_decoder/work_log.md`` §11);
+#: ``"stack_sum_async"`` is the barrier-semaphore repair for it, which is correct but materially
+#: behind ``ttnn.all_reduce`` at the decode tile (README §4.1's table has the figures). Separate from :data:`CCL_MODE` so the A/B harness
+#: can vary the two independently.
+AUTO_STACK_SUM_MODE = "stack_sum_async"
 
 #: Whether a block-float activation is cast to ``bfloat16`` before the collective. **Off**, measured.
 #:
@@ -389,6 +419,61 @@ MULTICHIP_DECODE_MATMUL_GEOMETRY = {
     "expert_select": (8, 8),
 }
 
+#: How the router turns 256 logits into the per-token top-8 and its softmax weights, at **decode**.
+#:
+#: ``"topk"`` is the chain every earlier stage shipped: ``ttnn.topk(k=8)`` on float32 logits, then
+#: ``ttnn.softmax`` over the kept 8, then ``ttnn.scatter`` into a persistent all-zero 256-wide vector.
+#: In the multichip decode profile its ``TopKDeviceOperation`` row alone is 48 us on **one core** —
+#: 9.5% of the traced decode window, the largest single non-sparse op — and the whole chain is ~17%.
+#:
+#: ``"fused_gate"`` — the shipped default — replaces the ``topk`` + ``softmax`` half with the single
+#: ``ttnn.experimental.deepseek.moe.generalized_moe_gate`` kernel: score, top-``k`` and
+#: softmax-over-selected in one op over a 16x16 expert face, one token per core, writing into
+#: **preallocated** output buffers. The optimized stage rejected this op as "bfloat16-only" and, in
+#: its own words, never timed it. ``doc/optimized_multichip_decoder/logs/probe_gate.txt`` times it,
+#: and it is an order of magnitude cheaper than the two ops it replaces in that same untraced
+#: harness; the decode capture puts it at about 2 us of device time. The scatter is unchanged. No
+#: absolute timing is quoted in this file - that invariant is inherited from the single-chip stage
+#: and it is why the figures live in the generated tables of README section 2 and work log section 3.
+#:
+#: The op takes bfloat16 logits, so this **is** a router precision change and it is measured as one:
+#: ``logs/probe_gate.txt`` reports selected-set agreement against the float32 chain at the decode and
+#: prefill row counts, and ``tests/test_multichip_decoder.py::test_router_modes_agree`` pins layer
+#: output PCC between the two modes on real weights. Prefill keeps the float32 ``topk`` chain: the
+#: gate op is one token per core, a 2048-token chunk would need 19 sequential calls, and ``TopK`` is
+#: 0.17% of the prefill window, so there is nothing to win there.
+ROUTER_MODE = "fused_gate"
+
+#: Memory config for the two residual adds **at decode**. ``None`` — the shipped value — lets
+#: ``ttnn.add`` take the operand's config, which is DRAM interleaved.
+#:
+#: This is a knob because OPT-003 says a decode residual should not sit in DRAM merely because it is
+#: convenient, and because the decode profile puts a tenth to a sixth of the window in ``BinaryNg``
+#: and about a fifth in layout (``TM``) — the generated share table in README §5.2 — with several
+#: rows marked ``in0:dram_interleaved`` on tensors that are one 32-row tile: 4 KiB at batch 1,
+#: 128 KiB at the advertised bound. It was the largest lever this stage had not tried.
+#:
+#: Measured, and it is a **tie**: the ``residual`` arm of ``logs/ab_layer_knobs.py`` reads the same
+#: for both arms on both layer kinds, three builds each, inside the harness's spread. The step is
+#: launch-bound, and moving a 4 KiB tensor's home does not change how many ops there are. The
+#: inherited spelling ships because a tie is not a reason to change anything; the knob and its
+#: measurement stay so the next stage does not re-run the experiment blind. See README section 5.1
+#: and work_log section 6.4.
+DECODE_RESIDUAL_MEMORY = None
+
+#: Math fidelity for the router matmul **at decode**. ``None`` keeps the inherited policy, which is
+#: HiFi4 with float32 accumulation — chosen by the functional stage because expert selection is a
+#: discrete decision and a rounding change swaps an expert rather than perturbing a value.
+#:
+#: It is a knob because that argument weakened when this stage's fused gate started reading
+#: **bfloat16** logits (:data:`ROUTER_MODE`): a HiFi4 float32-accumulate matmul whose result is then
+#: rounded to bfloat16 is paying for precision the consumer throws away, and ``tt-perf-report`` flags
+#: the row with "HiFi2 may also work and has 2x the throughput of HiFi4". The row is 8 us/step.
+#:
+#: Measured by the ``router_fidelity`` arm of ``logs/ab_layer_knobs.py``, and gated on the quantity
+#: that matters by ``test_router_modes_agree``, which asserts the selected expert set is unchanged.
+ROUTER_DECODE_FIDELITY = None
+
 #: Whether the routed-expert sparsity mask always keeps at least one local expert active.
 #:
 #: With 8 experts drawn from 256 and 64 experts per device, a device gets **zero** active experts
@@ -501,6 +586,15 @@ class _MultichipProjectionConfigs(_ProjectionConfigs):
 #: measurably slower than on ``bfloat16`` at the same logical shape; see :data:`CCL_CAST_BLOCKFLOAT`.
 _BLOCK_FLOAT_DTYPES = (ttnn.bfloat8_b, ttnn.bfloat4_b)
 
+#: ``generalized_moe_gate`` lays one token's experts out in the top-left 16x16 face of a 32x32 tile.
+_GATE_FACE = 16
+#: Top-k values the gate kernel's finalize rank-mask handles (its own ``TT_FATAL``).
+_GATE_LEGAL_TOPK = (4, 6, 8)
+#: Denominator stabilisation for the gate's normalisation; irrelevant under ``output_softmax=True``.
+_GATE_EPS = 1e-20
+#: :data:`ROUTER_MODE` values that run the fused kernel.
+_FUSED_GATE_MODES = ("fused_gate", "fused_gate_local")
+
 
 def kv_head_owner(kv_heads: int, tp: int, device: int) -> int:
     """Which global kv head ``device`` owns the *first* of, for either sharding direction.
@@ -593,6 +687,195 @@ class MultichipMoE(OptimizedMoE):
         #: forward paths entirely — which ``test_no_host_fallback_in_forward`` checks and which a
         #: lazily-built buffer would break the first time a shape was seen inside a measured pass.
         self._mask_floor = self._build_mask_floor() if MOE_MASK_FLOOR and tp > 1 else None
+        #: Persistent ``generalized_moe_gate`` tensors, keyed by the decode row count. Built by
+        #: :meth:`prepare_decode_gate` from :meth:`MultichipDecoder.allocate_state`, i.e. at setup,
+        #: because they need ``ttnn.from_torch`` and a decode forward may be under trace capture.
+        self._gate_buffers: dict[int, tuple] = {}
+        #: Persistent ROW_MAJOR all-zero scatter bases for the fused gate, keyed by the same row count.
+        self._gate_zeros: dict[int, object] = {}
+
+    # ---------------- fused router gate ----------------
+    def prepare_decode_gate(self, rows: int) -> bool:
+        """Build the persistent fused-gate tensors for a decode call of ``rows`` tile rows.
+
+        Returns whether the fused gate is available for that row count. Five tensors, allocated once
+        here rather than per step; the first four are height-sharded one token per core, as the op
+        requires:
+
+        * ``bias`` — the op adds a score-correction bias before ranking. Ornith's router has none, so
+          this is exact zeros over all 256 experts; a constant shift changes neither the selection nor
+          the normalized weights. It exists because the op's signature requires it.
+        * ``in_idx`` — what the op returns for each selected slot. ``arange(256)`` (global expert id)
+          under ``"fused_gate"``; the device-local mapping with a dump column under
+          ``"fused_gate_local"``, which makes that tensor mesh-sharded rather than replicated. Laid
+          out as the op wants it: a 16x16 face, transposed within the face.
+        * ``out`` / ``out_idx`` — the **preallocated output buffers** the op writes into and returns.
+          Reusing them is what keeps the gate free of per-step allocation inside the trace.
+        * the ROW_MAJOR all-zero scatter base, which plays the same role for the fused path that
+          :meth:`OptimizedMoE._router_zeros_for` plays for the ``topk`` one.
+
+        Returns ``False`` — and the caller keeps the ``topk`` chain, which is correct and slower —
+        when :data:`ROUTER_MODE` does not name a fused mode, when the row count exceeds the worker
+        core count (the op is strictly one token per core; that is decode batch > 110 after this
+        model's tile padding, far above the advertised bound of 32), or when the model's expert count
+        or top-k is outside what the kernel handles. Guards rather than assumptions.
+        """
+        import torch
+
+        rows = int(rows)
+        if ROUTER_MODE not in _FUSED_GATE_MODES:
+            return False
+        if self._gate_buffers.get(rows, (None,))[0] == ROUTER_MODE:
+            return True
+        # Rebuilding at the same row count under a different mode replaces these; free the old ones
+        # rather than leaking them. Only the A/B harness and the mode-agreement test reach this.
+        for stale in self._gate_buffers.pop(rows, ())[1:5]:
+            ttnn.deallocate(stale)
+        if rows in self._gate_zeros:
+            ttnn.deallocate(self._gate_zeros.pop(rows))
+        grid = self.grid
+        if rows < 1 or rows > grid.x * grid.y:
+            return False
+        e_global = self.global_cfg.num_experts
+        if e_global != _GATE_FACE * _GATE_FACE or self.global_cfg.num_experts_per_tok not in _GATE_LEGAL_TOPK:
+            return False
+        core_grid = ttnn.num_cores_to_corerangeset(rows, ttnn.CoreCoord(grid.x, grid.y), row_wise=True)
+        mem = ttnn.MemoryConfig(
+            ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+            ttnn.BufferType.L1,
+            ttnn.ShardSpec(core_grid, (TILE, TILE), ttnn.ShardOrientation.ROW_MAJOR),
+        )
+
+        def upload(host, dtype):
+            return ttnn.from_torch(
+                host,
+                dtype=dtype,
+                layout=ttnn.TILE_LAYOUT,
+                device=self.device,
+                memory_config=mem,
+                mesh_mapper=_replicate_mapper(self.device),
+            )
+
+        # The op asserts `bias_shape == in_shape`, and the input it sees is the [rows, 16, 16] face
+        # view of the logits. Both metadata tensors are allocated at the full (32, 32) shard - that is
+        # what the op reads - and sliced to the face shape once, here.
+        face = (_GATE_FACE, _GATE_FACE)
+        zeros_face = torch.zeros(1, TILE, TILE, dtype=torch.float32)
+        bias = upload(zeros_face.repeat(rows, 1, 1), ttnn.bfloat16)
+        local = ROUTER_MODE == "fused_gate_local"
+        e_local = self.cfg.num_experts
+        if local:
+            # The op returns, for each selected slot, whatever `input_indices_tensor` holds at that
+            # expert position. Feeding it the DEVICE-LOCAL index instead of the global one makes the
+            # scatter land straight in this device's 64-wide block: expert `e` maps to `e - d*E_local`
+            # when it belongs to device `d`, and to the dump column `E_local` when it does not. The
+            # dump column is sliced off after the scatter, so the non-local selections cost a write
+            # nobody reads - and the `expert_select` one-hot matmul that used to do this narrowing
+            # disappears. Per-device values, so this tensor is mesh-sharded, not replicated.
+            per_device = []
+            for d in range(self.tp):
+                mapped = torch.full((e_global,), e_local, dtype=torch.int32)
+                lo = d * e_local
+                mapped[lo : lo + e_local] = torch.arange(e_local, dtype=torch.int32)
+                per_device.append(mapped.reshape(1, *face).transpose(1, 2).repeat(rows, 1, 1))
+            ids_host = torch.cat(per_device, dim=0)
+            mapper = _shard_mapper(self.device, dim=0)
+        else:
+            ids_host = torch.arange(e_global, dtype=torch.int32).reshape(1, *face).transpose(1, 2).repeat(rows, 1, 1)
+            mapper = _replicate_mapper(self.device)
+        in_idx = ttnn.from_torch(
+            torch.nn.functional.pad(ids_host, (0, TILE - _GATE_FACE, 0, TILE - _GATE_FACE)),
+            dtype=ttnn.uint16,
+            layout=ttnn.TILE_LAYOUT,
+            device=self.device,
+            memory_config=mem,
+            mesh_mapper=mapper,
+        )
+        out = upload(zeros_face.repeat(rows, 1, 1), ttnn.bfloat16)
+        out_idx = upload(torch.zeros(rows, TILE, TILE, dtype=torch.int32), ttnn.uint16)
+        # The op reads the (32, 32) shard but asserts the FACE logical shape, so the uploads are
+        # sliced down and the pre-slice tensors freed - they are setup-only and small, but
+        # `allocate_state` should not leak one pair per prepared row count.
+        bias_full, in_idx_full = bias, in_idx
+        bias = ttnn.slice(bias, [0, 0, 0], [rows, *face], memory_config=mem)
+        in_idx = ttnn.slice(in_idx, [0, 0, 0], [rows, *face], memory_config=mem)
+        # Each upload is checked against ITS OWN survivor. Review round 6 found the first version
+        # comparing `in_idx_full` against `bias`, which disarms the alias guard for exactly the case
+        # the guard exists for: if `ttnn.slice` ever returns a view for this metadata-only narrowing,
+        # freeing the upload would free the buffer `self._gate_buffers[rows]` then hands every decode
+        # step.
+        for stale_upload, survivor in ((bias_full, bias), (in_idx_full, in_idx)):
+            _free_unless_aliased(stale_upload, survivor)
+        self._gate_buffers[rows] = (ROUTER_MODE, bias, in_idx, out, out_idx, mem)
+        # The scatter base. ROW_MAJOR, because `ttnn.scatter` untilizes a tiled base on the way in
+        # and re-tilizes the result on the way out (scatter.cpp:164/233), and every operand this path
+        # hands it is already ROW_MAJOR. `+1` in the local mode is the dump column.
+        self._gate_zeros[rows] = ttnn.from_torch(
+            torch.zeros(1, 1, rows, (e_local + 1) if local else e_global, dtype=torch.bfloat16),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.device,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+            mesh_mapper=_replicate_mapper(self.device),
+        )
+        return True
+
+    def _fused_gate_dense(self, logits):
+        """``[1, 1, rows, 256]`` bfloat16 logits -> the same dense routing vector the topk chain builds.
+
+        One ``generalized_moe_gate`` call replaces ``topk`` + ``softmax``; the scatter that turns the
+        selected ``(index, weight)`` pairs into the dense vector is the shipped one, unchanged.
+        """
+        rows = int(logits.shape[-2])
+        mode, bias, in_idx, out_buf, out_idx_buf, mem = self._gate_buffers[rows]
+        faces = ttnn.to_memory_config(ttnn.reshape(logits, (rows, _GATE_FACE, _GATE_FACE)), memory_config=mem)
+        weights, indices = ttnn.experimental.deepseek.moe.generalized_moe_gate(
+            faces,
+            bias_tensor=bias,
+            input_indices_tensor=in_idx,
+            output_tensor=out_buf,
+            output_indices_tensor=out_idx_buf,
+            eps=_GATE_EPS,
+            scaling_factor=1.0,
+            enable_sigmoid=False,
+            topk=self.global_cfg.num_experts_per_tok,
+            output_softmax=True,
+        )
+        ttnn.deallocate(faces)
+        k = self.global_cfg.num_experts_per_tok
+        # Only row 0 of each token's (32, 32) tile is valid, and only its first k columns.
+        #
+        # Both selected tensors are taken to ROW_MAJOR before the slice, for two reasons that are the
+        # same reason. `ttnn.scatter` converts every non-ROW_MAJOR operand to ROW_MAJOR itself
+        # (scatter.cpp:164/193), so handing it tiled index/src buys two `UntilizeWithUnpadding` rows
+        # this path would otherwise pay inside the op; and the `[rows, 1, k] -> [1, 1, rows, k]`
+        # reshape the scatter's operand contract needs is a *view* in ROW_MAJOR - identical memory
+        # order - where in TILE it is a 13.8 us `ReshapeView` that gathers `rows` one-row tiles into
+        # one. The first working version of this method did it in TILE and gave back most of what the
+        # gate op saved: two ReshapeView rows plus three untilizes, against the `topk` + `softmax`
+        # it removed. README section 2.3 has the figures and the profile they come from.
+        wide = ttnn.to_layout(weights, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        idx = ttnn.to_layout(indices, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        sel_w = ttnn.reshape(ttnn.slice(wide, [0, 0, 0], [rows, 1, k]), (1, 1, rows, k))
+        # `ttnn.scatter` wants a uint32 index; the gate op emits uint16.
+        sel_i = ttnn.typecast(ttnn.reshape(ttnn.slice(idx, [0, 0, 0], [rows, 1, k]), (1, 1, rows, k)), ttnn.uint32)
+        # ROW_MAJOR scatter base, for the same reason the operands are ROW_MAJOR: `ttnn.scatter`
+        # untilizes a tiled base on the way in and re-tilizes the result on the way out
+        # (scatter.cpp:164/233). With every operand already ROW_MAJOR the op runs on its native
+        # layout and this path pays exactly one tilize - the one below - instead of an untilize of
+        # the 256-wide base plus that tilize.
+        scattered = ttnn.scatter(self._gate_zeros[rows], dim=-1, index=sel_i, src=sel_w)
+        trimmed = scattered
+        if mode == "fused_gate_local":
+            # Drop the dump column the non-local selections were written to. In ROW_MAJOR this is a
+            # contiguous prefix of every row.
+            trimmed = ttnn.slice(scattered, [0, 0, 0, 0], [1, 1, rows, self.cfg.num_experts])
+        dense = ttnn.to_layout(trimmed, ttnn.TILE_LAYOUT)
+        for tensor in (wide, idx, sel_w, sel_i, scattered):
+            ttnn.deallocate(tensor)
+        if trimmed is not scattered:
+            ttnn.deallocate(trimmed)
+        return dense
 
     # ---------------- sparse geometry ----------------
     def _sparse_cfg(self, role: str, tokens: int, active_bound: int):
@@ -635,11 +918,33 @@ class MultichipMoE(OptimizedMoE):
         and one bfloat16 score.
         """
         cfg = self.global_cfg
+        rows = _physical_rows(x.shape)
+        # `generalized_moe_gate` reads bfloat16 logits. The matmul that produces them keeps its HiFi4 /
+        # float32-accumulate compute config either way - only the stored logits change dtype - so this
+        # is a rounding of the router's OUTPUT, not a lower-fidelity router matmul.
+        # A dict lookup, never a build: :meth:`prepare_decode_gate` uploads from host, which is
+        # illegal under trace capture and is what `test_no_host_fallback_in_forward` forbids. Setup
+        # (:meth:`MultichipDecoder.allocate_state`) prepares the row count the advertised batch needs;
+        # a decode at an unprepared row count keeps the ``topk`` chain, which is slower and correct.
+        fused = (
+            ROUTER_MODE in _FUSED_GATE_MODES
+            and self._decode_phase
+            and self._gate_buffers.get(rows, (None,))[0] == ROUTER_MODE
+        )
+        router_ckc = self.dense_ckc
+        if fused and ROUTER_DECODE_FIDELITY is not None:
+            router_ckc = ttnn.init_device_compute_kernel_config(
+                self.device.arch(),
+                math_fidelity=ROUTER_DECODE_FIDELITY,
+                math_approx_mode=False,
+                fp32_dest_acc_en=self.policy.router_fp32_acc,
+                packer_l1_acc=False,
+            )
         logits = ttnn.linear(
             x,
             self.w["router"],
-            dtype=ttnn.float32,
-            compute_kernel_config=self.dense_ckc,
+            dtype=ttnn.bfloat16 if fused else ttnn.float32,
+            compute_kernel_config=router_ckc,
             program_config=self.proj_cfgs.get(
                 "router",
                 _physical_rows(x.shape),
@@ -649,14 +954,23 @@ class MultichipMoE(OptimizedMoE):
                 decode=self._decode_phase,
             ),
         )
-        values, indices = ttnn.topk(logits, k=cfg.num_experts_per_tok, dim=-1, sorted=True)
-        weights = ttnn.softmax(values, dim=-1, numeric_stable=True, compute_kernel_config=self.dense_ckc)
-        zeros = self._router_zeros_for(logits)
-        dense = ttnn.scatter(zeros, dim=-1, index=indices, src=ttnn.typecast(weights, ttnn.bfloat16))
-        ttnn.deallocate(logits)
-        ttnn.deallocate(values)
-        ttnn.deallocate(indices)
-        ttnn.deallocate(weights)
+        if fused:
+            dense = self._fused_gate_dense(logits)
+            ttnn.deallocate(logits)
+            if ROUTER_MODE == "fused_gate_local":
+                # Already device-local: the gate's index tensor carried the local mapping, so the
+                # scatter wrote straight into this device's 64-wide block and there is nothing left
+                # for `_select_local_experts` to narrow.
+                return dense
+        else:
+            values, indices = ttnn.topk(logits, k=cfg.num_experts_per_tok, dim=-1, sorted=True)
+            weights = ttnn.softmax(values, dim=-1, numeric_stable=True, compute_kernel_config=self.dense_ckc)
+            zeros = self._router_zeros_for(logits)
+            dense = ttnn.scatter(zeros, dim=-1, index=indices, src=ttnn.typecast(weights, ttnn.bfloat16))
+            ttnn.deallocate(logits)
+            ttnn.deallocate(values)
+            ttnn.deallocate(indices)
+            ttnn.deallocate(weights)
 
         local = self._select_local_experts(dense)
         ttnn.deallocate(dense)
@@ -783,6 +1097,8 @@ class MultichipDecoder(OptimizedDecoder):
         self.tp = tp
         self.ccl_topology = DEFAULT_CCL_TOPOLOGY
         self.ccl_num_links = DEFAULT_CCL_NUM_LINKS
+        #: Lazily built, then held for the layer's lifetime. See :meth:`_ccl_semaphores`.
+        self._ccl_sems = None
         if mesh_device.get_num_devices() != tp:
             raise ValueError(
                 f"MultichipDecoder was built for tp={tp} but the mesh has " f"{mesh_device.get_num_devices()} devices"
@@ -826,7 +1142,7 @@ class MultichipDecoder(OptimizedDecoder):
             return out
         mode = CCL_MODE
         if mode == "auto":
-            mode = "stack_sum" if _physical_rows(tensor.shape) <= CCL_STACK_SUM_MAX_ROWS else "all_reduce"
+            mode = AUTO_STACK_SUM_MODE if _physical_rows(tensor.shape) <= CCL_STACK_SUM_MAX_ROWS else "all_reduce"
         if mode == "all_reduce":
             out = ttnn.all_reduce(
                 tensor,
@@ -846,13 +1162,20 @@ class MultichipDecoder(OptimizedDecoder):
             ttnn.deallocate(scattered)
         elif mode == "stack_sum":
             out = self._stack_sum(tensor)
+        elif mode == "stack_sum_async":
+            out = self._stack_sum(tensor, asynchronous=True)
         else:
             raise ValueError(f"unknown CCL_MODE {CCL_MODE!r}")
         ttnn.deallocate(tensor)
         return out
 
-    def _stack_sum(self, tensor):
+    def _stack_sum(self, tensor, *, asynchronous: bool = False):
         """All-reduce as ``all_gather`` onto a new leading axis plus a local ``ttnn.sum``.
+
+        ``asynchronous`` spells the gather with ``ttnn.experimental.all_gather_async`` and the
+        persistent semaphores :meth:`_ccl_semaphores` builds, instead of the deprecated
+        ``ttnn.all_gather``. See :data:`CCL_MODE`: the deprecated op takes no semaphore, and this
+        stage reproduced cross-device divergence under sustained traced replay with it.
 
         The gather axis has to be a **new** one: gathering on the existing leading dim of a rank-3
         ``[b, t, dim]`` activation would concatenate the batch entries and the sum would then reduce
@@ -863,10 +1186,44 @@ class MultichipDecoder(OptimizedDecoder):
         dims = [int(d) for d in tensor.shape]
         rank3 = len(dims) == 3
         staged = ttnn.reshape(tensor, [1, *dims]) if rank3 else tensor
-        gathered = ttnn.all_gather(staged, dim=0, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        if asynchronous:
+            gather_sems, barrier_sem = self._ccl_semaphores()
+            gathered = ttnn.experimental.all_gather_async(
+                staged,
+                dim=0,
+                multi_device_global_semaphore=gather_sems,
+                num_links=self.ccl_num_links,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                topology=self.ccl_topology,
+                barrier_semaphore=barrier_sem,
+            )
+        else:
+            gathered = ttnn.all_gather(staged, dim=0, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         reduced = ttnn.sum(gathered, dim=0, keepdim=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         ttnn.deallocate(gathered)
         return ttnn.reshape(reduced, dims) if rank3 else reduced
+
+    def _ccl_semaphores(self):
+        """Persistent global semaphores for :meth:`_stack_sum`'s async spelling.
+
+        Built by :meth:`allocate_state` — i.e. at setup, before any trace can be captured — and held
+        for the layer's lifetime. ``ttnn.create_global_semaphore`` is a device-side allocation rather
+        than a host write, but creating one inside a captured decode forward is the same class of
+        trace-lifecycle hazard that :meth:`MultichipMoE.prepare_decode_gate` exists to avoid, and
+        review round 2 pointed out that the first version of this method had exactly that shape: it
+        built them lazily from ``_stack_sum``, which only worked because every harness happens to run
+        an eager warm-up first. Two gather semaphores because
+        ``all_gather_async_device_operation.cpp:57`` asserts exactly that, plus one barrier semaphore
+        — which is the whole point of the arm.
+        """
+        if self._ccl_sems is None:
+            grid = self.device.compute_with_storage_grid_size()
+            crs = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))})
+            self._ccl_sems = (
+                [ttnn.create_global_semaphore(self.device, crs, 0) for _ in range(2)],
+                ttnn.create_global_semaphore(self.device, crs, 0),
+            )
+        return self._ccl_sems
 
     # ------------------------------------------------------------------ block
     def _block(self, x, *, mode, logical_len=None, page_table=None, chunk_start_idx=0, current_pos=None, rot_idxs=None):
@@ -898,7 +1255,10 @@ class MultichipDecoder(OptimizedDecoder):
 
         # Row-parallel `o_proj` / `gdn_out` produce a partial sum over this device's heads.
         mixed = self._all_reduce(mixed)
-        h = ttnn.add(x, mixed)
+        # `DECODE_RESIDUAL_MEMORY` only at decode: a prefill chunk's residual is 2048 x 2048 x 2 B and
+        # belongs in DRAM, while a decode step's is one tile row per batch entry.
+        residual_mem = DECODE_RESIDUAL_MEMORY if mode == "decode" else None
+        h = ttnn.add(x, mixed, memory_config=residual_mem)
         ttnn.deallocate(mixed)
 
         tokens = b * t
@@ -918,7 +1278,7 @@ class MultichipDecoder(OptimizedDecoder):
             ttnn.deallocate(ff_out)
             ff_out = trimmed
         ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
-        out = ttnn.add(h, ff_out)
+        out = ttnn.add(h, ff_out, memory_config=residual_mem)
         ttnn.deallocate(h)
         ttnn.deallocate(ff_out)
         return out
@@ -1022,7 +1382,18 @@ class MultichipDecoder(OptimizedDecoder):
         return fields
 
     def allocate_state(self, batch_size: int):
-        """The inherited setup, with the conv1d weights prepared at :attr:`conv1d_channels`."""
+        """The inherited setup, with the conv1d weights prepared at :attr:`conv1d_channels`.
+
+        Also the point where the fused router gate's persistent buffers are built: they need
+        ``ttnn.from_torch``, so they cannot be created inside a decode forward that may be under trace
+        capture, and this is the one setup entry point that knows the batch.
+        """
+        self.moe.prepare_decode_gate(_align_up(batch_size, TILE))
+        # Only when a mode that uses them can be selected: three global semaphores per layer is
+        # nothing here, but a 40-layer stack should not allocate 120 of them for a path it never
+        # takes. The shipped CCL_MODE is `all_reduce`, which needs none.
+        if CCL_MODE == "stack_sum_async" or (CCL_MODE == "auto" and AUTO_STACK_SUM_MODE == "stack_sum_async"):
+            self._ccl_semaphores()
         if self.is_full_attention:
             return super().allocate_state(batch_size)
         if self.batch_idxs is not None:
