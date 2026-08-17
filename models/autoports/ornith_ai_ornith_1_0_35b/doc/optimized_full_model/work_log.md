@@ -639,4 +639,14 @@ path resolves.
 
 ## 10. Commits
 
-Recorded below after the re-review returns `clean-pass`.
+One repo, one checkpoint commit, never pushed:
+
+| repo | branch | commit |
+|---|---|---|
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `c3911e5fc37` (`c3911e5fc37da48a7829d941e77fceb8560c28bf`) |
+
+It contains only stage-owned paths: `tt/model.py`, `tt/generator.py`,
+`tests/test_full_model.py`, `doc/context_contract.json`, the whole of
+`doc/optimized_full_model/`, and the regenerated `readiness_autoregressive{,_chat}/` outputs. Two
+unrelated files that were already dirty when the stage started — `.agents/skills/tt-device-usage/SKILL.md`
+and the untracked `.agents/fast-models-fast-feedback.md` — are deliberately **not** in it.
