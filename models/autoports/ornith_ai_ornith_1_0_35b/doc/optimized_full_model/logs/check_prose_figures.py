@@ -52,6 +52,10 @@ LONG = load(DOC / "long_prompt.json")
 FOOT = load(DOC / "footprint.json")
 GATE = {n: load(DOC / f"readiness_{n}.json")["per_entry"][0] for n in ("prefill", "teacher", "prefill_bfp4head", "teacher_bfp4head")}
 COST_MODEL = (DOC / "logs" / "sampler_cost_model.md").read_text()
+#: Pulled out of the generated cost model rather than retyped.
+TOPK_PER_GROUP = float(re.search(r"\*\*([\d.]+) us/replay per group\*\*", COST_MODEL).group(1))
+TOPK_MACHINERY_AT_G = float(re.search(r"\*\*([\d.]+) us/replay\*\* of grouping", COST_MODEL).group(1))
+WALL_DELTA_US = float(re.search(r"\*\*([-+\d.]+) us/token\*\* wall delta", COST_MODEL).group(1))
 
 ttft = {k: sorted(r["ttft_s"] * 1e3 for r in v["runs"]) for k, v in (("after", AFTER), ("before", BEFORE))}
 dec = {k: [r["decode_ms_per_token"] for r in v["runs"]] for k, v in (("after", AFTER), ("before", BEFORE))}
@@ -208,6 +212,45 @@ CHECKS: list[tuple[str, str, list[float], int]] = [
      [AFTER["serial_token_out_decode"]["ms_per_token"], AFTER["serial_token_out_decode"]["t/s/u"]], (3, 2)),
     ("work_log.md", "**{} ms/token**, and the serial arm reproduces the inherited arm's {}",
      [AFTER["pipelined_readback_saving_ms"], BEFORE["token_out_decode"]["ms_per_token"]], 3),
+    # ---- work_log's own copies of the two TTFT distributions (review 6 found these stale) ----
+    ("work_log.md", "| inherited | {} {} {} {} **{}** {} {} {} {} | {} | **{}** | {} |",
+     [*ttft["before"], ttft["before"][0], statistics.median(ttft["before"]), ttft["before"][-1]], 1),
+    ("work_log.md", "| optimized | {} {} {} {} **{}** {} {} {} {} | {} | **{}** | {} |",
+     [*ttft["after"], ttft["after"][0], statistics.median(ttft["after"]), ttft["after"][-1]], 1),
+    ("work_log.md", "| **first-token sampling, untraced** | **{}** | **{}** | **{}** |",
+     [BEFORE["ttft_breakdown_ms"]["first_token_sampling_ms"], AFTER["ttft_breakdown_ms"]["first_token_sampling_ms"],
+      AFTER["ttft_breakdown_ms"]["first_token_sampling_ms"] - BEFORE["ttft_breakdown_ms"]["first_token_sampling_ms"]],
+     (3, 3, "signed3")),
+    # ---- README's limitations section, which had no coverage at all ----
+    ("README.md", "(intercept {} ms) or {} % by\n   four-point least squares ({} ms)",
+     [PREFILL["fit"]["intercept_ms"], PREFILL["fit"]["least_squares"]["intercept_share_at_128"] * 100,
+      PREFILL["fit"]["least_squares"]["intercept_ms"]], (1, 1, 1)),
+    ("README.md", "length-independent share is {} % by a two-point secant", [PREFILL["fit"]["intercept_share_at_128"] * 100], 1),
+    ("README.md", "sampled untraced**, {} ms inside TTFT, of which {} ms is",
+     [AFTER["ttft_breakdown_ms"]["first_token_sampling_ms"],
+      AFTER["ttft_breakdown_ms"]["first_token_sampling_ms"] - BEFORE["ttft_breakdown_ms"]["first_token_sampling_ms"]], 3),
+    ("README.md", "~{} µs/replay of pure op-launch overhead** ({} µs/replay\n   per group",
+     [TOPK_MACHINERY_AT_G, TOPK_PER_GROUP], (0, 2)),
+    # ---- the delta columns of section 1, which review 6 found stale ----
+    ("README.md", "**{} ms/token** | {} ms |",
+     [AFTER["traced_logits_only_decode"]["ms_per_token"],
+      AFTER["traced_logits_only_decode"]["ms_per_token"] - BEFORE["traced_logits_only_decode"]["ms_per_token"]],
+     (3, "signed3")),
+    ("README.md", "reproducible to {} % across the nine optimized repeats — against\n{} % for the inherited arm",
+     [(max(dec["after"]) - min(dec["after"])) / min(dec["after"]) * 100,
+      (max(dec["before"]) - min(dec["before"])) / min(dec["before"]) * 100], (3, 2)),
+    ("README.md", "to **{} % on `traced_logits_only_decode`**, **{} % on\n`traced_decode_plus_sampling_no_readback`** and **{} % on `token_out_decode`**",
+     [abs(BEFORE["traced_logits_only_decode"]["ms_per_token"] - ARCHIVE["traced_logits_only_decode"]["ms_per_token"]) / ARCHIVE["traced_logits_only_decode"]["ms_per_token"] * 100,
+      abs(BEFORE["traced_decode_plus_sampling_no_readback"]["ms_per_token"] - ARCHIVE["traced_decode_plus_sampling_no_readback"]["ms_per_token"]) / ARCHIVE["traced_decode_plus_sampling_no_readback"]["ms_per_token"] * 100,
+      abs(BEFORE["token_out_decode"]["ms_per_token"] - ARCHIVE["token_out_decode"]["ms_per_token"]) / ARCHIVE["token_out_decode"]["ms_per_token"] * 100], 3),
+    ("README.md", "varying by {} %", [(max(dec["before"]) - min(dec["before"])) / min(dec["before"]) * 100], 2),
+    # ---- the sampling pair and the trade arithmetic ----
+    ("README.md", "**{} → {} ms** on the delivered 40-layer model, same sweep",
+     [BEFORE["full_model_only_cost"]["sampling_ms"], AFTER["full_model_only_cost"]["sampling_ms"]], 3),
+    ("README.md", "(20 → 32 groups, {} ms/token)",
+     [AFTER["full_model_only_cost"]["sampling_ms"] - BEFORE["full_model_only_cost"]["sampling_ms"]], "signed3"),
+    ("README.md", "the {} ms × 127 = {} ms the pipelined loop saves",
+     [AFTER["pipelined_readback_saving_ms"], AFTER["pipelined_readback_saving_ms"] * 127], (3, 0)),
 ]
 
 #: `(document, literal, condition, what it asserts)`.
@@ -262,6 +305,20 @@ def main() -> int:
             bad.append(f"{doc}: MISSING literal ({what}) {literal!r}")
         elif not ok:
             bad.append(f"{doc}: STALE ({what}) - the artifact no longer supports {literal!r}")
+
+    # The generated cost model must be current with respect to the perf summaries it reads, and both
+    # documents must quote its wall delta rather than a remembered one.
+    fresh = (AFTER["traced_decode_plus_sampling_no_readback"]["ms_per_token"]
+             - BEFORE["traced_decode_plus_sampling_no_readback"]["ms_per_token"]) * 1e3
+    if abs(WALL_DELTA_US - fresh) > 0.05:
+        bad.append(
+            f"logs/sampler_cost_model.md is stale: it says {WALL_DELTA_US:+.1f} us/token but the committed "
+            f"perf summaries say {fresh:+.1f}. Re-run logs/make_sampler_cost_model.py"
+        )
+    for doc in DOCS:
+        want = f"{WALL_DELTA_US:.1f}".replace("-", "\u2212")
+        if "wall delta" in DOCS[doc] and want not in DOCS[doc]:
+            bad.append(f"{doc}: quotes a wall delta other than the generated {want} us/token")
 
     # The inherited arm must actually be the pre-optimization path.
     if BEFORE["capability"]["padded_vocab_size"] != BEFORE["capability"]["vocab_size"]:

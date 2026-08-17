@@ -141,8 +141,10 @@ def _performance_accounting(model, *, ttft_ms, e2e_ms, device_scope_ms):
             "(doc/optimized_full_model/logs/sampler_cost_model.md) - and the shipped 32 groups is the joint "
             "optimum of both. The remaining ~177 us/replay of machinery would need a reshape-based grouping in "
             "shared TTSampling code",
-            "prefill is eager: 70 % of a 128-token TTFT is length-independent, and a captured prefill trace is "
-            "blocked by the decoder's logical-length-keyed prefill program set",
+            "prefill is eager and most of a 128-token TTFT is length-independent - the exact share depends on "
+            "whether the ladder is fitted by a two-point secant or by least squares, and "
+            "doc/optimized_full_model/prefill_profile.json reports both rather than this string picking one - "
+            "and a captured prefill trace is blocked by the decoder's logical-length-keyed prefill program set",
         ],
     }
 

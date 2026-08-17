@@ -36,8 +36,8 @@ alone, and the honest targets are (a) the ~0.45 ms of host stall, which is not w
 The baseline was then **re-measured on this checkout** rather than quoted, and by the end of the stage
 that re-measurement was rebuilt as a same-script `--arm inherited` reconstruction with nine repeats
 (§6): [`perf_summary_before.json`](perf_summary_before.json) reads 23.879 ms/token and TTFT 133.13 min /
-139.08 median ms. Against the previous stage's archive that is 0.003 % on both traced decode rows
-(`traced_logits_only_decode`, `traced_decode_plus_sampling_no_readback`) and 0.17 % on `token_out_decode`,
+139.08 median ms. Against the previous stage's archive that is 0.012 % on `traced_logits_only_decode`,
+0.002 % on `traced_decode_plus_sampling_no_readback` and 0.043 % on `token_out_decode`,
 which is the row that carries the host loop and so the one most exposed to host state — close enough to
 be the same path, and the per-row numbers are stated rather than rounded into a single tolerance because
 an earlier draft claimed "0.02 % on every decode row" and the fifth review caught it.
@@ -249,7 +249,7 @@ stage's 20 for the unpadded 62080 shard, which is how it is checked
 `model.best_topk_groups(max_top_k)` and asserts every group width is tile aligned).
 
 Measured: the sampling trace goes **1.181 -> 1.121 ms** on the probe (reproduced in four arms) and
-**1.172 -> 1.133 ms** on the delivered model, and `TopKDeviceOperation` falls from 29.98 % to 24.76 %
+**1.169 -> 1.135 ms** on the delivered model, same sweep, and `TopKDeviceOperation` falls from 29.98 % to 24.76 %
 of the reduced decode window. The capture confirms the reduction model exactly: stage 1 is 369 us at
 width 1952 on 32 cores and stage 2 is 195 us at width 1024 on **1** core, i.e. 0.189 and 0.190 us per
 width unit — linear in width, indifferent to cores — and 2976 x 0.19 = 565 us against 564 measured.
@@ -277,7 +277,7 @@ drift again.
 
 Two coefficients come out of that: the reduction costs **0.188 us per width unit** and the grouping
 machinery costs **5.52 us/replay per group**, i.e. ~**177 us/replay** at g = 32. And the whole-window
-device delta (−85.1 us/replay) matches the −89 us/token wall delta on the 40-layer model, so device and
+device delta (−85.1 us/replay) matches the −88.8 us/token wall delta on the 40-layer model, so device and
 wall time move at roughly **1:1**, not 0.42.
 
 ```
@@ -332,9 +332,9 @@ the semantically greedy split-sampling path the skills require, not a top-k-32 s
 
 ### 5.1 Writing into the trace region to make the first token traced
 
-TTFT is 97 % prefill, and the remaining 3.35 ms is `_first_token_after_prefill` running the sampler
+TTFT is 97 % prefill, and the remaining 3.350 ms is `_first_token_after_prefill` running the sampler
 **untraced** — eager dispatch for work the decode loop's captured sampling trace does in 1.12 ms on
-the reduced probe (1.133 ms on the delivered model). The obvious fix is to copy the
+the reduced probe (1.135 ms on the delivered model). The obvious fix is to copy the
 prefill logits into `self._trace_logits` (the tensor the sampling trace was captured against, so
 replay stays valid) and replay that trace.
 
@@ -370,9 +370,10 @@ wedge the node is not something to run unattended, so the `after` arm was remove
 deliberately. Recovery was the same bounded sequence: 8 boards -> reset -> 8 boards -> mesh smoke OK.
 The partial log is kept as `logs/probe_bisect_after.txt`.
 
-The committed `logs/run_evidence_status.txt` is from a **later, uninterrupted** run of the script
-without that step: 13 steps, all `ok`, `done (0 failed)`. The earlier status file, which carried a
-dangling `probe_bisect_after` header, was replaced by that run rather than annotated.
+The committed `logs/run_evidence_status.txt` is from a later run of the script without that step, so it
+carries no dangling header. It is **not** clean, and §8 says why: 14 steps, of which the three
+HF-reference readiness steps were OOM-killed by the host, `done (3 failed)`. That is a host-memory
+condition with its own note (`logs/host_memory_event.txt`), not this hazard and not a model result.
 
 ---
 
@@ -385,7 +386,7 @@ that pair as steps 6 and 7 of `logs/run_evidence.sh`, and it came out **the othe
 
 | arm | TTFT samples (ms, sorted) | min | median | max |
 |---|---|---|---|---|
-| inherited | 132.7 134.3 135.0 140.2 **141.0** 141.6 142.1 143.1 147.8 | 132.7 | **141.1** | 147.8 |
+| inherited | 133.1 134.4 134.7 137.0 **139.1** 140.7 147.5 149.8 150.1 | 133.1 | **139.1** | 150.1 |
 | optimized | 133.4 135.7 138.3 139.1 **140.1** 140.5 141.9 145.2 146.1 | 133.4 | **140.1** | 146.1 |
 
 Two nine-repeat same-code pairs, opposite signs (+2.7 ms, then −7.2 ms, then +1.0 ms), against a device-work bound of
@@ -406,9 +407,9 @@ The breakdown *is* stable, because each arm measures it inside one process:
 
 The prefill term is flat, as the 2.4 us bound predicts. The first-token term is the one that moves and
 it is the flip side of §4: that token is sampled **eagerly**, so the 20 -> 32 regrouping that makes the
-*traced* sampler 0.037 ms/token faster makes the *eager* one slower - 12 more `ttnn.slice` launches and
-a wider `ttnn.concat`, once per request. +0.36 ms here, +1.08 ms in the earlier pair, always positive,
-against 0.548 ms x 127 = 70 ms saved at this profile. The fix is limitation 6 and it wedged the mesh
+*traced* sampler 0.034 ms/token faster makes the *eager* one slower - 12 more `ttnn.slice` launches and
+a wider `ttnn.concat`, once per request. +0.303 ms here, +0.36 and +1.08 ms in the two earlier pairs, always positive, against the
+0.564 ms x 127 = 72 ms the pipelined loop saves over the same window. The fix is limitation 6 and it wedged the mesh
 (§5.1).
 
 ### Where the rest of TTFT is
@@ -438,7 +439,7 @@ it. The ceiling (91-98 ms) is recorded above so the decision can be made with a 
 The **teacher-forcing** row needs the same caution for a stronger reason: `run_teacher_forcing` drives
 the *serial* loop by construction, so this stage's change cannot move it, and
 `test_teacher_forcing_keeps_the_serial_loop` asserts that. The committed delivered-path measurement is
-38.30 t/s/u (`readiness_teacher.json`) against the full-model stage's 37.01, reported as context rather
+38.18 t/s/u (`readiness_teacher.json`) against the full-model stage's 37.01, reported as context rather
 than as a result.
 
 ### 6.1 What this stage does fix on the prefill side
@@ -605,6 +606,32 @@ three benign matches instead of only counting them; and the roofline byte total 
 to `footprint.json` (it is deliberately smaller, because one decode step does not read the whole KV
 cache or all 64 local experts).
 
+A **fifth** review returned `more-work-needed` with one P1 and eight P2 findings, and a **sixth** with
+three P1 and six P2 — every one of them, in both rounds, a figure in one of these two documents that did
+not match the artifact it named, and neither round found a correctness defect. The fifth round's fixes
+were: work_log §1 rebuilt from the two perf summaries it cites; the "0.02 % on every decode row" claim
+replaced by the three real per-row deltas; the wall delta derived inside
+`logs/make_sampler_cost_model.py` instead of typed; `logs/watcher_report.sh` corrected (it looped on
+`.txt` and so silently never scanned `watcher.log`, and now errors on a missing artifact instead of
+skipping); the tracy provenance restated against the mtimes; and
+`test_the_pipelined_loop_stops_on_eos_and_leaves_state_one_position_ahead` added for the EOS branch the
+review found unexercised.
+
+The sixth round's findings were the same shape and are why the gate below is now much wider: README
+limitation 1 still carried prefill-fit figures from a superseded probe run; work_log §6's inherited TTFT
+table was from a run that was never committed, and its implied sign was the opposite of the committed
+pair's; work_log §5.2 still said the evidence sweep was clean when the committed status file records
+three host-OOM failures; `logs/sampler_cost_model.md` had not been regenerated after the final bench
+arms, so its wall delta and the prose disagreed; §1's baseline-agreement and reproducibility percentages
+were wrong; the sampling pair mixed the archive's before with this sweep's after; and several restated
+figures (the first-token term, the logits-only delta, the trade arithmetic, the teacher-forcing figure in
+work_log) were stale. All are fixed against the committed artifacts, and — the point — every one of them
+sat in a place `check_prose_figures.py` did not look. It now covers README's limitations section,
+work_log's own copies of both TTFT distributions and the breakdown, the delta columns, the
+baseline-agreement and reproducibility percentages, the sampling pair, the trade arithmetic, and a
+freshness assertion that fails if `sampler_cost_model.md` is stale with respect to the perf summaries it
+reads: **67 numeric rows and 19 literals across both documents.**
+
 **Provenance, per artifact.** The delivered code is `tt/model.py` (last changed 12:59) and
 `tt/generator.py` (16:45); the shipped test file is `tests/test_full_model.py` (16:45). **Every**
 committed artifact of the final evidence set postdates all three: `perf_summary_before.json` 19:25 and
@@ -617,9 +644,12 @@ Four artifacts are exceptions, each named rather than glossed:
 * the three **HF-reference readiness artifacts** (`readiness_autoregressive.json`,
   `readiness_autoregressive_chat.json`, `readiness_qualitative.json` and the completions they point at)
   are from the immediately preceding complete sweep, because the final sweep's three HF steps were
-  OOM-killed by the host - see the infrastructure note in §8. They postdate `tt/model.py` but predate the
-  16:45 generator and test edits, neither of which touches the generation path they exercise (the
-  generator edit is a comment, the test edit adds the EOS-branch test);
+  OOM-killed by the host - see the infrastructure note in §8. Their mtimes are 17:03 / 17:10 / 17:32, so
+  they **postdate all three delivered files** (12:59, 16:45, 16:45): they were produced on the exact
+  delivered code, which makes the substitution stronger than "same tree";
+* the **bfp4 LM-head arm** (`readiness_{prefill,teacher}_bfp4head.json`, `logs/readiness_bfp4_head.txt`,
+  13:03-13:07) postdates `tt/model.py` but predates the 16:45 generator comment and test addition,
+  neither of which touches the terminal dtype path it measures;
 * the reduced-variant **decode profiler capture** (`tracy/`) predates all three files. It runs
   `logs/profile_reduced.py` against the model and generator directly and executes no pytest, and the only
   model change since is `best_topk_groups`'s objective, which returns the same 32 groups for this build -

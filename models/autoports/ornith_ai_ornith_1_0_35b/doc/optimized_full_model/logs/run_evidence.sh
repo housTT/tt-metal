@@ -62,13 +62,13 @@ step bench_inherited        python "$LOGS/bench_full_model.py" --arm inherited -
   --output "$ROOT/doc/optimized_full_model/perf_summary_before.json"
 step bench_full_model       python "$LOGS/bench_full_model.py" --repeats 9
 
-# 7. Where TTFT goes: the warmed prefill ladder, its slope/intercept split and the logging A/B.
+# 8. Where TTFT goes: the warmed prefill ladder, its slope/intercept split and the logging A/B.
 step probe_prefill          python "$LOGS/probe_prefill.py"
 
-# 8. Multi-request corruption regression: six prompts of different lengths, twice, one generator.
+# 9. Multi-request corruption regression: six prompts of different lengths, twice, one generator.
 step probe_multi_prompt     python "$LOGS/probe_multi_prompt.py" --arms plain,plain --gen-len 24
 
-# 9. The `before` arm of the minimal repro for the post-capture compilation hazard: the safe order,
+# 10. The `before` arm of the minimal repro for the post-capture compilation hazard: the safe order,
 #    which must reproduce both prompts.
 #
 #    The `after` arm is NOT run here any more. It deliberately replays a trace whose kernel binaries
@@ -79,18 +79,18 @@ step probe_multi_prompt     python "$LOGS/probe_multi_prompt.py" --arms plain,pl
 #        python "$LOGS/probe_bisect.py" --order after
 step probe_bisect_before    python "$LOGS/probe_bisect.py" --order before
 
-# 10. The batch>1 slot contract: prefill state reaching slot 0, and what batch geometry alone moves.
+# 11. The batch>1 slot contract: prefill state reaching slot 0, and what batch geometry alone moves.
 step probe_batch_slots      python "$LOGS/probe_batch_slots.py"
 
-# 11. Terminal-cost breakdown on the delivered configuration.
+# 12. Terminal-cost breakdown on the delivered configuration.
 step probe_terminal         python "$LOGS/probe_terminal.py"
 
-# 12. The runner-side degeneracy gate over everything generated above.
+# 13. The runner-side degeneracy gate over everything generated above.
 step check_degenerate       python models/common/readiness_check/check_degenerate_output.py \
   --model-dir "$ROOT" --missing-artifacts critical --scope autoregressive \
   --json "$ROOT/doc/optimized_full_model/degenerate_report.json"
 
-# 13. The suite.
+# 14. The suite.
 step pytest_full_model      python -m pytest "$ROOT/tests/test_full_model.py" -m "not long" -q --timeout=2400
 
 echo "=== done ($FAILURES failed) ===" | tee -a "$STATUS"

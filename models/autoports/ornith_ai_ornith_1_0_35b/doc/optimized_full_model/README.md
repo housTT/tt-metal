@@ -17,23 +17,24 @@ weights, all 40 layers, **nine repeats per arm measured in one session**:
 and `logs/bench_full_model.py --repeats 9` → [`perf_summary.json`](perf_summary.json). The `inherited`
 arm rebuilds the pre-optimization path from constructor knobs — untuned interleaved LM head, unsharded
 terminal norm, no sampler-friendly vocabulary alignment, serial readback loop — and reproduces the previous
-stage's `doc/full_model/perf_summary.json` to **0.003 % on both traced decode rows** and **0.17 % on
-`token_out_decode`** (the row that carries the host loop, and the one this stage's own repeats show
-varying by 0.33 %), which is what makes it a valid baseline. Nine repeats because TTFT on this host has a spread far wider than the effect and a
+stage's `doc/full_model/perf_summary.json` to **0.012 % on `traced_logits_only_decode`**, **0.002 % on
+`traced_decode_plus_sampling_no_readback`** and **0.043 % on `token_out_decode`** (the row that carries
+the host loop, and the one this arm's own nine repeats show varying by 0.28 %), which is what makes it a
+valid baseline. Nine repeats because TTFT on this host has a spread far wider than the effect and a
 three-sample figure cannot be compared with a nine-sample one.
 
 | figure | inherited (n=9) | optimized (n=9) | delta |
 |---|---|---|---|
 | **token-out decode** | 23.879 ms/token — **41.88 t/s/u** | **23.300 ms/token — 42.92 t/s/u** | **−0.580 ms, +2.4 %** |
-| traced logits-only decode (model trace alone) | 22.265 ms/token | **22.210 ms/token** | −0.051 ms |
+| traced logits-only decode (model trace alone) | 22.265 ms/token | **22.210 ms/token** | −0.055 ms |
 | model trace + sampling trace, no readback | 23.434 ms/token | **23.345 ms/token** | −0.089 ms |
 | decode run-to-run spread over the nine repeats | 23.879–23.947 (0.28 %) | **23.300–23.304 (0.018 %)** | — |
 | **warmed TTFT** | 133.1 min / **139.1 median** / 150.1 max | 133.4 min / **140.1 median** / 146.1 max | **not a metric this stage moves — §6** |
 | traced teacher-forcing decode (`run_teacher_forcing`) | 37.01 t/s/u (archive) | 38.18 t/s/u | not attributable to this stage — see below |
 | layer-stack lower bound (unchanged, inherited) | 21.450 ms/token — 46.62 t/s/u | 21.450 | — |
 
-**Decode is the result.** It is reproducible to 0.012 % across the nine optimized repeats — against
-0.33 % for the inherited arm, because the serial loop's per-token host stall is itself variable — and
+**Decode is the result.** It is reproducible to 0.018 % across the nine optimized repeats — against
+0.28 % for the inherited arm, because the serial loop's per-token host stall is itself variable — and
 the same build's serial arm (`serial_token_out_decode`, 23.864 ms/token / 41.90 t/s/u) reproduces the
 inherited number, so the 0.564 ms the pipelined loop wins is a same-build difference rather than a
 cross-run one.
@@ -328,7 +329,7 @@ get 33 rather than the `g = 44` candidate §4.2 rejects. `TOPK_US_PER_WIDTH_UNIT
 `TOPK_GROUP_MACHINERY_US_PER_GROUP` in `tt/model.py` are that model's two generated coefficients.
 
 Measured: the sampling trace goes **1.181 → 1.121 ms** on the probe (1.121 in three arms and 1.122 in
-four more) and **1.172 → 1.133 ms** on the delivered 40-layer model, and `TopKDeviceOperation` falls from **29.98 %
+four more) and **1.169 → 1.135 ms** on the delivered 40-layer model, same sweep, and `TopKDeviceOperation` falls from **29.98 %
 to 24.76 %** of the reduced decode window. The capture confirms the reduction cost model exactly:
 stage 1 is 369 µs at width 1952 on 32 cores and stage 2 is 195 µs at width 1024 on **1** core — 0.189
 and 0.190 µs per width unit, i.e. linear in width and indifferent to cores, and 2976 x 0.19 = 565 µs
@@ -354,8 +355,8 @@ group move is **not** a pure top-k win:
 
 Two things follow. The grouping machinery — `g` × `ttnn.slice`, one `ttnn.concat` over `g` inputs, and
 the index-recovery `gather` — costs **5.52 µs/replay per group**, so ~**177 µs/replay** at `g = 32`.
-And the whole-window device delta (−85.1 µs/replay) matches the **−89.0 µs/token** wall delta on the
-40-layer model (`traced_decode_plus_sampling_no_readback`, 23.433 → 23.344 ms): **device time and wall
+And the whole-window device delta (−85.1 µs/replay) matches the **−88.8 µs/token** wall delta on the
+40-layer model (`traced_decode_plus_sampling_no_readback`, 23.434 → 23.345 ms): **device time and wall
 time move roughly 1:1** here, not at the 0.42 ratio a naive "60 µs of wall for 144 µs of top-k" reading
 would suggest.
 
@@ -523,9 +524,9 @@ What *is* stable and attributable is the breakdown, because it is measured insid
 
 The prefill term is flat, which is what the 2.4 µs bound predicts. The first-token term is the one that
 moves, and it is the flip side of §4: that token is sampled **eagerly**, so the vocabulary alignment
-that makes the *traced* sampler faster (20 → 32 groups, −0.037 ms/token) makes the *eager* one slower —
-12 more `ttnn.slice` launches and a wider `ttnn.concat`, once per request. It measured +0.30 ms here and +0.36 / +1.08 ms in the two earlier pairs; it is always positive, and at this profile's 128 generated tokens it is
-paid once against 0.548 ms × 127 = 70 ms saved. **The fix is limitation 6 and it is blocked**: sampling
+that makes the *traced* sampler faster (20 → 32 groups, −0.034 ms/token) makes the *eager* one slower —
+12 more `ttnn.slice` launches and a wider `ttnn.concat`, once per request. It measured +0.303 ms here and +0.36 / +1.08 ms in the two earlier pairs; it is always positive, and at this profile's 128 generated tokens it is
+paid once against the 0.564 ms × 127 = 72 ms the pipelined loop saves over the same window. **The fix is limitation 6 and it is blocked**: sampling
 the first token through the captured trace would make the term ~1.1 ms in both arms, and it wedged the
 mesh (§9).
 
@@ -670,7 +671,7 @@ read overlapped out from under it.
 | token input | never written in free-running decode | `token_refreshes: 0` |
 | prefill | host token upload per chunk and a page-row upload; inside TTFT, not in the decode loop | §6 |
 | teacher forcing | one synchronize and one readback per token, and a host token write when the forced token differs — **by construction** | `test_teacher_forcing_keeps_the_serial_loop` |
-| first token after prefill | untraced sampler, 3.31 ms, inside TTFT, and 0.30 ms of that is this stage's cost (§6). The traced alternative wedged the mesh — §9 | `triage/` |
+| first token after prefill | untraced sampler, 3.350 ms, inside TTFT, and 0.30 ms of that is this stage's cost (§6). The traced alternative wedged the mesh — §9 | `triage/` |
 | host sampling | `sampling_mode="host"` is an explicit compatibility mode, never the measured path | `test_host_sampling_compatibility_mode_agrees_with_device_sampling` |
 
 The whole `doc/full_model/README.md` §9 table still applies for everything this stage did not touch,
@@ -693,7 +694,7 @@ including cache-ownership stickiness and the trace-safety guard.
 | three-stage grouped top-k (`g=99`, `h=11`) | −319 µs of reduction against **+431 µs of grouping machinery** and +43 µs for a second single-core index gather → **+155 µs/replay worse** | rejected on the measured cost model (§4.2), which also names the real next lever |
 | dropping `ttnn.manual_seed` for greedy | 18 µs/step, but sampling traces are not keyed by `k` | rejected: would make a sampled request non-random (§4.4) |
 | merging the sampling trace into the model trace | would remove one `execute_trace` and a ~43 µs inter-trace gap | rejected: `SamplingGenerator` keys sampling traces by mode, so merging would force a model-trace re-capture on every mode switch, and the canonical split-sampling contract is two cooperating traces |
-| **traced first-token sampling** | would turn 3.31 ms of TTFT into ~1.1 ms and remove §6's one attributable TTFT cost | **rejected — it hung the mesh.** Copying prefill logits into `self._trace_logits` writes a **trace-region** buffer from outside a replay; `tt-triage` found all four devices stuck on one `ReshapeViewDeviceOperation` with kernel `.text` mismatches ([`triage/`](triage/)). Same hazard `SamplingGenerator.capture_trace(skip_precompile=True)` exists to avoid. Reverted, with the finding left in the code |
+| **traced first-token sampling** | would turn 3.350 ms of TTFT into ~1.1 ms and remove §6's one attributable TTFT cost | **rejected — it hung the mesh.** Copying prefill logits into `self._trace_logits` writes a **trace-region** buffer from outside a replay; `tt-triage` found all four devices stuck on one `ReshapeViewDeviceOperation` with kernel `.text` mismatches ([`triage/`](triage/)). Same hazard `SamplingGenerator.capture_trace(skip_precompile=True)` exists to avoid. Reverted, with the finding left in the code |
 | traced prefill | would remove 91–98 ms of a ~134 ms TTFT | not taken: the prefill program set is keyed by *logical* prompt length, so it needs a decoder-owned contract change (§6) |
 | force-argmax greedy | would all-gather 249856-wide logits + global `ttnn.argmax` | rejected by construction, as before (§4.4) |
 
@@ -723,7 +724,7 @@ top-k saving was partly spent on the grouping that produced it (§4.1):
 | `GatherDeviceOperation` (stage-2 index recovery) | 1.60 % | 1.89 % | |
 | `AllGatherAsync` (the sampler's candidate gather, through the shim) | 0.96 % | 0.89 % | |
 
-Whole-window device time falls 9449.9 → 9109.5 µs, i.e. **−85.1 µs/replay**, against an **−89.0
+Whole-window device time falls 9449.9 → 9109.5 µs, i.e. **−85.1 µs/replay**, against an **−88.8
 µs/token** wall delta on the 40-layer model — the ~1:1 ratio §4.1 uses. Every one of those figures,
 including the wall delta, is generated into
 [`logs/sampler_cost_model.md`](logs/sampler_cost_model.md) from the two stacked CSVs and the two perf
@@ -759,10 +760,12 @@ variant. The prefill conclusions here come from wall-clock measurement instead (
 ## 11. Known limitations
 
 1. **Warmed TTFT is host-drift-dominated at the ±7 ms level, so this stage cannot claim to move it**,
-   and 65–69 % of it is eager-dispatch overhead. Two nine-repeat same-code pairs came out with opposite
-   signs (§6); the one attributable component is +0.30 ms of eager first-token sampling. The
-   length-independent share is 70.7 % by a two-point secant (intercept 97.9 ms) or 65.6 % by four-point
-   least squares (90.9 ms), both computed by the probe into `prefill_profile.json`. Traced prefill is the fix and it is blocked on a decoder-owned contract (§6).
+   and 69–68 % of it is eager-dispatch overhead. Three nine-repeat same-code pairs
+   came out at +2.7, −7.2 and +1.0 ms on the median (§6); the one attributable component is +0.303 ms of eager first-token sampling. The
+   length-independent share is 67.8 % by a two-point secant
+   (intercept 88.9 ms) or 68.5 % by
+   four-point least squares (89.8 ms), both computed by the probe into
+   `prefill_profile.json`. Traced prefill is the fix and it is blocked on a decoder-owned contract (§6).
    The cold-length half of the problem *is* fixed and measured (§6.1).
 2. **The 40-layer device-time decode is not measurable.** Full-stack profiling is forbidden by both
    skills and impossible in practice here, and the reduced two-layer capture's per-replay device time
@@ -779,7 +782,7 @@ variant. The prefill conclusions here come from wall-clock measurement instead (
    of device time — and the arithmetically-free reshape that would replace it is a shared-`TTSampling`
    change, quantified but not made (§4.2). It is the largest remaining named item in the measured path,
    at ~0.75 % of a step, and removing it would also shrink §6's eager first-token cost.
-6. **The first token after a prefill is sampled untraced**, 3.31 ms inside TTFT, of which 0.30 ms is
+6. **The first token after a prefill is sampled untraced**, 3.350 ms inside TTFT, of which 0.303 ms is
    this stage's own cost (§6). The traced version wedged the mesh and is documented in §9 rather than
    retried.
 7. **`logs/probe_bisect.py --order after` can now wedge the mesh**, where the full-model stage
@@ -833,7 +836,9 @@ models/autoports/ornith_ai_ornith_1_0_35b/
         │   ├── run_evidence.sh             regenerates everything behavioural, in order
         │   ├── run_evidence_status.txt     14 steps; 3 HF-reference steps OOM-killed, §5
         │   ├── host_memory_event.txt        that host condition, with /proc/meminfo
-        │   ├── check_prose_figures.txt      the separate figure gate's passing output
+        │   ├── check_prose_figures.py,
+        │   │   check_prose_figures.txt      the figure gate and its passing output (67 rows, 19 literals)
+        │   ├── watcher_report.sh            §5, generates watcher/watcher_error_count.txt
         │   ├── ab_terminal.{py,sh}         §3, the 19-arm terminal ladder
         │   ├── ab_terminal_table.md,
         │   │   make_ab_table.py            that ladder's table and its generator
@@ -841,8 +846,6 @@ models/autoports/ornith_ai_ornith_1_0_35b/
         │   │   ab_terminal_kblock_table.md §3.3, the in0_block_w x norm-grid x fidelity cross
         │   ├── sampler_cost_model.md,
         │   │   make_sampler_cost_model.py   §4.1-4.2, generated from the two stacked Tracy reports
-        │   ├── check_prose_figures.py       asserts every figure in these docs against its artifact
-        │   ├── watcher_report.sh            §5, generates watcher/watcher_error_count.txt
         │   ├── bench_full_model.py         §1, §6, the performance accounting
         │   ├── probe_prefill.py            §6
         │   ├── probe_terminal.py           the terminal-cost breakdown

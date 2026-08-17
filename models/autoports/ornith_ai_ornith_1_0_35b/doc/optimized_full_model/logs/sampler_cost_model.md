@@ -22,7 +22,7 @@ so `device(g) ~= 0.188 * (W/g + 32g) + 5.52 * g + const`, minimised at
 **g = 31.9** for W = 62464 - which is why the shipped g = 32 is the joint
 optimum and not merely the best legal divisor. (The model reproducing the 20 -> 32 move it was solved from - 78.2 against 78.2 us/replay - is arithmetic, not validation. What checks the reduction coefficient independently is the two `TopK` rows of the after report on their own: 369 us at width 1952 and 195 us at width 1024 give 0.189 and 0.190 us per width unit, against the 0.188 solved here.)
 
-Device time and wall time move at roughly 1:1 here: the whole-window delta above (-85.1 us/replay) against a **-88.4 us/token** wall delta on the 40-layer model (`perf_summary.json`'s `traced_decode_plus_sampling_no_readback`, 23.433 -> 23.345 ms).
+Device time and wall time move at roughly 1:1 here: the whole-window delta above (-85.1 us/replay) against a **-88.8 us/token** wall delta on the 40-layer model (`perf_summary.json`'s `traced_decode_plus_sampling_no_readback`, 23.434 -> 23.345 ms).
 
 ### Ops this stage did not touch, before vs after
 

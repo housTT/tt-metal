@@ -154,7 +154,7 @@
       "the decode step is launch-bound, not bandwidth-bound: ~100 device ops per layer at one tile of M, which is why it sits at 6.3 % of the DRAM roofline (the decoder stage measured ~7 % for the layer alone and named the same cause)",
       "ttnn.sparse_matmul parallelism is capped by the output tile count and it loops once per active expert at a single tile of M, so the two routed projections stay far below both rooflines (inherited limitation, doc/optimized_decoder/README.md)",
       "the sampler's grouped local top-k is bounded by two measured terms - 0.188 us per unit of reduced width and 5.52 us/replay per group of slice/concat/gather machinery (doc/optimized_full_model/logs/sampler_cost_model.md) - and the shipped 32 groups is the joint optimum of both. The remaining ~177 us/replay of machinery would need a reshape-based grouping in shared TTSampling code",
-      "prefill is eager: 70 % of a 128-token TTFT is length-independent, and a captured prefill trace is blocked by the decoder's logical-length-keyed prefill program set"
+      "prefill is eager and most of a 128-token TTFT is length-independent - the exact share depends on whether the ladder is fitted by a two-point secant or by least squares, and doc/optimized_full_model/prefill_profile.json reports both rather than this string picking one - and a captured prefill trace is blocked by the decoder's logical-length-keyed prefill program set"
     ]
   },
   "trace_recaptures_total": 2,
