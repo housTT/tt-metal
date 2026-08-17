@@ -669,14 +669,16 @@ path resolves.
 
 ## 10. Commits
 
-One repo, one checkpoint commit, never pushed:
+One repo, three checkpoint commits on `agentic-research/hous/ornith-1.0-35B`, never pushed:
 
-| repo | branch | commit |
+| commit | full | what |
 |---|---|---|
-| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `c3911e5fc37` (`c3911e5fc37da48a7829d941e77fceb8560c28bf`) |
+| `c3911e5fc37` | `c3911e5fc37da48a7829d941e77fceb8560c28bf` | the terminal path, the decode loop, and the evidence |
+| `359b6ef4be4` | `359b6ef4be4a5a46226a2d22b44faa94357bc520` | record the stage commit SHA |
+| `8b4b816e6a8` | `8b4b816e6a87449af2769b3b0eba8bb624cb5d30` | make the figure gate cover where the drift was |
 
-It contains only stage-owned paths: `tt/model.py`, `tt/generator.py`,
-`tests/test_full_model.py`, `doc/context_contract.json`, the whole of
-`doc/optimized_full_model/`, and the regenerated `readiness_autoregressive{,_chat}/` outputs. Two
-unrelated files that were already dirty when the stage started — `.agents/skills/tt-device-usage/SKILL.md`
-and the untracked `.agents/fast-models-fast-feedback.md` — are deliberately **not** in it.
+They contain only stage-owned paths: `tt/model.py`, `tt/generator.py`, `tests/test_full_model.py`,
+`doc/context_contract.json`, the whole of `doc/optimized_full_model/`, and the regenerated
+`readiness_autoregressive{,_chat}/` outputs. Two unrelated files that were already dirty when the stage
+started — `.agents/skills/tt-device-usage/SKILL.md` and the untracked
+`.agents/fast-models-fast-feedback.md` — are deliberately **not** in any of them.
