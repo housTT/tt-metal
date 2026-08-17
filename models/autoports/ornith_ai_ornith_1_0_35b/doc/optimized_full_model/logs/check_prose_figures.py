@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Assert that the figures in README.md and work_log.md are the ones in the artifacts they name.
 
-Five rounds of stage review on this stage found the same failure mode every time: prose numbers that
+Six rounds of stage review on this stage found the same failure mode every time: prose numbers that
 were true of a run which a later run overwrote. This is the gate that closes it, and it is deliberately
 strict in three ways the first version was not:
 
@@ -14,8 +14,13 @@ strict in three ways the first version was not:
 
     python .../doc/optimized_full_model/logs/check_prose_figures.py
 
-Exits non-zero and prints every mismatch. Also checks that every referenced repo path exists. It is a
-step of `logs/run_evidence.sh`, and it must be re-run standalone after any edit to either document.
+Exits non-zero and prints every mismatch. Also checks that every referenced repo path exists, and that
+`logs/sampler_cost_model.md` is current with respect to the perf summaries it reads.
+
+It is deliberately **not** a step of `logs/run_evidence.sh`: it checks the documents against that sweep's
+own output, so inside the sweep it would always fail on the run that produces new numbers. Run it after
+refreshing the documents from a sweep, and after any edit to either of them. Its committed output is
+`logs/check_prose_figures.txt`.
 """
 
 from __future__ import annotations
@@ -251,6 +256,11 @@ CHECKS: list[tuple[str, str, list[float], int]] = [
      [AFTER["full_model_only_cost"]["sampling_ms"] - BEFORE["full_model_only_cost"]["sampling_ms"]], "signed3"),
     ("README.md", "the {} ms × 127 = {} ms the pipelined loop saves",
      [AFTER["pipelined_readback_saving_ms"], AFTER["pipelined_readback_saving_ms"] * 127], (3, 0)),
+    # ---- the estimator disclosure: min-of-nine headline against the medians ----
+    ("README.md", "the medians read {} → {} ms/token, a {} ms delta against\nthe {} ms reported",
+     [statistics.median(dec["before"]), statistics.median(dec["after"]),
+      statistics.median(dec["before"]) - statistics.median(dec["after"]),
+      BEFORE["token_out_decode"]["ms_per_token"] - AFTER["token_out_decode"]["ms_per_token"]], 3),
 ]
 
 #: `(document, literal, condition, what it asserts)`.

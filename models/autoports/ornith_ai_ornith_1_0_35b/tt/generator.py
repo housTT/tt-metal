@@ -729,7 +729,7 @@ class OrnithGenerator(Generator):
         if self.sampling_mode == "device":
             # This runs **untraced** on purpose, and the alternative was tried and reverted. Copying
             # the prefill logits into `self._trace_logits` and replaying the captured sampling trace
-            # would turn 3.6 ms of a ~133 ms TTFT into ~1.1 ms, but `_trace_logits` is allocated
+            # would turn 3.350 ms of a ~140 ms median TTFT into ~1.1 ms, but `_trace_logits` is allocated
             # inside the trace region, and writing to it from outside a replay wedged the mesh:
             # `doc/optimized_full_model/triage/` is the tt-triage capture (a stuck
             # `ReshapeViewDeviceOperation` on all four devices plus kernel `.text` mismatches), which

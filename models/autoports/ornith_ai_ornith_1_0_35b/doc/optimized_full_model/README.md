@@ -33,8 +33,12 @@ three-sample figure cannot be compared with a nine-sample one.
 | traced teacher-forcing decode (`run_teacher_forcing`) | 37.01 t/s/u (archive) | 38.18 t/s/u | not attributable to this stage — see below |
 | layer-stack lower bound (unchanged, inherited) | 21.450 ms/token — 46.62 t/s/u | 21.450 | — |
 
-**Decode is the result.** It is reproducible to 0.018 % across the nine optimized repeats — against
-0.28 % for the inherited arm, because the serial loop's per-token host stall is itself variable — and
+**Decode is the result.** Each arm's decode row is the **best of its nine repeats** (`bench_full_model.py`
+picks `min` by ms/token, identically for both arms, and the decomposition, the serial row and the counters
+all come from that run); the medians read 23.908 → 23.303 ms/token, a 0.604 ms delta against
+the 0.580 ms reported, so `min` is the conservative estimator here. It is reproducible to 0.018 %
+across the nine optimized repeats — against 0.28 % for the inherited arm, because the serial loop's
+per-token host stall is itself variable — and
 the same build's serial arm (`serial_token_out_decode`, 23.864 ms/token / 41.90 t/s/u) reproduces the
 inherited number, so the 0.564 ms the pipelined loop wins is a same-build difference rather than a
 cross-run one.
@@ -675,7 +679,12 @@ read overlapped out from under it.
 | host sampling | `sampling_mode="host"` is an explicit compatibility mode, never the measured path | `test_host_sampling_compatibility_mode_agrees_with_device_sampling` |
 
 The whole `doc/full_model/README.md` §9 table still applies for everything this stage did not touch,
-including cache-ownership stickiness and the trace-safety guard.
+including cache-ownership stickiness and the trace-safety guard, and `doc/full_model/work_log.md` §9.1 is
+the **warning ledger** for the lines a measured bench log actually contains: 80 `ttnn::tilize: Using
+input shard spec ... legacy sharded optimized program factory` and 12 `Fabric packet size 8192 B is
+suboptimal for transporting 1088 B pages`. Both counts are **identical in all four of this stage's bench
+logs, inherited and optimized**, so this stage introduces no new warning class; they are classified
+there rather than re-litigated here.
 
 ---
 
@@ -851,6 +860,10 @@ models/autoports/ornith_ai_ornith_1_0_35b/
         │   ├── probe_terminal.py           the terminal-cost breakdown
         │   ├── probe_footprint.py, probe_long_prompt.py, update_context_contract.py   §7.2
         │   ├── probe_multi_prompt.py, probe_bisect.py, probe_batch_slots.py
+        │   ├── profile_reduced.py          what tracy/run_profiling.sh drives
+        │   ├── probe_topk.py, smoke.py     carried forward from doc/full_model/ and unchanged; the
+        │   │                               ttnn.topk ladder §4 cites is that stage's committed output,
+        │   │                               not re-measured here
         │   ├── run_readiness.py, run_watcher.sh
         │   └── *.txt                       each script's committed output
         ├── tracy/                          §10, run_profiling.sh + the decode report

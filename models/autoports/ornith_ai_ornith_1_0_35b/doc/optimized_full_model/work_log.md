@@ -630,7 +630,19 @@ sat in a place `check_prose_figures.py` did not look. It now covers README's lim
 work_log's own copies of both TTFT distributions and the breakdown, the delta columns, the
 baseline-agreement and reproducibility percentages, the sampling pair, the trade arithmetic, and a
 freshness assertion that fails if `sampler_cost_model.md` is stale with respect to the perf summaries it
-reads: **67 numeric rows and 19 literals across both documents.**
+reads: **68 numeric rows and 19 literals across both documents.**
+
+A **seventh** review returned **`clean-pass`** with no required work. Its remaining items were all
+presentational and are closed here: the gate's row count in this file's closing paragraph, the commit
+table's count and its self-referencing row, the gate's own docstring (which still called itself a step of
+`run_evidence.sh`), the roofline denominator's citation in `bench_full_model.py` (it cited a `354 GB/s /
+69.1 %` row that exists in neither capture - the constant comes from the previous stage's 355/69.3, and
+this stage's own 353/69.0 would imply 511.6 GB/s and a 1.466 ms roofline, so the kept value is the
+conservative one), the reverted-optimization comment in `tt/generator.py`, `triage/README.txt`'s label on
+tt-triage's summary, the decode headline's estimator (min of nine, now named in README §1 with the
+medians beside it), `logs/host_memory_event.txt`'s understated substitution argument, three scripts
+missing from README §12's tree, and a pointer from README §8 to the inherited warning ledger with the
+80/12 counts that are identical in all four bench logs.
 
 **Provenance, per artifact.** The delivered code is `tt/model.py` (last changed 12:59) and
 `tt/generator.py` (16:45); the shipped test file is `tests/test_full_model.py` (16:45). **Every**
@@ -663,19 +675,21 @@ Four artifacts are exceptions, each named rather than glossed:
   model change between is `best_topk_groups`'s objective, which cannot move a byte count because it
   returns the same value.
 
-`logs/check_prose_figures.py` passing is the machine-checkable half of this paragraph: it re-derives 53
+`logs/check_prose_figures.py` passing is the machine-checkable half of this paragraph: it re-derives 68
 numeric rows and 19 literal claims across both documents from the artifacts and verifies every referenced
 path resolves.
 
 ## 10. Commits
 
-One repo, three checkpoint commits on `agentic-research/hous/ornith-1.0-35B`, never pushed:
+One repo, four checkpoint commits on `agentic-research/hous/ornith-1.0-35B`, never pushed:
 
 | commit | full | what |
 |---|---|---|
 | `c3911e5fc37` | `c3911e5fc37da48a7829d941e77fceb8560c28bf` | the terminal path, the decode loop, and the evidence |
 | `359b6ef4be4` | `359b6ef4be4a5a46226a2d22b44faa94357bc520` | record the stage commit SHA |
 | `8b4b816e6a8` | `8b4b816e6a87449af2769b3b0eba8bb624cb5d30` | make the figure gate cover where the drift was |
+| `8faec81d31a` | `8faec81d31ae3a628e62ecebc8ddc83620d87005` | record all three stage SHAs |
+| *(this section)* | — | the commit that records the table above, which cannot contain its own hash |
 
 They contain only stage-owned paths: `tt/model.py`, `tt/generator.py`, `tests/test_full_model.py`,
 `doc/context_contract.json`, the whole of `doc/optimized_full_model/`, and the regenerated

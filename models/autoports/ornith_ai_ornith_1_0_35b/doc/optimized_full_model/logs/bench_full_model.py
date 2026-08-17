@@ -48,9 +48,12 @@ DECODER_STAGE_MS = {"linear_attention": 0.564, "full_attention": 0.453}
 
 
 
-#: Aggregate DRAM bandwidth of the four Blackhole p300c chips, in bytes/second. Derived from the
-#: profiler's own denominator rather than a datasheet: `tracy/decode_perf_report.summary.txt` reports
-#: the LM-head row at 354 GB/s = 69.1 % on one device, i.e. 512.3 GB/s per device at 100 %.
+#: Per-device DRAM bandwidth, in bytes/second, taken from the profiler's own denominator rather than a
+#: datasheet: the previous stage's capture reports its LM-head row at 355 GB/s = 69.3 %, i.e. 512.3 GB/s
+#: at 100 %. This stage's four LM-head rows read 353 GB/s = 69.0 %, which implies 511.6 - a 0.14 %
+#: difference that would move the roofline estimate from 1.464 to 1.466 ms/token and leave the achieved
+#: fraction at 6.3 %. The larger denominator is kept because it is the conservative one (it makes the
+#: achieved fraction smaller) and because it keeps this stage comparable with the previous one.
 DEVICE_DRAM_BYTES_PER_S = 512.3e9
 
 #: Routed experts actually read per token, per device, out of the 64 each device owns under EP=4.

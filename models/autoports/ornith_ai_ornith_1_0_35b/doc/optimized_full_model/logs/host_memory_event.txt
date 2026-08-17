@@ -41,10 +41,11 @@ sweep of the same script on the same delivered code - `readiness_autoregressive.
 `readiness_autoregressive_chat.json`, `readiness_qualitative.json` and the completions under
 `readiness_autoregressive{,_chat}/` - and the driver writes them only on success, so the failed runs did
 not truncate or overwrite anything. What they measure is free-running generated text and the shared
-qualitative suite: model behaviour on a code path that has not changed since (the only model-code change
-after that sweep is `OrnithModel.best_topk_groups`'s objective, which returns the same 32 groups for this
-build, plus one added test). `degenerate_report.json` was regenerated in the final sweep over those same
-completions and is clean.
+qualitative suite. And they are not merely "the same tree": their mtimes are 17:03, 17:10 and 17:32,
+which POSTDATE all three delivered files - tt/model.py 12:59, tt/generator.py 16:45,
+tests/test_full_model.py 16:45 - so they were produced on the exact delivered code, which is the
+statement work_log section 9's provenance paragraph makes. `degenerate_report.json` was regenerated in
+the final sweep over those same completions and is clean.
 
 The accuracy gates that the goal contract names - `run_prefill_check` and `run_teacher_forcing` - ran in
 the final sweep and passed (0.940 and 0.970 top-1, 1.000 top-5 and top-100 on both).
