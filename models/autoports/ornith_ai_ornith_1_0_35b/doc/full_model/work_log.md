@@ -492,4 +492,16 @@ Three of the eight passes found real defects rather than documentation problems 
 decoding from an unmerged state - and none of the three would have failed a check that existed
 before the review that found it.
 
-Commits are local only; nothing was pushed.
+Commits are local only; nothing was pushed. Repo `tt-metal`, branch
+`agentic-research/hous/ornith-1.0-35B`:
+
+| SHA | what |
+|---|---|
+| `895e84b7343` | [autoports] Ornith-1.0-35B full model: the model, the generator and the suite |
+| `97ce88d3c78` | [autoports] Ornith-1.0-35B full model: evidence, docs and the recomputed context contract |
+| `ac81fb6686c` | [autoports] Ornith-1.0-35B full model: regenerate the evidence from the formatted source |
+| *(this section)* | the review record and these SHAs |
+
+Stage-owned files only. The worktree also carries `.agents/skills/tt-device-usage/SKILL.md`
+(modified) and `.agents/fast-models-fast-feedback.md` (untracked); both are agent-process notes that
+predate this stage and are deliberately left out of every commit above.
