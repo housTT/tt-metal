@@ -91,7 +91,49 @@ MAX_SAMPLING_BATCH = 32
 #: into a 3104-wide reduction plus a 640-wide one and costs ~0.9 ms for the same exact result. 20 is
 #: the measured optimum among the divisors of 1940 (= 62080 / 32) that keep every group width tile
 #: aligned; see ``doc/full_model/README.md`` §Sampling.
+#:
+#: It is kept as the *reference* value only. The optimized full model derives the split from the
+#: vocabulary shard the build actually produced (``OrnithModel.best_topk_groups``), because the LM
+#: head's program config can change the padded vocabulary width and a hard-coded 20 is then either
+#: illegal or off the optimum. The rule reproduces this 20 for the unpadded 62080-wide shard.
 DEFAULT_TOPK_GROUPS = 20
+
+#: How the terminal LM-head matmul is spelled. ``"interleaved"`` is the functional full-model
+#: spelling (a bare ``ttnn.linear``, DRAM-interleaved weights and output, no program config);
+#: ``"mcast1d"`` gives it the decoder's 1D ``mcast_in0`` decode geometry over the whole worker grid,
+#: reading a width-sharded L1 activation straight out of the terminal norm; ``"dram_sharded"`` is
+#: the ``MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig`` shape
+#: ``models.common.modules.lm_head.LMHead1D`` uses, with DRAM width-sharded weights.
+#:
+#: ``mcast1d`` is the measured winner on this mesh; ``dram_sharded`` loses because it forces a
+#: vocabulary pad to a multiple of ``32 * cores`` *and* a sharded-to-interleaved conversion on the
+#: way back to the sampler's logits tensor, and it runs out of L1 below 64 cores. The whole ladder
+#: is in ``doc/optimized_full_model/README.md`` §LM head and ``logs/ab_terminal.txt``.
+DEFAULT_LM_HEAD_PROGRAM = "mcast1d"
+
+#: Compute cores for the tuned LM-head spellings. 110 is the whole Blackhole worker grid (11x10).
+#: Must divide ``dim // 32`` for ``dram_sharded`` (each core owns a whole number of K tiles).
+DEFAULT_LM_HEAD_CORES = 110
+
+#: Tile alignment applied to the **per-device** vocabulary width, on top of the tile/mesh alignment
+#: the sampler already needs. Its only purpose is to give the grouped local top-k a group count near
+#: its optimum; the padded columns are masked by ``TTSampling``'s invalid-vocab tail mask.
+DEFAULT_VOCAB_ALIGN_TILES = 32
+
+#: Worker cores the terminal RMSNorm width-shards ``dim`` over. Same rule and the same reason as the
+#: decoder's in-layer residual norms (``optimized_decoder.OptimizedDecoder.NORM_SHARD_CORES``): the
+#: default interleaved ``ttnn.rms_norm`` on a one-tile-tall decode activation runs on a **single**
+#: core.
+TERMINAL_NORM_SHARD_CORES = 8
+
+#: The two coefficients of the sampler's measured device-cost model, both generated from the
+#: committed Tracy reports by ``doc/optimized_full_model/logs/make_sampler_cost_model.py``:
+#: ``ttnn.topk`` costs this many microseconds per unit of *reduced width*, ...
+TOPK_US_PER_WIDTH_UNIT = 0.188
+#: ...and the grouped form's slices, concat and index-recovery gather cost this much per group per
+#: replay. Both are used by :meth:`OrnithModel.best_topk_groups`, which is why the group count it
+#: picks is the optimum of the *whole* sampler rather than of the reduction alone.
+TOPK_GROUP_MACHINERY_US_PER_GROUP = 5.52
 
 #: L1-small the decoder's CCL ops allocate their semaphores from. Same value as
 #: ``tests/test_multichip_decoder.py``'s ``DEVICE_PARAMS``.
@@ -341,6 +383,12 @@ class OrnithModel(LightweightModule):
         vocab_size: int,
         padded_vocab_size: int,
         tp: int,
+        lm_head_program: str = DEFAULT_LM_HEAD_PROGRAM,
+        lm_head_cores: int = DEFAULT_LM_HEAD_CORES,
+        lm_head_in0_block_w: int | None = None,
+        lm_head_fidelity: str | None = None,
+        terminal_norm_sharded: bool | None = None,
+        terminal_norm_cores: int = TERMINAL_NORM_SHARD_CORES,
     ):
         super().__init__()
         self.mesh_device = mesh_device
@@ -363,13 +411,63 @@ class OrnithModel(LightweightModule):
         self.dim = self.cfg.dim
         self.is_reduced = len(self.layers) != self.cfg.num_hidden_layers
 
+        #: Math fidelity for the terminal matmul. Defaults to the dense-projection group's, which is
+        #: what the LM head inherits as the model's one extra dense projection; `lm_head_fidelity`
+        #: exists so it can be swept independently of that group (`$optimize` asks for a per-group
+        #: LoFi/HiFi2 comparison, and this row is the largest full-model-only decode op).
+        self.lm_head_fidelity = (
+            policy.proj_fidelity
+            if lm_head_fidelity is None
+            else {"lofi": ttnn.MathFidelity.LoFi, "hifi2": ttnn.MathFidelity.HiFi2, "hifi4": ttnn.MathFidelity.HiFi4}[
+                str(lm_head_fidelity).lower()
+            ]
+        )
         self.lm_head_compute_kernel_config = ttnn.init_device_compute_kernel_config(
             mesh_device.arch(),
-            math_fidelity=policy.proj_fidelity,
+            math_fidelity=self.lm_head_fidelity,
             math_approx_mode=False,
             fp32_dest_acc_en=policy.proj_fp32_acc,
             packer_l1_acc=policy.proj_packer_l1_acc,
         )
+
+        # ---------------------------------------------------------------- terminal path geometry
+        self.lm_head_program = str(lm_head_program)
+        self.lm_head_cores = int(lm_head_cores)
+        #: Width-sharding the terminal norm only pays when the LM head consumes that layout. With
+        #: the plain interleaved head it is a measured **regression** - 1.650 ms against 1.475 ms of
+        #: reduced-variant model trace, because the norm pays a `to_memory_config` in and the
+        #: untuned matmul undoes it again - while the tuned `mcast1d` head reads the width-sharded
+        #: activation directly and gains 0.041 ms from it. So `None` means "shard iff the head was
+        #: given a program config", not "shard because sharding is usually good".
+        self.terminal_norm_sharded = (
+            (str(lm_head_program) != "interleaved") if terminal_norm_sharded is None else bool(terminal_norm_sharded)
+        )
+        #: Per-device width of one LM-head weight split (the matmul's N), which is the padded
+        #: vocabulary divided by the mesh and then by however many column splits were made.
+        self._lm_head_width = (
+            self.padded_vocab_size // self.tp // len(self.lm_head_weights) if self.lm_head_weights else 0
+        )
+        #: `(program_config, activation_memory_config)` per physical row count, built lazily so a
+        #: prefill row block and a decode step each get a legal one.
+        self._lm_head_cfg_cache: dict[int, tuple] = {}
+        #: `(program_config, memory_config)` for the width-sharded terminal RMSNorm, per row count.
+        self._terminal_norm_cache: dict[int, tuple] = {}
+        #: The norm's shard grid has to be the LM head's activation grid when the head is
+        #: DRAM-sharded, otherwise the head would have to reshard what the norm just wrote.
+        self._terminal_norm_cores = (
+            self.lm_head_cores if self.lm_head_program == "dram_sharded" else int(terminal_norm_cores)
+        )
+        #: `None` derives the largest legal value from the activation shard (see `_lm_head_cfg`).
+        self.lm_head_in0_block_w = None if lm_head_in0_block_w is None else int(lm_head_in0_block_w)
+        if self.lm_head_program == "dram_sharded" and (self.dim // TILE) % self.lm_head_cores:
+            # A DRAM-sharded matmul gives every compute core a whole number of K tiles. Silently
+            # falling back to a bare `ttnn.linear` here would still pay this spelling's vocabulary
+            # padding while delivering the untuned head, so it is refused instead.
+            raise ValueError(
+                f"lm_head_program='dram_sharded' needs lm_head_cores to divide dim/32 = {self.dim // TILE}; "
+                f"{self.lm_head_cores} does not. Legal values here: "
+                f"{[c for c in range(1, self.dim // TILE + 1) if (self.dim // TILE) % c == 0]}"
+            )
 
         self.max_batch_size = None
         self._packs: dict[int, list[dict]] = {}
@@ -392,11 +490,21 @@ class OrnithModel(LightweightModule):
 
         self.counters = {
             "decode_calls": 0,
-            "embedding_lookups": 0,
             "position_refreshes": 0,
             "rope_refreshes": 0,
             "token_refreshes": 0,
             "page_table_refreshes": 0,
+            #: Caller-visible device->host token reads issued (one per generated token).
+            "token_readbacks": 0,
+            #: Host waits on a readback event. In the pipelined loop this is still one per token,
+            #: but each wait overlaps the *next* step's device work rather than idling the device.
+            "read_waits": 0,
+            #: **Per-token** full-device synchronizations in the decode loop. The optimized
+            #: free-running loop drives this to 0; the serial/teacher-forcing loop is one per token.
+            #: `generate` still issues one synchronize after the loop, to retire whatever the last
+            #: iteration left in flight - that is per *request*, not per token, and is deliberately
+            #: not counted here.
+            "decode_syncs": 0,
         }
 
     # ------------------------------------------------------------------ construction
@@ -415,6 +523,13 @@ class OrnithModel(LightweightModule):
         override_num_layers: int | None = None,
         lm_head_dtype=None,
         lm_head_max_columns: int | None = None,
+        lm_head_program: str = DEFAULT_LM_HEAD_PROGRAM,
+        lm_head_cores: int = DEFAULT_LM_HEAD_CORES,
+        lm_head_in0_block_w: int | None = None,
+        lm_head_fidelity: str | None = None,
+        vocab_align_tiles: int = DEFAULT_VOCAB_ALIGN_TILES,
+        terminal_norm_sharded: bool | None = None,
+        terminal_norm_cores: int = TERMINAL_NORM_SHARD_CORES,
         tp: int | None = None,
         hf_config=None,
     ) -> "OrnithModel":
@@ -447,9 +562,23 @@ class OrnithModel(LightweightModule):
         vocab_size = hf_config.vocab_size
         # The sampler shards the vocabulary by device and every device's shard has to be tile
         # aligned, so the LM head's output width is rounded up to a multiple of 32 * tp. Ornith's
-        # 248320 is already a multiple of 128, so nothing is padded and no invalid-vocab mask is
-        # needed; the arithmetic stays here so a different checkpoint cannot silently misalign.
-        padded_vocab_size = _align_up(vocab_size, TILE * tp)
+        # 248320 is already a multiple of 128, so the interleaved head pads nothing.
+        #
+        # A DRAM-sharded head needs more: its activation is width-sharded over `lm_head_cores`
+        # cores and each core owns a whole number of output tiles, so the *per-device* width has to
+        # be a multiple of `32 * lm_head_cores` too. The extra columns are real tensor width and
+        # they produce real logits, so `TTSampling` masks them: it builds an additive invalid-vocab
+        # tail mask from (vocab_size, padded_vocab_size) and applies it before the local top-k, which
+        # is why the padding is expressed here rather than hidden inside the matmul.
+        #
+        # `vocab_align_tiles` is the same lever pointed at the *sampler*: the grouped local top-k
+        # can only split a shard into group counts that divide its tile count, and 62080/32 = 1940
+        # factors as 2^2*5*97, whose divisors skip the whole neighbourhood of the optimum. A few
+        # padded columns buy a much friendlier factorisation. See `OrnithModel.best_topk_groups`.
+        align_tiles = int(vocab_align_tiles)
+        if lm_head_program == "dram_sharded":
+            align_tiles = max(align_tiles, int(lm_head_cores))
+        padded_vocab_size = _align_up(vocab_size, TILE * tp * align_tiles)
 
         logger.info(
             f"building OrnithModel: {len(layer_indices)} layer(s) {layer_indices if len(layer_indices) < 8 else '0..'} "
@@ -491,6 +620,23 @@ class OrnithModel(LightweightModule):
         columns = per_device if lm_head_max_columns is None else min(per_device, int(lm_head_max_columns))
         if per_device % columns:
             raise ValueError(f"lm_head_max_columns {columns} must divide the per-device width {per_device}")
+        # A DRAM-sharded decode matmul wants its weight width-sharded over the device's DRAM banks,
+        # which is a property of the *weight tensor*, not of the program config: the same rule
+        # `models/common/modules/lm_head/lm_head_1d.py::_create_dram_sharded_mem_config` applies.
+        weight_memory_config = ttnn.DRAM_MEMORY_CONFIG
+        if lm_head_program == "dram_sharded":
+            dram = mesh_device.dram_grid_size()
+            dram_cores = int(dram.x)
+            dram_grid = ttnn.CoreRangeSet(
+                {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(dram_cores - 1, int(dram.y) - 1))}
+            )
+            shard_width = _align_up(columns, TILE * dram_cores) // dram_cores
+            weight_memory_config = ttnn.MemoryConfig(
+                ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+                ttnn.BufferType.DRAM,
+                ttnn.ShardSpec(dram_grid, (gcfg.dim, shard_width), ttnn.ShardOrientation.ROW_MAJOR),
+            )
+
         lm_head_weights = []
         for split in range(per_device // columns):
             parts = [
@@ -502,7 +648,7 @@ class OrnithModel(LightweightModule):
                     dtype=lm_head_dtype,
                     layout=ttnn.TILE_LAYOUT,
                     device=mesh_device,
-                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    memory_config=weight_memory_config,
                     mesh_mapper=ttnn.shard_tensor_to_mesh_mapper(mesh_device, dim=1),
                 )
             )
@@ -554,6 +700,12 @@ class OrnithModel(LightweightModule):
             vocab_size=vocab_size,
             padded_vocab_size=padded_vocab_size,
             tp=tp,
+            lm_head_program=lm_head_program,
+            lm_head_cores=lm_head_cores,
+            lm_head_in0_block_w=lm_head_in0_block_w,
+            lm_head_fidelity=lm_head_fidelity,
+            terminal_norm_sharded=terminal_norm_sharded,
+            terminal_norm_cores=terminal_norm_cores,
         )
 
     # ------------------------------------------------------------------ cache / state
@@ -745,17 +897,24 @@ class OrnithModel(LightweightModule):
         max_batch_size: int | None = None,
         max_top_k: int = 32,
         pad_to_power_of_2: bool = False,
-        topk_num_groups: int = DEFAULT_TOPK_GROUPS,
+        topk_num_groups: int | str = "auto",
     ):
         """Construct the shared on-device sampler (``models.common.sampling``).
 
         Kept on the model rather than in the generator because the sampler's persistent buffers,
         semaphores and index tables are model-shaped setup state, and because the generator has to
         be able to hand ``capture_trace`` the exact logits tensor the model trace produced.
+
+        ``topk_num_groups="auto"`` derives the split from the vocabulary shard this build actually
+        produced, which is the whole point: the LM head's program config can change the padded
+        vocabulary width, and a group count hard-coded for one width is illegal (it has to divide
+        the shard's tile count) or simply off the optimum for another.
         """
         from models.common.sampling import SamplingGenerator
 
         batch = self.max_batch_size if max_batch_size is None else int(max_batch_size)
+        if topk_num_groups == "auto":
+            topk_num_groups = self.best_topk_groups(max_top_k)
         self.tt_ccl = OrnithSamplingCCL(self.mesh_device)
         args = OrnithSamplingArgs(
             vocab_size=self.vocab_size,
@@ -769,27 +928,250 @@ class OrnithModel(LightweightModule):
         self.sampling = SamplingGenerator(args=args, mesh_device=self.mesh_device, tt_ccl=self.tt_ccl)
         return self.sampling
 
+    def best_topk_groups(self, max_top_k: int = 32) -> int:
+        """The grouped local top-k split that minimises the sampler's measured device cost.
+
+        ``ttnn.topk``'s device time is linear in the *reduced width* and independent of every other
+        dimension (``doc/full_model/logs/probe_topk.txt``), and the grouped form replaces one
+        ``W``-wide reduction with a ``W/g``-wide one over ``g`` rows plus a ``max_top_k * g``-wide one
+        over the group winners. That term alone is minimised at ``g = sqrt(W / max_top_k)``.
+
+        But the grouping is **not free**: it costs ``g`` slices, one concat over ``g`` inputs and an
+        index-recovery gather, measured at
+        :data:`TOPK_GROUP_MACHINERY_US_PER_GROUP` us per group per replay in
+        ``doc/optimized_full_model/logs/sampler_cost_model.md``. Minimising the reduction alone would
+        pick a larger ``g`` than the whole sampler wants - and would pick exactly the ``g = 44``
+        candidate that document *rejects* - so both terms are in the objective here.
+
+        ``g`` must also divide the shard's tile count, so every group width stays tile aligned; a
+        non-aligned group would let the reduction read tile padding. The rule reproduces the
+        full-model stage's measured 20 for the unpadded 62080-wide shard and picks 32 for the
+        32-tile-aligned 62464 the optimized stage builds.
+        """
+        width = self.padded_vocab_size // self.tp
+        tiles = width // TILE
+        best, best_cost = 1, None
+        for g in range(1, tiles + 1):
+            if tiles % g:
+                continue
+            if g * max_top_k >= width:
+                break
+            cost = TOPK_US_PER_WIDTH_UNIT * (width / g + max_top_k * g) + TOPK_GROUP_MACHINERY_US_PER_GROUP * g
+            if best_cost is None or cost < best_cost:
+                best, best_cost = g, cost
+        return best
+
     # ------------------------------------------------------------------ terminal path
+    def _core_rectangle(self, cores: int):
+        """The widest legal ``(cols, rows)`` rectangle at or below ``cores`` on this device."""
+        grid = self.mesh_device.compute_with_storage_grid_size()
+        cols = max((c for c in range(1, int(grid.x) + 1) if cores % c == 0 and cores // c <= int(grid.y)), default=0)
+        if not cols:
+            return None
+        return cols, cores // cols
+
+    def _terminal_norm_cfg(self, rows: int, width: int):
+        """``(program_config, memory_config)`` for a width-sharded terminal RMSNorm, or ``(None, None)``.
+
+        The default interleaved ``ttnn.rms_norm`` on a decode-shaped ``[1, 1, 32, dim]`` activation
+        runs on a **single** core - it is 20 us in the functional full model's decode capture against
+        6 us for the decoder's own width-sharded in-layer norms on 8. Same construction as
+        ``OptimizedDecoder._norm_shard``, with the shard grid pinned to the LM head's activation grid
+        when the head is DRAM-sharded so the head consumes what the norm wrote without a reshard.
+        """
+        key = (rows, width)
+        cached = self._terminal_norm_cache.get(key)
+        if cached is not None:
+            return cached
+        result = (None, None)
+        n_tiles = width // TILE
+        cores = self._terminal_norm_cores
+        rect = self._core_rectangle(cores) if (n_tiles % cores == 0 and width % cores == 0) else None
+        if rect is not None and rows % TILE == 0:
+            cols, core_rows = rect
+            block_w = n_tiles // cores
+            mem = ttnn.create_sharded_memory_config(
+                shape=(rows, width // cores),
+                core_grid=ttnn.CoreGrid(x=cols, y=core_rows),
+                strategy=ttnn.ShardStrategy.WIDTH,
+                orientation=ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
+            )
+            cfg = ttnn.LayerNormShardedMultiCoreProgramConfig(
+                compute_with_storage_grid_size=(cols, core_rows),
+                subblock_w=max(i for i in range(1, 9) if block_w % i == 0),
+                block_h=rows // TILE,
+                block_w=block_w,
+                inplace=False,
+            )
+            result = (cfg, mem)
+        self._terminal_norm_cache[key] = result
+        return result
+
     def _final_norm(self, x):
+        """The model's last RMSNorm, width-sharded in L1 when the shape allows it.
+
+        Returns a **sharded** tensor on the sharded path: the LM head is the only consumer and it
+        wants exactly that layout. ``_lm_head`` restores DRAM interleaved on the way out.
+        """
+        rows = int(x.shape[-2])
+        if self.terminal_norm_sharded and int(x.shape[-1]) == self.dim:
+            cfg, mem = self._terminal_norm_cfg(rows, self.dim)
+            if cfg is not None:
+                sharded = x if x.memory_config() == mem else ttnn.to_memory_config(x, mem)
+                out = ttnn.rms_norm(
+                    sharded,
+                    weight=self.norm_weight,
+                    epsilon=self.cfg.norm_eps,
+                    program_config=cfg,
+                    memory_config=mem,
+                )
+                if sharded is not x:
+                    ttnn.deallocate(sharded)
+                return out
         return ttnn.rms_norm(x, weight=self.norm_weight, epsilon=self.cfg.norm_eps)
 
-    def _lm_head(self, rows):
-        """``[1, 1, R, dim]`` -> vocab-sharded logits ``[1, 1, R, padded_vocab / tp]`` per device."""
-        outs = [
-            ttnn.linear(
-                rows,
+    def _lm_head_in0_block_w(self, k_tiles: int) -> int:
+        """The largest legal ``in0_block_w`` for the terminal matmul, or the caller's override.
+
+        ``mcast_in0`` with a **width-sharded** ``in0`` blocks the inner dimension out of what each
+        core holds, so the bound is the activation shard's tile width, not the full ``K`` in tiles:
+        the matmul validates ``in0_shard_tiles % in0_block_w == 0`` as well as ``k_tiles %
+        in0_block_w == 0``. With the terminal norm width-sharded over ``n`` cores each core holds
+        ``dim / 32 / n`` tiles, so 8 cores caps this at 8 and reaching 16, 32 or 64 means a *narrower*
+        norm grid - which is the OPT-011 trade this stage sweeps rather than assumes
+        (``doc/optimized_full_model/README.md`` §3.3). With an interleaved activation the only bound
+        is ``k_tiles``.
+        """
+        bound = k_tiles
+        if self.terminal_norm_sharded and self._terminal_norm_cores:
+            bound = min(bound, max(1, k_tiles // self._terminal_norm_cores))
+        if self.lm_head_in0_block_w is not None:
+            requested = int(self.lm_head_in0_block_w)
+            if requested > bound or k_tiles % requested or bound % requested:
+                raise ValueError(
+                    f"lm_head_in0_block_w={requested} is not legal here: it must divide both the tiled K "
+                    f"({k_tiles}) and the activation shard's tile width ({bound})"
+                )
+            return requested
+        return max(i for i in range(1, bound + 1) if k_tiles % i == 0 and bound % i == 0)
+
+    def _lm_head_cfg(self, rows: int):
+        """``(program_config, activation_memory_config)`` for the tuned LM-head spellings."""
+        cached = self._lm_head_cfg_cache.get(rows)
+        if cached is not None:
+            return cached
+        import math
+
+        m_tiles = max(1, rows // TILE)
+        k_tiles = self.dim // TILE
+        n_tiles = max(1, int(math.ceil(self._lm_head_width / TILE)))
+        cores = self.lm_head_cores
+        result = (None, None)
+        if self.lm_head_program == "dram_sharded":
+            rect = self._core_rectangle(cores)
+            if rect is not None and k_tiles % cores == 0:
+                cols, core_rows = rect
+                mem = ttnn.create_sharded_memory_config(
+                    shape=(rows, self.dim // cores),
+                    core_grid=ttnn.CoreGrid(x=cols, y=core_rows),
+                    strategy=ttnn.ShardStrategy.WIDTH,
+                    orientation=ttnn.ShardOrientation.ROW_MAJOR,
+                    use_height_and_width_as_shard_shape=True,
+                )
+                cfg = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
+                    in0_block_w=max(i for i in range(1, 9) if (k_tiles // cores) % i == 0),
+                    per_core_M=m_tiles,
+                    per_core_N=int(math.ceil(n_tiles / cores)),
+                    fused_activation=None,
+                )
+                result = (cfg, mem)
+        elif self.lm_head_program == "mcast1d":
+            rect = self._core_rectangle(cores)
+            if rect is not None:
+                cols, core_rows = rect
+                per_core_n = int(math.ceil(n_tiles / (cols * core_rows)))
+                cap = 4 if self.policy.proj_fp32_acc else 8
+                sub_w = max(i for i in range(1, cap + 1) if per_core_n % i == 0)
+                sub_h = max(i for i in range(1, cap + 1) if m_tiles % i == 0 and i * sub_w <= cap)
+                cfg = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+                    compute_with_storage_grid_size=(cols, core_rows),
+                    in0_block_w=self._lm_head_in0_block_w(k_tiles),
+                    out_subblock_h=sub_h,
+                    out_subblock_w=sub_w,
+                    per_core_M=m_tiles,
+                    per_core_N=per_core_n,
+                    fuse_batch=True,
+                    fused_activation=None,
+                    mcast_in0=True,
+                )
+                result = (cfg, None)
+        self._lm_head_cfg_cache[rows] = result
+        return result
+
+    def _lm_head_block(self, rows):
+        """One `<= 32`-row block through the tuned or plain head, DRAM-interleaved logits out."""
+        cfg, act_mem = self._lm_head_cfg(int(rows.shape[-2]))
+        outs = []
+        for weight in self.lm_head_weights:
+            if cfg is None:
+                outs.append(
+                    ttnn.linear(
+                        rows,
+                        weight,
+                        compute_kernel_config=self.lm_head_compute_kernel_config,
+                        dtype=ttnn.bfloat16,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
+                )
+                continue
+            # A DRAM-sharded matmul takes a width-sharded L1 activation and writes a width-sharded
+            # L1 output, so that spelling is the one that has to come back to the interleaved DRAM
+            # logits tensor the sampler is captured against. The 1D mcast spelling writes DRAM
+            # directly and needs no conversion.
+            sharded = act_mem is not None
+            act = rows if not sharded or rows.memory_config() == act_mem else ttnn.to_memory_config(rows, act_mem)
+            out = ttnn.linear(
+                act,
                 weight,
                 compute_kernel_config=self.lm_head_compute_kernel_config,
+                program_config=cfg,
                 dtype=ttnn.bfloat16,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG if sharded else ttnn.DRAM_MEMORY_CONFIG,
             )
-            for weight in self.lm_head_weights
-        ]
+            if act is not rows:
+                ttnn.deallocate(act)
+            if sharded:
+                interleaved = ttnn.sharded_to_interleaved(out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                ttnn.deallocate(out)
+                out = interleaved
+            outs.append(out)
         if len(outs) == 1:
             return outs[0]
         joined = ttnn.concat(outs, dim=-1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         for out in outs:
             ttnn.deallocate(out)
+        return joined
+
+    def _lm_head(self, rows):
+        """``[1, 1, R, dim]`` -> vocab-sharded logits ``[1, 1, R, padded_vocab / tp]`` per device.
+
+        A tuned spelling binds its output block size at construction, so a row block taller than one
+        tile is walked one tile at a time rather than asking for an L1 allocation the size of the
+        whole vocabulary shard. Only the ``return_all_logits`` path is ever that tall; decode and the
+        first token after prefill are a single 32-row block.
+        """
+        r = int(rows.shape[-2])
+        if r <= TILE or self.lm_head_program == "interleaved":
+            return self._lm_head_block(rows)
+        parts = []
+        for off in range(0, r, TILE):
+            block = ttnn.slice(rows, [0, 0, off, 0], [1, 1, min(off + TILE, r), self.dim])
+            parts.append(self._lm_head_block(block))
+            ttnn.deallocate(block)
+        joined = ttnn.concat(parts, dim=-2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        for part in parts:
+            ttnn.deallocate(part)
         return joined
 
     def _sampler_rows(self, x, rows: int):

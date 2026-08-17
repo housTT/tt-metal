@@ -80,7 +80,8 @@ class OrnithGenerator(Generator):
         sampling_mode: str = "device",
         max_top_k: int = 32,
         pad_logits_to_power_of_2: bool = False,
-        topk_num_groups: int = DEFAULT_TOPK_GROUPS,
+        topk_num_groups: int | str = "auto",
+        pipelined_readback: bool = True,
         kv_cache=None,
         page_table=None,
     ):
@@ -134,6 +135,20 @@ class OrnithGenerator(Generator):
         self.counters = model.counters
         self.perf: dict[str, Any] = {}
         self._eos_ids = self._resolve_eos_ids()
+        #: Overlap the caller's token readback with the next decode replay (optimized-full-model).
+        #:
+        #: The steady-state free-running loop has no host->device dependency at all: the sampled
+        #: token reaches the next step through ``tt_out_tok`` on device and the position advances
+        #: with ``ttnn.plus_one`` inside the trace, so step ``N+1`` can be *enqueued* before the
+        #: host has looked at token ``N``. With this off the loop calls
+        #: ``ttnn.synchronize_device`` every step and the device idles for the whole readback plus
+        #: the Python between replays; with it on the readback is issued non-blocking, an event is
+        #: recorded behind it, the next replay is enqueued, and only then is the event waited on -
+        #: so the wait overlaps device work that is already running.
+        #:
+        #: Teacher forcing keeps the serial loop by construction: ``next_input`` needs token ``N``
+        #: on the host before step ``N+1``'s token input can be decided.
+        self.pipelined_readback = bool(pipelined_readback)
 
     # ------------------------------------------------------------------ setup helpers
     def _resolve_eos_ids(self) -> set:
@@ -402,6 +417,27 @@ class OrnithGenerator(Generator):
             self._trace_inputs[0],
             mesh_composer=ttnn.concat_mesh_to_tensor_composer(self.mesh_device, dim=0),
         )
+        self.counters["token_readbacks"] += 1
+        return whole.reshape(-1)[: self.max_batch_size].to(torch.int64)
+
+    def _read_tokens_async(self):
+        """Enqueue the token readback **behind** the replay that produced it, without waiting.
+
+        ``cpu(blocking=False)`` puts the device->host copy on the same command queue as the model
+        and sampling replays, so it observes exactly this step's sampled token: the queue is
+        in-order, and the *next* step's replay is enqueued after it. The recorded event is what the
+        host waits on later, once the next step is already running on the device.
+        """
+        host = self._trace_inputs[0].cpu(blocking=False)
+        event = ttnn.record_event(self.mesh_device, 0)
+        self.counters["token_readbacks"] += 1
+        return host, event
+
+    def _finish_read(self, pending) -> torch.Tensor:
+        host, event = pending
+        ttnn.event_synchronize(event)
+        self.counters["read_waits"] += 1
+        whole = ttnn.to_torch(host, mesh_composer=ttnn.concat_mesh_to_tensor_composer(self.mesh_device, dim=0))
         return whole.reshape(-1)[: self.max_batch_size].to(torch.int64)
 
     def _decode_step_traced(self) -> None:
@@ -597,27 +633,62 @@ class OrnithGenerator(Generator):
         self._refresh_page_table_only(self.page_table)
         programs_before_decode = self.mesh_device.num_program_cache_entries()
 
+        # The free-running device-sampling loop has no host->device dependency: the sampled token
+        # reaches the next replay through `tt_out_tok` and the position advances with
+        # `ttnn.plus_one`, both inside the trace. So step N+1 is enqueued before token N is looked
+        # at, and the host's wait overlaps device work instead of idling it. Teacher forcing and
+        # host sampling keep the serial loop, because both decide step N+1's token input on the
+        # host from token N.
+        pipelined = self.pipelined_readback and self.sampling_mode == "device" and next_input is None
+
         decode_start = time.perf_counter()
         steps = 0
-        for step in range(1, max_new_tokens):
-            if forced != on_device:
-                self._write_tokens(torch.tensor([forced] * self.max_batch_size, dtype=torch.int32))
-                on_device = forced
-            self._decode_step_traced()
-            if self.sampling_mode == "device":
+        if pipelined:
+            pending = None
+            for _ in range(1, max_new_tokens):
+                self._decode_step_traced()
                 self._sample_traced()
-                ttnn.synchronize_device(self.mesh_device)
-                predicted = int(self._read_tokens()[0])
-            else:
-                ttnn.synchronize_device(self.mesh_device)
-                predicted = int(torch.argmax(self.model.decode_logits_to_host(self._trace_logits)[0]).item())
-                self._write_tokens(torch.tensor([predicted] * self.max_batch_size, dtype=torch.int32))
-            on_device = predicted
-            predictions.append(predicted)
-            steps += 1
-            forced = int(next_input(step, predicted)) if next_input is not None else predicted
-            if stop_on_eos and predicted in self._eos_ids:
-                break
+                in_flight = self._read_tokens_async()
+                if pending is not None:
+                    predicted = int(self._finish_read(pending)[0])
+                    on_device = predicted
+                    predictions.append(predicted)
+                    steps += 1
+                    if stop_on_eos and predicted in self._eos_ids:
+                        # `in_flight` belongs to a step that was enqueued speculatively; its token is
+                        # discarded and the synchronize below retires it before the next request.
+                        pending = None
+                        break
+                pending = in_flight
+            if pending is not None:
+                predicted = int(self._finish_read(pending)[0])
+                on_device = predicted
+                predictions.append(predicted)
+                steps += 1
+            # Retire anything still in flight so the measured window covers all the work it issued.
+            ttnn.synchronize_device(self.mesh_device)
+        else:
+            for step in range(1, max_new_tokens):
+                if forced != on_device:
+                    self._write_tokens(torch.tensor([forced] * self.max_batch_size, dtype=torch.int32))
+                    on_device = forced
+                self._decode_step_traced()
+                if self.sampling_mode == "device":
+                    self._sample_traced()
+                    ttnn.synchronize_device(self.mesh_device)
+                    self.counters["decode_syncs"] += 1
+                    predicted = int(self._read_tokens()[0])
+                else:
+                    ttnn.synchronize_device(self.mesh_device)
+                    self.counters["decode_syncs"] += 1
+                    predicted = int(torch.argmax(self.model.decode_logits_to_host(self._trace_logits)[0]).item())
+                    self._write_tokens(torch.tensor([predicted] * self.max_batch_size, dtype=torch.int32))
+                on_device = predicted
+                predictions.append(predicted)
+                steps += 1
+                forced = int(next_input(step, predicted)) if next_input is not None else predicted
+                if stop_on_eos and predicted in self._eos_ids:
+                    break
         decode_elapsed = time.perf_counter() - decode_start
         if self.mesh_device.num_program_cache_entries() != programs_before_decode:
             logger.warning(
@@ -635,6 +706,7 @@ class OrnithGenerator(Generator):
             "decode_t/s/u": (steps / decode_elapsed) if steps and decode_elapsed > 0 else 0.0,
             "decode_ms_per_token": (decode_elapsed / steps * 1e3) if steps else 0.0,
             "sampling_mode": self.sampling_mode,
+            "pipelined_readback": bool(pipelined),
             "teacher_forcing": next_input is not None,
             "counters": dict(self.counters),
         }
@@ -655,6 +727,14 @@ class OrnithGenerator(Generator):
         cannot be the tensor identity the decode-side sampling trace was captured against.
         """
         if self.sampling_mode == "device":
+            # This runs **untraced** on purpose, and the alternative was tried and reverted. Copying
+            # the prefill logits into `self._trace_logits` and replaying the captured sampling trace
+            # would turn 3.6 ms of a ~133 ms TTFT into ~1.1 ms, but `_trace_logits` is allocated
+            # inside the trace region, and writing to it from outside a replay wedged the mesh:
+            # `doc/optimized_full_model/triage/` is the tt-triage capture (a stuck
+            # `ReshapeViewDeviceOperation` on all four devices plus kernel `.text` mismatches), which
+            # is the same trace-region hazard `SamplingGenerator.capture_trace(skip_precompile=True)`
+            # already exists to avoid. See `doc/optimized_full_model/README.md` §Rejected.
             self.sampling.sample(logits=device_logits, tt_out_tok=self._trace_inputs[0], enable_trace=False)
             ttnn.deallocate(device_logits)
             ttnn.synchronize_device(self.mesh_device)
@@ -697,6 +777,44 @@ class OrnithGenerator(Generator):
             nxt = int(next_input(step, predicted)) if next_input is not None else predicted
         return predictions
 
+    def warmup(self, prompt_lengths, *, max_new_tokens: int = 2) -> dict:
+        """Pre-compile the prefill programs for the given prompt lengths, once, at startup.
+
+        A prefill compiles programs keyed by its *logical* prompt length - the ``ttnn.slice``
+        offsets, the MoE valid-token count and the conv1d length are all compile-time constants - and
+        those kernel binaries are allocated while the decode traces are live, so
+        :meth:`_ensure_traces_replay_safe` has to re-capture before the first replay can run
+        (``doc/full_model/README.md`` §5.1). That re-capture is a few hundred milliseconds and it
+        lands in *neither* reported metric, because ``generate`` stops the TTFT clock before it and
+        starts the decode clock after it: a cold-length request is slower than any published number.
+
+        This is the fix the full-model stage handed forward. Drive it once with the lengths a
+        deployment expects (or the bucket boundaries it rounds to) and every later request at those
+        lengths is warm, with ``trace_recaptures`` provably unchanged. Returns the per-length wall
+        clock and the recapture count so the cost is measured rather than assumed.
+        """
+        lengths = [int(v) for v in prompt_lengths]
+        report: dict[str, Any] = {"lengths": lengths, "seconds": {}, "recaptures_before": self.trace_recaptures}
+        for length in lengths:
+            if length < 1 or length > self.cache_context:
+                raise ValueError(f"warmup length {length} is outside [1, {self.cache_context}]")
+            started = time.perf_counter()
+            self.generate(
+                prompt_token_ids=[1] * length,
+                max_new_tokens=max(1, int(max_new_tokens)),
+                enable_trace=True,
+                stop_on_eos=False,
+            )
+            report["seconds"][length] = time.perf_counter() - started
+        self.reset()
+        report["recaptures_after"] = self.trace_recaptures
+        report["recaptures"] = report["recaptures_after"] - report["recaptures_before"]
+        logger.info(
+            f"warmup: {len(lengths)} prompt length(s) compiled in "
+            f"{sum(report['seconds'].values()):.1f} s, {report['recaptures']} trace re-capture(s)"
+        )
+        return report
+
     # ------------------------------------------------------------------ lifecycle
     def reset(self) -> None:
         """Wipe per-prompt state. Device buffers, traces and weights all survive."""
@@ -735,7 +853,16 @@ def build_generator(model_dir=None, mesh_device=None, **kwargs) -> OrnithGenerat
     ``layer_indices``         build exactly these HF layer indices - the reduced profiling variant
     ``sampling_mode``         ``"device"`` (default) or ``"host"`` compatibility mode
     ``policy``                precision policy name; default is the decoder stage's ``optimized``
-    ``lm_head_dtype``         override the LM head weight dtype
+    ``lm_head_dtype``         override the LM head weight dtype (default: the policy's, bfloat8_b)
+    ``lm_head_program``       terminal matmul spelling: ``"mcast1d"`` (default), ``"interleaved"`` or
+                              ``"dram_sharded"``. ``"dram_sharded"`` requires ``lm_head_cores`` to
+                              divide ``dim / 32`` and raises otherwise
+    ``lm_head_cores``         compute cores for the tuned spellings (default 110, the whole grid)
+    ``lm_head_in0_block_w``   override the terminal matmul's K block (default: the largest legal)
+    ``lm_head_fidelity``      ``"lofi"`` / ``"hifi2"`` / ``"hifi4"`` for the terminal matmul only
+    ``terminal_norm_cores``   cores the terminal RMSNorm width-shards ``dim`` over (default 8)
+    ``vocab_align_tiles``     per-device vocabulary tile alignment (default 32; see the sampler)
+    ``pipelined_readback``    overlap the caller token readback with the next replay (default True)
     """
     if mesh_device is None:
         raise ValueError("build_generator needs an open mesh_device")
@@ -745,7 +872,9 @@ def build_generator(model_dir=None, mesh_device=None, **kwargs) -> OrnithGenerat
     sampling_mode = kwargs.pop("sampling_mode", "device")
     max_top_k = int(kwargs.pop("max_top_k", 32))
     pad_logits_to_power_of_2 = bool(kwargs.pop("pad_logits_to_power_of_2", False))
-    topk_num_groups = int(kwargs.pop("topk_num_groups", DEFAULT_TOPK_GROUPS))
+    topk_num_groups = kwargs.pop("topk_num_groups", "auto")
+    topk_num_groups = topk_num_groups if topk_num_groups == "auto" else int(topk_num_groups)
+    pipelined_readback = bool(kwargs.pop("pipelined_readback", True))
     tokenizer = kwargs.pop("tokenizer", None)
     snapshot = kwargs.pop("snapshot_path", None)
 
@@ -772,6 +901,7 @@ def build_generator(model_dir=None, mesh_device=None, **kwargs) -> OrnithGenerat
         max_top_k=max_top_k,
         pad_logits_to_power_of_2=pad_logits_to_power_of_2,
         topk_num_groups=topk_num_groups,
+        pipelined_readback=pipelined_readback,
     )
     if model_dir is not None:
         generator.model_dir = Path(model_dir)

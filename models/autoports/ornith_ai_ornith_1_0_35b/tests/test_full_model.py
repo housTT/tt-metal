@@ -980,8 +980,11 @@ def test_grouped_local_topk_matches_a_single_reduction(mesh_device):
     """The shared sampler's opt-in grouped top-k is exact, not an approximation."""
     generator = probe_generator(mesh_device)
     sampling = generator.sampling.tt_sampling
-    assert sampling.topk_num_groups == M.DEFAULT_TOPK_GROUPS
     per_device = generator.model.padded_vocab_size // 4
+    # The split is derived from the shard this build produced, not hard-coded: the LM head's
+    # program config decides the padded vocabulary width and 20 is only right for the unpadded one.
+    assert sampling.topk_num_groups == generator.model.best_topk_groups(sampling.max_top_k)
+    assert (per_device // 32) % sampling.topk_num_groups == 0, "every group width must be tile aligned"
     torch.manual_seed(23)
     # Distinct, well separated maxima: a tie is broken arbitrarily by *both* spellings, so a random
     # bfloat16 tensor would compare tie-break policy rather than the reduction.
@@ -1011,6 +1014,162 @@ def test_grouped_local_topk_matches_a_single_reduction(mesh_device):
     assert torch.allclose(host(grouped_values).float(), reference_values.float(), atol=1e-2)
     for tensor in (logits, grouped_values, grouped_indices, single_values, single_indices):
         ttnn.deallocate(tensor)
+
+
+# --------------------------------------------------------------------------------------
+# optimized-full-model: terminal path, padded vocabulary, pipelined readback
+# --------------------------------------------------------------------------------------
+def test_the_lm_head_runs_the_tuned_program_config(mesh_device):
+    """The terminal matmul is the measured winner, and it is actually configured, not defaulted."""
+    generator = probe_generator(mesh_device)
+    model = generator.model
+    assert model.lm_head_program == "mcast1d", "the interleaved default lost the ladder in ab_terminal.txt"
+    assert model.lm_head_cores == 110, "the whole 11x10 Blackhole worker grid"
+    cfg, act_mem = model._lm_head_cfg(32)
+    assert cfg is not None, "a decode-shaped LM head must carry a program config"
+    assert isinstance(cfg, ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig)
+    assert cfg.mcast_in0 is True and cfg.fuse_batch is True
+    # `mcast_in0` with a width-sharded in0 blocks K out of what each core *holds*, so the bound is
+    # the terminal norm's per-core shard (dim/32/8 = 8 tiles), not the full 64 tiles of K. Reaching
+    # 16/32/64 needs a narrower norm grid, which was measured and lost or did not build:
+    # doc/optimized_full_model/logs/ab_terminal_kblock_table.md.
+    assert int(cfg.in0_block_w) == 8, "the largest value the 8-core terminal-norm shard makes legal"
+    assert int(cfg.in0_block_w) == model.dim // M.TILE // model._terminal_norm_cores
+    assert int(cfg.per_core_M) == 1
+    grid = cfg.compute_with_storage_grid_size
+    assert (int(grid.x), int(grid.y)) == (11, 10)
+    # And the terminal norm is width-sharded so the head reads it without a reshard.
+    assert model.terminal_norm_sharded is True
+    norm_cfg, norm_mem = model._terminal_norm_cfg(32, model.dim)
+    assert norm_cfg is not None and norm_mem is not None
+    assert int(norm_cfg.block_h) == 1
+    assert norm_mem.memory_layout == ttnn.TensorMemoryLayout.WIDTH_SHARDED
+
+
+def test_the_padded_vocabulary_is_masked_not_merely_padded(mesh_device):
+    """The extra LM-head columns exist, and no sampled token is ever one of them.
+
+    Zero-padding an LM-head weight is not a mask: a padded column produces a 0.0 logit, which beats
+    every negative real logit. `TTSampling` builds an additive invalid-vocab tail mask from
+    (vocab_size, padded_vocab_size) and this asserts both that the mask exists and that the tokens
+    the model actually emits stay inside the tokenizer's vocabulary.
+    """
+    generator = probe_generator(mesh_device)
+    model = generator.model
+    assert model.padded_vocab_size > model.vocab_size, "the sampler-friendly vocab alignment must pad"
+    assert model.padded_vocab_size % (32 * model.tp) == 0
+    sampling = generator.sampling.tt_sampling
+    assert (
+        sampling.tt_invalid_vocab_mask is not None or sampling.tt_invalid_vocab_tail_mask is not None
+    ), "padded vocabulary without an invalid-vocab mask would let a padded column win"
+    torch.manual_seed(11)
+    prompt = torch.randint(0, model.vocab_size, (48,)).tolist()
+    tokens = generator.generate(prompt_token_ids=prompt, max_new_tokens=24, enable_trace=True, stop_on_eos=False)
+    assert all(0 <= int(t) < model.vocab_size for t in tokens), f"a padded vocab id was emitted: {tokens}"
+
+
+def test_the_pipelined_readback_agrees_with_the_serial_loop(mesh_device):
+    """Overlapping the token readback must not change a single token, and must remove the sync."""
+    generator = probe_generator(mesh_device)
+    torch.manual_seed(17)
+    prompt = torch.randint(0, generator.model.vocab_size, (64,)).tolist()
+
+    generator.pipelined_readback = False
+    serial = generator.generate(prompt_token_ids=prompt, max_new_tokens=24, enable_trace=True, stop_on_eos=False)
+    serial_counters = dict(generator.counters)
+
+    generator.pipelined_readback = True
+    pipelined = generator.generate(prompt_token_ids=prompt, max_new_tokens=24, enable_trace=True, stop_on_eos=False)
+    pipelined_counters = dict(generator.counters)
+
+    assert serial == pipelined, "the pipelined loop must be token-for-token identical"
+    assert len(pipelined) == 24
+    # The serial loop synchronizes once per generated token; the pipelined one never does.
+    assert serial_counters["decode_syncs"] == serial_counters["decode_calls"]
+    assert pipelined_counters["decode_syncs"] == 0
+    # Both still read exactly one token per step and refresh nothing per token.
+    assert pipelined_counters["read_waits"] == pipelined_counters["decode_calls"]
+    assert pipelined_counters["token_refreshes"] == 0
+    assert pipelined_counters["page_table_refreshes"] == 0
+    assert pipelined_counters["position_refreshes"] == 1
+
+
+def test_the_pipelined_loop_stops_on_eos_and_leaves_state_one_position_ahead(mesh_device):
+    """The EOS branch of the lookahead loop: it stops, and it costs exactly one speculative step.
+
+    The pipelined loop sees EOS in token N only after step N+1 has been enqueued, so that step runs: it
+    consumes the EOS token, writes one paged-KV entry and advances `current_pos`/`rot_idxs` by one. The
+    returned list must be unaffected and the loop must actually stop, but device state is one position
+    ahead of the tokens - which is README limitation 8, asserted here rather than only described.
+
+    EOS is forced by making the generator's EOS set contain whatever the model emits first, which is the
+    only way to reach this branch deterministically on a checkpoint that does not stop early.
+    """
+    generator = probe_generator(mesh_device)
+    torch.manual_seed(29)
+    prompt = torch.randint(0, generator.model.vocab_size, (48,)).tolist()
+
+    # One free run to learn the token the model emits after the first, with EOS disabled.
+    reference = generator.generate(prompt_token_ids=prompt, max_new_tokens=4, enable_trace=True, stop_on_eos=False)
+    eos = int(reference[1])
+
+    original = generator._eos_ids
+    try:
+        generator._eos_ids = {eos}
+        generator.pipelined_readback = True
+        out = generator.generate(prompt_token_ids=prompt, max_new_tokens=16, enable_trace=True, stop_on_eos=True)
+    finally:
+        generator._eos_ids = original
+
+    assert generator.perf["pipelined_readback"] is True
+    assert out[: len(reference)][:2] == reference[:2], "the prompt's tokens must not change"
+    assert int(out[-1]) == eos, f"generation must stop on the forced EOS, got {out}"
+    assert len(out) < 16, "stop_on_eos must actually stop the loop"
+    # The speculative step ran, so exactly one more replay happened than tokens were returned. `out`
+    # includes the prefill token, so the decode steps that produced tokens number len(out) - 1.
+    decode_tokens = len(out) - 1
+    assert generator.counters["decode_calls"] == decode_tokens + 1, (
+        f"expected exactly one speculative replay beyond the returned tokens, got "
+        f"{generator.counters['decode_calls']} replays for {decode_tokens} decoded tokens"
+    )
+    assert generator.counters["decode_syncs"] == 0, "the pipelined loop must not synchronize per token"
+
+    # And the next request is unaffected by that extra step, because `generate` resets first.
+    again = generator.generate(prompt_token_ids=prompt, max_new_tokens=4, enable_trace=True, stop_on_eos=False)
+    assert again == reference, "a following request must reproduce exactly, despite the speculative step"
+
+
+def test_teacher_forcing_keeps_the_serial_loop(mesh_device):
+    """Teacher forcing decides step N+1's token input on the host, so it cannot be pipelined."""
+    generator = probe_generator(mesh_device)
+    torch.manual_seed(19)
+    prompt = torch.randint(0, generator.model.vocab_size, (48,)).tolist()
+    forced = torch.randint(0, generator.model.vocab_size, (16,)).tolist()
+    generator.pipelined_readback = True
+    out = generator.generate(
+        prompt_token_ids=prompt,
+        max_new_tokens=12,
+        enable_trace=True,
+        next_input=lambda step, predicted: forced[step],
+    )
+    assert len(out) == 12
+    assert generator.perf["pipelined_readback"] is False
+    assert generator.counters["decode_syncs"] == generator.counters["decode_calls"]
+
+
+def test_warmup_removes_the_cold_length_recapture(mesh_device):
+    """`warmup` is the fix the full-model stage handed forward for its unmeasured cold-length cost."""
+    generator = probe_generator(mesh_device)
+    # A length nothing has compiled yet, deliberately not a multiple of the tile/page/alignment.
+    length = 87
+    report = generator.warmup([length])
+    assert report["lengths"] == [length]
+    assert report["seconds"][length] > 0
+    before = generator.trace_recaptures
+    torch.manual_seed(3)
+    prompt = torch.randint(0, generator.model.vocab_size, (length,)).tolist()
+    generator.generate(prompt_token_ids=prompt, max_new_tokens=4, enable_trace=True, stop_on_eos=False)
+    assert generator.trace_recaptures == before, "a warmed-up length must not re-capture its traces"
 
 
 # --------------------------------------------------------------------------------------

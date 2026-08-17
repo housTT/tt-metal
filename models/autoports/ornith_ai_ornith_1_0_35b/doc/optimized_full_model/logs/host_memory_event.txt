@@ -1,0 +1,50 @@
+Host-memory exhaustion during the final evidence sweep: what failed, why, and what stands.
+
+WHAT FAILED
+`logs/run_evidence_status.txt` records three FAILs, all in the same class:
+
+  readiness_autoregressive       FAIL (58 s)
+  readiness_autoregressive_chat  FAIL (65 s)
+  readiness_qualitative          FAIL (64 s)
+
+Every other step of the 14-step sweep is `ok`, including both nine-repeat bench arms, probe_prefill,
+probe_multi_prompt, probe_bisect_before, probe_batch_slots, probe_terminal, the degeneracy gate and the
+48-case fast suite.
+
+WHY
+All three - and only these three - load a full HuggingFace reference of a 35B model on the CPU and
+generate with it. The other steps either use the pre-generated `readiness_aime24_chat.refpt`
+(readiness_prefill, readiness_teacher) or touch no HF model at all. Each of the three logs ends inside
+`Loading ornith-ai/Ornith-1.0-35B as Qwen3_5MoeForConditionalGeneration`, with no Python traceback,
+which is the signature of the kernel OOM killer rather than of an error in the code.
+
+The host had run out of memory:
+
+  MemTotal      261,425,304 kB  (249 GiB)
+  MemAvailable   53,607,328 kB  ( 51 GiB)   during the sweep
+  MemAvailable   57,772,496 kB  ( 55 GiB)   after it
+  sum of all process VmRSS        13 GiB
+  Cached 8 GiB, Shmem 0.4 GiB, Slab 1 GiB, hugepages 0
+
+A 35B reference needs ~70 GiB resident, so it cannot start. Note that the sum of every process's RSS is
+13 GiB while 190+ GiB is unaccounted for by the usual counters - the memory is not held by anything this
+run can see or safely reclaim (five long-running `tt_studio_*` docker containers have been up two days,
+and the TT driver pins host DMA memory). A standalone retry of `readiness_autoregressive` on an otherwise
+idle host, with 55 GiB available, died the same way, so this is a persistent host condition and not a
+transient one that a retry would clear.
+
+This is an infrastructure fault, recorded as `$tt-device-usage` asks, not a model result.
+
+WHAT STANDS
+The three artifacts these steps would have written are intact from the immediately preceding **complete**
+sweep of the same script on the same delivered code - `readiness_autoregressive.json`,
+`readiness_autoregressive_chat.json`, `readiness_qualitative.json` and the completions under
+`readiness_autoregressive{,_chat}/` - and the driver writes them only on success, so the failed runs did
+not truncate or overwrite anything. What they measure is free-running generated text and the shared
+qualitative suite: model behaviour on a code path that has not changed since (the only model-code change
+after that sweep is `OrnithModel.best_topk_groups`'s objective, which returns the same 32 groups for this
+build, plus one added test). `degenerate_report.json` was regenerated in the final sweep over those same
+completions and is clean.
+
+The accuracy gates that the goal contract names - `run_prefill_check` and `run_teacher_forcing` - ran in
+the final sweep and passed (0.940 and 0.970 top-1, 1.000 top-5 and top-100 on both).
