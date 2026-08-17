@@ -73,8 +73,8 @@ forcing, EOS handling, counters at `token_refreshes=0`.
 
 `logs/probe_terminal.py` split a warmed token-out step. This is the *original* measurement, the one
 that set the direction; the committed `logs/probe_terminal_single.txt` is the same probe re-run at
-the end against the delivered source and agrees to within run-to-run noise (1.473 / 11.820 / 0.391 /
-0.066 / 13.702):
+the end against the delivered source and agrees to within run-to-run noise (1.474 / 11.820 / 0.391 /
+0.076 / 13.719):
 
 ```
 model trace replay                        1.468 ms
@@ -121,7 +121,7 @@ be got right, and the first version got both wrong:
 Group count swept over the divisors of 1940 that keep the group width tile-aligned; 20 wins at
 0.96 ms (README §4.3's table, and `logs/probe_topk.txt` checks every row for exactness against
 `torch.topk` in the same run). End to end the sampling trace replay went **11.820 → 1.181 ms** and
-the reduced token-out step **13.702 → 2.846 ms** (`logs/probe_terminal_single.txt` vs
+the reduced token-out step **13.719 → 2.845 ms** (`logs/probe_terminal_single.txt` vs
 `logs/probe_terminal_grouped.txt`, the two lines named in README §4.3's table), with byte-identical
 greedy tokens. On the 40-layer model the sampling stage costs 1.17 ms (`perf_summary.json`); that is
 a different measurement from the probe's 1.181 and the two are quoted separately.
@@ -415,19 +415,19 @@ Driver: `logs/run_evidence.sh` inside `logs/final_status.txt`, every step `ok`
 | step | result |
 |---|---|
 | `run_prefill_check` | top-1 0.950, top-5 **1.000**, top-100 **1.000** |
-| `run_teacher_forcing` (traced decode) | top-1 0.940, top-5 **1.000**, top-100 **1.000**; decode 38.19 t/s/u (runner window) / 41.80 (generator loop). The runner reports TTFT 845.5 ms; the generator logs **325.1 ms** for the same first token, so ~520 ms is runner-side per-entry setup outside `generate`, and 325.1 ms is the cold-length TTFT that limitation 3 says the warmed 140 ms does not cover |
+| `run_teacher_forcing` (traced decode) | top-1 0.940, top-5 **1.000**, top-100 **1.000**; decode 37.01 t/s/u (runner window) / 41.63 (generator loop). The runner reports TTFT 1126.3 ms; the generator logs **439.5 ms** for the same first token, so ~687 ms is runner-side per-entry setup outside `generate`, and 439.5 ms is the cold-length TTFT that limitation 3 says the warmed 138 ms does not cover. Both runner figures are host-sensitive: across the sweeps they ranged 37.0-38.4 t/s/u and 817-1126 ms while the generator's own loop stayed within 0.6 % of the free-running benchmark |
 | `run_autoregressive` (raw continuation prompt) | 128 tokens, coherent, `adjacent_duplication` 0.0000 |
 | `run_autoregressive` (chat-template prompt) | 128 tokens, coherent, 42/128 tokens identical to the HF control (first divergence at token 15) |
 | qualitative suite (6 prompts, HF control + TT) | every TT completion coherent and structurally matched to its control |
-| `bench_full_model` | TTFT 139.8/140.5/167.2 ms (min/median/max — the host-sensitive figure; see README §1), token-out 23.88 ms/token = 41.87 t/s/u, 1 trace re-capture, `token_refreshes=0` |
+| `bench_full_model` | TTFT 135.7/138.1/144.4 ms (min/median/max — the host-sensitive figure; see README §1), token-out 23.89 ms/token = 41.86 t/s/u, 1 trace re-capture, `token_refreshes=0` |
 | `probe_multi_prompt --arms plain,plain` | six prompts twice, all coherent, second pass reproduces the first, 0 re-captures on the second pass |
 | `probe_bisect --order after / before` | the §5.1 repro, both arms as documented |
-| `probe_terminal --topk-groups 1 / 20` | 13.702 → 2.846 ms token-out on the reduced probe, byte-identical greedy tokens |
+| `probe_terminal --topk-groups 1 / 20` | 13.719 → 2.845 ms token-out on the reduced probe, byte-identical greedy tokens |
 | `check_degenerate_output.py --missing-artifacts critical` | *No degenerate output detected* |
-| `pytest -m "not long"` | **42 passed** in 1510 s ([`logs/pytest_full_model.txt.gz`](logs/pytest_full_model.txt.gz)) |
-| `pytest -m long` | **5 passed** in 437 s ([`logs/pytest_long.txt`](logs/pytest_long.txt)) — the two all-layer cases (a coherent 64-token chat completion; a 5003-token non-aligned prompt through the complete stack), the two reduced profiling cases, and batch 32 |
+| `pytest -m "not long"` | **42 passed** in 1475 s ([`logs/pytest_full_model.txt.gz`](logs/pytest_full_model.txt.gz)) |
+| `pytest -m long` | **5 passed** in 436 s ([`logs/pytest_long.txt`](logs/pytest_long.txt)) — the two all-layer cases (a coherent 64-token chat completion; a 5003-token non-aligned prompt through the complete stack), the two reduced profiling cases, and batch 32 |
 | `probe_batch_slots.py` | slot 0 at batch 4: the prompt token and the first decoded token equal batch 1's; **removing the prefill→slot merge changes the first decoded token** (240560 → 169222), which is the defect review 6 found; slot 0 is byte-identical with identical and with different neighbours, so the later greedy divergence from batch 1 is batch geometry, not leakage ([`batch_slots.json`](batch_slots.json)) |
-| `probe_long_prompt.py` | non-aligned 5003 → **262143** tokens through the public path on the full stack at the full advertised cache: every length prefills with finite logits and a valid sampled token, 262143 in 163.9 s with 24.15 GiB DRAM still free ([`long_prompt.json`](long_prompt.json)) |
+| `probe_long_prompt.py` | non-aligned 5003 → **262143** tokens through the public path on the full stack at the full advertised cache: every length prefills with finite logits and a valid sampled token, 262143 in 167.3 s with 24.15 GiB DRAM still free ([`long_prompt.json`](long_prompt.json)) |
 
 The two pytest runs collect 47 items each (42 selected + 5 deselected, and the reverse), so the two
 logs together are every case in the file.
@@ -470,7 +470,7 @@ Separate runs, as `$tt-device-usage` requires:
 | `ttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used` | inherited from the decoder stage's captures, unchanged in kind, and outside this stage's path |
 | `Fabric packet size 8192 B is suboptimal for transporting 1088 B pages` | inherited; the decoder stage measured 8192 as the shipped value at its own shapes (its README §4.1b) |
 | `models/common/tests/test_sampling.py::test_log_probs_calculation` fails | **pre-existing**, verified by stashing this stage's `tt_sampling.py` change and re-running: `LogProbsCalculator` supports 8- and 32-device meshes and this is a 1x4 |
-| `run_teacher_forcing` reports 38.19 t/s/u where the generator's own loop reports 41.80 | **explained, not dismissed.** The runner times between its own per-token `next_input` callbacks, so its window includes that callback and the host token write on the ~6 % of steps where the forced token differs from the sampled one. Both figures are reported with their boundaries named (README §1, §7) |
+| `run_teacher_forcing` reports 37.01 t/s/u where the generator's own loop reports 41.63 | **explained, not dismissed.** The runner times between its own per-token `next_input` callbacks, so its window includes that callback and the host token write on the ~6 % of steps where the forced token differs from the sampled one. Both figures are reported with their boundaries named (README §1, §7) |
 | qualitative prompt 3's completion opens `Here's a thinking thinking sequence` | **controlled by the HF control.** The HF reference generated for the same prompt in the same run opens with the *identical* phrase (`readiness_qualitative.json`, `hf[2].completion`), so the doubled word is the checkpoint's own output, not a port artifact. No other completion repeats |
 | free-running raw-continuation output diverges from HF at token 11 | **expected and controlled.** A creative continuation with near-tied logits; the chat-template control diverges much later (42/128 identical) and teacher forcing gives top-5 1.000, so the token-level agreement is a property of greedy decoding on this prompt, not of the port |
 

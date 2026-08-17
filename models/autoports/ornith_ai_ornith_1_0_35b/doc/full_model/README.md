@@ -22,18 +22,18 @@ blocks the positions name, not the whole table) and §3 measures that build sepa
 
 | figure | value | what is in it |
 |---|---|---|
-| **TTFT** | **140 ms** median (min 140, max 167 over 3 runs) | embedding + 40 layers + final norm + LM head + **on-device** sampling of the first token, through the public generator. Host-sensitive: it carries the prompt upload and the first-token readback, and successive full evidence sweeps on this host recorded medians of 130, 132, 134 and 140 ms with a worst run of 167 ms. The decode figures below move by <0.1 % across the same sweeps |
-| **token-out decode** | **41.9 t/s/u** — 23.88 ms/token | model trace replay + sampling trace replay + synchronize + the caller's token readback |
+| **TTFT** | **138 ms** median (min 136, max 144 over 3 runs) | embedding + 40 layers + final norm + LM head + **on-device** sampling of the first token, through the public generator. Host-sensitive: it carries the prompt upload and the first-token readback, and successive full evidence sweeps on this host recorded medians of 130, 132, 134, 138 and 140 ms with a worst single run of 167 ms. The decode figures below move by <0.2 % across the same sweeps |
+| **token-out decode** | **41.9 t/s/u** — 23.89 ms/token | model trace replay + sampling trace replay + synchronize + the caller's token readback |
 | traced logits-only decode | 44.9 t/s/u — 22.26 ms/token | model trace replay alone; the PERF-style figure that is comparable with the decoder stage's per-layer numbers |
-| teacher-forcing decode | **38.19 t/s/u** — `models.common.readiness_check.run_teacher_forcing` | the same token-out path **plus** the harness's per-token `next_input` callback and a host token write on the ~6 % of steps where the forced token differs from the sampled one; see §7 for why this is *not* a logits-only number |
+| teacher-forcing decode | **37.01 t/s/u** — `models.common.readiness_check.run_teacher_forcing` | the same token-out path **plus** the harness's per-token `next_input` callback and a host token write on the ~6 % of steps where the forced token differs from the sampled one; see §7 for why this is *not* a logits-only number |
 | layer-stack lower bound | 46.6 t/s/u — 21.45 ms/token | 30 × 0.564 ms + 10 × 0.453 ms, the decoder stage's own warmed traced-decode latencies |
 
 Every replay is `ttnn.execute_trace(..., blocking=False)`; the synchronize the token-out figure
 includes is the generator's own, before the caller's readback.
 
-The full model is **11 % above its own layer-stack lower bound**, and every part of that 2.43 ms is
+The full model is **11 % above its own layer-stack lower bound**, and every part of that 2.44 ms is
 named: 0.81 ms embedding + final norm + LM head + device-side position advance, 1.17 ms sampling,
-0.45 ms synchronize and token readback (§8).
+0.46 ms synchronize and token readback (§8).
 
 Accuracy against a freshly generated AIME24 chat-template reference (161-token prompt, 100
 HF-generated continuation tokens, top-100), both bars cleared:
@@ -201,8 +201,8 @@ allocated, prefilling each and then taking one traced token-out step
 
 | prompt | 5003 | 8191 | 16381 | 32749 | 65521 | 131071 | **262143** |
 |---|---|---|---|---|---|---|---|
-| prefill | 2.98 s | 3.44 s | 6.97 s | 14.30 s | 30.24 s | 67.83 s | **163.82 s** |
-| tokens/s | 1680.5 | 2378.7 | 2350.0 | 2290.6 | 2166.8 | 1932.4 | **1600.2** |
+| prefill | 2.98 s | 3.44 s | 6.97 s | 14.30 s | 30.24 s | 67.82 s | **167.28 s** |
+| tokens/s | 1677.8 | 2381.1 | 2350.8 | 2290.6 | 2166.7 | 1932.6 | **1567.1** |
 | DRAM free after | 24.16 GiB | 24.16 | 24.16 | 24.16 | 24.15 | 24.15 | **24.15 GiB** |
 
 Every row returns finite logits and a valid sampled token id. Nothing was refused and nothing ran
@@ -330,8 +330,8 @@ End to end, on the reduced probe (`logs/probe_terminal_single.txt` vs
 | row | single reduction | grouped, 20 |
 |---|---|---|
 | `sampling trace replay` | 11.820 ms | **1.181 ms** |
-| `sampler (eager)` | 11.815 ms | 1.166 ms |
-| `token-out step (replay + sample + sync + readback)` | 13.702 ms | **2.846 ms** |
+| `sampler (eager)` | 11.815 ms | 1.211 ms |
+| `token-out step (replay + sample + sync + readback)` | 13.719 ms | **2.845 ms** |
 
 On the delivered 40-layer model the sampling stage costs **1.17 ms** (`perf_summary.json`'s
 `full_model_only_cost.sampling_ms`) — a different measurement from the probe's 1.181, and 4.9 % of
@@ -602,17 +602,18 @@ and it writes only when the forced token differs from the sampled one.
 
 **On the teacher-forcing number.** `run_teacher_forcing` drives
 `generator.generate(..., next_input=..., enable_trace=True)`; the predicted token still comes out of
-the token-out path, sampler included, so its **38.19 t/s/u**
+the token-out path, sampler included, so its **37.01 t/s/u**
 ([`readiness_teacher.json`](readiness_teacher.json)) is a token-out figure and not a logits-only
 one — the comparable logits-only measurement is the separate 44.9 t/s/u row in §1.
 
-The same run's *generator* loop logs **41.80 t/s/u** for its own decode window
-(`logs/readiness_teacher.txt`). The 3.61 t/s/u between them is not the model: the runner times
+The same run's *generator* loop logs **41.63 t/s/u** for its own decode window
+(`logs/readiness_teacher.txt`). The 4.6 t/s/u between them is not the model: the runner times
 between its own per-token `next_input` callbacks, so its window additionally contains that callback
 (which does torch work to score the token) and the host token write on the ~6 % of steps where the
-forced token differs from the sampled one. 38.19 is the honest number for "what the readiness
-harness measures"; 41.80 is the honest number for "what the generator's decode loop costs", and it
-agrees with the free-running 41.87 t/s/u in §1.
+forced token differs from the sampled one. 37.01 is the honest number for "what the readiness
+harness measures" *in this run* — like TTFT it is host-sensitive and earlier sweeps recorded 38.1 to
+38.4 — while 41.63 is what the generator's decode loop costs, and that agrees with the free-running
+41.86 t/s/u in §1 to within 0.6 %.
 
 ---
 
@@ -625,10 +626,10 @@ layer-stack lower bound        21.45 ms/token   30 x 0.564 (linear) + 10 x 0.453
 + embedding, final norm,
   LM head, device plus_one      0.81 ms         -> traced logits-only   22.26 ms/token
 + sampling trace                1.17 ms         -> replay + sample      23.43 ms/token
-+ synchronize and readback      0.45 ms         -> token-out            23.88 ms/token
++ synchronize and readback      0.46 ms         -> token-out            23.89 ms/token
 ```
 
-The full-model-only cost is 2.43 ms/token, 11 % over the lower bound, and none of it is avoidable
+The full-model-only cost is 2.44 ms/token, 11 % over the lower bound, and none of it is avoidable
 sampler work: the sampler is 4.9 % of the step after §4.3, against 33 % before it.
 
 `tt-perf-report` for the **reduced profiling variant** (one real `linear_attention` layer, one real
@@ -666,7 +667,7 @@ in the full model as in the layer.
 | token feedback | none. No readback-and-rewrite | same test |
 | page table | copied only when it changes | `test_a_changed_page_table_is_copied_exactly_once` |
 | positions / RoPE | one host write per request, at the boundary | counters in `perf_summary.json` |
-| caller readback | one `to_torch` of the 32-entry token buffer per step — caller-visible by contract, 0.066 ms (`token readback only`) | `probe_terminal_grouped.txt` |
+| caller readback | one `to_torch` of the 32-entry token buffer per step — caller-visible by contract, 0.068 ms (`token readback only`) | `probe_terminal_grouped.txt` |
 | prefill | host token upload per 2048-token chunk and a host logits compose; **not** in the decode loop, and inside TTFT | `logs/bench_full_model.py` |
 | model construction | `ttnn.as_tensor` per weight, `allocate_state`'s conv1d preparation | setup only; `allocate_state` is called explicitly before any capture or measurement |
 | cache ownership | explicit, and **sticky**. `kv_cache=None` uses the generator's own cache and page table *until* a call passes one; `OrnithModel.attach_kv_cache` has no inverse, so after `prefill_forward(kv_cache=X)` a later `kv_cache=None` keeps driving X and the caller has to re-attach the original. A caller-owned cache is re-validated against the traces (identity is part of what makes a capture valid), and no evidence run here ever attaches one | `test_a_caller_can_own_the_cache`, `test_a_caller_owned_cache_attached_late_forces_a_recapture` (both restore the generator's cache explicitly, which is the same observation) |

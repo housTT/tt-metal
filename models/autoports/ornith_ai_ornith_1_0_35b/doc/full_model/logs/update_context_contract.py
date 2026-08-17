@@ -93,7 +93,7 @@ def main():
             "runs 5003 through the complete 40-layer stack, and doc/full_model/logs/probe_long_prompt.py walks "
             "5003 / 8191 / 16381 / 32749 / 65521 / 131071 / 262143 through the same public path at the full "
             "advertised cache - the last of those is one token short of the advertised context, prefills in "
-            "163.9 s with finite logits and a valid sampled token, and leaves 24.15 GiB of DRAM free "
+            "167.3 s with finite logits and a valid sampled token, and leaves 24.15 GiB of DRAM free "
             "(doc/full_model/long_prompt.json)."
         ),
         "context_length": contract["hf_advertised_context"],
