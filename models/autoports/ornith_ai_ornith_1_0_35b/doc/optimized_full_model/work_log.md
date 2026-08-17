@@ -681,7 +681,7 @@ path resolves.
 
 ## 10. Commits
 
-One repo, four checkpoint commits on `agentic-research/hous/ornith-1.0-35B`, never pushed:
+One repo, five checkpoint commits on `agentic-research/hous/ornith-1.0-35B`, never pushed:
 
 | commit | full | what |
 |---|---|---|
@@ -689,6 +689,7 @@ One repo, four checkpoint commits on `agentic-research/hous/ornith-1.0-35B`, nev
 | `359b6ef4be4` | `359b6ef4be4a5a46226a2d22b44faa94357bc520` | record the stage commit SHA |
 | `8b4b816e6a8` | `8b4b816e6a87449af2769b3b0eba8bb624cb5d30` | make the figure gate cover where the drift was |
 | `8faec81d31a` | `8faec81d31ae3a628e62ecebc8ddc83620d87005` | record all three stage SHAs |
+| `abfadd2437f` | `abfadd2437f801664ce4c37e4e1db1483b68baf8` | close the seventh review's presentational items |
 | *(this section)* | — | the commit that records the table above, which cannot contain its own hash |
 
 They contain only stage-owned paths: `tt/model.py`, `tt/generator.py`, `tests/test_full_model.py`,
