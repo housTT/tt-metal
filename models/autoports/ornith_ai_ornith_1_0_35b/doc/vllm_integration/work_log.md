@@ -1152,6 +1152,8 @@ async-scheduling default (§7.6), and the fact that the headline benchmark's art
 |---|---|---|---|
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `71f8bab9ff0` | the adapter, the generator/model serving primitives and the `_resolve_page_table` fix, the adapter suite, this stage's evidence, the `readiness_vllm/` artifacts, the context-contract block, and the two shared-runner fixes |
 | `tt-metal` | same | `2e5675d669c` | review round 1 remediation: the localisation probe and the extended reproducibility arms, the no-overlap control and its artifacts, the re-run batch-1 evidence set, the `atexit` capability dump and the foreign-checkpoint warning, the corrected docs, and every console log gzipped so `.gitignore`'s `*.log` cannot silently drop it |
+| `tt-metal` | same | `ef5e63409dc` | the round-1 review record in §15 |
+| `tt-metal` | same | `a92706dbc4f` | review round 2 remediation: the re-run headline set with its attribution check, the tile-padding fix in two probes and their re-measured artifacts, the recomputed counters and audit counts, and the README/work-log corrections |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
