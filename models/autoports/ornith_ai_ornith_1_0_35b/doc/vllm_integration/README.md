@@ -484,8 +484,24 @@ than kept with a caveat, because the measurement never measured what it claimed
 ([work log §9](work_log.md#9-autofix-the-first-determinism-measurement-was-measuring-a-page-table-of-zeros));
 `probe_slot_reproducibility.py` replaces it.
 
-The reduced serving target for bring-up: `ORNITH_VLLM_LAYER_INDICES=0,3` (one real layer of each kind).
-Nothing in this README is measured on it.
+**The reduced serving target for bring-up**: `ORNITH_VLLM_LAYER_INDICES=0,3` (one real layer of each kind).
+No accuracy, quality or performance number in this README comes from it. Three *mechanical* results do, and
+each says so where it appears — bit-identity and copy-count checks, which do not depend on having all 40
+layers:
+
+* §5's stale-pair and steady-state rows, from [`serving_primitives.json`](serving_primitives.json)
+  (`"layers": [0, 3]` is its first field);
+* §6's run-pair counts and the `1x1` control, from [`reduced_target/`](reduced_target/) — every conclusion
+  they support is re-confirmed on the full model in
+  [`decode_nondeterminism.json`](decode_nondeterminism.json) and
+  [`slot_reproducibility.json`](slot_reproducibility.json);
+* the `1x1` arms of [`logit_read_stability.json`](logit_read_stability.json), whose full-model counterpart
+  is [`…_full_model.json`](logit_read_stability_full_model.json).
+
+Everything else — every benchmark, every qualitative completion, the sampling suite, the capability report —
+is the full 40-layer model
+([work log §6](work_log.md#6-minimum-surface-bring-up-a-two-layer-serving-target) has the rule and the
+reasoning).
 
 ---
 
@@ -579,7 +595,7 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 | [`work_log.md`](work_log.md) | the engineering record, including every wrong turn |
 | [`qualitative_chat.json`](qualitative_chat.json) | the six prompts in the checkpoint's chat format, beside the HF and full-model controls |
 | [`serving_requests.json`](serving_requests.json) | non-aligned prompt lengths, null-block containment, 32-way concurrency, a 9000-token prompt |
-| [`serving_primitives.json`](serving_primitives.json) | the six mechanical contract checks (steady state, stale-pair merge, page-table-only refresh, layout change, slot remap) |
+| [`serving_primitives.json`](serving_primitives.json) | the six mechanical contract checks (steady state, per-slot prefill, stale-pair merge, page-table-only refresh, layout change, slot remap) — reduced target, and mechanical by construction |
 | [`slot_reproducibility.json`](slot_reproducibility.json) | run-to-run logit reproducibility at batch 1, 2, 4, 8, 16 and 32, per step, with state and KV-page comparisons |
 | [`decode_nondeterminism.json`](decode_nondeterminism.json) + [`reduced_target/`](reduced_target/) | where the batch ≥ 8 deviation enters: traced against eager, generator against model driver, `1x4` against `1x1`, batch 4 against batch 8, counted over five run-pairs per arm |
 | [`prefill_alloc_vs_recapture.json`](prefill_alloc_vs_recapture.json) | refutes per-call page-row allocation and trace re-capture as sources of prefill drift |

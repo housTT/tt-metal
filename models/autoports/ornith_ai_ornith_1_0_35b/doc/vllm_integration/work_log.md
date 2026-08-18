@@ -128,7 +128,7 @@ model's own benchmarks.
 
 ---
 
-## 4. The adapter, and the seven primitives it drives
+## 4. The adapter, and the primitives it drives
 
 [`tt/generator_vllm.py`](../../tt/generator_vllm.py) is interface translation only. Everything that
 touches the device is a generator method, and the serving decode step is the *same* split-sampling path
@@ -145,8 +145,12 @@ the datatype sweep measured.
 | `decode_forward` | slot remap → sampling params/penalties/seeds → replay-safety → sampling-trace readiness → input staging → submit; returns device tensors when `read_from_device=False` |
 | `read_decode_output` / `process_decode_output_host` | the async split: `cpu(blocking=False)` + `ttnn.record_event` behind the replays, then host formatting only |
 
-The generator gained seven serving primitives and the model one method. Each closes a real contract
-gap rather than duplicating model logic:
+The generator's new `serving (vLLM) API` section adds **thirteen** public methods and the model one. Seven
+of them carry a contract the adapter could not hold itself (below); the other six are the readback and
+compose helpers the async split needs — `read_tokens`, `read_tokens_async`, `finish_token_read`,
+`tokens_from`, `logits_from` and `remap_serving_slots` — which exist so the adapter never touches a device
+tensor's layout or a mesh composer directly. Each of the seven closes a real contract gap rather than
+duplicating model logic:
 
 | addition | why the adapter could not do it |
 |---|---|
@@ -202,11 +206,13 @@ logprobs (host sampling), seeded reproducibility, penalties, greedy determinism,
 sampling profile at `max_num_seqs=1` and `32`. Only after all of that did the 40-layer model run.
 
 The reduced target is a bring-up tool. No number or output from it is reported as this model's accuracy
-or performance, and its own artifacts live in `/tmp`, not here — with two deliberate exceptions, both
-*mechanical* rather than quality or speed claims, and both labelled as reduced-target at the top of their
-files: [`serving_primitives.json`](serving_primitives.json), the contract checks of §7.1, and
-[`reduced_target/`](reduced_target/), the run-pair counts that localise the batch ≥ 8 nondeterminism to
-the collectives (§8.3). The property they measure — "are two identical runs bit-identical" — is not a
+or performance, and its own artifacts live in `/tmp`, not here — with three deliberate exceptions, all
+*mechanical* rather than quality or speed claims, and all labelled as reduced-target at the top of their
+files: [`serving_primitives.json`](serving_primitives.json), the contract checks of §7.1;
+[`reduced_target/`](reduced_target/), the run-pair counts that localise the batch ≥ 8 nondeterminism to the
+collectives (§8.3); and the `1x1` arms of [`logit_read_stability.json`](logit_read_stability.json), which
+cannot be run on the full model at all because it does not fit on one device — its `1x4` arms are repeated
+there in [`…_full_model.json`](logit_read_stability_full_model.json). The property they measure — "are two identical runs bit-identical" — is not a
 number that depends on having all 40 layers, and every one of their conclusions is re-confirmed on the
 full model in [`decode_nondeterminism.json`](decode_nondeterminism.json) and
 [`slot_reproducibility.json`](slot_reproducibility.json).
@@ -610,12 +616,23 @@ The repo's `.gitignore` has `*.log` at line 7, so a `server.log` copied into the
 logs it did not contain. Two probe logs are also over the repo's 500 KB per-file pre-commit limit
 uncompressed. Both problems have the same fix, and `gzip` output is what the links point at.
 
-Server logs follow the same rule, one per server, and there are six: the three the fallback audit reads
-(§12) plus [`batch1/server_max_num_seqs_1.log.gz`](batch1/server_max_num_seqs_1.log.gz) (the benchmark-only
-server behind README §1's earlier cold/warm pair) and two gzipped ones kept for completeness —
-[`batch1/server_max_num_seqs_1_requests_probe.log.gz`](batch1/server_max_num_seqs_1_requests_probe.log.gz)
-(the server that re-ran the request-shape probe after the `ignore_eos` fix, §7.2) and the two
-`async/server_*_history_control.log.gz` files (the seeded-history controls of §7.6.1).
+Server logs follow the same rule, one per server: **seven distinct servers in eight committed files**,
+identified by their `EngineCore` pid:
+
+| file | pid | what that server did |
+|---|---|---|
+| [`batch1/server_max_num_seqs_1_all_checks.log.gz`](batch1/server_max_num_seqs_1_all_checks.log.gz) | 488110 | the headline server: full sampling suite, qualitative, both probes, the overlap arm, the benchmark pair (§12's first column) |
+| `readiness_vllm/server.log.gz` | 488110 | the **same** server — the runner's own copy, byte-identical to the file above; it is what makes §9's attribution checkable |
+| [`batch32/server_max_num_seqs_32.log.gz`](batch32/server_max_num_seqs_32.log.gz) | 659851 | the `--max-num-seqs 32` server: full suite, qualitative, request probe, single-user and CI-burst benchmarks (§12's second column) |
+| [`async/server_no_async_max_num_seqs_1.log.gz`](async/server_no_async_max_num_seqs_1.log.gz) | 3842992 | the `--no-async-scheduling` control (§12's third column, §7.6) |
+| [`batch1/server_max_num_seqs_1.log.gz`](batch1/server_max_num_seqs_1.log.gz) | 1051562 | the benchmark-only server behind the earlier cold/warm pair |
+| [`batch1/server_max_num_seqs_1_requests_probe.log.gz`](batch1/server_max_num_seqs_1_requests_probe.log.gz) | 3767508 | the server that re-ran the request-shape probe after the `ignore_eos` fix (§7.2) |
+| [`async/server_no_async_history_control.log.gz`](async/server_no_async_history_control.log.gz) | 3921308 | the non-overlapped seeded-history control (§7.6.1) |
+| [`async/server_default_async_history_control.log.gz`](async/server_default_async_history_control.log.gz) | 3996632 | the overlapped seeded-history control (§7.6.1) |
+
+Servers whose logs are *not* committed are the ones the runner truncated before they could be archived —
+the batch-1 server behind the withdrawn 149.4 ms headline (§7.7) and the two earlier batch-1 sampling
+repeats (§7.5). Both gaps are stated where their numbers were.
 
 `logs/pytest_final_sweep.txt.gz` and `logs/pytest_generator_vllm.txt` are the two test-suite logs (§7.10).
 
@@ -717,11 +734,14 @@ Four things follow, and the batch sweep is what makes them sharp:
 [`probe_decode_nondeterminism.py`](logs/probe_decode_nondeterminism.py) exists to answer the next
 question, because "the batch-32 decode step deviates" is not yet a mechanism. It runs the same
 prefill-plus-decode sequence twice and compares, with one variable changed per arm, and it counts *pairs*
-rather than trusting one comparison — the effect is intermittent, so a single non-deviating pair proves
-nothing (a first attempt at a per-layer bisect learned that the hard way:
+rather than trusting one comparison — the effect is intermittent, so a single pair settles nothing either
+way. A first attempt at a per-layer bisect learned that: one pair per layer, and
 [`reduced_target/decode_nondeterminism_single_layer0.json`](reduced_target/decode_nondeterminism_single_layer0.json)
-and [`…layer3.json`](reduced_target/decode_nondeterminism_single_layer3.json) each show one clean pair and
-therefore exclude nothing).
+came back clean on every arm while
+[`…layer3.json`](reduced_target/decode_nondeterminism_single_layer3.json) deviated on exactly one — traced,
+batch 32, max |Δ| 0.1875 at PCC 0.99998, with its eager arm clean. One deviating pair does not implicate the
+`linear_attention` layer any more than one clean pair exonerates the `full_attention` one, which is why the
+arms below count five pairs each.
 
 On the reduced two-layer target (one `full_attention` + one `linear_attention`), context 2048, 4 decode
 steps, five pairs of identical runs per arm:
@@ -1094,6 +1114,23 @@ log. The full-model stage classified this signature already
 ([`doc/full_model/work_log.md`](../full_model/work_log.md), `doc/full_model/README.md`); it is listed here
 so a reader of the batch-32 log does not have to re-discover it.
 
+**Two Metal warnings a reader will meet in the committed server logs, and where each was root-caused.**
+Both are in [`readiness_vllm/server.log.gz`](../../readiness_vllm/server.log.gz):
+
+* `Fabric packet size 8192 B is suboptimal for transporting 1088 B pages. Configure 4352 B packet size to
+  maximize throughput.`, **28 times**. The 8192 B router packet is a *deliberate* choice this stack measured,
+  and this warning is the known other side of it: the layer's two collectives want different packet sizes and
+  one fabric setting has to serve both, so the runtime warns about whichever one it is not. The
+  multichip-decoder stage censused both and took 8192 B on the strength of the bfloat16 rows (up to 18 % faster,
+  under a percent given up on the rows that fall the other way), which is why the TT config passes
+  `fabric_router_max_packet_bytes` at all (§3, and
+  [`doc/multichip_decoder/README.md` §2.1](../multichip_decoder/README.md));
+* `Allocating device buffers is unsafe due to the existence of an active trace…`, **once**, on the first
+  served prefill. That is exactly the hazard `_ensure_traces_replay_safe` exists for, and the log shows the
+  guard firing immediately after it: the 7 programs that prefill compiled are re-captured before the next
+  replay can overwrite their kernel binaries. The full-model stage root-caused the same warning and showed
+  every such buffer is short-lived ([`doc/full_model/work_log.md`](../full_model/work_log.md)).
+
 Two more fallbacks that are *reachable by request* rather than by accident, and are supposed to be:
 
 * **host sampling.** The plugin routes a step to its own host sampler for log-probs (on a 4-device mesh),
@@ -1151,9 +1188,9 @@ In this repo:
 | file | change |
 |---|---|
 | `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration`. Includes the `atexit` capability dump (§7.8) and the warning that fires when a checkpoint other than this one resolves to this class (§3) |
-| `tt/generator.py` | one new `serving (vLLM) API` section (the seven primitives of §4) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
+| `tt/generator.py` | one new `serving (vLLM) API` section (thirteen public methods: the seven contract primitives of §4 plus six readback/compose helpers) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
 | `tt/model.py` | **+57 lines**: `remap_state_slots` and its `_remap_rows` helper |
-| `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 11 device cases on the reduced target (cache ownership, block-size refusal, per-slot prefill, steady-state refresh, stale-pair merge, page-table-only refresh, slot remap and its identity skip, host-sampling logits, the precision-config propagation, the capability report) |
+| `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 11 device cases on the reduced target (cache ownership; block-size refusal; per-slot prefill into the slot vLLM assigned; the steady state copying nothing; a stale host pair not overriding the device; only a changed page table being copied; a slot remap moving the recurrent state bit for bit; the adapter applying that remap *before* the decode step; host sampling returning logits and never becoming the default; the precision-config propagation; the capability report naming the selected policy) |
 | `models/common/readiness_check/run_vllm_server.py` | **+65 / -4 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
 | `doc/vllm_integration/**` | **new.** This log, the README, ten probes with the console log of their final run, the evidence JSON, the reduced-target localisation set (`reduced_target/`), and the archived per-configuration artifact sets (`batch1/`, `batch32/`, `async/`) |
 | `doc/context_contract.json` | **+1 block**: `vllm_integration`, recording 262144 served against 262144 advertised, the KV-pool sizing and its cost, the non-aligned-length evidence, the 64-token block size, and the tested batch coverage |
@@ -1178,8 +1215,10 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 ### Review rounds, and what they changed
 
-`$stage-review` returned `more-work-needed` four times. All four rounds' findings are listed below with the
-measurement or correction each one produced, because several of them changed published numbers.
+`$stage-review` returned `more-work-needed` in every round listed below — one table per round, in order.
+Each finding is recorded beside the measurement or correction it produced, because several of them changed
+published numbers. (An earlier version of this sentence hard-coded the number of rounds, and then said
+"twice" over three tables and "three times" over four; the count now comes from the tables themselves.)
 
 **Round 1.**
 
@@ -1253,6 +1292,20 @@ committed file.
 | **P3** — §7.8 enumerated the sweep artifact's prose-only keys wrongly (four `*_note` fields, two keys missing) | replaced with the nine actual extras |
 | §12's request count (518 + 13) sat beside `prefill_calls: 530` with no explanation | the table now says why: the `logprobs=-1` chat request is rejected `400` by the plugin's clamp and never prefills — the same case that skips `test_chat_logprobs_all_vocab` |
 | README's serving-status row asserted the batch-1 sampling result "reproduced exactly on a second server" without the caveat §7.5 carries | the row now says three servers saw it and only the last run's log is committed |
+
+**Round 6.** Documentation again, in the places the round-5 self-audit could not reach — integer counts,
+prose about what a probe shows, and cross-section consistency:
+
+| finding | what it turned into |
+|---|---|
+| **P2** — README §7 said "nothing in this README is measured on" the reduced target, while §5, §6 and limitation 1 all report reduced-target results | §7 now names the three mechanical results the README does take from it, says they are bit-identity/copy-count checks, and points at the full-model re-confirmation — the rule §6 of this log already states |
+| **P3** — §7.9 said "there are six" server logs, enumerated seven, and the tree has eight files from seven servers | replaced with a table keyed on each server's `EngineCore` pid, including that `readiness_vllm/server.log.gz` is the byte-identical copy of the headline server's log, plus which servers' logs were truncated before they could be archived |
+| **P3** — §15's round count drifted again (it said "four times" over five tables) | the sentence no longer carries a number: the count comes from the tables |
+| **P3** — §6 said two committed artifacts come from the reduced target; three do | the third named (`logit_read_stability.json`'s `1x1` arms, which cannot run on the full model at all) |
+| **P3** — §8.3 said both single-layer bisect artifacts show a clean pair; layer 3 deviates on its traced batch-32 arm | restated with what each shows (layer 0 clean on every arm, layer 3 deviating once at max abs Δ 0.1875, PCC 0.99998, eager clean) and why one pair either way settles nothing |
+| §4 and §14 said the generator gained "seven serving primitives"; the section adds thirteen public methods | the seven contract primitives and the six readback/compose helpers are now both named |
+| §14 described 11 device test cases with 10 descriptors; README §9 called `serving_primitives.json` six checks and named five | both enumerations completed |
+| two Metal warnings in the committed server log were unclassified here | §12 now carries both with their prior-stage root cause: the 28 fabric-packet warnings are the measured 8192 B choice's known other side, and the single active-trace allocator warning is followed in the log by the guard re-capturing the 7 programs that prefill compiled |
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two
