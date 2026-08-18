@@ -410,7 +410,7 @@ delivered logs are from the round-3 tree, `22a6188c389`.
 that fix was being made.
 
 Every number this stage's README states is re-derived from the artifacts by
-[`logs/check_figures.py`](logs/check_figures.py) — 186 assertions, `0 problem(s)`
+[`logs/check_figures.py`](logs/check_figures.py) — 193 assertions, `0 problem(s)`
 ([`logs/check_figures.txt`](logs/check_figures.txt)). It caught three drifted figures on its first
 run (the warm-spread range quoted the failing config, and two rounding differences) and they were
 corrected in the prose rather than in the check.
@@ -444,7 +444,7 @@ skills, read-only, twice.
 | 1 | `more-work-needed` | four P2 findings — the official-runner control's quoted numbers, a false 4-vs-10-repeat reproducibility claim, the batch-slot test's unreachable strict branch and missing negative control, and no batch > 1 evidence at the 40-layer stack. §10.1 has the work; all four were closed with measurements, not prose |
 | 2 | `more-work-needed` | five P2 findings, **all documentation**: the reviewer verified every round-1 remediation independently against the raw artifacts and found the substance sound. What failed was three README figures the stage's own audit did not cover (the "passing part spans 0.9 %", which is the *non-regression* span and not the passing span; "six configurations" split their two gates, which is eight; and a claim that the archived run records carry per-layer built fidelity rows, which they do not because the field was added after the sweep ran), plus `tt/model.py`'s module docstring still naming the pre-sweep policy as the model's, and two stale paths |
 | 3 | `more-work-needed` | three P2 findings: C19's hang closed without `$autofix`, the LM head's geometry never re-measured under the selected policy, and the tt-triage summary contradicting its own capture. All three closed below |
-| 4 | *(this round)* | — |
+| 4 | **`clean-pass`** | no required work. The reviewer re-derived the whole matrix, both charts, the geometry ladder, every `$autofix` probe console and the TTNN source behind the C19 blocker, and independently added a control this stage had not highlighted: **full-model top-1/top-5 is bit-identical for all 21 shared configs between the pre-incident four-repeat build and the post-reset ten-repeat build** — so the selected config's 0.920 is reproducible across a device reset, not a coin flip two points above the bar. Its non-blocking concerns were closed anyway: `sweep_results.json::provenance` now lists all five SHAs, `state_fidelity` has a considered-and-declined section (§4.5), the missing recovery console is limitation 7 with a stage-closing `logs/device_health_final.txt` beside it, and the top-5 chart's subtitle no longer collides with its title |
 
 Round 2's fixes, all in this stage's own artifacts and in one docstring:
 

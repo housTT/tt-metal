@@ -560,6 +560,31 @@ def main():
         True,
     )
 
+    # ---- provenance and the closing device-health record ----
+    prov = sr["provenance"]
+    chk("stage commits recorded in sweep_results", len(prov["stage_commits"]), 5)
+    chk("the first recorded SHA is the stage commit", prov["stage_commits"][0].split(" ")[0], "246c86d9084")
+    health = (D / "logs" / "device_health_final.txt").read_text(errors="ignore")
+    chk("closing device health: 4 boards", health.count("p300c"), 8)
+    chk("closing device health: mesh smoke", "MESH_SMOKE_OK" in health, True)
+
+    # ---- section 4.5: the fidelity group that was considered and declined ----
+    chk("router fidelity arm delta %", round(rows["C21-router-bfp8"]["decode_speedup_vs_baseline_pct"], 2), -0.12, 5e-3)
+    chk(
+        "sdpa fidelity arm delta %",
+        round(rows["C20-sdpa-lofi-no-fp32-acc"]["decode_speedup_vs_baseline_pct"], 2),
+        0.04,
+        5e-3,
+    )
+    chk(
+        "no candidate moved state_fidelity",
+        {
+            json.loads(Path(p2).read_text())["compute_fidelities"]["deltanet_state"]
+            for p2 in glob.glob(str(D / "candidates" / "C*.json")) + glob.glob(str(D / "candidates" / "S*.json"))
+        },
+        {"HiFi4"},
+    )
+
     # ---- section 5.2: the blocked arm ----
     blocked = json.loads((D / "blocked" / "C19-expert-act-bfp4.json").read_text())
     chk("C19 blockers recorded", len(blocked["blockers"]), 2)

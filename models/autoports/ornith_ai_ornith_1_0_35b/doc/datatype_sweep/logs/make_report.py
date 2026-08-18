@@ -263,13 +263,14 @@ def draw(rows: list[dict], *, metric: str, gate: float, selected_id: str, path: 
         color=INK_2,
     )
     ax.set_ylabel("trace-verified teacher-forcing decode  (tokens/s/user)", fontsize=10.5, color=INK_2)
-    ax.set_title(title, fontsize=13.5, color=INK, pad=14, loc="left")
+    # The degenerate-metric note below sits just above the axes, so the title needs room for it.
+    ax.set_title(title, fontsize=13.5, color=INK, pad=32 if len({round(x, 6) for x in xs}) == 1 else 14, loc="left")
     # When every config lands on the same accuracy the frontier degenerates to one point, and saying
     # so is more useful than leaving the reader to work out why the line vanished.
     if len({round(x, 6) for x in xs}) == 1:
         ax.text(
             0.0,
-            1.012,
+            1.015,
             f"every evaluated config scores exactly {xs[0]:.3f}, so this metric constrains nothing here: "
             "the frontier is the single fastest point",
             transform=ax.transAxes,
@@ -378,6 +379,10 @@ def main():
                     "final SHA (e5477080792): the tree carried this stage's changes uncommitted, "
                     "because a sweep has to run before there is anything to commit. Checking out "
                     "that SHA and replaying a row's `command` would NOT reproduce it.",
+                    "stage_commits_note": "doc/datatype_sweep/work_log.md section 13 is the "
+                    "authoritative table; this list mirrors it. Only the first commit contains a "
+                    "tree that measured a row - every later one is documentation, a comment, or a "
+                    "test/figure-audit change, and none moved a measured value.",
                     "stage_commits": [
                         "246c86d9084 - the stage: the selected precision config, tt/precision_config.py, "
                         "the PrecisionPolicy fields and their plumbing, the tests, the context contract "
@@ -385,7 +390,13 @@ def main():
                         "measured on, modulo the pre-commit hooks' formatting-only reflow (verified by "
                         "diff, and the whole suite was re-run afterwards).",
                         "7fd4c1d0399 - review round 2's documentation corrections and the extended "
-                        "figure audit. No measured row changed.",
+                        "figure audit (143 -> 159 assertions). No measured row changed.",
+                        "22a6188c389 - review round 3: the $autofix pass on C19 (one comment "
+                        "corrected in tt/optimized_decoder.py, no behaviour change), the LM-head "
+                        "geometry ladder re-measured on the selected policy, the triage-summary "
+                        "classification, and 159 -> 186 assertions. No measured row changed.",
+                        "0d94bdb977b - the suite re-run on 22a6188c389 (53 + 5 passed).",
+                        "556912e05c7 - the SHA table.",
                     ],
                 },
                 "results": ordered,

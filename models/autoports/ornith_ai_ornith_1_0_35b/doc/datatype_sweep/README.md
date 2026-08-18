@@ -22,7 +22,7 @@ copy of the selected values in code, and no call site has to ask for them.
 | **LM head** | **`bfloat8_b` → `bfloat4_b`** | **HiFi2 → LoFi** | **yes** |
 | shared expert (packed gate/up/router + down) | `bfloat8_b` | HiFi2 | no |
 | router (256-way) | `bfloat16` | HiFi4, fp32 accumulate | no |
-| DeltaNet recurrent state | float32 (not a knob) | HiFi4, fp32 accumulate | no |
+| DeltaNet recurrent state | float32 (not a knob) | HiFi4, fp32 accumulate | no — considered, not swept (§4.5) |
 | SDPA | — | HiFi2, fp32 accumulate | no |
 | routed-expert output activation | `bfloat8_b` | — | no |
 | **residual / inter-layer activation stream** | `bfloat16` | — | no (measured, rejected) |
@@ -183,7 +183,9 @@ Before any candidate cost a 4-minute full-model run it went through a **reduced 
 ([`logs/smoke_policy.py`](logs/smoke_policy.py), results in [`logs/smoke/`](logs/smoke/)): one real
 `linear_attention` layer, one real `full_attention` layer, real weights, real cache and page-table
 shapes, a non-aligned 87-token prompt and 8 traced decode steps. `$datatype-sweep` asks for exactly
-that, and it earned its keep twice — §5's two blocked arms both failed there.
+that, and it earned its keep twice: C14 failed there on an op contract and was **adapted** into a
+measurable arm (§5.1), and C19 failed there and stayed **blocked** (§5.2). Both cost 50 s to find
+rather than four minutes.
 
 ---
 
@@ -290,6 +292,19 @@ no error budget left for one once the projections are BFP4.
 as C06) and costs 0.32 % of throughput. The exception machinery ships anyway, is exercised by
 `tests/test_precision_config.py::test_layer_exceptions_resolve_per_layer_and_leave_other_layers_identical`,
 and is the first lever to reach for if a later reference makes the bar tighter.
+
+### 4.5 One fidelity group was considered and deliberately not swept
+
+`state_fidelity` — the `linear_attention` recurrent-state matmuls — is a policy field like the
+others, and it is the one group that got no candidate. Both fidelity-only arms that *were* run tell
+against spending a run on it: `C21` (router → BFP8) measured −0.12 % and `C20` (SDPA → LoFi without
+fp32 accumulate) +0.04 %, both inside the warm spread, and the only fidelity-only change that moved
+anything at all was `C10` on the routed experts — a group four times larger — at −2.20 %. The state
+matmuls are 24 `HiFi4 FP32 x FP32 => FP32` rows and 2.4 % of the profiled decode window, their
+operands are float32 rather than block-float (so there is no packing win to collect, only a math
+mode), and the state is the model's exact carry across the whole sequence, which is the one place a
+rounding change compounds instead of averaging out. Recorded as a considered-and-declined arm rather
+than as an oversight; it is the obvious first addition if a later stage re-opens this sweep.
 
 ---
 
@@ -601,7 +616,9 @@ byte-identical rendered prompts (the comparison raises otherwise).
 | Fibonacci function | 0.798 | 31 | 0.000 | 0.000 |
 
 Nothing is degenerate: no empty completion, no word-doubling rate above 0.014, no repeated-trigram
-rate above 0.028, no non-ASCII drift. Both arms produce the checkpoint's characteristic
+rate above 0.028, and no non-ASCII drift beyond a single typographic character in one completion
+(0.00196 of the story row; the pre-sweep arm and the HF reference are 0.000 on that row and every
+arm is 0.000 elsewhere). Both arms produce the checkpoint's characteristic
 `Here's a thinking process:` planning style and stay coherent for the full 128 tokens. The
 similarities are 0.51–0.80 rather than 1.000 because greedy decoding diverges permanently once one
 token differs — the "identical leading words" column is the honest measure of where each pair split.
@@ -780,25 +797,33 @@ as signal.
    benchmark and capacity probe elsewhere in the stage is batch 1, which is the vLLM primary
    single-user profile the previous stage established. Batched *throughput* and batched capacity at
    the advertised bound of 32 are the vLLM stage's to measure.
-7. **Two console logs were overwritten by later runs of the same path.** The failing pytest console
+7. **The tt-smi recovery was recorded in prose, not to a file.** §5.2's list/reset/list and mesh
+   smoke were run and their output read, but the console was not redirected, so the raw exit statuses
+   are not in the tree. What is: the triage capture's mtime (23:57), the first delivered run's
+   console starting at 23:59:53 — i.e. every measured row is on the far side of it — the four-repeat
+   pass from *before* the incident reproducing the delivered pass to 0.172 %, and
+   [`logs/device_health_final.txt`](logs/device_health_final.txt), a stage-closing
+   `tt-smi -ls --local` (8 rows) plus mesh smoke (`MESH_SMOKE_OK`) taken after all measurement was
+   complete. The habit to fix is redirecting the recovery sequence like every other command.
+8. **Two console logs were overwritten by later runs of the same path.** The failing pytest console
    (§9.1) — `logs/post_status.txt` preserves the run's `rc=1` and its timestamp, and the focused
    probe reproduces the exact tokens — and C19's *first* smoke console, which held blocker 1's
    message before the adaptation was added (§5.2). Neither is lost as evidence: blocker 1 is
    reproduced verbatim by `logs/autofix_c19/probe_sparse_zero_fill.txt` and is verifiable in the
    TTNN source, and §9.1's tokens are reproduced by `batch_slot_tie_selected.json`. But the original
    consoles are gone, and the drivers writing to a fixed filename per arm is the habit that caused it.
-8. **Every row's `commit` field names the previous stage's SHA.** A sweep has to run before there is
+9. **Every row's `commit` field names the previous stage's SHA.** A sweep has to run before there is
    anything to commit, so the tree that measured all 24 rows carried this stage's changes
    uncommitted. `sweep_results.json::provenance` records the stage's own checkpoint SHAs and says so
    explicitly; checking out the recorded `commit` and replaying a row's `command` would not reproduce
    it.
-9. **`test_the_batched_prefill_state_reaches_every_decode_slot` takes its lenient branch under the
+10. **`test_the_batched_prefill_state_reaches_every_decode_slot` takes its lenient branch under the
    shipped default policy**, because the selected config is what produces the exact tie (§9.1). The
    strict branch fires on `optimized`, on `fused-parity` and on the negative control — and the
    lenient branch rejects the negative control too, on the batch-1 comparison — so the failure mode
    is covered either way. But a future change that widened the contender spread further would keep
    the test in the lenient branch silently.
-10. **TTFT is not a metric this stage claims to move.** The teacher-forcing TTFTs span
+11. **TTFT is not a metric this stage claims to move.** The teacher-forcing TTFTs span
    **178.2 ms (C16) – 184.8 ms (C14)** across configurations whose prefill work differs by far less
    than that spread, and the
    optimized full-model stage established that this host's TTFT distribution is wider than the effects
