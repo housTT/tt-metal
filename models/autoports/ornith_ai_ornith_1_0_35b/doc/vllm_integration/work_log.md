@@ -1247,6 +1247,7 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `a92706dbc4f` | review round 2 remediation: the re-run headline set with its attribution check, the tile-padding fix in two probes and their re-measured artifacts, the recomputed counters and audit counts, and the README/work-log corrections |
 | `tt-metal` | same | `7168b79045d` | the round-2 review record in §15 |
 | `tt-metal` | same | `0f2d3aa310c` | the round-3 review record in §15 |
+| `tt-metal` | same | `b7347f123d1` | review round 4 remediation: the per-test pass/fail inventory rebuilt from the sampling logs, §8.1 rebuilt from the committed determinism arms, the recounted L1 and no-refresh figures, the `batch32/` CI-burst copies, and the smaller figure corrections |
 | `tt-metal` | same | `5303a7a7a1d` | review round 3 remediation: the reduced-build guard on the capability writer with its regression test and the re-run suite, the corrected first-request cost accounting, README §4 rewritten from the committed qualitative artifacts, the two gate console logs, the re-captured final device state, and the small figure corrections |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
