@@ -343,21 +343,32 @@ reproduced across the before-fix and after-fix runs; only *which* `test_topk[…
 property §8 measures — the earlier run failed `test_topk[19]` and `test_specific_seed_reproducible[42]`
 and passed `test_topk[15]`/`[32]`, and the final run does the opposite.
 
-The `max_num_seqs=1` result then reproduced **three** times, on three different servers, to the test:
-7 failed / 65 passed / 1 skipped each time, in 289 – 292 s, and the same seven names every time
-(`test_uniform_noseed_varied`, the three `test_different_*_penalties`, the three
-`test_*_penalty_mixed_batch`). The committed log is the third of those, and the failure list above can be
-read straight out of it. That is a stronger statement than the batch-32 side, where membership moves
+The `max_num_seqs=1` result then reproduced **three** times, on three different servers: 7 failed / 65
+passed / 1 skipped each time, with the same seven names every time (`test_uniform_noseed_varied`, the three
+`test_different_*_penalties`, the three `test_*_penalty_mixed_batch`). Only the last of those runs is
+committed — `server.log` and `sampling_tests.log` are truncated per launch and only one server's copy is kept
+(§7.7) — so the committed evidence is that run: **292.00 s**, and the failure list above reads straight out
+of it. The two earlier repeats are recorded here in prose only. That is a stronger statement than the batch-32 side, where membership moves
 between runs because it depends on which requests land on a near-tie.
 
 The one skip in both runs is `test_chat_logprobs_all_vocab`, which skips itself: the plugin clamps
 `max_logprobs` to 20, so `logprobs=-1` is rejected and the test's own `pytest.skip` fires.
 
-Everything that is not a reproducibility assertion passes in both configurations: 16 `test_logprobs`
-parameterisations (host sampling, since on-device log-probs need 8 or 32 devices), all five host-only
-parameters (`min_p`, `bad_words`, `logit_bias`, `allowed_token_ids`, `min_tokens`), seed *variety*,
-temperature variation within and between batches, `test_topk[15]`, request isolation for differing
-parameters, structured output at full capacity, and the penalties-differ tests at `max_num_seqs=32`.
+**Exactly which cases pass in both**, extracted from the two committed logs rather than described: **50 of
+73**. By file: 20 `test_logprobs` parameterisations (host sampling, since on-device log-probs need 8 or 32
+devices) and 8 `test_build_logprobs_from_topk`, 5 `test_host_only_params` (`min_p`, `bad_words`,
+`logit_bias`, `allowed_token_ids`, `min_tokens`), 3 `test_config`, 1 `test_structured_output_dp1` (full
+capacity, mixed structured and plain), and 13 of 28 `test_seeding_and_variety` — the two seed-*variety*
+cases, a negative seed not crashing, all six temperature-variation cases, `test_topk[19]`,
+`test_specific_seed_reproducible[42]`, and `test_uniform_seed_deterministic[1-0]`/`[1-1]`.
+
+The rest split cleanly: **15** pass at 1 and fail at 32 (the reproducibility class, including
+`test_topk[15]`, `test_topk[32]` and `test_mixed_params_batch` — so neither of those belongs in a
+"passes in both" list, which an earlier version of this section and README §6 both claimed), **3** fail in
+both (`test_*_penalty_mixed_batch`), **4** fail at 1 and pass at 32 (`test_uniform_noseed_varied` and the
+three `test_different_*_penalties`, all of them empty- or single-row slices at capacity 1), and **1** skips
+itself. 50 + 15 + 3 + 4 + 1 = 73, and the two totals follow: 65/7 at capacity 1, 54/18 at 32.
+
 §8 is the investigation of the reproducibility class.
 
 ### 7.6 Async scheduling (decode overlap), and the default this stage first got wrong
@@ -635,14 +646,21 @@ and its first answer was wrong — §9 is how that was found and fixed. What fol
 measurement.
 
 ### 8.1 Through vLLM
-Repeated identical greedy requests, `"The capital of France is"`, temperature 0:
+Repeated identical greedy requests, `"The capital of France is"`, temperature 0, read out of the committed
+artifacts (an earlier version of this table quoted a 4-of-4 arm that no committed file carries, and a
+batch-32 pair of phrases stitched from two different files — round 4 of the review caught both):
 
-| server | result |
-|---|---|
-| `max_num_seqs=1` | 4 of 4 completions identical (32 tokens); seeded sampling 3 of 3 identical; the overlapped (`--async-scheduling`) server produced the *same* text |
-| `max_num_seqs=32` | 3 completions, 2 distinct: they agree for 10 tokens and then split — `"…political and cultural heart for centuries"` against `"…since the Middle Ages"` |
+| server | arm | result |
+|---|---|---|
+| `max_num_seqs=1`, overlap on | 3 greedy repeats, 24 tokens ([`serving_requests.json`](serving_requests.json)) | **all 3 identical** |
+| `max_num_seqs=1`, overlap on | 3 greedy + 2 seeded repeats, 32 tokens, on a fresh server and again after ~90 requests ([`async/overlap_texts_async_fresh.json`](async/overlap_texts_async_fresh.json), [`…_after_traffic.json`](async/overlap_texts_async_after_traffic.json)) | **identical in every arm** |
+| `max_num_seqs=1`, overlap **off** | the same two arms ([`async/overlap_texts_no_async_fresh.json`](async/overlap_texts_no_async_fresh.json), [`…_after_traffic.json`](async/overlap_texts_no_async_after_traffic.json)) | **identical in every arm**, and the greedy text is identical to the overlapped server's |
+| `max_num_seqs=32`, overlap on | 3 greedy repeats, 24 tokens ([`batch32/serving_requests_max_num_seqs_32.json`](batch32/serving_requests_max_num_seqs_32.json)) | **3 distinct texts.** All three open `" Paris, a city that has "` — 5 words, 24 characters — and then split: `"…served as the country's political and cultural heart since the Middle Ages"`, `"…been the country's capital since the 10th century"`, `"…served as the nation's political and cultural heart since the Middle Ages"` |
+| `max_num_seqs=32`, overlap on, a second server | the same arm ([`async/serving_requests_async_max_num_seqs_32.json`](async/serving_requests_async_max_num_seqs_32.json)) | 3 texts, 2 distinct — the same shape of split |
 
-Both remain fluent, on topic and in English. A near-tie flip, not corruption.
+Every one of those completions is fluent, on topic and in English: what changes is which of several equally
+good continuations the model takes when a near-tie is decided differently. A flip, not corruption. §8.2
+measures the same thing at the logits.
 
 ### 8.2 Standalone, at the logits
 [`probe_slot_reproducibility.py`](logs/probe_slot_reproducibility.py) →
@@ -963,6 +981,12 @@ split into bounded chunks. Recorded because the failure mode looks exactly like 
 
 * No vLLM/EngineCore process was left holding a device: after each server the runner's SIGTERM path was
   used (`_hold_until_signal` → `terminate`), then the process table was checked, then the reset script ran.
+* One reading note on the committed server log: its loguru lines name
+  `generator_vllm:prefill_forward:670`, while the committed adapter has that call at 684. The 14-line
+  difference is the round-3 reduced-build guard (§7.8), added after the last server ran. Nothing in the log
+  is stale in *content* — a server cannot be re-run without replacing the artifact set it is the attribution
+  anchor for (§7.7) — but the line numbers are from the pre-guard file. The **pytest** log is from after the
+  guard and its line numbers match the committed adapter exactly.
 * The **final** state is [`logs/final_device_reset_and_mesh_smoke.txt`](logs/final_device_reset_and_mesh_smoke.txt),
   captured after the last device job of the stage (the adapter suite, itself the last thing to touch a
   device after the last server): no device-owning process, 8 board lines before and after a `tt-smi -r`, and
@@ -1031,9 +1055,10 @@ configured to do:
 | `slot_remaps` | 0 | 0 |
 | `async_reads` | **10831** | **0** |
 
-Three things that table settles that a config dump cannot: **87 %** of served decode steps copied
-**nothing** to the device on either server (the refresh policy's steady state is the common case, not a
-special case); the host sampler was entered 862 times on the server that ran the log-probs tests and 9
+Three things that table settles that a config dump cannot: the overwhelming majority of served decode
+steps copied **nothing** to the device — 9431 of 10831 (**87 %**) on the overlapped server and 4891 of 5051
+(**97 %**) on the non-overlapped one, the difference being how much prefill traffic each server interleaved
+— so the refresh policy's steady state is the common case, not a special case; the host sampler was entered 862 times on the server that ran the log-probs tests and 9
 times on the one that did not, so that fallback is request-driven rather than accidental; and `async_reads`
 is exactly the decode-call count with overlap on and exactly **zero** with it off, which is the mechanical
 proof of which path each server took (§7.6). `slot_remaps` stays 0 because `max_num_seqs=1` has no second row to condense into — the remap
@@ -1049,14 +1074,15 @@ candidates, `ttnn.sampling` with `k=1, p=0, temp=1`), which is the fastest strat
 mesh. Serving inherits it unchanged: the serving benchmark's 23.140 ms ITL against the model's own
 23.165 ms token-out figure is the proof that no other sampling path crept in.
 
-**One log signature that looks alarming and is not.** The `max_num_seqs=32` server's log carries ~360
-`critical | TT_THROW … Statically allocated circular buffers … beyond max L1 size` and
-`TT_FATAL: Out of Memory … L1 buffer` lines, each followed by
-`layer N batch 32: ttnn.conv1d accepted 0/16 prefill block lengths []`. That is `allocate_state`'s own
-capability probe: it *tries* every prefill block length through `ttnn.conv1d` at that batch size, catches
-the ones that do not fit L1, and records which lengths the conv path can serve. At batch 32 none can, so
-the DeltaNet conv falls back to the FIR path — and prefill runs at batch 1 anyway, where the same probe
-accepts 16/16 in every server log. The full-model stage classified this signature already
+**One log signature that looks alarming and is not.** The `max_num_seqs=32` server's log carries **480**
+`critical` lines — 180 `TT_THROW … Statically allocated circular buffers … beyond max L1 size` and 300
+`TT_FATAL: Out of Memory … L1 buffer` — grouped as **16 per layer**, each group closed by one
+`layer N batch 32: ttnn.conv1d accepted 0/16 prefill block lengths []` summary (30 of those, one per
+`linear_attention` layer). That is `allocate_state`'s own capability probe: it *tries* all 16 prefill block
+lengths through `ttnn.conv1d` at that batch size, catches the ones that do not fit L1, and records which
+lengths the conv path can serve. At batch 32 none can, so the DeltaNet conv falls back to the FIR path — and
+prefill runs at batch 1 anyway, where the same probe logs `accepted 16/16` for all 30 layers in every server
+log. The full-model stage classified this signature already
 ([`doc/full_model/work_log.md`](../full_model/work_log.md), `doc/full_model/README.md`); it is listed here
 so a reader of the batch-32 log does not have to re-discover it.
 
@@ -1144,8 +1170,8 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 ### Review rounds, and what they changed
 
-`$stage-review` returned `more-work-needed` twice. Both rounds' findings are listed with the measurement or
-correction each one produced, because several of them changed published numbers.
+`$stage-review` returned `more-work-needed` three times. All three rounds' findings are listed below with
+the measurement or correction each one produced, because several of them changed published numbers.
 
 **Round 1.**
 
@@ -1178,7 +1204,7 @@ found it plus three more:
 | **P3** — README §4 described the wrong completion and claimed "no mechanical repetition" | the greedy Fibonacci completion's 4× loop is now described, quantified, and controlled against two other server configurations (README §4) |
 | **P3** — `probe_overlap_equivalence.py` had no console log | captured on the final server: [`logs/probe_overlap_equivalence.txt`](logs/probe_overlap_equivalence.txt) |
 | the review's carry-forward that the plugin overlaps *any* TT model regardless of the capability flag | checked against the code: the default is resolved before `check_and_update_config`, and the plugin does disable overlap for a model that does not declare `supports_async_decode`. Recorded with line references in §7.6, along with the one real rough edge (the warning says "requested" when it was defaulted) |
-| the review's note that the batch-32 log's ~360 L1 `TT_THROW`/`TT_FATAL` lines are unexplained here | classified in §12 as `allocate_state`'s conv1d capability probe, already characterised by the full-model stage |
+| the review's note that the batch-32 log's L1 `TT_THROW`/`TT_FATAL` lines (480 of them) are unexplained here | classified in §12 as `allocate_state`'s conv1d capability probe, already characterised by the full-model stage |
 
 **Round 3.**
 
@@ -1192,8 +1218,23 @@ found it plus three more:
 | small unverifiable figures (`289 s` against the log's 292 s, `+73 lines` against 65/−4, the third `mixed_batch` failure's real `IndexError`) | corrected in §6, §7.5 and §14 |
 | `async/async_max_num_seqs_32_sampling_tests.log.gz` was committed but cited nowhere | described in README §9's `async/` row |
 
-Three things no review asked for came out of doing the above, and all three changed published numbers or
-claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two
+**Round 4.** No new device work: every finding was a number or a description that did not re-derive from a
+committed file.
+
+| finding | what it turned into |
+|---|---|
+| **P2** — README §6 and §7.5 listed `test_topk[15]` and request isolation as passing in *both* configurations while the same sections listed them among the batch-32 failures | both lists rebuilt by extracting every per-test result from the two committed logs: 50 pass in both, 15 pass at 1 and fail at 32, 3 fail in both, 4 fail at 1 and pass at 32, 1 skips — which sums to 73 and reproduces both totals (§7.5, README §6) |
+| **P2** — §8.1's through-vLLM row quoted a 4-of-4 greedy arm and a 3-of-3 seeded arm that no committed file carries, and a batch-32 pair of phrases stitched from two different files | §8.1 rebuilt from the committed arms: 3 greedy repeats identical at `max_num_seqs=1` (plus the six 3-greedy/2-seeded overlap arms), and the batch-32 split quoted from **one** file with its own three texts and their 24-character common prefix |
+| **P3** — `test_logprobs` is 20 parameterisations, not 16 | corrected in README §6, limitation 7 and §7.5 |
+| **P3** — §12 said "~360" L1 lines, "each followed by" a summary | recounted: 180 + 300 = 480, grouped 16 per layer with 30 summaries |
+| **P3** — §12 generalised 87 % of no-refresh steps to "either server" | both figures given: 87 % overlapped, 97 % non-overlapped, with why they differ |
+| **P3** — limitation 2 repeated a sentence; §15 said the review returned `more-work-needed` "twice" | fixed |
+| **P3** — the "289 – 292 s" range still contained an uncited endpoint | only the committed run's 292.00 s is quoted; the two earlier repeats are named as prose-only |
+| the CI serving-burst artifacts had no per-configuration archive copy | copied into `batch32/`, byte-identical, so every committed serving number is attributable to a configuration directory (README §9) |
+| the committed server log's loguru line numbers predate the round-3 guard | noted in §11, with why the log cannot be re-run without breaking the attribution it anchors |
+
+Three things no review asked for came out of doing all of the above, and all three changed published numbers
+or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two
 probes comparing tile padding (§9.1). Each is recorded where its numbers are, not only here.
 
 ### Commits
@@ -1205,6 +1246,7 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `ef5e63409dc` | the round-1 review record in §15 |
 | `tt-metal` | same | `a92706dbc4f` | review round 2 remediation: the re-run headline set with its attribution check, the tile-padding fix in two probes and their re-measured artifacts, the recomputed counters and audit counts, and the README/work-log corrections |
 | `tt-metal` | same | `7168b79045d` | the round-2 review record in §15 |
+| `tt-metal` | same | `0f2d3aa310c` | the round-3 review record in §15 |
 | `tt-metal` | same | `5303a7a7a1d` | review round 3 remediation: the reduced-build guard on the capability writer with its regression test and the re-run suite, the corrected first-request cost accounting, README §4 rewritten from the committed qualitative artifacts, the two gate console logs, the re-captured final device state, and the small figure corrections |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |

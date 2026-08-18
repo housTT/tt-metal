@@ -189,8 +189,8 @@ place.
   manipulate the fabric of reality"), then plans the story and names the device ("the Aether Loom"). The
   **sampled** completion writes the story instead, after an empty `<think></think>`: a pocket-watch-sized
   device "crafted from a metal that seemed to drink in the light", an inventor called Elian, found beneath
-  the roots of the Ancient Oak in the Royal Gardens, ending with time snapping "back to normal with a
-  deafening *crack*". Fluent prose, consistent within itself. The greedy one also contains "Here's a
+  the roots of the Ancient Oak in the Royal Gardens, and it reaches the 256-token cap mid-scene, a few words
+  after time snaps "back to normal with a deafening *crack*". Fluent prose, consistent within itself. The greedy one also contains "Here's a
   thinking thinking sequence" — a doubled word that is a **checkpoint** behaviour, not a serving artefact:
   the HF reference and the full-model TTNN run produce it too, and the chat run matches the HF control for
   236 characters *including* that phrase.
@@ -299,13 +299,21 @@ in [`async/`](async/).
 | `--max-num-seqs 32` | 54 | **18** | 1 |
 | `--max-num-seqs 1` | 65 | **7** | 1 |
 
-Nothing in either failure set is a correctness, log-prob, crash or output-quality failure. Concretely,
-in **both** configurations these pass: all 16 `test_logprobs` parameterisations (host sampling — device
-log-probs need 8 or 32 devices), all five host-only parameters (`min_p`, `bad_words`, `logit_bias`,
-`allowed_token_ids`, `min_tokens`), structured output at full capacity, seed *variety*, temperature
-variation within and between batches, `test_topk[15]`, and request isolation for differing parameters.
-The single skip is `test_chat_logprobs_all_vocab`, which skips itself because the plugin clamps
-`max_logprobs` to 20.
+Nothing in either failure set is a correctness, log-prob, crash or output-quality failure. **50 of the 73
+cases pass in both configurations**, and they are the ones that matter for correctness — read straight out
+of the two committed logs: all **20** `test_logprobs` parameterisations (host sampling; device log-probs
+need 8 or 32 devices) and all 8 `test_build_logprobs_from_topk` cases, all five host-only parameters
+(`min_p`, `bad_words`, `logit_bias`, `allowed_token_ids`, `min_tokens`), structured output at full capacity,
+the three plugin-config cases, and 13 of the 28 `test_seeding_and_variety` cases: seed *variety*
+(`test_batch1_no_seed_varied`, `test_different_seeds_produce_different_outputs`), a negative seed not
+crashing, temperature variation within and between batches (all six), `test_topk[19]`,
+`test_specific_seed_reproducible[42]` and `test_uniform_seed_deterministic[1-0/1-1]`. The single skip is
+`test_chat_logprobs_all_vocab`, which skips itself because the plugin clamps `max_logprobs` to 20.
+
+Which *parameterisations* of the reproducibility cases pass is itself the near-tie property measured below,
+so it moves between runs: `test_topk[19]` and `test_specific_seed_reproducible[42]` pass at both batch sizes
+while `test_topk[15]`, `[32]` and the other three seeds fail at 32, and an earlier run had that the other way
+round.
 
 **The 18 failures at `max_num_seqs=32` are all one class**: "the same request must produce the same
 text". Exactly, from [the log](batch32/sampling_tests_max_num_seqs_32.log.gz): `test_mixed_params_batch`,
@@ -496,9 +504,7 @@ Nothing in this README is measured on it.
    172.8 and 236.3 ms on two others — *and* it pays the decode-trace re-capture as a single ~220 ms stall a
    few tokens into the stream, which is why its TPOT is 24.894 ms against 23.174 warm while its ITL median
    is unchanged (§1 derives both from the artifacts). Every later request at that length pays neither.
-   `OrnithGenerator.warmup(prompt_lengths)` removes it for a deployment that knows its lengths; the serving
-   warm-up compiles one length (64).
-   `OrnithGenerator.warmup(prompt_lengths)` removes it for a deployment that knows its lengths; the
+   `OrnithGenerator.warmup(prompt_lengths)` removes both for a deployment that knows its lengths; the
    serving warm-up compiles one length (64) rather than guessing a bucket set.
 3. **Single-user latency and 32-user capacity are two server configurations.** A `--max-num-seqs 32`
    server pays the padded decode batch on every step, so single-user TPOT there is 140.069 ms (7.14 t/s/u)
@@ -510,7 +516,7 @@ Nothing in this README is measured on it.
 6. **`max_num_seqs` is capped at 32** by the sampler (`MAX_SAMPLING_BATCH`); the adapter refuses more
    with a clear error rather than silently truncating.
 7. **On-device log-probs need 8 or 32 devices**, so on this 4-chip mesh any log-prob request falls back
-   to the plugin's host sampler (which is why all 16 `test_logprobs` cases pass through logits rather
+   to the plugin's host sampler (which is why all 20 `test_logprobs` cases pass through logits rather
    than through the device sampler). That is a plugin/tt-metal capability boundary, not an adapter
    choice.
 8. **The plugin and runner needed changes** to serve this model at all: two runner bugs against the
@@ -547,8 +553,11 @@ suite builds *reduced* two-layer adapters, and the capability writer refuses to 
 log is committed **gzipped**: the repo's `.gitignore` excludes `*.log`, so an uncompressed `server.log`
 silently would not be in the commit at all; the `.gz` beside it is the committed copy — the headline single-user
 configuration (`--max-num-seqs 1`, default flags, i.e. overlap on), which ran the full sampling suite,
-qualitative, both request probes and the benchmark pair. The exceptions are the two `vllm_ci_serving_*`
-files, which only a `--max-num-seqs 32` server produces. Per-configuration copies of everything live in
+qualitative, both request probes and the benchmark pair. The exceptions are the three `vllm_ci_serving_*`
+files, which only a `--max-num-seqs 32` server produces — and those now have `batch32/` copies too
+(`vllm_ci_serving_benchmark_max_num_seqs_32.json`, `…_result_…json`, `…_benchmark_…log.gz`, byte-identical to
+the `readiness_vllm/` originals), so every committed serving number is attributable to a configuration
+directory rather than to the last writer. Per-configuration copies of everything live in
 [`batch1/`](batch1/), [`batch32/`](batch32/) and [`async/`](async/), and those are the authoritative sets
 when a number needs attribution to a server.
 
@@ -577,7 +586,7 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 | [`prefill_stability_with_traces.json`](prefill_stability_with_traces.json) | a live captured trace does not make repeated prefills drift — and, since the review's round-2 finding, each comparison records the compared row's own min/max/nonzero fraction, because the first version of this probe was comparing tile padding ([work log §9.1](work_log.md#91-the-same-class-again-two-probes-were-comparing-the-tile-padding)) |
 | [`logit_read_stability.json`](logit_read_stability.json) / [`…_full_model.json`](logit_read_stability_full_model.json) | the readback path is bit-stable over **non-degenerate** rows: reduced target on `1x4` and `1x1`, full model on `1x4` (the full model does not fit on one device, so its `1x1` fields are `null`) |
 | [`vllm_checkout.txt`](vllm_checkout.txt) / [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) | the vLLM commit served, and the plugin changes (that repo is not committed here) |
-| [`batch32/`](batch32/) | the `--max-num-seqs 32` server's sampling log, qualitative outputs, server log, and its single-user benchmark |
+| [`batch32/`](batch32/) | the `--max-num-seqs 32` server's sampling log, qualitative outputs, server log, capability report, its single-user benchmark, and the CI serving-burst set (§2's numbers) |
 | [`batch1/`](batch1/) | the `--max-num-seqs 1` server's sampling log, qualitative outputs, and the cold/warm primary benchmark pair |
 | [`async/`](async/) | the decode-overlap comparison, **both** arms: the default (overlapped) servers' artifacts (including `async_max_num_seqs_32_sampling_tests.log.gz`, the smoke profile on an overlapped batch-32 server — 2 failed of 3, both from the batch-32 reproducibility class of §6) and the `--no-async-scheduling` control's server log, benchmarks, qualitative outputs, sampling smoke log and request probe, plus the four `overlap_texts_*.json` arms behind §5 |
 | [`reduced_target/`](reduced_target/) | the run-pair counts that localise the batch ≥ 8 nondeterminism to the collectives (mechanical, on the two-layer bring-up target — see [work log §8.3](work_log.md#83-where-it-enters-measured-the-multi-device-collectives)) |
