@@ -397,8 +397,8 @@ python -m pytest .../tests/test_full_model.py -q -m long
 ```
 
 ```
-53 passed, 5 deselected  (short, 36:08)
- 5 passed, 50 deselected (long,  08:05)
+53 passed, 5 deselected  (short, 35:38)
+ 5 passed, 50 deselected (long,  08:06)
 ```
 
 Results in [`logs/post/pytest_short.txt.gz`](logs/post/) and [`logs/post/pytest_long.txt`](logs/post/).
@@ -494,7 +494,7 @@ Local checkpoint commits only. Nothing was pushed.
 |---|---|---|---|
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `246c86d9084` | the stage: the selected precision config, `tt/precision_config.py`, the `PrecisionPolicy` fields and their plumbing, the tests, the context contract and all of `doc/datatype_sweep/` |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `7fd4c1d0399` | review round 2's documentation corrections and the extended figure audit (143 → 159 assertions) |
-| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | *(round 3, below)* | the `$autofix` pass on C19, the LM-head geometry ladder under the selected policy, the triage-summary classification, and 159 → 186 assertions |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `22a6188c389` | the `$autofix` pass on C19, the LM-head geometry ladder under the selected policy, the triage-summary classification, and 159 → 186 assertions |
 
 Two files were already dirty before this stage began and are **not** stage-owned, so neither commit
 touches them: `.agents/skills/tt-device-usage/SKILL.md` (modified) and
