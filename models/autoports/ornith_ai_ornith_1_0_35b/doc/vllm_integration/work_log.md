@@ -1327,6 +1327,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `b33616cb851` | review round 5 remediation: §8.3–§8.5's magnitudes rebuilt from `decode_nondeterminism.json` and `slot_reproducibility.json`, §9's page-row address corrected, the first-request-stall argument re-anchored to the call site that produces it, and §7.8/§12/§15's enumerations fixed |
 | `tt-metal` | same | `646e7ef54d1` | the round-5 review record in §15 |
 | `tt-metal` | same | `300f91d662c` | the round-5 self-audit: every decimal figure re-checked numerically against the artifacts, every cited test name against the per-test matrix, and four markdown anchors fixed |
+| `tt-metal` | same | `34e58c820ea` | the round-5 commit-table completion |
+| `tt-metal` | same | `0f1348bf307` | review round 6 remediation: README §7's reduced-target statement, §7.9's server-log inventory as a pid-keyed table, §8.3's per-layer bisect description, the generator's method count, the two Metal warnings classified in §12, and the enumerations §14 and README §9 left one short |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
