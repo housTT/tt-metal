@@ -148,6 +148,22 @@ class OrnithGenerator(Generator):
         #: Teacher forcing keeps the serial loop by construction: ``next_input`` needs token ``N``
         #: on the host before step ``N+1``'s token input can be decided.
         self.pipelined_readback = bool(pipelined_readback)
+        #: How many times a serving step had to capture a sampling trace for a parameter shape it
+        #: had not seen (`ensure_sampling_trace`). Steady serving traffic drives this to 0.
+        self.sampling_trace_captures = 0
+        #: Scratch ``ttnn.sampling`` output for serving prefill, allocated **here** - before any
+        #: trace is captured - because a long-lived buffer allocated while a trace is live can share
+        #: addresses the trace writes (see :meth:`_ensure_traces_replay_safe`). Prefill sampling must
+        #: not write the decode token buffer: that buffer carries the *other* slots' live tokens and
+        #: ``ttnn.sampling`` writes all of its rows, not just the one the prompt occupies.
+        self._prefill_tokens = ttnn.to_device(
+            model.prepare_decode_inputs_host(
+                torch.zeros(self.max_batch_size, dtype=torch.int32),
+                torch.zeros(self.max_batch_size, dtype=torch.int32),
+                None,
+            )[0],
+            device=self.mesh_device,
+        )
 
     # ------------------------------------------------------------------ setup helpers
     def _resolve_eos_ids(self) -> set:
@@ -175,21 +191,37 @@ class OrnithGenerator(Generator):
     def _resolve_page_table(self, page_table, kv_cache, where: str):
         """The page table a call should actually use, identically for prefill and decode.
 
-        A caller-owned table without a caller-owned cache is refused (with one warning, then
-        silently) because a foreign table addresses blocks the internal cache does not have. Honour
-        it on one of the two calls only and the request prefills into one set of blocks and decodes
-        out of another, reading pages nothing ever wrote - so both entry points resolve it here and
-        cannot disagree.
+        A table is *foreign* when it can address blocks the attached cache does not have, and that is
+        decided by who allocated the cache, not by whether this one call happened to repeat the
+        ``kv_cache`` handle. So:
+
+        * the generator allocated its own cache (``owns_cache``) and the call names no cache - the
+          table is foreign and the internal one is used, with one warning. This is the shared
+          readiness runner's case: ``run_prefill_check`` passes a deliberately dummy
+          ``arange(1024)`` table with ``kv_cache=None`` and its docstring says the generator should
+          handle it, and substituting is what makes that work;
+        * the cache the generator is driving is the **caller's** (``owns_cache`` false, i.e. a
+          ``kv_cache=`` was passed to the constructor) - the caller's table addresses the caller's
+          own blocks and is honoured, whether or not this particular call repeats the handle.
+
+        Substituting in that second case is silently wrong rather than conservative, and it was
+        measured: ``doc/vllm_integration/prefill_determinism_bisect.json`` shows a serving-shaped
+        prefill driven that way writing every logical block of the prompt to physical block 0 (the
+        substituted table was all zeros), which makes repeated identical prefills differ by up to
+        4.2 logit units at PCC 0.886-0.963, while the same call with the caller's table is
+        bit-identical. Honour it on one of the two entry points only and the request prefills into
+        one set of blocks and decodes out of another, so both resolve it here and cannot disagree.
         """
         if page_table is None:
             return self.page_table
-        if kv_cache is None:
+        if kv_cache is None and self.owns_cache:
             if not self._warned_page_table_substitution:
                 self._warned_page_table_substitution = True
                 logger.warning(
-                    f"{where} was given a page_table but no kv_cache, so the generator's own page table is "
-                    "used instead: a foreign table can address blocks the internal cache does not have. Pass "
-                    "kv_cache as well to drive caller-owned state."
+                    f"{where} was given a page_table but no kv_cache, and this generator allocated its own "
+                    "cache, so its own page table is used instead: a foreign table can address blocks the "
+                    "internal cache does not have. Pass kv_cache as well, or build the generator on the "
+                    "caller-owned cache, to drive caller-owned state."
                 )
             return self.page_table
         return torch.as_tensor(page_table).to(torch.int32)
@@ -444,7 +476,16 @@ class OrnithGenerator(Generator):
         self.counters["decode_calls"] += 1
 
     def _sample_traced(self):
-        self.sampling.sample(logits=self._trace_logits, tt_out_tok=self._trace_inputs[0], enable_trace=True)
+        # `skip_precompile=True` matters only on the capture that `sample()` may still do lazily:
+        # precompiling would execute a whole sampling graph over `_trace_logits`, which lives in the
+        # trace region while a captured trace exists - the hazard `_ensure_decode_trace` documents.
+        # Serving pre-captures through `ensure_sampling_trace()`; this is the belt to that brace.
+        self.sampling.sample(
+            logits=self._trace_logits,
+            tt_out_tok=self._trace_inputs[0],
+            enable_trace=True,
+            skip_precompile=True,
+        )
 
     # ------------------------------------------------------------------ low-level API
     def prefill_forward(
@@ -468,9 +509,10 @@ class OrnithGenerator(Generator):
 
         Cache ownership is explicit: pass ``kv_cache`` (and the matching ``page_table``) to drive the
         generator's model against caller-owned state, or leave both ``None`` to use the cache and
-        page table this generator allocated. A caller that hands a page table without a cache gets
-        the internal page table, because a foreign table can address blocks the internal cache does
-        not have.
+        page table this generator allocated. A caller that hands a page table without a cache to a
+        generator that allocated its **own** cache gets the internal page table, because such a table
+        can address blocks the internal cache does not have; a generator built on a caller-owned cache
+        honours the caller's table either way (:meth:`_resolve_page_table`).
 
         The decode traces are captured **here**, before the prompt is written, not lazily on the
         first ``decode_forward``. Capture warm-compiles a real decode step and then wipes the state
@@ -813,6 +855,299 @@ class OrnithGenerator(Generator):
             f"{sum(report['seconds'].values()):.1f} s, {report['recaptures']} trace re-capture(s)"
         )
         return report
+
+    # ------------------------------------------------------------------ serving (vLLM) API
+    #
+    # The primitives ``tt/generator_vllm.py`` drives. They live here, beside the persistent trace
+    # inputs and the sampling traces, because that is the state they manipulate; the adapter owns the
+    # vLLM-facing translation and nothing else. None of this is used by the readiness runners or by
+    # :meth:`generate`, and the measured serving decode step is the *same* split-sampling path they
+    # use: one model-trace replay, one sampling-trace replay, ``tt_out_tok`` feeding the next replay
+    # on device with no host argmax, no logits readback and no Python token feedback.
+
+    def ensure_serving_traces(self) -> None:
+        """Capture the decode traces. Call from vLLM warmup, before any prompt has been written."""
+        self._ensure_decode_trace()
+
+    def ensure_replay_safe(self) -> None:
+        """Re-capture the traces if anything has been compiled since they were captured."""
+        self._ensure_traces_replay_safe()
+
+    def invalidate_sampling_params_cache(self) -> None:
+        """Forget what :meth:`_apply_sampling_params` last pushed to the device.
+
+        A serving caller drives ``SamplingGenerator.apply_decode_state`` itself (per-row params,
+        penalties, seeds), so this generator's own single-parameter-set cache no longer describes the
+        device and must not be allowed to skip a later push.
+        """
+        self._sampling_params_key = None
+
+    def ensure_sampling_trace(self) -> bool:
+        """Capture the sampling trace for the **current** sampling parameters if it is not captured.
+
+        ``SamplingGenerator`` keys its traces on (penalties, log-probs, force-argmax) and releases
+        *all* of them whenever force-argmax flips - which a serving batch does whenever it stops or
+        starts being all-greedy. Capturing here, before this step's model replay is enqueued, keeps
+        two things true that ``sample()``'s own lazy capture would not:
+
+        * capture never happens *after* a non-blocking replay has already been enqueued;
+        * capture runs with ``skip_precompile=True``, so it records without executing a full sampling
+          graph over the live trace-region logits buffer - the hazard :meth:`_ensure_decode_trace`
+          documents, and the one that hung the mesh inside ``all_gather_async`` on the 40-layer model.
+
+        Every program it records is compiled by the serving warm-up's eager phase, so the capture
+        itself compiles nothing. Returns True when a trace was captured.
+        """
+        if self.sampling_mode != "device" or self._trace_logits is None:
+            return False
+        sampling = self.sampling
+        if sampling.seed_manager.has_active_request_seed():
+            # An explicit request seed rewrites a persistent seed tensor every token, so
+            # ``SamplingGenerator.sample`` deliberately runs untraced. There is nothing to capture.
+            return False
+        _, slot = sampling._trace_slot(
+            sampling._penalties_active,
+            getattr(sampling, "_log_probs_active", False),
+            sampling.tt_sampling.force_argmax_sampling,
+        )
+        if slot["id"] is not None:
+            return False
+        ttnn.synchronize_device(self.mesh_device)
+        sampling.capture_trace(logits=self._trace_logits, tt_out_tok=self._trace_inputs[0], skip_precompile=True)
+        self.sampling_trace_captures += 1
+        return True
+
+    def device_decode_state(self):
+        """The tokens and positions the persistent decode trace inputs hold **right now**.
+
+        Read from one shard, because both buffers are replicated across the mesh. This is the
+        authority a serving refresh merges against: under async scheduling the host's view of a
+        continuing row lags the device by one token, and the device's copy is the one the last replay
+        actually produced.
+        """
+        tokens = ttnn.to_torch(ttnn.get_device_tensors(self._trace_inputs[0])[0]).reshape(-1)
+        positions = ttnn.to_torch(ttnn.get_device_tensors(self._trace_inputs[1])[0]).reshape(-1)
+        batch = self.max_batch_size
+        return tokens[:batch].to(torch.int64), positions[:batch].to(torch.int64)
+
+    def stage_serving_decode_inputs(
+        self, tokens, positions, page_table, *, full_refresh: bool, device_token_rows=None
+    ) -> dict:
+        """Refresh the decode trace inputs for one serving step, and only as much as changed.
+
+        ``full_refresh`` is the caller's statement that host token/position state is authoritative
+        again for at least one row - a batch-layout change, a slot remap, a freshly prefilled slot, a
+        switch to or from host sampling. It is *not* per-token: in the steady state of a traced
+        device-sampling decode this method copies **nothing at all**, because the token arrives
+        through ``tt_out_tok`` and the positions are advanced by ``ttnn.plus_one`` inside the trace.
+
+        On a full refresh the values written are a merge, not the host's view: for every row the
+        caller marks in ``device_token_rows`` whose device position is continuous with the host's
+        (equal, or one ahead - the async-scheduling lag), the device's token *and* position win.
+        Staging the lagging host pair for such a row would re-run a position that already has a
+        token, which shows up as a doubled subword rather than as an error.
+
+        ``page_table`` is refreshed whenever its contents changed, on both paths: new KV blocks are
+        allocated as a request grows, and that is scheduler state the device cannot derive.
+        """
+        batch = self.max_batch_size
+        tokens = torch.as_tensor(tokens).reshape(-1)[:batch].to(torch.int64)
+        positions = torch.as_tensor(positions).reshape(-1)[:batch].to(torch.int64)
+        table = torch.as_tensor(page_table).to(torch.int32)
+        if table.dim() == 1:
+            table = table.unsqueeze(0)
+        before = self.counters["page_table_refreshes"]
+        if not full_refresh:
+            self._refresh_page_table_only(table)
+            return {
+                "tokens": False,
+                "positions": False,
+                "page_table": self.counters["page_table_refreshes"] != before,
+                "device_rows": [],
+            }
+        dev_tokens, dev_positions = self.device_decode_state()
+        if device_token_rows is None:
+            trust = torch.zeros(batch, dtype=torch.bool)
+        else:
+            trust = torch.as_tensor(device_token_rows).reshape(-1)[:batch].to(torch.bool)
+        continuous = (dev_positions == positions) | (dev_positions == positions + 1)
+        use_device = trust & continuous & (positions >= 0)
+        merged_tokens = torch.where(use_device, dev_tokens, tokens)
+        merged_positions = torch.where(use_device, dev_positions, positions)
+        self._refresh_inputs(self._trace_inputs, merged_tokens, merged_positions, table)
+        return {
+            "tokens": True,
+            "positions": True,
+            "page_table": self.counters["page_table_refreshes"] != before,
+            "device_rows": use_device.nonzero().reshape(-1).tolist(),
+        }
+
+    def submit_serving_decode(self, *, sample_on_device: bool):
+        """Replay the decode trace - and the sampling trace - without waiting, and return the tensor
+        the caller should read.
+
+        With ``sample_on_device`` that is the persistent decode **token** buffer, which the sampling
+        trace has just written and which the next replay will read as its input; without it, the
+        model's vocab-sharded logits, for the plugin's host sampler (log-probs, ``min_p``, structured
+        output and the other host-only parameters). Both replays are ``blocking=False``: the caller
+        reads behind them on the same command queue.
+
+        The replay-safety check is here rather than left to the caller because forgetting it is
+        silent: a prefill compiles programs for its own prompt length, their kernel binaries land on
+        addresses the decode trace writes, and the *next* replay overwrites them - after which every
+        request at that length emits gibberish, permanently (see
+        :meth:`_ensure_traces_replay_safe`). It is one integer comparison on the steady path.
+        """
+        self._ensure_traces_replay_safe()
+        self._decode_step_traced()
+        # A replay does not run the Python body that would mark the state live, so mark it here:
+        # after this step the paged cache and the DeltaNet rows hold a request.
+        self.model.state_is_live = True
+        if not sample_on_device:
+            return self._trace_logits
+        self._sample_traced()
+        return self._trace_inputs[0]
+
+    def read_tokens(self) -> torch.Tensor:
+        """Blocking readback of the sampled tokens of the last replay."""
+        return self._read_tokens()
+
+    def read_tokens_async(self):
+        """Enqueue the token readback behind the replay that produced it, without waiting."""
+        return self._read_tokens_async()
+
+    def finish_token_read(self, pending) -> torch.Tensor:
+        """Wait for a :meth:`read_tokens_async` and compose its result."""
+        return self._finish_read(pending)
+
+    def tokens_from(self, tensor) -> torch.Tensor:
+        """Host token ids ``[batch]`` from a device **or** host copy of the decode token buffer."""
+        whole = ttnn.to_torch(tensor, mesh_composer=ttnn.concat_mesh_to_tensor_composer(self.mesh_device, dim=0))
+        return whole.reshape(-1)[: self.max_batch_size].to(torch.int64)
+
+    def logits_from(self, tensor) -> torch.Tensor:
+        """Host logits ``[batch, 1, vocab]`` from a device **or** host copy of the decode logits.
+
+        This is the host-sampling compatibility boundary, and it is never on the measured path.
+        """
+        return self.model.decode_logits_to_host(tensor).unsqueeze(1)
+
+    def remap_serving_slots(self, remap) -> int:
+        """Apply a vLLM batch-condense permutation to the model's per-slot recurrent state.
+
+        Returns the number of layers whose state moved. The paged KV half needs nothing: it follows
+        the page table, which vLLM permutes itself.
+        """
+        return self.model.remap_state_slots(remap)
+
+    def prefill_requests_into_slots(
+        self,
+        tokens,
+        prompt_lens,
+        slots,
+        *,
+        page_table,
+        kv_cache=None,
+        start_pos=None,
+        sample_on_device: bool = False,
+        before_sample=None,
+        ensure_traces: bool = True,
+    ):
+        """Prefill one serving step's prompts, each into the decode slot vLLM assigned it.
+
+        ``tokens`` is ``[N, P]`` in *request* order and so are ``prompt_lens``, ``start_pos`` and the
+        rows of ``page_table``; ``slots[u]`` is the fixed device state slot request ``u`` will decode
+        in, which is **not** ``u`` whenever an off-batch request still owns that row. Row ``u`` is
+        prefilled from ``tokens[u, start_pos[u]:prompt_lens[u]]``, which is the chunk convention the
+        TT plugin builds its inputs with.
+
+        With ``sample_on_device`` the prompt's last-position logits are sampled by the on-device
+        sampler and only the token id comes back, one int per request: no logits are composed on
+        host and no host argmax runs. The sampler writes a **scratch** token buffer rather than the
+        decode token buffer, because that buffer carries the other slots' live tokens and
+        ``ttnn.sampling`` writes all 32 of its rows. ``before_sample(u, slot)`` is where the caller
+        pushes that request's sampling parameters and seed.
+
+        Without it, host logits ``[N, 1, vocab]`` come back for the plugin's host sampler.
+        """
+        if ensure_traces:
+            # Capture before the prompt is written, never after: capture warm-compiles a real decode
+            # step and then wipes the state it touched. `ensure_traces=False` is the serving warm-up's
+            # compile phase, which deliberately runs before anything is captured.
+            self._ensure_decode_trace()
+            self._ensure_traces_replay_safe()
+        if kv_cache is not None:
+            self.model.attach_kv_cache(kv_cache)
+        tokens = torch.as_tensor(tokens)
+        if tokens.dim() == 1:
+            tokens = tokens.unsqueeze(0)
+        count = int(tokens.shape[0])
+        lens = [int(tokens.shape[1])] * count if prompt_lens is None else [int(v) for v in prompt_lens]
+        rows = list(range(count)) if slots is None else [int(s) for s in slots]
+        if len(lens) != count or len(rows) != count:
+            raise ValueError(f"{count} prompt row(s) but {len(lens)} length(s) and {len(rows)} slot(s)")
+        if start_pos is None:
+            starts = [0] * count
+        elif isinstance(start_pos, int):
+            starts = [int(start_pos)] * count
+        else:
+            starts = [int(v) for v in torch.as_tensor(start_pos).reshape(-1)[:count]]
+        table = self._resolve_page_table(page_table, kv_cache, "prefill_requests_into_slots")
+        table = torch.as_tensor(table).to(torch.int32)
+        if table.dim() == 1:
+            table = table.unsqueeze(0)
+        if table.shape[0] < count:
+            raise ValueError(f"page table has {int(table.shape[0])} row(s) for {count} prompt(s)")
+
+        out = []
+        for user in range(count):
+            slot = rows[user]
+            if not 0 <= slot < self.max_batch_size:
+                raise ValueError(f"state slot {slot} is outside [0, {self.max_batch_size})")
+            end = lens[user]
+            start = starts[user]
+            if end <= start:
+                raise ValueError(f"request {user} has an empty chunk [{start}, {end})")
+            page_row = self._page_row_tensor(table[user : user + 1])
+            logits = self.model.prefill_request_into_slot(
+                tokens[user : user + 1, start:end],
+                page_table=page_row,
+                slot=slot,
+                start_pos=start,
+                return_logits="device" if sample_on_device else True,
+                continue_from_state=start > 0,
+            )
+            if page_row is not None:
+                ttnn.deallocate(page_row)
+            if not sample_on_device:
+                out.append(logits)
+                continue
+            if before_sample is not None:
+                before_sample(user, slot)
+            self.sampling.sample(logits=logits, tt_out_tok=self._prefill_tokens, enable_trace=False)
+            ttnn.deallocate(logits)
+            ttnn.synchronize_device(self.mesh_device)
+            sampled = ttnn.to_torch(ttnn.get_device_tensors(self._prefill_tokens)[0]).reshape(-1)[0]
+            out.append(int(sampled))
+        if sample_on_device:
+            return torch.tensor(out, dtype=torch.int32)
+        return torch.cat(out, dim=0)
+
+    def _page_row_tensor(self, host_row):
+        """One request's ``[1, blocks]`` int32 ROW_MAJOR page table, on device.
+
+        Deallocated by the caller as soon as the prefill that needs it returns: a buffer allocated
+        while the decode traces are live must not outlive the call that made it (see
+        :meth:`_ensure_traces_replay_safe`).
+        """
+        return ttnn.from_torch(
+            torch.as_tensor(host_row).to(torch.int32).contiguous(),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        )
 
     # ------------------------------------------------------------------ lifecycle
     def reset(self) -> None:

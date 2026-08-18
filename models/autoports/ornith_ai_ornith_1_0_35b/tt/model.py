@@ -1548,6 +1548,63 @@ class OrnithModel(LightweightModule):
                 self._merge_rows(src_buf, dst_buf, mask["c"], inverse["c"], batch)
         del torch
 
+    def remap_state_slots(self, remap) -> int:
+        """Reindex the per-slot DeltaNet state after a vLLM batch condense.
+
+        ``remap`` is a permutation of the decode batch's slots in which row ``i`` takes the state
+        that was at slot ``remap[i]``; identity entries move nothing. This is the recurrent half of
+        what the plugin's ``slot_remap`` implies. The paged KV half needs no work at all - it follows
+        the page table, and vLLM permutes that itself - but a ``linear_attention`` layer's recurrent
+        matrix and conv window live *here*, per row, and nothing outside this model can move them.
+
+        Done in place, on the buffers the captured decode trace is bound to, so the trace stays
+        replayable: every source row is materialised before any destination row is written, which is
+        what makes gathering a buffer into itself safe. The cost is proportional to the number of
+        rows that actually moved - a condense usually moves one - and it is paid only on the step the
+        scheduler moved them.
+        """
+        import torch
+
+        batch = self.max_batch_size
+        if batch is None:
+            raise RuntimeError("call allocate_state() before remapping slots")
+        values = [int(v) for v in torch.as_tensor(remap).reshape(-1)[:batch]]
+        if len(values) < batch:
+            values = values + list(range(len(values), batch))
+        if sorted(values) != list(range(batch)):
+            # Refusing is the safe option: a non-permutation would duplicate one request's state into
+            # two rows and silently answer one of them with the other's history.
+            raise ValueError(f"slot remap {values} is not a permutation of [0, {batch})")
+        moves = [(row, src) for row, src in enumerate(values) if src != row]
+        if not moves:
+            return 0
+        self._use_pack(batch)
+        moved = 0
+        for layer in self.layers:
+            if layer.is_full_attention or layer.recurrent_state is None:
+                continue
+            self._remap_rows(layer.recurrent_state, moves, batch, "r")
+            for buf in layer.conv_state:
+                self._remap_rows(buf, moves, batch, "c")
+            moved += 1
+        logger.info(f"remapped {len(moves)} recurrent state row(s) across {moved} layer(s)")
+        return moved
+
+    def _remap_rows(self, buf, moves, batch: int, kind: str):
+        """Gather rows of one per-slot state buffer in place: row ``i`` takes row ``src``."""
+        shape = [int(d) for d in buf.shape]
+        sources = {}
+        for _, src in moves:
+            if src in sources:
+                continue
+            sources[src] = ttnn.slice(buf, [src] + [0] * (len(shape) - 1), [src + 1] + shape[1:])
+        for row, src in moves:
+            mask = self._slot_mask(row, batch)[kind]
+            inverse = self._slot_mask(row, batch, invert=True)[kind]
+            self._merge_rows(sources[src], buf, mask, inverse, batch)
+        for tensor in sources.values():
+            ttnn.deallocate(tensor)
+
     @staticmethod
     def _merge_rows(src, dst, mask, inverse, batch: int):
         wide = ttnn.repeat(src, ttnn.Shape([batch] + [1] * (len(src.shape) - 1)))

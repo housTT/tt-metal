@@ -81,9 +81,12 @@ over it with host-side sampling.
 from __future__ import annotations
 
 import argparse
+import ast
+import dataclasses
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -155,12 +158,42 @@ _FATAL_LOG_PATTERNS = (
     "Failed core proc",
 )
 
+# Named mesh presets. The value is only documentation here: `MESH_DEVICE` is passed through to the
+# TT vLLM plugin, which owns the name -> grid table (`vllm_tt_plugin.worker.get_mesh_grid`).
 _MESH_SHAPES: dict[str, tuple[int, int]] = {
     "N150": (1, 1),
     "N300": (1, 2),
     "T3K": (1, 8),
     "TG": (8, 4),
 }
+
+
+def _mesh_device(value: str) -> str:
+    """A named preset, or an explicit ``(rows, cols)`` grid.
+
+    The plugin's `get_mesh_grid` accepts either, and its own name table is wider than the presets
+    above (P150x4, P300x2, BH-Galaxy, ...). Restricting this flag to four names left every other
+    supported mesh -- a 1x4 Blackhole ring among them -- unable to use the shared runner at all, so an
+    explicit grid is accepted and forwarded verbatim.
+    """
+    text = value.strip()
+    if text in _MESH_SHAPES:
+        return text
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        parsed = None
+    if isinstance(parsed, tuple) and len(parsed) == 2 and all(isinstance(v, int) and v > 0 for v in parsed):
+        return f"({parsed[0]}, {parsed[1]})"
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]*", text):
+        # A plugin-known name we do not list (P150x4, P300x2, BH-Galaxy, ...). Forwarded verbatim;
+        # `get_mesh_grid` asserts on a name it does not know, so a typo still fails at launch rather
+        # than silently opening the wrong mesh.
+        return text
+    raise argparse.ArgumentTypeError(
+        f"--mesh-device must be a mesh name the TT plugin knows (presets here: {sorted(_MESH_SHAPES)}) "
+        f'or an explicit grid such as "(1, 4)"; got {value!r}'
+    )
 
 
 def _find_plugin_tests_dir() -> Path:
@@ -185,6 +218,30 @@ def _find_plugin_tests_dir() -> Path:
 
     checked = ", ".join(str(path) for path in candidates) or "no importable vllm/vllm_tt_plugin package"
     raise RuntimeError(f"Could not find TT vLLM pytest tests. Checked: {checked}")
+
+
+def _tt_config_flag() -> str:
+    """The CLI flag this vLLM build takes the TT plugin's namespaced config on.
+
+    The TT plugin reads it from ``vllm_config.additional_config`` (``vllm_tt_plugin.config``), and the
+    flag that populates that field is ``--additional-config`` on current vLLM. Older builds accepted
+    ``--plugin-config``; passing the wrong one is not a soft failure - the API server exits with
+    "unrecognized arguments" before any TT code runs - so the flag is chosen from the installed
+    engine's own arguments rather than hard-coded.
+    """
+    try:
+        from vllm.engine.arg_utils import EngineArgs
+    except Exception:  # pragma: no cover - vLLM missing is reported elsewhere
+        return "--additional-config"
+    fields = {f.name for f in dataclasses.fields(EngineArgs)}
+    if "plugin_config" in fields:
+        return "--plugin-config"
+    if "additional_config" in fields:
+        return "--additional-config"
+    raise RuntimeError(
+        "the installed vLLM EngineArgs has neither `plugin_config` nor `additional_config`; "
+        "cannot pass the TT plugin configuration."
+    )
 
 
 def _check_port_available(port: int) -> None:
@@ -235,7 +292,7 @@ def _launch_server(
     # Pass TT plugin config as a single JSON dict so JSON quoting can't be
     # mangled by intermediate shells. The dict already has
     # `sample_on_device_mode` enforced; callers extend via `tt_config`.
-    cmd += ["--plugin-config", json.dumps({"tt": tt_config})]
+    cmd += [_tt_config_flag(), json.dumps({"tt": tt_config})]
     cmd += additional_args
 
     env = {
@@ -757,10 +814,14 @@ def _main() -> None:
     )
     parser.add_argument(
         "--mesh-device",
-        type=str,
+        type=_mesh_device,
         default=None,
-        choices=sorted(_MESH_SHAPES),
-        help="Required when `serve` is in --stages; ignored otherwise.",
+        metavar="MESH",
+        help=(
+            "Required when `serve` is in --stages; ignored otherwise. A preset name "
+            f"({', '.join(sorted(_MESH_SHAPES))}), another name the TT plugin knows, or an explicit "
+            'grid such as "(1, 4)".'
+        ),
     )
     parser.add_argument(
         "--prompts",
