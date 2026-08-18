@@ -1016,6 +1016,24 @@ class OrnithGenerator(Generator):
         """Enqueue the token readback behind the replay that produced it, without waiting."""
         return self._read_tokens_async()
 
+    def read_output_async(self, tensor=None):
+        """Enqueue a device->host copy of one decode step's output, behind the replays, without waiting.
+
+        The serving adapter's async split needs this for *either* output tensor: the persistent decode
+        token buffer on a device-sampled step, and the vocab-sharded logits on a host-sampled one. The
+        two calls are the whole primitive - ``cpu(blocking=False)`` puts the copy on the same in-order
+        command queue as the replays that produced it, so it observes exactly this step's result, and
+        the recorded event is what the host waits on once the next step is already running. It lives
+        here rather than in the adapter so no caller has to reason about queues or events, and
+        :meth:`read_tokens_async` is the token-buffer-only shorthand the standalone ``generate`` loop
+        uses (it also counts the readback, which the serving path counts for itself).
+
+        ``tensor=None`` reads the token buffer, so the two behave identically on the sampled path.
+        """
+        target = self._trace_inputs[0] if tensor is None else tensor
+        host = target.cpu(blocking=False)
+        return host, ttnn.record_event(self.mesh_device, 0)
+
     def finish_token_read(self, pending) -> torch.Tensor:
         """Wait for a :meth:`read_tokens_async` and compose its result."""
         return self._finish_read(pending)

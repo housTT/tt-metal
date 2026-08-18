@@ -125,7 +125,7 @@ For the same reason, a single user on a server built for 32 pays for the padded 
 
 | | |
 |---|---|
-| adapter | [`tt/generator_vllm.py`](../../tt/generator_vllm.py), class `TTQwen3_5MoeForConditionalGeneration` |
+| adapter | [`tt/generator_vllm.py`](../../tt/generator_vllm.py), class `TTQwen3_5MoeForConditionalGeneration`. It does not import `ttnn`: every device action, down to the async read's copy-and-event, is a call into [`tt/generator.py`](../../tt/generator.py) ([work log §4](work_log.md#4-the-adapter-and-the-primitives-it-drives)) |
 | registered as | `TTQwen3_5MoeForConditionalGeneration` **and** `Qwen3_5MoeForConditionalGeneration` in `vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py::register_tt_models` (why the second: [work log §3](work_log.md#3-plugin-registration-and-the-two-upstream-decisions-that-had-to-be-taken-away-from-upstream)) |
 | vLLM checkout | `tenstorrent/vllm@bf98d556` (`dev`), installed `VLLM_TARGET_DEVICE=empty` ([`vllm_checkout.txt`](vllm_checkout.txt), plugin diff [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff)) |
 | served context | **262144**, equal to `doc/context_contract.json`; no capability reduction |
@@ -153,14 +153,37 @@ completion prompts from a chat model are continuation coverage, not a verdict:
 | `run_vllm_server --stages qualitative` — raw `/v1/completions`, the shared runner's own path, greedy and sampled (T=0.7, top-p 0.9), 256 tokens | the six in `models/common/readiness_check/vllm_prompts.txt` | [`readiness_vllm/vllm_qualitative_outputs.json`](../../readiness_vllm/vllm_qualitative_outputs.json) |
 | `probe_qualitative_chat.py` — `/v1/chat/completions`, so the server renders `apply_chat_template(add_generation_prompt=True)`, greedy, 128 tokens | the same six | [`qualitative_chat.json`](qualitative_chat.json) |
 
-The chat run's controls are the two the full-model stage produced from the *same* rendered prompts:
-its HF reference completions and its own TTNN completions
-([`readiness_qualitative.json`](../full_model/readiness_qualitative.json)).
+**The control that matters most: the same model, same policy, no vLLM.** The datatype sweep ran this exact
+suite — same six prompts, byte-identical rendered prompts, greedy, 128 new tokens — standalone on the
+**selected** precision policy ([`doc/datatype_sweep/readiness_qualitative.json`](../datatype_sweep/readiness_qualitative.json),
+its §8). Against that control the served chat text is:
 
-Against the controls, the chat run tracks the HF reference **character for character** for the first
-25 – 236 characters of each answer (25/34/236/214/213/130 by prompt) and then takes a different phrasing
-of the same plan ("Analyze the Request" against "Deconstruct the request") — the near-tie behaviour §6
-measures, not a different answer.
+| prompt | served vs the standalone selected model |
+|---|---|
+| haiku | identical for all 418 characters the server returned; the standalone copy has two trailing spaces the API strips |
+| supervised/unsupervised, story, thermodynamics, translation, Fibonacci | **character-for-character identical**, 549 / 509 / 538 / 442 / 531 characters |
+
+So serving this model through vLLM reproduces the standalone model's own text exactly. That is the
+separation `$qualitative-check` asks for: whatever the checkpoint does, the serving path did not change it.
+
+The full-model stage's two controls are also carried inline in
+[`qualitative_chat.json`](qualitative_chat.json), and they are a *different* comparison — its TTNN
+completions were generated on the **pre-sweep** policy (bfloat8_b/HiFi2 dense projections and LM head
+against the served bfloat4_b/LoFi), so text divergence from them is the sweep's own measured effect, not
+serving's: the sweep quantified it at 0.509 – 0.798 word similarity on these six prompts
+([`qualitative_comparison.md`](../datatype_sweep/qualitative_comparison.md)). Against them the chat run
+tracks:
+
+| control | identical leading characters, by prompt |
+|---|---|
+| HF reference | 25 / 34 / 236 / 214 / 213 / 130 |
+| full-model TTNN (pre-sweep policy) | 93 / 34 / 236 / 408 / 213 / 130 |
+
+and then takes a different phrasing of the same plan ("Analyze the Request" against "Deconstruct the
+request"). The mechanism there is the selected policy's own numerical distance from HF — the sweep measured
+top-1 agreement 0.920 against the bf16 reference and accepted it as the fastest passing config — **not**
+the batch ≥ 8 nondeterminism of §6, which cannot apply here: this run was served at `--max-num-seqs 1`,
+where the whole decode path is bit-reproducible.
 
 **Where the completions stop.** The chat run's six all end at the 128-token cap
 (`finish_reason: length`, 128 completion tokens, in the artifact). The raw run is committed without
@@ -222,9 +245,11 @@ No prompt echo, no control-token leakage, no cross-request contamination (each c
 prompt). One completion does loop — the greedy Fibonacci one above — and it is reproduced byte-for-byte on
 the non-overlapped server, so it belongs to the checkpoint's raw-continuation behaviour rather than to
 serving. `check_degenerate_output.py` agrees mechanically — over the ten raw completions long enough for it to
-measure (its `MIN_WORDS_FOR_DUPLICATION` is 20 words, and the two self-terminating sampled completions are
-13 and 8): adjacent-duplication **0.0000 – 0.0140** against a 0.10 threshold and trigram-loop
-**0.0149 – 0.1304** against 0.50 — so **no degenerate output detected**, on `--scope vllm` and on
+*judge* (its `MIN_WORDS_FOR_DUPLICATION` is 20 words, and the two self-terminating sampled completions are
+13 and 8 words, so their metrics are computed but not gated — the 8-word French answer scores 0.14 on
+adjacent duplication because "comment allez-vous aujourd'hui" repeats nothing but is too short for the
+statistic to mean anything): adjacent-duplication **0.0000 – 0.0140** against a 0.10 threshold and
+trigram-loop **0.0149 – 0.1304** against 0.50 — so **no degenerate output detected**, on `--scope vllm` and on
 `--scope all`. Console log: [`logs/check_degenerate_output.txt`](logs/check_degenerate_output.txt).
 
 Greedy and sampled completions are both reasonable, and the sampled ones differ from the greedy ones
@@ -365,15 +390,19 @@ different text, and the per-step numbers jump to 8–16 for that reason alone.
   runs — prefill and every traced decode step, PCC 1.0. The property is lost between batch 4 and batch 8
   and stays lost at 16 and 32. That is why the whole reproducibility class of the shared suite passes at
   `--max-num-seqs 1` and why `--max-num-seqs 32` fails part of it.
-* **It is the collectives, and nothing else on the path.** Ruled out by measurement rather than argument
+* **It enters through the multi-device path, and the rest of the path is ruled out by its own arm.** Not by
+  argument
   ([`decode_nondeterminism.json`](decode_nondeterminism.json), [`reduced_target/`](reduced_target/),
   [work log §8.3](work_log.md#83-where-it-enters-measured-the-multi-device-collectives)): the readback path
   (the same device result composed to host twice is bit-identical), the prefill and the state it writes
-  (all 140 DeltaNet buffers plus the written KV pages, identical and finite at both batch sizes), residue
+  (all 140 compared tensors — 120 DeltaNet buffers and 20 KV page slices — identical and finite at both batch sizes), residue
   in unoccupied rows (the all-rows arm deviates just the same), and trace replay (the *eager* path deviates
   too, on the full model as well as the reduced one). The control that names it: the same driver, same
   batch 32, on a **1x1** mesh where no collective runs — **0 of 5** run-pairs deviate, against **3 of 5**
-  on `1x4`, and 0/5 against 4/5 for batch 4 against batch 8 with mesh and driver held fixed.
+  on `1x4`, and 0/5 against 4/5 for batch 4 against batch 8 with mesh and driver held fixed. The `1x1` arm
+  changes `tp` as well as the mesh, so it isolates "multi-device" rather than "the collectives
+  specifically"; which collective it is, and why batch 8 is the boundary, are the open questions handed to
+  the decoder stage ([work log §8.5](work_log.md#85-what-is-and-is-not-fixable-here-and-the-defect-this-stage-hands-on)).
 * **A near-tie decides every flip.** While the streams agree the deviation is 0.70–0.84 of a logit, and
   every first flip in the table happens where the top-1/top-2 margin is **0.0–0.125** — an exact tie (one
   bfloat16 value for two tokens) or one to two bfloat16 steps at that magnitude. Where the margin is
@@ -495,8 +524,9 @@ layers:
   they support is re-confirmed on the full model in
   [`decode_nondeterminism.json`](decode_nondeterminism.json) and
   [`slot_reproducibility.json`](slot_reproducibility.json);
-* the `1x1` arms of [`logit_read_stability.json`](logit_read_stability.json), whose full-model counterpart
-  is [`…_full_model.json`](logit_read_stability_full_model.json).
+* the `1x1` arms of [`logit_read_stability.json`](logit_read_stability.json) — the full model cannot run on
+  one device at all, so [`…_full_model.json`](logit_read_stability_full_model.json) repeats only the `1x4`
+  arms and leaves its `1x1` fields `null`.
 
 Everything else — every benchmark, every qualitative completion, the sampling suite, the capability report —
 is the full 40-layer model

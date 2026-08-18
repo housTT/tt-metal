@@ -145,12 +145,31 @@ the datatype sweep measured.
 | `decode_forward` | slot remap → sampling params/penalties/seeds → replay-safety → sampling-trace readiness → input staging → submit; returns device tensors when `read_from_device=False` |
 | `read_decode_output` / `process_decode_output_host` | the async split: `cpu(blocking=False)` + `ttnn.record_event` behind the replays, then host formatting only |
 
-The generator's new `serving (vLLM) API` section adds **thirteen** public methods and the model one. Seven
-of them carry a contract the adapter could not hold itself (below); the other six are the readback and
-compose helpers the async split needs — `read_tokens`, `read_tokens_async`, `finish_token_read`,
-`tokens_from`, `logits_from` and `remap_serving_slots` — which exist so the adapter never touches a device
-tensor's layout or a mesh composer directly. Each of the seven closes a real contract gap rather than
-duplicating model logic:
+The generator's new `serving (vLLM) API` section adds **fifteen** public methods and the model one. The
+adapter calls **eleven** of them, and nothing else in it touches a device tensor:
+
+* the seven contract primitives in the table below (`ensure_serving_traces`, `ensure_replay_safe`,
+  `ensure_sampling_trace`, `stage_serving_decode_inputs`, `submit_serving_decode`,
+  `prefill_requests_into_slots`, and the model's `remap_state_slots` through `remap_serving_slots`);
+* `read_output_async` — the async split's `cpu(blocking=False)` + `record_event`, for *either* output
+  tensor: the token buffer on a device-sampled step, the vocab-sharded logits on a host-sampled one;
+* `tokens_from` and `logits_from`, the mesh composition and shaping of those two reads;
+* `invalidate_sampling_params_cache`, called whenever the adapter changes the sampler's state behind the
+  generator's back (warm-up's four variants, and every parameter change a serving batch brings).
+
+The four the serving path does *not* call are `device_decode_state` — which
+`stage_serving_decode_inputs` uses internally for the merge, and which the probes and adapter tests read
+directly — and `read_tokens`, `read_tokens_async`, `finish_token_read`, the standalone `generate()` loop's
+token readback. That is why the generator's own `token_readbacks`/`read_waits` counters stay 0 in the served
+capability report while the adapter's `async_reads` counts every served read: they count different paths, and
+neither is silently substituting for the other.
+
+Round 7 of the review is why `read_output_async` exists: the adapter used to inline those two `ttnn` calls,
+which contradicted both this section's own claim and the goal's "delegate wherever possible". The two calls
+are unchanged and in the same order, so the serving artifacts captured before the move describe the same
+device behaviour — the adapter suite is what covers the moved path (§7.10).
+
+Each of the seven contract primitives closes a real gap rather than duplicating model logic:
 
 | addition | why the adapter could not do it |
 |---|---|
@@ -316,6 +335,28 @@ completion prompts are continuation coverage, not a verdict:
   `apply_chat_template(add_generation_prompt=True)`), greedy, 128 new tokens — the same shape as the two
   controls the full-model stage left in [`readiness_qualitative.json`](../full_model/readiness_qualitative.json):
   its HF reference completions and its own TTNN completions.
+
+**The control that actually isolates serving, and which review round 7 found unused.** Both of the controls
+carried inline in `qualitative_chat.json` are the *full-model* stage's, and its TTNN arm ran on the
+**pre-sweep** policy — bfloat8_b/HiFi2 dense projections and LM head against the served bfloat4_b/LoFi. Text
+divergence from that arm is therefore the datatype sweep's own measured effect (0.509 – 0.798 word
+similarity on these six prompts, [`qualitative_comparison.md`](../datatype_sweep/qualitative_comparison.md)),
+not serving's. The same-policy control exists: the sweep ran this suite standalone on the **selected**
+config ([`doc/datatype_sweep/readiness_qualitative.json`](../datatype_sweep/readiness_qualitative.json)),
+with byte-identical rendered prompts (asserted in both artifacts). Comparing the served text to it:
+
+| prompt | served vs standalone selected model |
+|---|---|
+| haiku | identical over all 418 characters returned; the standalone copy carries two trailing spaces the API strips |
+| the other five | **character-for-character identical** — 549, 509, 538, 442, 531 characters |
+
+That is the strongest quality statement this stage can make and it was missing from the report: **vLLM
+serving reproduces the standalone selected model's own text exactly.** It also corrects an attribution —
+README §4 previously explained the HF divergence as "the near-tie behaviour §6 measures", which cannot be
+the cause: the chat run was served at `--max-num-seqs 1`, where §8.2's own arm is bit-identical on all 13
+vectors. The divergence from HF is the selected policy's measured numerical distance (top-1 0.920 against
+the bf16 reference, the sweep's accepted trade), and `qualitative_chat.json` records both columns:
+25/34/236/214/213/130 characters against HF and 93/34/236/408/213/130 against the pre-sweep TTNN arm.
 
 `check_degenerate_output.py --scope vllm` and `--scope all`: **no degenerate output detected**, on the
 committed served outputs, on the `--max-num-seqs 32` server's and on the `--no-async-scheduling` control's
@@ -548,6 +589,12 @@ printing the server log's scheduling state, request count and re-capture count, 
 checked rather than assumed. Every one of those five files is byte-identical to its `batch1/` copy on the
 committed tree.
 
+Two of them (`vllm_result.json`, `vllm_qualitative_outputs.json`) carry a later *mtime* than the rest,
+because the archive copies were taken in two passes; the attribution does not rest on mtimes. It rests on
+content: `vllm_result.json`'s percentiles are exactly `vllm_benchmark.json`'s, that benchmark's own
+`raw_result_file` points at it, and the qualitative file is byte-identical to the `batch1/` copy and to what
+the non-overlapped server produced for the greedy prompts while differing from the batch-32 server's.
+
 ### 7.8 The precision policy the served build actually carries
 [`readiness_vllm/vllm_serving_capability.json`](../../readiness_vllm/vllm_serving_capability.json) is
 written by the adapter at the end of warm-up, from inside the engine-core process, and it reads the
@@ -648,8 +695,20 @@ on the reduced two-layer target), `PYTEST_EXIT=0` at the end of the file; the fu
 
 The suite's first attempt after the round-3 fixes errored 11 device cases on the ethernet 29-25 timeout
 (§10.1's recoverable fault, this time left behind by the final server), recovered with the bounded
-reset + mesh smoke, and passed on the retry. That is also why this log is the *second* run: round 3 noticed
-the previous log's loguru line numbers no longer matched the committed `tt/generator_vllm.py`.
+reset + mesh smoke, and passed on the retry. That is also why the log was re-taken then: round 3 noticed the
+previous log's loguru line numbers no longer matched the committed `tt/generator_vllm.py`.
+
+The committed log is from after round 7's one code change — moving the async read's two `ttnn` calls behind
+the generator's `read_output_async` (§4), after which `autoflake` removed the adapter's now-unused
+`import ttnn` entirely, so the file that translates vLLM's interface no longer imports the device library at
+all — and its loguru line numbers match the committed adapter (`prefill_forward:683`). The suite covers the
+moved path. The **serving** artifacts
+predate it; what they measured is unchanged, because the two calls, their order and the event they record are
+the same, and the device tests that exercise the read path
+(`test_the_steady_state_decode_copies_nothing_to_the_device`,
+`test_host_sampling_returns_logits_and_never_becomes_the_default`) pass on both sides of the move. Re-running
+a server to close a two-line refactor would have replaced the whole attribution-checked artifact set (§7.7)
+for no measurement gain.
 
 The second command is the regression check for this stage's generator/model additions: the full-model
 stage's own suite, unchanged, on the same reduced target it uses. It was **not** re-run after the last
@@ -715,8 +774,10 @@ Four things follow, and the batch sweep is what makes them sharp:
   are not. The boundary is between 4 and 8, and it is reproducible: an independent five-pair count on the
   reduced target puts batch 4 at 0/5 deviating pairs and batch 8 at 4/5 (§8.3).
 * **The prefill and the state it writes are deterministic at every batch size.** The probe compares all
-  **140** DeltaNet recurrent/conv buffers and the written KV pages after prefill: bit-identical in every
-  round at batch 1 and at batch 32 (`finite_max_abs_diff` 0.0, `rows_that_differ` empty, nothing non-finite), and the prefill logits
+  **140** compared tensors — 120 DeltaNet recurrent/conv buffers (one recurrent plus three conv per
+  `linear_attention` layer) and 20 KV page slices (K and V per `full_attention` layer) — after prefill:
+  bit-identical in every round at batch 1 and at batch 32 (`finite_max_abs_diff` 0.0, `rows_that_differ`
+  empty, nothing non-finite), and the prefill logits
   are identical too (three rounds at batch 32). So the prefill, the per-slot merge, the cache fill and the
   staged inputs are all exonerated; what deviates is the decode step.
 * **The readback path is exonerated too.** `batch32_read_twice` composes one step's device logits to host
@@ -772,10 +833,13 @@ What each row buys:
   sampler is the multi-device vocabulary-shard path and its constructor refuses a single device. So the
   comparison is run *twice* on `1x4`: once through the generator and once through the same model-level
   driver the control uses. Both deviate. The mesh is the variable, not the driver.
-* **The collectives.** On one device — no all-gather, no reduce-scatter, no MoE traffic over the fabric,
-  same weights, same driver, same batch 32 — five pairs are bit-identical. On the `1x4` ring, three of five
-  deviate. That is what names the mechanism: **run-to-run variation enters through the multi-device
-  collectives**, not through the local matmuls, the sampler, the trace or the read path.
+* **The multi-device path.** On one device — no all-gather, no reduce-scatter, no MoE traffic over the
+  fabric, same weights, same driver, same batch 32 — five pairs are bit-identical. On the `1x4` ring, three
+  of five deviate. So **run-to-run variation enters through the multi-device path**, and the sampler, the
+  trace, the read path and the prefill are each excluded by their own arm above. One honest limit on this
+  arm: a `1x1` mesh is also `tp=1`, so it changes every per-device matmul shape as well as removing the
+  collectives — it isolates "multi-device", and the collectives are the *reason* rather than a separately
+  measured fact. Which collective, and why the boundary sits at batch 8, are the questions §8.5 hands on.
 * **The batch threshold is a property of those collectives, not of the driver.** With the driver and the
   mesh held fixed, batch 4 gives 0/5 and batch 8 gives 4/5 — the same boundary the full-model sweep in
   §8.2 shows. A plausible reading is a payload that fits one fabric transfer at small batch and splits at
@@ -794,7 +858,7 @@ On the **full 40-layer model** the same arms run at batch 4 and batch 32
 | traced replay, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ **0.6875** over 4 steps, min PCC 0.99811 |
 | eager dispatch, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ **0.625**, min PCC 0.99866 |
 | prefill logits, two runs | identical | identical |
-| state after prefill (140 buffers + the written KV pages) | **bit-identical**, all finite | **bit-identical**, all finite |
+| state after prefill (all 140 compared tensors: 120 DeltaNet buffers + 20 KV page slices) | **bit-identical**, all finite | **bit-identical**, all finite |
 | the first decode step's logits | **bit-identical** | differs, max abs Δ **0.671875** |
 | the state that first decode step writes | **bit-identical**, all finite | **differs**, the active row included |
 
@@ -1009,8 +1073,9 @@ split into bounded chunks. Recorded because the failure mode looks exactly like 
 * No vLLM/EngineCore process was left holding a device: after each server the runner's SIGTERM path was
   used (`_hold_until_signal` → `terminate`), then the process table was checked, then the reset script ran.
 * One reading note on the committed server log: its loguru lines name
-  `generator_vllm:prefill_forward:670`, while the committed adapter has that call at 684. The 14-line
-  difference is the round-3 reduced-build guard (§7.8), added after the last server ran. Nothing in the log
+  `generator_vllm:prefill_forward:670`, while the committed adapter has that call further down. The
+  difference is the round-3 reduced-build guard (§7.8) and round 7's `read_output_async` delegation (§4),
+  both added after the last server ran. Nothing in the log
   is stale in *content* — a server cannot be re-run without replacing the artifact set it is the attribution
   anchor for (§7.7) — but the line numbers are from the pre-guard file. The **pytest** log is from after the
   guard and its line numbers match the committed adapter exactly.
@@ -1188,7 +1253,7 @@ In this repo:
 | file | change |
 |---|---|
 | `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration`. Includes the `atexit` capability dump (§7.8) and the warning that fires when a checkpoint other than this one resolves to this class (§3) |
-| `tt/generator.py` | one new `serving (vLLM) API` section (thirteen public methods: the seven contract primitives of §4 plus six readback/compose helpers) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
+| `tt/generator.py` | one new `serving (vLLM) API` section (fifteen public methods: the eleven the adapter calls — §4 — plus `device_decode_state` and the three standalone-loop readback helpers) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
 | `tt/model.py` | **+57 lines**: `remap_state_slots` and its `_remap_rows` helper |
 | `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 11 device cases on the reduced target (cache ownership; block-size refusal; per-slot prefill into the slot vLLM assigned; the steady state copying nothing; a stale host pair not overriding the device; only a changed page table being copied; a slot remap moving the recurrent state bit for bit; the adapter applying that remap *before* the decode step; host sampling returning logits and never becoming the default; the precision-config propagation; the capability report naming the selected policy) |
 | `models/common/readiness_check/run_vllm_server.py` | **+65 / -4 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
@@ -1306,6 +1371,16 @@ prose about what a probe shows, and cross-section consistency:
 | §4 and §14 said the generator gained "seven serving primitives"; the section adds thirteen public methods | the seven contract primitives and the six readback/compose helpers are now both named |
 | §14 described 11 device test cases with 10 descriptors; README §9 called `serving_primitives.json` six checks and named five | both enumerations completed |
 | two Metal warnings in the committed server log were unclassified here | §12 now carries both with their prior-stage root cause: the 28 fabric-packet warnings are the measured 8192 B choice's known other side, and the single active-trace allocator warning is followed in the log by the guard re-capturing the 7 programs that prefill compiled |
+
+**Round 7.** One code change and one substantive evidence upgrade:
+
+| finding | what it turned into |
+|---|---|
+| **P2** — §4's qualitative controls were both the *full-model* stage's, whose TTNN arm ran on the **pre-sweep** precision policy, so divergence from it is the sweep's measured effect rather than serving's; and the same-policy control was committed but unused. The HF divergence was also attributed to §6's batch ≥ 8 near-tie behaviour, which cannot apply to a `--max-num-seqs 1` run | the sweep's selected-config standalone run ([`doc/datatype_sweep/readiness_qualitative.json`](../datatype_sweep/readiness_qualitative.json)) is now the primary control, and it says something much stronger than the old framing: the served chat text is **character-for-character identical** to the standalone selected model on five of six prompts, and on the sixth for all 418 characters the API returned. The HF divergence is attributed to the selected policy's own measured distance (top-1 0.920), and both divergence columns are read out (§7.4, README §4) |
+| **P3** — "140 DeltaNet buffers" is the total of 120 DeltaNet buffers and 20 KV page slices, which the same sentences then listed separately | split correctly in all three places |
+| **P3** — §4 claimed the readback helpers exist "so the adapter never touches a device tensor's layout or a mesh composer directly", while `read_decode_output` inlined `cpu(blocking=False)` + `record_event` itself | fixed in the **code**: the generator gained `read_output_async`, which covers either output tensor, and the adapter calls it — after which the adapter's `import ttnn` was unused and is gone, so the claim is now structural rather than aspirational. §4 states which eleven primitives the adapter calls, which four it does not, and why the two sets of readback counters differ. Adapter suite re-run on the moved path: 20 passed |
+| the degeneracy gate's measure-vs-judge distinction, and the `1x1` arm isolating "multi-device" rather than "the collectives specifically" | both stated where the claims are (README §4, §6, §8.3) |
+| the two archive copies with later mtimes | §7.7 now says the attribution rests on content, and which content |
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two

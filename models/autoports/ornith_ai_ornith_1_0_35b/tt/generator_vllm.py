@@ -59,7 +59,6 @@ from typing import Any
 import torch
 from loguru import logger
 
-import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.generator import OrnithGenerator
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model import (
     MAX_SAMPLING_BATCH,
@@ -894,8 +893,10 @@ class TTQwen3_5MoeForConditionalGeneration:
             return (tt_out, []) if async_read else tt_out
         if not async_read:
             return [tt_out]
-        host = tt_out.cpu(blocking=False)
-        event = ttnn.record_event(self.mesh_device, 0)
+        # `read_output_async` is the generator's primitive for exactly this: it works on either output
+        # tensor (the token buffer on a device-sampled step, the vocab-sharded logits on a host-sampled
+        # one), so the adapter never has to reason about command queues or events itself.
+        host, event = self._require_generator().read_output_async(tt_out)
         self.serving_counters["async_reads"] += 1
         return [host], [event]
 
