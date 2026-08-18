@@ -369,16 +369,19 @@ python -m pytest .../tests/test_full_model.py -q -m long
 ```
 
 ```
-53 passed, 5 deselected  (short, 35:25)
- 5 passed, 50 deselected (long,  08:27)
+53 passed, 5 deselected  (short, 36:08)
+ 5 passed, 50 deselected (long,  08:05)
 ```
 
 Results in [`logs/post/pytest_short.txt.gz`](logs/post/) and [`logs/post/pytest_long.txt`](logs/post/).
-`logs/post/pytest_fixed_cases.txt` is the targeted rerun of the four cases §10 touched, taken before
-the full rerun.
+Both were re-run **after** the checkpoint commit, because the repo's pre-commit hooks reformat
+(`black`, `isort`, `autoflake`) and the earlier logs were produced against the pre-reformat tree.
+The reformat was verified formatting-only by diff before the rerun, and the rerun confirms it.
+`logs/post/pytest_fixed_cases.txt` is the targeted rerun of the four cases §10 touched, taken while
+that fix was being made.
 
 Every number this stage's README states is re-derived from the artifacts by
-[`logs/check_figures.py`](logs/check_figures.py) — 143 assertions, `0 problem(s)`
+[`logs/check_figures.py`](logs/check_figures.py) — 159 assertions, `0 problem(s)`
 ([`logs/check_figures.txt`](logs/check_figures.txt)). It caught three drifted figures on its first
 run (the warm-spread range quoted the failing config, and two rounding differences) and they were
 corrected in the prose rather than in the check.
@@ -403,3 +406,51 @@ corrected in the prose rather than in the check.
 ---
 
 ## 13. Stage review and commits
+
+`$stage-review` was run as a fresh independent xhigh subagent against the goal contract and the four
+skills, read-only, twice.
+
+| round | verdict | what it required |
+|---|---|---|
+| 1 | `more-work-needed` | four P2 findings — the official-runner control's quoted numbers, a false 4-vs-10-repeat reproducibility claim, the batch-slot test's unreachable strict branch and missing negative control, and no batch > 1 evidence at the 40-layer stack. §10.1 has the work; all four were closed with measurements, not prose |
+| 2 | `more-work-needed` | five P2 findings, **all documentation**: the reviewer verified every round-1 remediation independently against the raw artifacts and found the substance sound. What failed was three README figures the stage's own audit did not cover (the "passing part spans 0.9 %", which is the *non-regression* span and not the passing span; "six configurations" split their two gates, which is eight; and a claim that the archived run records carry per-layer built fidelity rows, which they do not because the field was added after the sweep ran), plus `tt/model.py`'s module docstring still naming the pre-sweep policy as the model's, and two stale paths |
+| 3 | *(this round)* | — |
+
+Round 2's fixes, all in this stage's own artifacts and in one docstring:
+
+* README §2 and limitation 1 now separate the **passing** span (3.07 %, because all three regressions
+  clear the accuracy gate — they are slow, not wrong) from the **non-regression** span (0.92 %);
+* README §9.3 says eight, names them, and adds that none of them beats the baseline on teacher
+  forcing;
+* README §6.1 states plainly that the archived records do **not** carry per-layer built fidelity rows
+  and names what carries that evidence instead — the propagation test and C10's fidelity-only
+  −2.20 %;
+* README §3's estimator table says **passing** configurations and explains why C18 is absent;
+* README §4.0 stops attributing C24's −0.40 % to §2's extra-dispatch mechanism — C24 adds no op — and
+  gives the real reading: three effects each inside the warm spread, i.e. unresolved, composing into
+  a small loss;
+* `tt/model.py`'s module docstring names `tt/precision_config.py` and the selected config instead of
+  the decoder stage's `DEFAULT_POLICY`, which is the header contract the vLLM stage will read;
+* the TTFT span, the C19 triage path in `sweep_results.json`, and the "22 passing configs" count;
+* **`logs/check_figures.py` grew from 143 to 159 assertions**, and the new ones are precisely the
+  sections both review rounds found drifting: §2's spans, §9.3's count, §10's TTFT range, §4.0's
+  three C24 ingredients, and an assertion that the archived records do *not* have the per-layer
+  fidelity rows the README used to claim.
+
+### Commits
+
+Local checkpoint commits only. Nothing was pushed.
+
+| repo | branch | SHA | what |
+|---|---|---|---|
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `246c86d9084` | the stage: the selected precision config, `tt/precision_config.py`, the `PrecisionPolicy` fields and their plumbing, the tests, the context contract and all of `doc/datatype_sweep/` |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | *(see below)* | review round 2's documentation corrections and the extended figure audit |
+
+Two files were already dirty before this stage began and are **not** stage-owned, so neither commit
+touches them: `.agents/skills/tt-device-usage/SKILL.md` (modified) and
+`.agents/fast-models-fast-feedback.md` (untracked).
+
+The repo's pre-commit hooks reformat (`black`, `isort`, `autoflake`) and reject `pytest.raises` in
+favour of the `expect_error` fixture. The first commit therefore reformatted eleven files; the
+reformat was verified formatting-only by diff and the **whole suite was re-run afterwards** against
+the committed tree (53 + 5 passed), which is the log `logs/post/` carries.

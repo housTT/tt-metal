@@ -96,7 +96,10 @@ against 749,907,328 B, both summed from the live device tensors by
 **0.80 %** (teacher forcing).
 
 That is the sweep's real result, and it is consistent across all 24 configurations: the whole matrix
-spans **41.037 → 42.296 t/s/u, a 3.1 % range**, and the passing part of it spans 0.9 %. The optimized
+spans **41.037 → 42.296 t/s/u, a 3.1 % range**. Twenty-three of the twenty-four *pass* the accuracy
+gate, so the passing set spans essentially the same **3.07 %** — the three regressions below are
+accurate, they are just slow. Strip those three and the remaining twenty configurations span
+**0.92 %**, which is the honest measure of what precision buys here. The optimized
 full-model stage already named the cause and measured it — the step sits at 6.3 % of the DRAM roofline
 because it is **~100 device ops per layer at one tile of M**, i.e. bound by op launch rather than by
 bandwidth. Narrowing weights moves the denominator of a fraction that is not the constraint: the
@@ -148,8 +151,9 @@ things account for the offset and neither touches the ranking: a single sample c
 nine by construction (the driver's own nine warm repeats already span 0.34 %), and the official
 runner's generator is a fresh build with a different allocator layout. **The ranking is unaffected
 because every one of the 24 candidates went through the identical driver**, and it does not depend on
-the estimator either — best, median, mean and *minimum* warm repeat all put the same four
-configurations in the same order:
+the estimator either — best, median, mean and *minimum* warm repeat all put the same four **passing**
+configurations in the same order. (C18 is faster than C17 on three of the four estimators and is
+absent here for the same reason it is absent everywhere else: it fails the accuracy gate.)
 
 | estimator | 1st | 2nd | 3rd | 4th |
 |---|---|---|---|---|
@@ -164,7 +168,7 @@ that prompt length's programs while the traces are live, so `_ensure_traces_repl
 once before the first replay, and that lands inside `run_teacher_forcing`'s decode window. It costs
 ~9 % — it is the entire difference between the optimized full-model stage's archived 38.18 t/s/u and
 this stage's 41.96 for the same policy. Ranking on it would rank trace-capture cost. Every candidate
-got 9 warm repeats out of 10. The warm spread is **0.18 – 0.48 %** across the 22 passing configs
+got 9 warm repeats out of 10. The warm spread is **0.18 – 0.48 %** across the 23 passing configs
 (0.70 % for C18, the one that fails the accuracy gate), recorded per config in
 [`sweep_results.csv`](sweep_results.csv).
 
@@ -224,10 +228,15 @@ is found. Three arms measured non-negative on their own without being selected �
 BFP4/LoFi, +0.03 %), C15 (logits `bfloat8_b`, +0.07 %) and C20 (SDPA LoFi without fp32 accumulate,
 +0.04 %) — so **C24** is C06 unioned with all three, the largest legal lower-precision configuration
 this sweep can build short of the KV cache. It **passes** (0.940 / 0.930, top-5 and top-100 1.000)
-and it is **slower**: 42.126 t/s/u against C06's 42.296, −0.40 %. Three changes each worth less than
-the run-to-run spread do not add up to a win; they add up to a loss, for the reason §2 gives. The
-other extension — adding the BFP4 KV cache — is C18, and it fails the accuracy gate (§4.3). So the
-"fastest evaluated config" claim is not an artifact of an unexplored union.
+and it is **slower**: 42.126 t/s/u against C06's 42.296, −0.40 %.
+
+That is **not** §2's extra-dispatch mechanism: C24 adds no op at all — it narrows a weight group, a
+logits tensor and a fidelity, all in place, and the `tracy` capture shows no extra typecast. The
+honest reading is simpler. Each ingredient measured +0.03 %, +0.07 % and +0.04 %, every one of them
+well inside the 0.3 % within-build warm spread, i.e. **unresolved**; three unresolved effects do not
+compose into a resolved win, and here they compose into a small loss. The other extension — adding
+the BFP4 KV cache — is C18, and it fails the accuracy gate (§4.3). Either way, the "fastest evaluated
+config" claim is not an artifact of an unexplored union.
 
 ### 4.1 BFP4+LoFi coverage
 
@@ -406,9 +415,17 @@ un-profiled wall clock is §1's.)
 `precision_summary().built` records the same two facts per candidate in
 [`sweep_results.csv`](sweep_results.csv)'s `built_lm_head_weight_dtype` and
 `built_lm_head_math_fidelity` columns — which is how §4.2's "C06 also moved the LM head" was found
-rather than assumed — and `precision_summary().per_layer[*].math_fidelity` now carries all six
-constructed compute-kernel fidelities per layer, so a fidelity-only candidate has a *built* row of
-its own rather than being inferred from weight dtypes it does not change.
+rather than assumed.
+
+`precision_summary().per_layer[*].math_fidelity` — all six constructed compute-kernel fidelities per
+layer — was added *after* the sweep ran, so **the archived records in [`runs/`](runs/) do not carry
+it**. For the fidelity-only arms (C07, C09, C10, C20, C21) the per-candidate artifact therefore has
+the policy JSON plus the LM-head/dense-group built columns, and the *built* per-layer fidelity comes
+from two other places instead: `test_the_selected_precision_config_is_the_built_policy`, which
+asserts all six constructed compute-kernel configs against the artifact on every run of the suite,
+and C10's −2.20 %, which is a fidelity-only change with no dtype movement at all and could not have
+produced that signal unless the fidelity reached the kernel. A run record made from here on carries
+the rows directly.
 
 ### Getting back to the safe baseline
 
@@ -624,8 +641,9 @@ Resolution:        controlled - a property of the checkpoint, not of any precisi
 ### 9.3 Top-1 moves in both directions across the matrix
 
 `C04` scores **0.970** on `run_prefill_check`, three points *above* the baseline's 0.940, while
-scoring 0.960 on teacher forcing. Six configurations beat the baseline on one gate and lose on the
-other. This is the same near-tie churn the optimized full-model stage documented (§1 there): with
+scoring 0.960 on teacher forcing. **Eight** configurations beat the baseline on one gate and lose on
+the other — C03, C04, C07, C08, C09, C14, C20 and C21 — and none beats it on teacher forcing, which
+is the baseline's stronger gate. This is the same near-tie churn the optimized full-model stage documented (§1 there): with
 top-5 and top-100 pinned at exactly 1.000 everywhere, single-token top-1 differences are rank flips
 in the last bits of the logits, in both directions. It is why the charts plot `min(prefill, teacher)`
 — the binding gate — rather than either one alone, and why §4 reads ±1–3 tokens as noise rather than
@@ -635,7 +653,9 @@ as signal.
 
 ## 10. Limitations
 
-1. **The whole sweep spans 3.1 % of decode throughput and the passing part spans 0.9 %.** The step is
+1. **The whole sweep spans 3.1 % of decode throughput, and the twenty non-regression configurations
+   span 0.92 %.** The *passing* set spans 3.07 %, because all three regressions clear the accuracy
+   gate — they are slow, not wrong. The step is
    launch-bound (§2). Precision is not the lever that moves this model; op count is. A future stage
    that fuses or removes decode ops should re-run this sweep afterwards, because the balance between
    "bytes saved" and "one more dispatch" is exactly what decides rows like C13 and C14.
@@ -661,8 +681,9 @@ as signal.
 7. **The failing run's own pytest console log was overwritten** by the later all-pass rerun of the
    same path (§9.1). `logs/post_status.txt` preserves the run's `rc=1` and its timestamp, and the
    focused probe reproduces the exact tokens, but the original console is gone.
-8. **TTFT is not a metric this stage claims to move.** The teacher-forcing TTFTs in §4 span
-   178.9–184.8 ms across configurations whose prefill work differs by less than that spread, and the
+8. **TTFT is not a metric this stage claims to move.** The teacher-forcing TTFTs span
+   **178.2 ms (C16) – 184.8 ms (C14)** across configurations whose prefill work differs by far less
+   than that spread, and the
    optimized full-model stage established that this host's TTFT distribution is wider than the effects
    involved. The post-selection warmed TTFT (139.5 ms median) is reported because the benchmark
    produces it, not as a result.

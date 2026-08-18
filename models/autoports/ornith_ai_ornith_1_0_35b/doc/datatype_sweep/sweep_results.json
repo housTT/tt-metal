@@ -1444,7 +1444,7 @@
           "where": "the adaptation: widen the bfloat4_b expert output to bfloat8_b before the reduction (OptimizedMoE._routed_experts, guarded by _MOE_REDUCE_DTYPES)",
           "exact_error": "TT_FATAL: Writes are not supported during trace capture. trace id: 0 (assert.hpp:104), raised on all four devices inside _ensure_decode_trace, followed by a mesh stall",
           "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt (the run on disk)",
-          "triage": "doc/datatype_sweep/triage/tt-triage-C19.txt and triage-summary-C19.txt: check_binary_integrity reports kernel .text mismatches on eltwise_binary_no_bcast and the interleaved reader/writer on all four devices - the same signature doc/optimized_full_model/README.md section 9 records for its traced-first-token-sampling hang",
+          "triage": "doc/datatype_sweep/triage/tt-triage-C19.txt.gz (gzipped after capture; the repo rejects files over 500 KB) and triage-summary-C19.txt: check_binary_integrity reports kernel .text mismatches on eltwise_binary_no_bcast and the interleaved reader/writer on all four devices - the same signature doc/optimized_full_model/README.md section 9 records for its traced-first-token-sampling hang",
           "note": "the widening typecast on a bfloat4_b operand takes a path that issues a host write, which trace capture forbids. The candidate is therefore not capturable, and a decode step that cannot be traced cannot be ranked by this sweep at all (the skill forbids untraced decode as sweep evidence)."
         }
       ],

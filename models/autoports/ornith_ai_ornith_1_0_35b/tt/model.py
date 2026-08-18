@@ -8,13 +8,21 @@ pieces a decoder layer does not own: token embeddings, the 40-layer stack, the f
 RMSNorm, a column-parallel LM head, and the on-device sampler that turns the LM head's
 vocab-sharded logits into a token without a host round trip.
 
-Everything the decoder stage decided is carried through unchanged:
+Everything the decoder stage decided is carried through unchanged, except the weight dtypes and
+math fidelities the datatype-sweep stage re-selected:
 
 * **mesh** — one ``1x4`` Blackhole ring under ``FabricConfig.FABRIC_1D_RING`` with the stage's
   fabric router packet size; TP=4 for every dense tensor and EP=4 for the 256 routed experts;
-* **precision policy** — ``multichip_decoder``'s ``DEFAULT_POLICY``: BFP4/LoFi routed experts,
-  BFP8/HiFi2 dense projections and shared expert, bfloat16/HiFi4/fp32-accumulate router, float32
-  DeltaNet state, **bfloat8_b paged KV cache** with bfloat16 ``paged_update_cache`` inputs;
+* **precision policy** — no longer a constant in this file. ``from_pretrained(policy=None)``, the
+  default, resolves through :mod:`tt.precision_config` to
+  ``doc/datatype_sweep/selected_precision_config.json``, which the datatype-sweep stage selected and
+  which is therefore what ``build_generator``, every readiness runner, the benchmark harness and any
+  vLLM adapter going through them construct. As shipped that is BFP4/LoFi routed experts, **BFP4/LoFi
+  dense projections and LM head**, BFP8/HiFi2 shared expert, bfloat16/HiFi4/fp32-accumulate router,
+  float32 DeltaNet state, bfloat16 residual and **bfloat8_b paged KV cache** with bfloat16
+  ``paged_update_cache`` inputs. ``ORNITH_PRECISION_POLICY=optimized`` restores the decoder stage's
+  own ``DEFAULT_POLICY`` (BFP8/HiFi2 dense projections), which is what everything before the sweep
+  measured, and ``=fused-parity`` the bfloat16 floor;
 * **collectives** — ``CCL_MODE = "all_reduce"``, two per layer, both inside the layer. The
   deprecated ``ttnn.all_gather`` — which stage 5 measured diverging across devices under sustained
   traced replay — appears nowhere in this file, and the sampler's own gather is redirected off it

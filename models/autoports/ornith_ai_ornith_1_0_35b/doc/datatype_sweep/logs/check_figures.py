@@ -401,6 +401,71 @@ def main():
         True,
     )
 
+    # ---- sections 2, 9.3 and 10: the prose figures the first two review rounds caught ----
+    # Every numeric claim in the narrative sections, not only in the tables. Round 1 found three
+    # drifted figures here and round 2 found three more, all in sections this audit did not reach.
+    passing = [r for r in sr["results"] if r["status"] == "pass"]
+    chk("configurations passing the gate", len(passing), 23)
+    chk(
+        "passing-set range %",
+        round(
+            (max(r["teacher_decode_t_s_u"] for r in passing) / min(r["teacher_decode_t_s_u"] for r in passing) - 1)
+            * 100,
+            2,
+        ),
+        3.07,
+        5e-3,
+    )
+    non_regression = [r for r in passing if r["decode_speedup_vs_baseline_pct"] > -1.0]
+    chk("non-regression configurations", len(non_regression), 20)
+    chk(
+        "non-regression range %",
+        round(
+            (
+                max(r["teacher_decode_t_s_u"] for r in non_regression)
+                / min(r["teacher_decode_t_s_u"] for r in non_regression)
+                - 1
+            )
+            * 100,
+            2,
+        ),
+        0.92,
+        5e-3,
+    )
+    split = [
+        r["config_id"]
+        for r in sr["results"]
+        if (r["prefill_top1"] > s0["prefill_top1"]) != (r["teacher_top1"] > s0["teacher_top1"])
+        and (r["prefill_top1"] > s0["prefill_top1"] or r["teacher_top1"] > s0["teacher_top1"])
+    ]
+    chk("configs that beat the baseline on one gate only", len(split), 8)
+    chk("their ids", sorted(c.split("-")[0] for c in split), ["C03", "C04", "C07", "C08", "C09", "C14", "C20", "C21"])
+    chk(
+        "configs that beat the baseline on teacher forcing",
+        [r["config_id"] for r in sr["results"] if r["teacher_top1"] > s0["teacher_top1"]],
+        [],
+    )
+    ttfts = sorted((r["ttft_ms"], r["config_id"]) for r in sr["results"])
+    chk("lowest teacher-forcing TTFT ms", round(ttfts[0][0], 1), 178.2, 0.05)
+    chk("lowest TTFT config", ttfts[0][1].split("-")[0], "C16")
+    chk("highest teacher-forcing TTFT ms", round(ttfts[-1][0], 1), 184.8, 0.05)
+    chk("highest TTFT config", ttfts[-1][1].split("-")[0], "C14")
+    # Section 6.1's honesty about what the archived records DO carry.
+    a_run = json.loads((D / "runs" / "C10-experts-bfp4-hifi2.json").read_text())
+    chk(
+        "archived run records carry no per-layer fidelity rows",
+        any("math_fidelity" in row for row in a_run["precision_summary"]["per_layer"]),
+        False,
+    )
+    chk(
+        "archived run records do carry the built LM-head fidelity",
+        a_run["precision_summary"]["built"]["lm_head_math_fidelity"],
+        "MathFidelity.HiFi2",
+    )
+    # Section 4.0: C24 adds no op, which is why section 2's mechanism is NOT the explanation.
+    for cid, want in (("C08-shared-bfp4-lofi", 0.03), ("C15-logits-bfp8", 0.07), ("C20-sdpa-lofi-no-fp32-acc", 0.04)):
+        chk(f"{cid} delta % (a C24 ingredient)", round(rows[cid]["decode_speedup_vs_baseline_pct"], 2), want, 5e-3)
+
     # ---- section 5.2: the blocked arm ----
     blocked = json.loads((D / "blocked" / "C19-expert-act-bfp4.json").read_text())
     chk("C19 blockers recorded", len(blocked["blockers"]), 2)
