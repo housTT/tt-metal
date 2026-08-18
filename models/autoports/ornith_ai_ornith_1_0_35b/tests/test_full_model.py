@@ -130,19 +130,42 @@ def test_context_contract_is_the_advertised_one(mesh_device):
     assert capability["tp"] == 4
 
 
-def test_the_decoder_policy_is_carried_through_unchanged(mesh_device):
-    """The full model must not quietly relax any decoder-stage decision."""
+def test_the_decoder_structure_is_carried_through_unchanged(mesh_device):
+    """The full model must not quietly relax any decoder-stage decision.
+
+    The **precision** half of that contract now belongs to ``$datatype-sweep``: the dense-projection
+    and LM-head dtypes are the sweep's selected values, pinned by
+    ``test_the_selected_precision_config_is_the_built_policy`` against
+    ``doc/datatype_sweep/selected_precision_config.json``. What stays pinned here is everything the
+    sweep did **not** move, and the invariants it must not have moved: the collective spelling, the
+    router mode, EP/TP, the page block size, the float32 DeltaNet state, the bfloat16 conv history
+    and the bfloat16 router weight. ``ORNITH_PRECISION_POLICY=optimized`` restores the decoder
+    stage's own policy, which is what ``DEFAULT_POLICY`` is.
+    """
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt import precision_config as PC
+
+    selected = PC.load_selected_policy()
     generator = probe_generator(mesh_device)
     model = generator.model
     assert MC.CCL_MODE == "all_reduce", "the stage-5 collective correctness fix must still be selected"
     assert MC.ROUTER_MODE == "fused_gate"
+    # The groups the sweep left alone are still the decoder stage's.
+    assert selected.router_dtype == DEFAULT_POLICY.router_dtype == ttnn.bfloat16
+    assert selected.router_fidelity == DEFAULT_POLICY.router_fidelity
+    assert selected.shared_dtype == DEFAULT_POLICY.shared_dtype == ttnn.bfloat8_b
+    assert selected.expert_gate_up_dtype == DEFAULT_POLICY.expert_gate_up_dtype == ttnn.bfloat4_b
+    assert selected.expert_down_dtype == DEFAULT_POLICY.expert_down_dtype == ttnn.bfloat4_b
+    assert selected.expert_fidelity == DEFAULT_POLICY.expert_fidelity
+    assert selected.kv_cache_dtype == DEFAULT_POLICY.kv_cache_dtype == ttnn.bfloat8_b
+    assert selected.state_fidelity == DEFAULT_POLICY.state_fidelity
+    assert selected.sdpa_fidelity == DEFAULT_POLICY.sdpa_fidelity
+    assert selected.expert_act_dtype == DEFAULT_POLICY.expert_act_dtype
+    assert selected.residual_dtype == ttnn.bfloat16 and selected.ccl_dtype is None
     for layer in model.layers:
         assert isinstance(layer, MultichipDecoder)
         assert layer.tp == 4
-        assert layer.policy is DEFAULT_POLICY or layer.policy.name == DEFAULT_POLICY.name
+        assert layer.policy.base_name == selected.name
         assert layer.policy.kv_cache_dtype == ttnn.bfloat8_b
-        assert layer.policy.proj_dtype == ttnn.bfloat8_b
-        assert layer.policy.expert_gate_up_dtype == ttnn.bfloat4_b
         assert layer.policy.router_dtype == ttnn.bfloat16
         if layer.is_full_attention:
             assert layer.k_cache is not None and layer.k_cache.dtype == ttnn.bfloat8_b
@@ -154,9 +177,9 @@ def test_the_decoder_policy_is_carried_through_unchanged(mesh_device):
         if not layer.is_full_attention:
             for buffer in layer.conv_state:
                 assert buffer.dtype == ttnn.bfloat16, "the DeltaNet conv history is bfloat16"
-    # The LM head is a *new* dense projection, so it takes the dense projection group's dtype
-    # rather than inventing one.
-    assert model.lm_head_weights[0].dtype == DEFAULT_POLICY.proj_dtype
+    # The LM head is a *new* dense projection, so it takes the dense projection group's dtype rather
+    # than inventing one - which after the sweep means both moved together, to bfloat4_b.
+    assert model.lm_head_weights[0].dtype == selected.resolved_lm_head_dtype == selected.proj_dtype
     # The mesh/fabric half of the contract. The packet size is a fabric setting applied before
     # open_mesh_device, so what is checkable here is that the value the layer ships is the one the
     # suite's device_params passed.
@@ -838,32 +861,119 @@ def test_batch_four_generate_agrees_with_batch_one(mesh_device):
 
 
 def test_the_batched_prefill_state_reaches_every_decode_slot(mesh_device):
-    """The low-level batched pair, checked against a token rather than against `isfinite`.
+    """The low-level batched pair, checked against the batch-1 answer and against a measured floor.
 
-    Every row gets the same prompt, so every row's decoded token must be the batch-1 answer. This
-    is what fails if `_merge_prefill_state_into_slot` stops copying the prefill state into the
-    decode pack — `isfinite` and "the position advanced" both survive that.
+    What fails if ``_merge_prefill_state_into_slot`` stops copying the prefill state into the decode
+    pack is the **batch-1 comparison**, and only that. The negative control was run
+    (``doc/datatype_sweep/logs/probe_batch_slot_tie.py --no-merge``, artifact
+    ``doc/datatype_sweep/batch_slot_tie_no_merge.json``) and it is unambiguous:
+
+    | with the merge disabled | value |
+    |---|---|
+    | batch-4 **prefill** argmax | 58573 in every slot — still correct |
+    | batch-4 **decode** argmax | **267 in every slot**, against the batch-1 answer 45568 |
+    | cross-slot logit PCC | 0.99931 – 0.99954 — *indistinguishable from a healthy build* |
+    | cross-slot top-5 overlap | complete — every slot agrees with every other |
+    | top-1/top-2 margin | 1.69 – 1.88, i.e. not a tie at all |
+
+    So a slot-against-slot check does **not** detect this failure: without the merge all four slots
+    are equally wrong and therefore still agree. The assertion that carries the load is
+    ``expected[1]`` — the batch-1 answer — and it appears in both branches below.
+
+    The **decode** step additionally cannot be checked for bitwise cross-slot identity, because the
+    implementation has never had it. A batch-4 decode gives each row a different position in the
+    sharded matmuls and collectives, so the reduction order differs per row. Measured at three
+    precisions (``doc/datatype_sweep/batch_slot_tie_*.json``):
+
+    | policy | dense projections | cross-slot |Δlogit| | contender spread | min top-1/top-2 margin |
+    |---|---|---|---|---|
+    | ``fused-parity`` | bfloat16 / HiFi4 | 0.094 – 0.109 | 0.0000 | 0.3125 |
+    | ``optimized`` | bfloat8_b / HiFi2 | 0.281 – 0.312 | 0.1875 | 0.3125 |
+    | selected | bfloat4_b / LoFi | 0.281 – 0.500 | 0.1875 | **0.00000** |
+    | *no-merge control* | selected | 0.359 – 0.406 | 0.1250 | 1.6875 |
+
+    The floor the strict branch is gated on is the **contender spread** — the cross-slot spread of
+    the *candidate tokens' own* logits — not the maximum over all 248,320 vocabulary entries, which
+    would be gated on a column no ranking depends on and would make the strict branch unreachable
+    under both shipped policies. With the contender spread the strict branch fires on
+    ``optimized``, on ``fused-parity`` **and on the no-merge control** (margin 1.69 ≫ spread 0.125,
+    and 267 ≠ 45568, so the control fails as it must); it yields only for the genuine tie the
+    selected config produces on this prompt, where the top two candidates read the *same* bfloat16
+    value and 1–3 ULP of per-slot noise picks between them.
     """
     prompt = [8, 88, 888, 8888]
     expected = probe_generator(mesh_device, batch=1).generate(
         prompt_token_ids=prompt, max_new_tokens=2, enable_trace=True
     )
     four = probe_generator(mesh_device, batch=4)
-    four.reset()
-    tokens = torch.tensor([prompt] * 4)
-    logits = four.prefill_forward(tokens, page_table=None, kv_cache=None, prompt_lens=[len(prompt)] * 4)
-    first = torch.argmax(logits, dim=-1).reshape(-1)
-    assert all(int(v) == int(expected[0]) for v in first), f"prefill: {first.tolist()} vs {expected[0]}"
-    step = four.decode_forward(
+
+    def prefill_four():
+        four.reset()
+        tokens = torch.tensor([prompt] * 4)
+        logits = four.prefill_forward(tokens, page_table=None, kv_cache=None, prompt_lens=[len(prompt)] * 4)
+        first = torch.argmax(logits, dim=-1).reshape(-1)
+        assert all(int(v) == int(expected[0]) for v in first), f"prefill: {first.tolist()} vs {expected[0]}"
+        return first
+
+    # --- pass 1: the delivered path, device sampling, one token per slot ------------------------
+    first = prefill_four()
+    sampled = four.decode_forward(
         first,
         torch.tensor([len(prompt)] * 4),
         page_table=four.page_table,
         enable_trace=True,
         sample_on_device=True,
+    ).tolist()
+    assert all(0 <= int(v) < four.model.vocab_size for v in sampled), f"device sampler emitted {sampled}"
+
+    # --- pass 2: the same step with the logits read back, so every slot can be scored -----------
+    first = prefill_four()
+    host = four.decode_forward(
+        first,
+        torch.tensor([len(prompt)] * 4),
+        page_table=four.page_table,
+        enable_trace=True,
+        sample_on_device=False,
     )
-    assert all(
-        int(v) == int(expected[1]) for v in step
-    ), f"every slot decoded the same prompt, so every slot must produce {expected[1]}; got {step.tolist()}"
+    step_logits = host.float()
+    if step_logits.dim() == 3:
+        step_logits = step_logits[:, 0]
+    assert torch.isfinite(step_logits).all()
+
+    top5 = torch.topk(step_logits, 5, dim=-1)
+    argmax = top5.indices[:, 0].tolist()
+    slot0_top5 = set(top5.indices[0].tolist())
+    assert set(sampled) == set(
+        argmax
+    ), f"the device sampler and the read-back logits disagree on the greedy token: {sampled} vs {argmax}"
+    for slot in range(1, 4):
+        pcc = float(torch.corrcoef(torch.stack([step_logits[0], step_logits[slot]]))[0, 1])
+        # Sensitive to a slot that diverges from its neighbours; NOT sensitive to all four slots
+        # being wrong together - that is what the batch-1 comparison below is for.
+        assert pcc >= 0.999, f"slot {slot} logits do not track slot 0 (PCC {pcc:.6f})"
+
+    # The cross-slot spread of the *candidate* logits - the only column the ranking depends on.
+    contenders = set(argmax) | {int(expected[1])}
+    spread = max(float(step_logits[:, tok].max() - step_logits[:, tok].min()) for tok in contenders)
+    margin = float((top5.values[:, 0] - top5.values[:, 1]).min())
+
+    if margin > spread:
+        assert all(int(v) == int(expected[1]) for v in argmax), (
+            f"the top-1/top-2 margin ({margin:.5f}) clears the cross-slot contender spread "
+            f"({spread:.5f}), so every slot must decode the batch-1 answer {expected[1]}; got {argmax}"
+        )
+    else:
+        # Genuinely undecided. The batch-1 answer must still be one of the tokens the slots chose,
+        # and no slot may choose anything outside the shared shortlist.
+        assert int(expected[1]) in argmax, (
+            f"no slot reproduced the batch-1 answer {expected[1]} (margin {margin:.5f} <= spread "
+            f"{spread:.5f}); got {argmax}. With the prefill-state merge disabled this is exactly what "
+            "happens - see doc/datatype_sweep/batch_slot_tie_no_merge.json"
+        )
+        assert set(argmax) <= slot0_top5, (
+            f"slots disagree on a near-tie but {sorted(set(argmax) - slot0_top5)} is outside slot 0's "
+            "top-5 - that is not a tie, that is a bug"
+        )
 
 
 def test_batch_one_and_batch_four_agree_on_the_same_prompt(mesh_device):
@@ -1316,3 +1426,123 @@ def test_full_stack_non_aligned_long_prompt(mesh_device):
         assert torch.isfinite(logits).all()
     finally:
         generator.teardown()
+
+
+# --------------------------------------------------------------------------------------
+# datatype sweep: the selected precision config is the model's default, and it is consumed
+# --------------------------------------------------------------------------------------
+def test_the_selected_precision_config_is_the_built_policy(mesh_device):
+    """The propagation check: the artifact's fields are what the built model actually carries.
+
+    Not "the JSON says bfloat4_b" but "the device tensor is bfloat4_b, the constructed
+    compute-kernel config holds that fidelity, and the per-layer policy is the one ``for_layer``
+    resolved". A selected field the construction path ignored fails here.
+    """
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt import precision_config as PC
+
+    selected = PC.load_selected_policy()
+    generator = probe_generator(mesh_device)
+    model = generator.model
+
+    # The build defaulted to the artifact - nothing in probe_generator asked for a policy.
+    summary = model.precision_summary()
+    assert summary["selected_config"] == PC.policy_to_dict(selected)
+    assert model.policy == selected
+
+    # Terminal path.
+    assert model.lm_head_weights[0].dtype == selected.resolved_lm_head_dtype
+    assert model.lm_head_fidelity == selected.resolved_lm_head_fidelity
+    assert model.lm_head_compute_kernel_config.math_fidelity == selected.resolved_lm_head_fidelity
+
+    DENSE = {"attn_in": "proj_dtype", "o_proj": "proj_dtype", "gdn_in": "proj_dtype", "gdn_out": "proj_dtype"}
+    MOE = {
+        "expert_gate_up": "expert_gate_up_dtype",
+        "expert_down": "expert_down_dtype",
+        "shared_in": "shared_dtype",
+        "shared_down": "shared_dtype",
+        "router": "router_dtype",
+    }
+    seen_dense = seen_moe = 0
+    for layer, layer_idx in zip(model.layers, model.layer_indices):
+        resolved = selected.for_layer(layer_idx)
+        assert layer.policy == resolved
+        assert layer.compute_kernel_config.math_fidelity == resolved.proj_fidelity
+        assert layer.moe.expert_ckc.math_fidelity == resolved.expert_fidelity
+        assert layer.sdpa_compute_kernel_config.math_fidelity == resolved.sdpa_fidelity
+        assert layer.state_compute_kernel_config.math_fidelity == resolved.state_fidelity
+        assert layer.moe.shared_ckc.math_fidelity == resolved.shared_fidelity
+        assert layer.moe.dense_ckc.math_fidelity == resolved.router_fidelity
+        # The same six, as `precision_summary` records them per layer, so a fidelity-only candidate
+        # has a *built* row of its own in every sweep artifact rather than being inferred.
+        row = next(r for r in summary["per_layer"] if r["layer"] == layer_idx)
+        assert row["math_fidelity"] == {
+            "dense_projections": str(resolved.proj_fidelity),
+            "routed_experts": str(resolved.expert_fidelity),
+            "shared_expert": str(resolved.shared_fidelity),
+            "router": str(resolved.router_fidelity),
+            "sdpa": str(resolved.sdpa_fidelity),
+            "deltanet_state": str(resolved.state_fidelity),
+        }
+        for name, field in DENSE.items():
+            weight = layer.w.get(name)
+            if weight is None:
+                continue
+            assert weight.dtype == getattr(resolved, field), f"layer {layer_idx} {name}: {weight.dtype}"
+            seen_dense += 1
+        for name, field in MOE.items():
+            weight = layer.moe.w.get(name)
+            if weight is None or not hasattr(weight, "dtype"):
+                continue
+            assert weight.dtype == getattr(resolved, field), f"layer {layer_idx} {name}: {weight.dtype}"
+            seen_moe += 1
+        if layer.is_full_attention:
+            assert layer.k_cache.dtype == resolved.kv_cache_dtype
+            assert layer.v_cache.dtype == resolved.kv_cache_dtype
+    assert seen_dense >= 2 and seen_moe >= 4, "the propagation check must have looked at real weights"
+
+
+def test_the_residual_and_logits_dtypes_reach_the_ops(mesh_device):
+    """The two activation fields the sweep added are read by the ops, not merely recorded.
+
+    ``residual_dtype`` is handed to both residual adds and ``logits_dtype`` to the terminal matmul,
+    so an override must change what the built model produces. Without this, either field could sit
+    in the selected config while the code kept a hard-coded bfloat16 - which is exactly the failure
+    ``$datatype-sweep`` says a JSON field must not have.
+    """
+    _require_weights()
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt import precision_config as PC
+
+    selected = PC.load_selected_policy()
+    probe = selected.replace(
+        name="probe-narrow-activations", residual_dtype=ttnn.bfloat8_b, logits_dtype=ttnn.bfloat8_b
+    )
+    for stale_key in [k for k in _CACHE if k[0] == id(mesh_device)]:
+        _CACHE.pop(stale_key).teardown()
+    generator = build_generator(
+        model_dir=MODEL_DIR,
+        mesh_device=mesh_device,
+        layer_indices=PROBE_LAYERS,
+        max_batch_size=1,
+        cache_context=TEST_CACHE_CONTEXT,
+        policy=probe,
+    )
+    try:
+        model = generator.model
+        assert model.policy.residual_dtype is ttnn.bfloat8_b and model.policy.logits_dtype is ttnn.bfloat8_b
+        tokens = torch.tensor([[7, 11, 13, 17]])
+        logits = generator.prefill_forward(tokens, page_table=None, kv_cache=None, prompt_lens=[4])
+        assert torch.isfinite(logits).all(), "the narrowed-activation build must still produce finite logits"
+        # The *device* logits buffer the traced decode step writes is the LM head's own output, so its
+        # dtype is `policy.logits_dtype` if and only if the terminal matmul read that field.
+        out = generator.generate(
+            prompt_token_ids=[7, 11, 13, 17], max_new_tokens=3, enable_trace=True, stop_on_eos=False
+        )
+        assert len(out) == 3 and all(0 <= int(t) < model.vocab_size for t in out)
+        assert generator._trace_logits.dtype is ttnn.bfloat8_b, (
+            f"the traced decode logits came back as {generator._trace_logits.dtype}, so logits_dtype "
+            "did not reach the terminal matmul"
+        )
+    finally:
+        generator.teardown()
+        for stale_key in [k for k in _CACHE if k[0] == id(mesh_device)]:
+            _CACHE.pop(stale_key).teardown()

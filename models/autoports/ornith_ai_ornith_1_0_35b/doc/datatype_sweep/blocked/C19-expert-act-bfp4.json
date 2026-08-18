@@ -1,0 +1,31 @@
+{
+  "config_id": "C19-expert-act-bfp4",
+  "precision_config_path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/blocked/C19-expert-act-bfp4.config.json",
+  "status": "blocked",
+  "why_in_the_matrix": "the routed-expert output activation is the num_experts-wide intermediate the SwiGLU, the score multiply, the zero-fill and the expert reduction all pay for, so it is the widest activation in the layer and the last activation dtype the sweep had not moved",
+  "blockers": [
+    {
+      "order": 1,
+      "where": "ttnn.experimental.deepseek_moe_fast_reduce_nc, the routed-expert reduction",
+      "exact_error": "TT_FATAL: DeepseekMoEFastReduceNC input only supports specific data types. [BFLOAT16, BFLOAT8_B] (ttnn/cpp/ttnn/operations/moreh/moreh_helper_functions.cpp:285)",
+      "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt was OVERWRITTEN by the second run; the first run's console is not preserved. The blocker is independently verifiable in the source: ttnn/cpp/ttnn/operations/experimental/reduction/deepseek_moe_fast_reduce_nc/device/deepseek_moe_fast_reduce_nc_device_operation.cpp validates the input against {DataType::BFLOAT16, DataType::BFLOAT8_B}, which is the message verbatim.",
+      "note": "bfloat4_b is not a legal input dtype for the op at all - the op's own validator enumerates the two it accepts. This is the op contract, not a shape or layout mismatch."
+    },
+    {
+      "order": 2,
+      "where": "the adaptation: widen the bfloat4_b expert output to bfloat8_b before the reduction (OptimizedMoE._routed_experts, guarded by _MOE_REDUCE_DTYPES)",
+      "exact_error": "TT_FATAL: Writes are not supported during trace capture. trace id: 0 (assert.hpp:104), raised on all four devices inside _ensure_decode_trace, followed by a mesh stall",
+      "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt (the run on disk)",
+      "triage": "doc/datatype_sweep/triage/tt-triage-C19.txt.gz (gzipped after capture; the repo rejects files over 500 KB) and triage-summary-C19.txt: check_binary_integrity reports kernel .text mismatches on eltwise_binary_no_bcast and the interleaved reader/writer on all four devices - the same signature doc/optimized_full_model/README.md section 9 records for its traced-first-token-sampling hang",
+      "note": "the widening typecast on a bfloat4_b operand takes a path that issues a host write, which trace capture forbids. The candidate is therefore not capturable, and a decode step that cannot be traced cannot be ranked by this sweep at all (the skill forbids untraced decode as sweep evidence)."
+    }
+  ],
+  "recovery": {
+    "actions": "killed the stalled smoke process; tt-smi -ls --local (8 rows), tt-smi -r (all four PCI devices re-initialised), tt-smi -ls --local (8 rows), then the mesh smoke open_ornith_mesh/close_ornith_mesh -> MESH_SMOKE_OK",
+    "second_reset_needed": false,
+    "locks_cleared": false,
+    "classification": "infrastructure recovery from a candidate-induced trace-capture stall, not a model correctness or performance result"
+  },
+  "why_not_pursued_further": "the candidate is a *narrowing* of an activation, and the two directly comparable narrowing candidates that did run - C13 (CCL payload bfloat8_b, -1.33 %) and C14 (residual stream bfloat8_b, -1.87 %) - both measured SLOWER for exactly the reason this one would: the decode step is launch-bound at ~6 % of the DRAM roofline, so the typecast dispatches a narrower activation needs cost more than the bytes it saves. There is no evidence this arm would be faster, and the BFP4+LoFi coverage the skill requires is about matmul weight groups (routed experts, dense projections, shared expert, LM head), all four of which were measured on both fidelities.",
+  "code_left_in_place": "the widening guard stays in OptimizedMoE._routed_experts. It dispatches nothing under any shipped policy (both bfloat16 and bfloat8_b are accepted dtypes) and it is what turns a first-API-error rejection into a second, sharper blocker."
+}

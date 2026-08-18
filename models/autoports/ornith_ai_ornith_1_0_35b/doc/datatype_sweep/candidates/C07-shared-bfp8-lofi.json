@@ -1,0 +1,49 @@
+{
+  "schema": "ornith-precision-config/1",
+  "stage": "datatype-sweep",
+  "candidate_rationale": "shared expert keeps BFP8 and drops to LoFi",
+  "config_id": "C07-shared-bfp8-lofi",
+  "weight_groups": {
+    "routed_expert_gate_up": "bfloat4_b",
+    "routed_expert_down": "bfloat4_b",
+    "dense_projections": "bfloat8_b",
+    "shared_expert": "bfloat8_b",
+    "router": "bfloat16",
+    "lm_head": null
+  },
+  "compute_fidelities": {
+    "routed_experts": "LoFi",
+    "routed_experts_fp32_dest_acc": false,
+    "routed_experts_packer_l1_acc": false,
+    "dense_projections": "HiFi2",
+    "dense_projections_fp32_dest_acc": false,
+    "dense_projections_packer_l1_acc": true,
+    "shared_expert": "LoFi",
+    "shared_expert_fp32_dest_acc": false,
+    "shared_expert_packer_l1_acc": true,
+    "router": "HiFi4",
+    "router_fp32_dest_acc": true,
+    "deltanet_state": "HiFi4",
+    "deltanet_state_fp32_dest_acc": true,
+    "sdpa": "HiFi2",
+    "sdpa_fp32_dest_acc": true,
+    "lm_head": null
+  },
+  "activations": {
+    "routed_expert_output": "bfloat8_b",
+    "residual_stream": "bfloat16"
+  },
+  "ccl": {
+    "payload_dtype": null
+  },
+  "kv_cache": {
+    "dtype": "bfloat8_b"
+  },
+  "logits_sampling": {
+    "logits_dtype": "bfloat16"
+  },
+  "layer_exceptions": [],
+  "prefill": {
+    "sdpa_q_k_chunk": 256
+  }
+}

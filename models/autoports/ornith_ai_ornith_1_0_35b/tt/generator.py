@@ -37,7 +37,6 @@ from loguru import logger
 
 import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model import (
-    DEFAULT_TOPK_GROUPS,
     MAX_SAMPLING_BATCH,
     TILE,
     OrnithModel,
@@ -852,8 +851,15 @@ def build_generator(model_dir=None, mesh_device=None, **kwargs) -> OrnithGenerat
     ``override_num_layers``   build only the first N layers - debugging
     ``layer_indices``         build exactly these HF layer indices - the reduced profiling variant
     ``sampling_mode``         ``"device"`` (default) or ``"host"`` compatibility mode
-    ``policy``                precision policy name; default is the decoder stage's ``optimized``
-    ``lm_head_dtype``         override the LM head weight dtype (default: the policy's, bfloat8_b)
+    ``policy``                precision policy. **Default: the selected precision config artifact**,
+                              ``doc/datatype_sweep/selected_precision_config.json``, loaded by
+                              ``tt/precision_config.py``. Also accepts a registered policy name
+                              (``"optimized"`` is the pre-sweep decoder-stage policy,
+                              ``"fused-parity"`` the bfloat16 floor), a path to another JSON config,
+                              a dict in that schema, or a ``PrecisionPolicy``. The environment
+                              variable ``ORNITH_PRECISION_POLICY`` overrides the default without
+                              touching a call site
+    ``lm_head_dtype``         override the LM head weight dtype (default: the policy's)
     ``lm_head_program``       terminal matmul spelling: ``"mcast1d"`` (default), ``"interleaved"`` or
                               ``"dram_sharded"``. ``"dram_sharded"`` requires ``lm_head_cores`` to
                               divide ``dim / 32`` and raises otherwise

@@ -1,0 +1,3036 @@
+{
+  "config_id": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+  "precision_config_path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C23-proj-bfp4-lofi-lmhead-bfp8-lofi.json",
+  "policy_argument": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C23-proj-bfp4-lofi-lmhead-bfp8-lofi.json",
+  "dtype_policy": {
+    "schema": "ornith-precision-config/1",
+    "config_id": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+    "weight_groups": {
+      "routed_expert_gate_up": "bfloat4_b",
+      "routed_expert_down": "bfloat4_b",
+      "dense_projections": "bfloat4_b",
+      "shared_expert": "bfloat8_b",
+      "router": "bfloat16",
+      "lm_head": "bfloat8_b"
+    },
+    "compute_fidelities": {
+      "routed_experts": "LoFi",
+      "routed_experts_fp32_dest_acc": false,
+      "routed_experts_packer_l1_acc": false,
+      "dense_projections": "LoFi",
+      "dense_projections_fp32_dest_acc": false,
+      "dense_projections_packer_l1_acc": true,
+      "shared_expert": "HiFi2",
+      "shared_expert_fp32_dest_acc": false,
+      "shared_expert_packer_l1_acc": true,
+      "router": "HiFi4",
+      "router_fp32_dest_acc": true,
+      "deltanet_state": "HiFi4",
+      "deltanet_state_fp32_dest_acc": true,
+      "sdpa": "HiFi2",
+      "sdpa_fp32_dest_acc": true,
+      "lm_head": "LoFi"
+    },
+    "activations": {
+      "routed_expert_output": "bfloat8_b",
+      "residual_stream": "bfloat16"
+    },
+    "ccl": {
+      "payload_dtype": null
+    },
+    "kv_cache": {
+      "dtype": "bfloat8_b"
+    },
+    "logits_sampling": {
+      "logits_dtype": "bfloat16"
+    },
+    "layer_exceptions": [],
+    "prefill": {
+      "sdpa_q_k_chunk": 256
+    }
+  },
+  "reference": "/home/ttuser/dev/ornith/tt-metal/models/autoports/ornith_ai_ornith_1_0_35b/readiness_aime24_chat.refpt",
+  "command": "python models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/logs/sweep_one.py --config models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C23-proj-bfp4-lofi-lmhead-bfp8-lofi.json --output models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/runs/C23-proj-bfp4-lofi-lmhead-bfp8-lofi.json --tf-repeats 10",
+  "note": "",
+  "branch": "agentic-research/hous/ornith-1.0-35B",
+  "commit": "e5477080792d13c86582bdfd20db9c64539dafb2",
+  "hardware": {
+    "board": "Blackhole p300c",
+    "num_devices": 4,
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "arch": "Arch.BLACKHOLE",
+    "host": "tt-quietbox-part-2"
+  },
+  "measurement_regime": {
+    "accuracy": "full-model top-1/top-5/top-100 against the AIME24 chat-template readiness reference (1 entry, 100 generated tokens, top-k=100), through run_prefill_check's and run_teacher_forcing's own per-entry functions",
+    "performance": "trace-verified teacher-forcing decode t/s/u, batch 1, greedy, device sampling, serial loop by construction; best of --tf-repeats repeats in one build",
+    "workload": "AIME24 prompt + 100 forced tokens"
+  },
+  "gate": {
+    "top1": 0.9,
+    "top5": 0.98,
+    "top100": 1.0
+  },
+  "build_s": 212.2361272239359,
+  "capability": {
+    "hf_model_id": "ornith-ai/Ornith-1.0-35B",
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "tp": 4,
+    "num_layers": 40,
+    "layer_indices": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ],
+    "hf_num_hidden_layers": 40,
+    "reduced": false,
+    "max_context": 262144,
+    "hf_advertised_context": 262144,
+    "max_batch_size": 1,
+    "prefill_chunk": 2048,
+    "page_block_size": 64,
+    "num_blocks": 128,
+    "vocab_size": 248320,
+    "padded_vocab_size": 249856,
+    "policy": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+    "kv_cache_dtype": "DataType.BFLOAT8_B",
+    "lm_head_dtype": "DataType.BFLOAT8_B",
+    "ccl_mode": "all_reduce",
+    "router_mode": "fused_gate",
+    "precision": {
+      "selected_config": {
+        "schema": "ornith-precision-config/1",
+        "config_id": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weight_groups": {
+          "routed_expert_gate_up": "bfloat4_b",
+          "routed_expert_down": "bfloat4_b",
+          "dense_projections": "bfloat4_b",
+          "shared_expert": "bfloat8_b",
+          "router": "bfloat16",
+          "lm_head": "bfloat8_b"
+        },
+        "compute_fidelities": {
+          "routed_experts": "LoFi",
+          "routed_experts_fp32_dest_acc": false,
+          "routed_experts_packer_l1_acc": false,
+          "dense_projections": "LoFi",
+          "dense_projections_fp32_dest_acc": false,
+          "dense_projections_packer_l1_acc": true,
+          "shared_expert": "HiFi2",
+          "shared_expert_fp32_dest_acc": false,
+          "shared_expert_packer_l1_acc": true,
+          "router": "HiFi4",
+          "router_fp32_dest_acc": true,
+          "deltanet_state": "HiFi4",
+          "deltanet_state_fp32_dest_acc": true,
+          "sdpa": "HiFi2",
+          "sdpa_fp32_dest_acc": true,
+          "lm_head": "LoFi"
+        },
+        "activations": {
+          "routed_expert_output": "bfloat8_b",
+          "residual_stream": "bfloat16"
+        },
+        "ccl": {
+          "payload_dtype": null
+        },
+        "kv_cache": {
+          "dtype": "bfloat8_b"
+        },
+        "logits_sampling": {
+          "logits_dtype": "bfloat16"
+        },
+        "layer_exceptions": [],
+        "prefill": {
+          "sdpa_q_k_chunk": 256
+        }
+      },
+      "built": {
+        "lm_head_weight_dtype": "DataType.BFLOAT8_B",
+        "lm_head_math_fidelity": "MathFidelity.LoFi",
+        "logits_dtype": "DataType.BFLOAT16",
+        "embedding_dtype": "DataType.BFLOAT16",
+        "final_norm_dtype": "DataType.BFLOAT16",
+        "prefill_sdpa_chunk": 256
+      },
+      "per_layer": [
+        {
+          "layer": 0,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 1,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 2,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 3,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 4,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 5,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 6,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 7,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 8,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 9,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 10,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 11,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 12,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 13,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 14,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 15,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 16,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 17,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 18,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 19,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 20,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 21,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 22,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 23,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 24,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 25,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 26,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 27,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 28,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 29,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 30,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 31,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 32,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 33,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 34,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 35,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        },
+        {
+          "layer": 36,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 37,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 38,
+          "kind": "linear_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "A_neg": "DataType.FLOAT32",
+            "attn_norm": "DataType.BFLOAT16",
+            "dt_bias": "DataType.FLOAT32",
+            "ff_norm": "DataType.BFLOAT16",
+            "gdn_in": "DataType.BFLOAT4_B",
+            "gdn_norm": "DataType.BFLOAT16",
+            "gdn_out": "DataType.BFLOAT4_B",
+            "pos_ramp": "DataType.FLOAT32"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "recurrent_state_dtype": "DataType.FLOAT32"
+        },
+        {
+          "layer": 39,
+          "kind": "full_attention",
+          "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+          "weights": {
+            "attn_in": "DataType.BFLOAT4_B",
+            "attn_norm": "DataType.BFLOAT16",
+            "ff_norm": "DataType.BFLOAT16",
+            "k_norm": "DataType.BFLOAT16",
+            "o_proj": "DataType.BFLOAT4_B",
+            "q_norm": "DataType.BFLOAT16"
+          },
+          "moe_weights": {
+            "expert_down": "DataType.BFLOAT4_B",
+            "expert_gate_up": "DataType.BFLOAT4_B",
+            "expert_select": "DataType.BFLOAT16",
+            "router": "DataType.BFLOAT16",
+            "shared_down": "DataType.BFLOAT8_B",
+            "shared_in": "DataType.BFLOAT8_B"
+          },
+          "residual_dtype": "DataType.BFLOAT16",
+          "ccl_dtype": "None",
+          "expert_act_dtype": "DataType.BFLOAT8_B",
+          "k_cache_dtype": "DataType.BFLOAT8_B",
+          "v_cache_dtype": "DataType.BFLOAT8_B"
+        }
+      ]
+    }
+  },
+  "precision_summary": {
+    "selected_config": {
+      "schema": "ornith-precision-config/1",
+      "config_id": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+      "weight_groups": {
+        "routed_expert_gate_up": "bfloat4_b",
+        "routed_expert_down": "bfloat4_b",
+        "dense_projections": "bfloat4_b",
+        "shared_expert": "bfloat8_b",
+        "router": "bfloat16",
+        "lm_head": "bfloat8_b"
+      },
+      "compute_fidelities": {
+        "routed_experts": "LoFi",
+        "routed_experts_fp32_dest_acc": false,
+        "routed_experts_packer_l1_acc": false,
+        "dense_projections": "LoFi",
+        "dense_projections_fp32_dest_acc": false,
+        "dense_projections_packer_l1_acc": true,
+        "shared_expert": "HiFi2",
+        "shared_expert_fp32_dest_acc": false,
+        "shared_expert_packer_l1_acc": true,
+        "router": "HiFi4",
+        "router_fp32_dest_acc": true,
+        "deltanet_state": "HiFi4",
+        "deltanet_state_fp32_dest_acc": true,
+        "sdpa": "HiFi2",
+        "sdpa_fp32_dest_acc": true,
+        "lm_head": "LoFi"
+      },
+      "activations": {
+        "routed_expert_output": "bfloat8_b",
+        "residual_stream": "bfloat16"
+      },
+      "ccl": {
+        "payload_dtype": null
+      },
+      "kv_cache": {
+        "dtype": "bfloat8_b"
+      },
+      "logits_sampling": {
+        "logits_dtype": "bfloat16"
+      },
+      "layer_exceptions": [],
+      "prefill": {
+        "sdpa_q_k_chunk": 256
+      }
+    },
+    "built": {
+      "lm_head_weight_dtype": "DataType.BFLOAT8_B",
+      "lm_head_math_fidelity": "MathFidelity.LoFi",
+      "logits_dtype": "DataType.BFLOAT16",
+      "embedding_dtype": "DataType.BFLOAT16",
+      "final_norm_dtype": "DataType.BFLOAT16",
+      "prefill_sdpa_chunk": 256
+    },
+    "per_layer": [
+      {
+        "layer": 0,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 1,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 2,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 3,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 4,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 5,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 6,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 7,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 8,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 9,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 10,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 11,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 12,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 13,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 14,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 15,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 16,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 17,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 18,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 19,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 20,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 21,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 22,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 23,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 24,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 25,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 26,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 27,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 28,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 29,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 30,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 31,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 32,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 33,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 34,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 35,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "layer": 36,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 37,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 38,
+        "kind": "linear_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "A_neg": "DataType.FLOAT32",
+          "attn_norm": "DataType.BFLOAT16",
+          "dt_bias": "DataType.FLOAT32",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_in": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "pos_ramp": "DataType.FLOAT32"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "recurrent_state_dtype": "DataType.FLOAT32"
+      },
+      {
+        "layer": 39,
+        "kind": "full_attention",
+        "policy_name": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+        "weights": {
+          "attn_in": "DataType.BFLOAT4_B",
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16"
+        },
+        "moe_weights": {
+          "expert_down": "DataType.BFLOAT4_B",
+          "expert_gate_up": "DataType.BFLOAT4_B",
+          "expert_select": "DataType.BFLOAT16",
+          "router": "DataType.BFLOAT16",
+          "shared_down": "DataType.BFLOAT8_B",
+          "shared_in": "DataType.BFLOAT8_B"
+        },
+        "residual_dtype": "DataType.BFLOAT16",
+        "ccl_dtype": "None",
+        "expert_act_dtype": "DataType.BFLOAT8_B",
+        "k_cache_dtype": "DataType.BFLOAT8_B",
+        "v_cache_dtype": "DataType.BFLOAT8_B"
+      }
+    ]
+  },
+  "prefill": [
+    {
+      "top1": 0.93,
+      "top5": 1.0,
+      "top100": 1.0,
+      "matches_top1": 93,
+      "matches_top5": 100,
+      "matches_top100": 100,
+      "total": 100,
+      "k": 100
+    }
+  ],
+  "teacher_forcing_repeats": [
+    {
+      "repeat": 0,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.872938974061981,
+          "e2e_t/s/u": 34.80756149115564,
+          "ttft_ms": 299.37683907337487,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.573325852979906,
+          "decode_t/s/u": 38.47161442277441
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.2950719549553469,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.3518063470255584,
+        "decode_t/s/u": 42.09530267031128,
+        "decode_ms_per_token": 23.755619666924833,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 1,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 1,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.5424406779929996,
+          "e2e_t/s/u": 39.33228447199795,
+          "ttft_ms": 192.95033509843051,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.349260222981684,
+          "decode_t/s/u": 42.14092548434208
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.18855344504117966,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.3489101940067485,
+        "decode_t/s/u": 42.14720522419239,
+        "decode_ms_per_token": 23.72636559602776,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 2,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.5368014340056106,
+          "e2e_t/s/u": 39.41971912326616,
+          "ttft_ms": 184.1207459801808,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.35247868206352,
+          "decode_t/s/u": 42.08327189309972
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.17933086503762752,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.3521752329543233,
+        "decode_t/s/u": 42.08870096623557,
+        "decode_ms_per_token": 23.759345787417406,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 3,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.5349455199902877,
+          "e2e_t/s/u": 39.4485795499002,
+          "ttft_ms": 181.75752193201333,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.352948490064591,
+          "decode_t/s/u": 42.07486921963274
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.17695533693768084,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.352653366047889,
+        "decode_t/s/u": 42.08014721960737,
+        "decode_ms_per_token": 23.764175414625143,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 4,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.5455795649904758,
+          "e2e_t/s/u": 39.28378486978235,
+          "ttft_ms": 191.94563501514494,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.353419560007751,
+          "decode_t/s/u": 42.06644734425252
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.18716740608215332,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.353083767928183,
+        "decode_t/s/u": 42.07245035189139,
+        "decode_ms_per_token": 23.768522908365487,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 5,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.539955861051567,
+          "e2e_t/s/u": 39.37076290711564,
+          "ttft_ms": 189.94640605524182,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.349796838941984,
+          "decode_t/s/u": 42.13130188930529
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.18515007302630693,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.3494492039317265,
+        "decode_t/s/u": 42.13753582513158,
+        "decode_ms_per_token": 23.731810140724512,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 6,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.534398964024149,
+          "e2e_t/s/u": 39.45708683577538,
+          "ttft_ms": 184.34790999162942,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.349849359015934,
+          "decode_t/s/u": 42.13036023784054
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.17981905792839825,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.3495607670629397,
+        "decode_t/s/u": 42.135535027576495,
+        "decode_ms_per_token": 23.732937041039797,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 7,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.538419396034442,
+          "e2e_t/s/u": 39.394593405731754,
+          "ttft_ms": 186.88766309060156,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.351287485915236,
+          "decode_t/s/u": 42.10459188552367
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.18146386998705566,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.350977574940771,
+        "decode_t/s/u": 42.11014220435265,
+        "decode_ms_per_token": 23.747248231724956,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 8,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.5426094309659675,
+          "e2e_t/s/u": 39.32967398850905,
+          "ttft_ms": 189.8228300269693,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.352526443894021,
+          "decode_t/s/u": 42.08241750351174
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.18527318898122758,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.3522462690016255,
+        "decode_t/s/u": 42.087429919495214,
+        "decode_ms_per_token": 23.76006332324874,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    },
+    {
+      "repeat": 9,
+      "per_entry": [
+        {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "matches_top1": 94,
+          "matches_top5": 100,
+          "matches_top100": 100,
+          "total": 100,
+          "k": 100,
+          "elapsed_s": 2.633797372924164,
+          "e2e_t/s/u": 37.967992917000814,
+          "ttft_ms": 276.4398289145902,
+          "decode_tokens": 99.0,
+          "decode_elapsed_s": 2.3571151100331917,
+          "decode_t/s/u": 42.00049440886488
+        }
+      ],
+      "generator_perf": {
+        "prompt_len": 161,
+        "requested_tokens": 100,
+        "generated_tokens": 100,
+        "ttft_s": 0.268924952019006,
+        "decode_steps": 99,
+        "decode_elapsed_s": 2.356738271075301,
+        "decode_t/s/u": 42.00721022569452,
+        "decode_ms_per_token": 23.805437081568694,
+        "sampling_mode": "device",
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "counters": {
+          "decode_calls": 99,
+          "position_refreshes": 1,
+          "rope_refreshes": 1,
+          "token_refreshes": 5,
+          "page_table_refreshes": 0,
+          "token_readbacks": 100,
+          "read_waits": 0,
+          "decode_syncs": 99
+        }
+      },
+      "trace": {
+        "enable_trace": true,
+        "trace_id_present": true,
+        "sampling_trace_ready": true,
+        "trace_recaptures_total": 1,
+        "recaptures_inside_timed_window": 0,
+        "pipelined_readback": false,
+        "teacher_forcing": true,
+        "decode_calls": 99,
+        "decode_syncs": 99,
+        "token_refreshes": 5
+      }
+    }
+  ],
+  "result": {
+    "prefill_top1": 0.93,
+    "prefill_top5": 1.0,
+    "prefill_top100": 1.0,
+    "teacher_top1": 0.94,
+    "teacher_top5": 1.0,
+    "teacher_top100": 1.0,
+    "teacher_accuracy_identical_across_repeats": true,
+    "teacher_accuracy_per_repeat": [
+      [
+        0.94,
+        1.0,
+        1.0
+      ]
+    ],
+    "ttft_ms": 181.75752193201333,
+    "ttft_ms_per_repeat": [
+      299.37683907337487,
+      192.95033509843051,
+      184.1207459801808,
+      181.75752193201333,
+      191.94563501514494,
+      189.94640605524182,
+      184.34790999162942,
+      186.88766309060156,
+      189.8228300269693,
+      276.4398289145902
+    ],
+    "teacher_decode_t/s/u": 42.14092548434208,
+    "teacher_decode_ms_per_token": 23.729901242239233,
+    "teacher_decode_t/s/u_per_repeat": [
+      38.47161442277441,
+      42.14092548434208,
+      42.08327189309972,
+      42.07486921963274,
+      42.06644734425252,
+      42.13130188930529,
+      42.13036023784054,
+      42.10459188552367,
+      42.08241750351174,
+      42.00049440886488
+    ],
+    "warm_repeats": 9,
+    "total_repeats": 10,
+    "teacher_decode_t/s/u_warm_repeats": [
+      42.14092548434208,
+      42.08327189309972,
+      42.07486921963274,
+      42.06644734425252,
+      42.13130188930529,
+      42.13036023784054,
+      42.10459188552367,
+      42.08241750351174,
+      42.00049440886488
+    ],
+    "teacher_decode_spread_pct": 0.3343557676015241,
+    "tokens": 100,
+    "failures": [],
+    "status": "pass"
+  }
+}

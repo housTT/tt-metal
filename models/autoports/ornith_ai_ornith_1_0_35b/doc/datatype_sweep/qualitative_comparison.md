@@ -1,0 +1,12 @@
+# Qualitative suite: selected precision config against the pre-sweep policy
+
+6 prompts, chat template, greedy, 128 new tokens. Both TT arms saw byte-identical rendered prompts (asserted).
+
+| prompt | selected vs baseline-policy word similarity | identical leading words | doubling | repeated trigrams |
+|---|---|---|---|---|
+| Write a haiku about machine learning.… | 0.509 | 11 | 0.000 | 0.000 |
+| Explain the difference between supervised an… | 0.686 | 5 | 0.000 | 0.000 |
+| Complete this story: Once upon a time, in a … | 0.559 | 35 | 0.014 | 0.000 |
+| What are the three laws of thermodynamics?… | 0.750 | 54 | 0.000 | 0.028 |
+| Translate the following to French: "Hello, h… | 0.719 | 29 | 0.000 | 0.016 |
+| Write a Python function to calculate the Fib… | 0.798 | 31 | 0.000 | 0.000 |

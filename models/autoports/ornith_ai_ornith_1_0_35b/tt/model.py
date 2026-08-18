@@ -66,12 +66,11 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder import (
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     DEFAULT_MOE_GROUP_TOKENS,
     DEFAULT_PAGE_BLOCK_SIZE,
-    DEFAULT_POLICY,
     DEFAULT_PREFILL_CHUNK,
-    POLICIES,
     PrecisionPolicy,
     num_blocks_for_context,
 )
+from models.autoports.ornith_ai_ornith_1_0_35b.tt.precision_config import resolve_policy
 from models.common.lightweightmodule import LightweightModule
 from models.common.modules.tt_ccl import TT_CCL
 
@@ -416,7 +415,7 @@ class OrnithModel(LightweightModule):
         #: exists so it can be swept independently of that group (`$optimize` asks for a per-group
         #: LoFi/HiFi2 comparison, and this row is the largest full-model-only decode op).
         self.lm_head_fidelity = (
-            policy.proj_fidelity
+            policy.resolved_lm_head_fidelity
             if lm_head_fidelity is None
             else {"lofi": ttnn.MathFidelity.LoFi, "hifi2": ttnn.MathFidelity.HiFi2, "hifi4": ttnn.MathFidelity.HiFi4}[
                 str(lm_head_fidelity).lower()
@@ -518,7 +517,7 @@ class OrnithModel(LightweightModule):
         prefill_chunk: int = DEFAULT_PREFILL_CHUNK,
         page_block_size: int = DEFAULT_PAGE_BLOCK_SIZE,
         moe_group_tokens: int = DEFAULT_MOE_GROUP_TOKENS,
-        policy: PrecisionPolicy | str = DEFAULT_POLICY,
+        policy: PrecisionPolicy | str | dict | None = None,
         layer_indices=None,
         override_num_layers: int | None = None,
         lm_head_dtype=None,
@@ -542,10 +541,11 @@ class OrnithModel(LightweightModule):
         """
         import torch
 
-        if isinstance(policy, str):
-            if policy not in POLICIES:
-                raise ValueError(f"unknown precision policy {policy!r}; known: {sorted(POLICIES)}")
-            policy = POLICIES[policy]
+        # `policy=None` is the default and resolves to the datatype-sweep stage's selected config
+        # artifact (`doc/datatype_sweep/selected_precision_config.json`), or to whatever
+        # `ORNITH_PRECISION_POLICY` names. A registered name, a dict, a Path or a PrecisionPolicy
+        # object all still work. See `tt/precision_config.py`.
+        policy = resolve_policy(policy)
         path = resolve_model_path(model_path)
         hf_config = hf_config if hf_config is not None else load_text_config(path)
         gcfg = OrnithDecoderConfig.from_hf_config(hf_config)
@@ -612,7 +612,7 @@ class OrnithModel(LightweightModule):
 
         # LM head: column-parallel over the vocabulary, which is both the cheapest split (no partial
         # sums, no collective) and precisely the shard layout the split sampler consumes.
-        lm_head_dtype = policy.proj_dtype if lm_head_dtype is None else lm_head_dtype
+        lm_head_dtype = policy.resolved_lm_head_dtype if lm_head_dtype is None else lm_head_dtype
         head = reader.get("lm_head.weight").float().transpose(0, 1).contiguous()  # [dim, vocab]
         if padded_vocab_size > vocab_size:
             head = torch.cat([head, torch.zeros(head.shape[0], padded_vocab_size - vocab_size)], dim=1)
@@ -667,7 +667,10 @@ class OrnithModel(LightweightModule):
                 page_block_size=page_block_size,
                 prefill_chunk=prefill_chunk,
                 moe_group_tokens=moe_group_tokens,
-                policy=policy,
+                # `for_layer` applies the policy's layer exceptions. It returns the policy itself
+                # when this layer has none, so an unexceptional build still satisfies
+                # `layer.policy is policy`.
+                policy=policy.for_layer(layer_idx),
                 tp=tp,
             )
             del state_dict
@@ -1120,7 +1123,7 @@ class OrnithModel(LightweightModule):
                         rows,
                         weight,
                         compute_kernel_config=self.lm_head_compute_kernel_config,
-                        dtype=ttnn.bfloat16,
+                        dtype=self.policy.logits_dtype,
                         memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     )
                 )
@@ -1136,7 +1139,7 @@ class OrnithModel(LightweightModule):
                 weight,
                 compute_kernel_config=self.lm_head_compute_kernel_config,
                 program_config=cfg,
-                dtype=ttnn.bfloat16,
+                dtype=self.policy.logits_dtype,
                 memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG if sharded else ttnn.DRAM_MEMORY_CONFIG,
             )
             if act is not rows:
@@ -1733,4 +1736,66 @@ class OrnithModel(LightweightModule):
             "lm_head_dtype": str(self.lm_head_weights[0].dtype),
             "ccl_mode": MC.CCL_MODE,
             "router_mode": MC.ROUTER_MODE,
+            "precision": self.precision_summary(),
+        }
+
+    def precision_summary(self) -> dict:
+        """What the **built** model is, read off the live objects rather than off the policy.
+
+        This is the datatype-sweep propagation check: every row is either a device tensor's own
+        dtype or the value a constructed compute-kernel config / op call carries, so a selected
+        precision field that the code path ignores shows up here as a disagreement with
+        ``selected_precision_config.json`` rather than as a JSON field nobody consumed.
+        ``tests/test_full_model.py::test_the_selected_precision_config_is_the_built_policy`` asserts
+        the two agree, field by field.
+        """
+        from models.autoports.ornith_ai_ornith_1_0_35b.tt.precision_config import policy_to_dict
+
+        per_layer = []
+        for layer, layer_idx in zip(self.layers, self.layer_indices):
+            row = {
+                "layer": int(layer_idx),
+                "kind": layer.kind,
+                "policy_name": layer.policy.name,
+                "weights": {name: str(w.dtype) for name, w in sorted(layer.w.items()) if hasattr(w, "dtype")},
+                "moe_weights": {name: str(w.dtype) for name, w in sorted(layer.moe.w.items()) if hasattr(w, "dtype")},
+                "residual_dtype": str(layer.policy.residual_dtype),
+                "ccl_dtype": str(layer.policy.ccl_dtype),
+                "expert_act_dtype": str(layer.policy.expert_act_dtype),
+                # Read off the CONSTRUCTED compute-kernel configs, not off the policy, so a
+                # fidelity-only candidate has a *built* row of its own rather than being inferred
+                # from the weight dtypes (which it does not change).
+                "math_fidelity": {
+                    "dense_projections": str(layer.compute_kernel_config.math_fidelity),
+                    "routed_experts": str(layer.moe.expert_ckc.math_fidelity),
+                    "shared_expert": str(layer.moe.shared_ckc.math_fidelity),
+                    "router": str(layer.moe.dense_ckc.math_fidelity),
+                    "sdpa": str(layer.sdpa_compute_kernel_config.math_fidelity),
+                    "deltanet_state": str(layer.state_compute_kernel_config.math_fidelity),
+                },
+            }
+            if layer.is_full_attention:
+                row["k_cache_dtype"] = str(layer.k_cache.dtype) if layer.k_cache is not None else None
+                row["v_cache_dtype"] = str(layer.v_cache.dtype) if layer.v_cache is not None else None
+            else:
+                row["recurrent_state_dtype"] = str(layer.recurrent_state.dtype)
+            per_layer.append(row)
+        return {
+            "selected_config": policy_to_dict(self.policy),
+            "built": {
+                "lm_head_weight_dtype": str(self.lm_head_weights[0].dtype),
+                "lm_head_math_fidelity": str(self.lm_head_fidelity),
+                "logits_dtype": str(self.policy.logits_dtype),
+                "embedding_dtype": str(self.embed_weight.dtype),
+                "final_norm_dtype": str(self.norm_weight.dtype),
+                "prefill_sdpa_chunk": next(
+                    (
+                        layer._prefill_sdpa_config(0, 4096).q_chunk_size
+                        for layer in self.layers
+                        if layer.is_full_attention
+                    ),
+                    None,
+                ),
+            },
+            "per_layer": per_layer,
         }

@@ -1,0 +1,68 @@
+{
+  "schema": "ornith-precision-config/1",
+  "stage": "datatype-sweep",
+  "status": "SELECTED - this file is the model's default precision policy",
+  "selected_from_run": "doc/datatype_sweep/runs/C06-proj-bfp4-lofi.json",
+  "selection_rule": "the fastest evaluated config that satisfies the full-model accuracy gate (top-1 >= 0.90, top-5 >= 0.98, top-100 = 1.00 on BOTH run_prefill_check and run_teacher_forcing), ranked by trace-verified teacher-forcing decode t/s/u",
+  "measured": {
+    "prefill_top1": 0.92,
+    "prefill_top5": 1.0,
+    "prefill_top100": 1.0,
+    "teacher_top1": 0.92,
+    "teacher_top5": 1.0,
+    "teacher_top100": 1.0,
+    "teacher_forcing_decode_t/s/u": 42.2957428566617,
+    "teacher_forcing_decode_ms_per_token": 23.643041414095823,
+    "teacher_forcing_ttft_ms": 178.85806097183377,
+    "regime": "trace-verified teacher forcing, batch 1, AIME24 chat-template reference, 100 generated tokens, best of 9 warm repeats in one build (spread 0.26 %)",
+    "baseline_teacher_forcing_decode_t/s/u": 41.9617
+  },
+  "lm_head_note": "pinned to the values C06 resolved. lm_head_dtype/lm_head_fidelity default to null, which means 'follow the dense projection group'; naming them here makes the terminal projection explicit rather than derived",
+  "kv_cache_update_contract": "paged_fill_cache takes tensors in the cache's own dtype (the layer casts them); paged_update_cache/paged_fused_update_cache take bfloat16 update tensors even when the destination cache is bfloat8_b. That is the op contract, not a policy choice",
+  "sampling_note": "the split sampler consumes the logits tensor on device: a per-device local top-k over the bfloat16 vocabulary shard, an all-gather of the 4x32 candidates, then ttnn.sampling with k=1, p=0. logits_dtype is what the local top-k reads; the sampler itself exposes no dtype knob, so bfloat16 logits are the assumption it is built on (C15 measured a bfloat8_b logits tensor at 41.991 t/s/u, inside the baseline's noise)",
+  "override_note": "ORNITH_PRECISION_POLICY=optimized returns the build to the pre-sweep decoder-stage policy; ORNITH_PRECISION_POLICY=fused-parity returns it to the bfloat16 floor",
+  "config_id": "C06-proj-bfp4-lofi",
+  "weight_groups": {
+    "routed_expert_gate_up": "bfloat4_b",
+    "routed_expert_down": "bfloat4_b",
+    "dense_projections": "bfloat4_b",
+    "shared_expert": "bfloat8_b",
+    "router": "bfloat16",
+    "lm_head": "bfloat4_b"
+  },
+  "compute_fidelities": {
+    "routed_experts": "LoFi",
+    "routed_experts_fp32_dest_acc": false,
+    "routed_experts_packer_l1_acc": false,
+    "dense_projections": "LoFi",
+    "dense_projections_fp32_dest_acc": false,
+    "dense_projections_packer_l1_acc": true,
+    "shared_expert": "HiFi2",
+    "shared_expert_fp32_dest_acc": false,
+    "shared_expert_packer_l1_acc": true,
+    "router": "HiFi4",
+    "router_fp32_dest_acc": true,
+    "deltanet_state": "HiFi4",
+    "deltanet_state_fp32_dest_acc": true,
+    "sdpa": "HiFi2",
+    "sdpa_fp32_dest_acc": true,
+    "lm_head": "LoFi"
+  },
+  "activations": {
+    "routed_expert_output": "bfloat8_b",
+    "residual_stream": "bfloat16"
+  },
+  "ccl": {
+    "payload_dtype": null
+  },
+  "kv_cache": {
+    "dtype": "bfloat8_b"
+  },
+  "logits_sampling": {
+    "logits_dtype": "bfloat16"
+  },
+  "layer_exceptions": [],
+  "prefill": {
+    "sdpa_q_k_chunk": 256
+  }
+}

@@ -1,0 +1,238 @@
+[
+  {
+    "config_id": "S00-baseline-optimized",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/S00-baseline-optimized.json",
+    "overrides": [],
+    "rationale": "the decoder stage's selected policy, carried unchanged by the optimized full model. The sweep's baseline and the reference point for every row below"
+  },
+  {
+    "config_id": "C01-lmhead-bfp4-hifi2",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C01-lmhead-bfp4-hifi2.json",
+    "overrides": [
+      "lm_head_dtype"
+    ],
+    "rationale": "BFP4 LM head at the dense group's inherited HiFi2. The optimized full-model stage measured this arm (1.351 vs 1.435 ms of reduced model trace) and handed it over as a frontier point"
+  },
+  {
+    "config_id": "C02-lmhead-bfp4-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C02-lmhead-bfp4-lofi.json",
+    "overrides": [
+      "lm_head_dtype",
+      "lm_head_fidelity"
+    ],
+    "rationale": "the BFP4+LoFi arm the skill requires for every material BFP4 matmul group"
+  },
+  {
+    "config_id": "C03-lmhead-bfp8-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C03-lmhead-bfp8-lofi.json",
+    "overrides": [
+      "lm_head_fidelity"
+    ],
+    "rationale": "same dtype, cheaper fidelity: the BFP8+LoFi vs BFP8+HiFi2 comparison the skill requires for dominant decode projection groups"
+  },
+  {
+    "config_id": "C04-proj-bfp8-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C04-proj-bfp8-lofi.json",
+    "overrides": [
+      "proj_fidelity"
+    ],
+    "rationale": "dense projections keep BFP8 and drop to LoFi. The BFP8 fidelity comparison for the largest dense group in the layer",
+    "resolved_note": "the LM head is unpinned, so it follows the dense group: bfloat8_b at LoFi"
+  },
+  {
+    "config_id": "C05-proj-bfp4-hifi2",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C05-proj-bfp4-hifi2.json",
+    "overrides": [
+      "proj_dtype"
+    ],
+    "rationale": "the decoder stage's `bfp4-projections` policy, which it measured faster and rejected on a layer-level HF-golden ladder rather than on full-model accuracy",
+    "resolved_note": "the LM head is unpinned, so it follows the dense group: bfloat4_b at HiFi2"
+  },
+  {
+    "config_id": "C06-proj-bfp4-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C06-proj-bfp4-lofi.json",
+    "overrides": [
+      "proj_dtype",
+      "proj_fidelity"
+    ],
+    "rationale": "the required BFP4+LoFi arm for the dense projection group",
+    "resolved_note": "the LM head is unpinned, so it follows the dense group: bfloat4_b at LoFi"
+  },
+  {
+    "config_id": "C07-shared-bfp8-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C07-shared-bfp8-lofi.json",
+    "overrides": [
+      "shared_fidelity"
+    ],
+    "rationale": "shared expert keeps BFP8 and drops to LoFi"
+  },
+  {
+    "config_id": "C08-shared-bfp4-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C08-shared-bfp4-lofi.json",
+    "overrides": [
+      "shared_dtype",
+      "shared_fidelity"
+    ],
+    "rationale": "the required BFP4+LoFi arm for the shared-expert group"
+  },
+  {
+    "config_id": "C09-shared-bfp4-hifi2",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C09-shared-bfp4-hifi2.json",
+    "overrides": [
+      "shared_dtype"
+    ],
+    "rationale": "the BFP4+HiFi2 comparison for the shared-expert group"
+  },
+  {
+    "config_id": "C10-experts-bfp4-hifi2",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C10-experts-bfp4-hifi2.json",
+    "overrides": [
+      "expert_fidelity"
+    ],
+    "rationale": "the routed experts are already BFP4+LoFi, so the comparison this stage owes them is the *higher* fidelity arm: proof that LoFi is selected rather than assumed"
+  },
+  {
+    "config_id": "C11-kv-bfp4",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C11-kv-bfp4.json",
+    "overrides": [
+      "kv_cache_dtype"
+    ],
+    "rationale": "narrower paged KV cache. Changes memory capacity, so it needs its own context contract"
+  },
+  {
+    "config_id": "C12-kv-bf16",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C12-kv-bf16.json",
+    "overrides": [
+      "kv_cache_dtype",
+      "prefill_sdpa_chunk"
+    ],
+    "rationale": "the wider cache, as the high-precision control for the BFP8 cache the decoder stage selected. 128 is the largest chunked-SDPA q/k that builds with a bfloat16 cache"
+  },
+  {
+    "config_id": "C13-ccl-bfp8",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C13-ccl-bfp8.json",
+    "overrides": [
+      "ccl_dtype"
+    ],
+    "rationale": "halve the CCL payload: both per-layer collectives carry bfloat8_b instead of bfloat16 out of the token mixer and bfloat8_b out of the MoE"
+  },
+  {
+    "config_id": "C14-residual-bfp8",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C14-residual-bfp8.json",
+    "overrides": [
+      "residual_dtype"
+    ],
+    "rationale": "the inter-layer residual stream in bfloat8_b, which also narrows what both RMSNorms read"
+  },
+  {
+    "config_id": "C15-logits-bfp8",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C15-logits-bfp8.json",
+    "overrides": [
+      "logits_dtype"
+    ],
+    "rationale": "the 62464-wide logits tensor in bfloat8_b, which is what the split sampler's local top-k reads"
+  },
+  {
+    "config_id": "C16-combo-proj-lmhead-bfp4-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C16-combo-proj-lmhead-bfp4-lofi.json",
+    "overrides": [
+      "lm_head_dtype",
+      "lm_head_fidelity",
+      "proj_dtype",
+      "proj_fidelity"
+    ],
+    "rationale": "the union of the two independent wins: BFP4+LoFi dense projections (C06) and a BFP4+LoFi LM head (C02). Both are the fastest arm of their own group and they touch disjoint tensors",
+    "resolved_note": "pinning the head to bfloat4_b/LoFi here is a NO-OP on top of C06, which already resolved the head to exactly that. C16 and C06 are the same policy, and their two independent measurements are this sweep's reproducibility control"
+  },
+  {
+    "config_id": "C17-combo-bfp4-lofi-first-last-bfp8",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C17-combo-bfp4-lofi-first-last-bfp8.json",
+    "overrides": [
+      "layer_exceptions",
+      "lm_head_dtype",
+      "lm_head_fidelity",
+      "proj_dtype",
+      "proj_fidelity"
+    ],
+    "rationale": "C16 with the skill's default layer exceptions: the first and last decoder layer keep BFP8 dense projections. The accuracy insurance arm, and the one that exercises the layer-exception path",
+    "resolved_note": "the head is bfloat4_b/LoFi as in C06/C16; the exceptions are on the dense projections of layers 0 and 39 only"
+  },
+  {
+    "config_id": "C18-combo-plus-kv-bfp4",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C18-combo-plus-kv-bfp4.json",
+    "overrides": [
+      "kv_cache_dtype",
+      "lm_head_dtype",
+      "lm_head_fidelity",
+      "proj_dtype",
+      "proj_fidelity"
+    ],
+    "rationale": "C16 plus the narrower paged KV cache, to test whether C11's +0.18 % is additive or noise",
+    "resolved_note": "the head is bfloat4_b/LoFi as in C06/C16"
+  },
+  {
+    "config_id": "C19-expert-act-bfp4",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/blocked/C19-expert-act-bfp4.config.json",
+    "overrides": [
+      "expert_act_dtype"
+    ],
+    "rationale": "the routed-expert output activation in bfloat4_b. It is the num_experts-wide intermediate the SwiGLU, the score multiply, the zero-fill and the expert reduction all pay for, so it is the widest activation in the layer and the one remaining activation dtype the sweep had not moved",
+    "status": "blocked",
+    "blocker_record": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/blocked/C19-expert-act-bfp4.json"
+  },
+  {
+    "config_id": "C20-sdpa-lofi-no-fp32-acc",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C20-sdpa-lofi-no-fp32-acc.json",
+    "overrides": [
+      "sdpa_fidelity",
+      "sdpa_fp32_acc"
+    ],
+    "rationale": "chunked/paged SDPA at LoFi without float32 destination accumulation - the one compute-fidelity group left at the decoder stage's conservative setting"
+  },
+  {
+    "config_id": "C21-router-bfp8",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C21-router-bfp8.json",
+    "overrides": [
+      "router_dtype"
+    ],
+    "rationale": "the 256-way routing matmul in bfloat8_b. Expert selection is a discrete decision so the skill keeps it out of the coarse BFP4 sweep; BFP8 is the low-priority arm it does allow"
+  },
+  {
+    "config_id": "C22-proj-bfp4-lofi-lmhead-bfp8-hifi2",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C22-proj-bfp4-lofi-lmhead-bfp8-hifi2.json",
+    "overrides": [
+      "lm_head_dtype",
+      "lm_head_fidelity",
+      "proj_dtype",
+      "proj_fidelity"
+    ],
+    "rationale": "C06 with the LM head PINNED at bfloat8_b/HiFi2. C05/C06/C16/C17 all leave lm_head_dtype unpinned, and an unpinned LM head follows the dense projection group - so those arms moved two tensor groups, not one. This separates them: BFP4 dense projections with the terminal projection, the one tensor that decides the emitted token, left where the baseline had it"
+  },
+  {
+    "config_id": "C23-proj-bfp4-lofi-lmhead-bfp8-lofi",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C23-proj-bfp4-lofi-lmhead-bfp8-lofi.json",
+    "overrides": [
+      "lm_head_dtype",
+      "lm_head_fidelity",
+      "proj_dtype",
+      "proj_fidelity"
+    ],
+    "rationale": "C22 with the pinned BFP8 head at LoFi instead of HiFi2, so the head's fidelity is not left as a free variable at the frontier point"
+  },
+  {
+    "config_id": "C24-union-of-every-non-negative-arm",
+    "path": "models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/candidates/C24-union-of-every-non-negative-arm.json",
+    "overrides": [
+      "lm_head_dtype",
+      "lm_head_fidelity",
+      "logits_dtype",
+      "proj_dtype",
+      "proj_fidelity",
+      "sdpa_fidelity",
+      "sdpa_fp32_acc",
+      "shared_dtype",
+      "shared_fidelity"
+    ],
+    "rationale": "the skill's step-6 extension: C06 unioned with every OTHER arm that measured non-negative on its own - C08 (shared expert BFP4/LoFi, +0.03 %), C15 (logits bfloat8_b, +0.07 %) and C20 (SDPA LoFi without fp32 accumulate, +0.04 %). Each is inside the warm spread alone; together they are the largest legal lower-precision configuration this sweep can build without the KV cache, and the one that decides whether 'fastest evaluated config' is true of the whole legal space"
+  }
+]

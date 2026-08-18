@@ -1,0 +1,49 @@
+{
+  "schema": "ornith-precision-config/1",
+  "stage": "datatype-sweep",
+  "candidate_rationale": "the decoder stage's `bfp4-projections` policy, which it measured faster and rejected on a layer-level HF-golden ladder rather than on full-model accuracy",
+  "config_id": "C05-proj-bfp4-hifi2",
+  "weight_groups": {
+    "routed_expert_gate_up": "bfloat4_b",
+    "routed_expert_down": "bfloat4_b",
+    "dense_projections": "bfloat4_b",
+    "shared_expert": "bfloat8_b",
+    "router": "bfloat16",
+    "lm_head": null
+  },
+  "compute_fidelities": {
+    "routed_experts": "LoFi",
+    "routed_experts_fp32_dest_acc": false,
+    "routed_experts_packer_l1_acc": false,
+    "dense_projections": "HiFi2",
+    "dense_projections_fp32_dest_acc": false,
+    "dense_projections_packer_l1_acc": true,
+    "shared_expert": "HiFi2",
+    "shared_expert_fp32_dest_acc": false,
+    "shared_expert_packer_l1_acc": true,
+    "router": "HiFi4",
+    "router_fp32_dest_acc": true,
+    "deltanet_state": "HiFi4",
+    "deltanet_state_fp32_dest_acc": true,
+    "sdpa": "HiFi2",
+    "sdpa_fp32_dest_acc": true,
+    "lm_head": null
+  },
+  "activations": {
+    "routed_expert_output": "bfloat8_b",
+    "residual_stream": "bfloat16"
+  },
+  "ccl": {
+    "payload_dtype": null
+  },
+  "kv_cache": {
+    "dtype": "bfloat8_b"
+  },
+  "logits_sampling": {
+    "logits_dtype": "bfloat16"
+  },
+  "layer_exceptions": [],
+  "prefill": {
+    "sdpa_q_k_chunk": 256
+  }
+}

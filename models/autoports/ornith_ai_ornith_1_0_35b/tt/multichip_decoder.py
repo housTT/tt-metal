@@ -1125,10 +1125,19 @@ class MultichipDecoder(OptimizedDecoder):
         """
         if self.tp == 1:
             return tensor
-        if CCL_CAST_BLOCKFLOAT and tensor.dtype in _BLOCK_FLOAT_DTYPES:
-            wide = ttnn.typecast(tensor, ttnn.bfloat16, memory_config=tensor.memory_config())
+        # The CCL payload dtype. `policy.ccl_dtype` is the datatype-sweep knob and takes precedence:
+        # it casts *both* operands to one width, so this layer's two collectives stop differing in
+        # dtype (bfloat16 out of the token mixer, `expert_act_dtype` out of the MoE). `None` - the
+        # inherited and shipped value - leaves each as its producer emitted it, and then
+        # :data:`CCL_CAST_BLOCKFLOAT` is the multichip stage's own narrower "widen block-float to
+        # bfloat16" arm, kept because README limitation 9's null result is its control.
+        ccl_dtype = self.policy.ccl_dtype
+        if ccl_dtype is None and CCL_CAST_BLOCKFLOAT and tensor.dtype in _BLOCK_FLOAT_DTYPES:
+            ccl_dtype = ttnn.bfloat16
+        if ccl_dtype is not None and tensor.dtype != ccl_dtype:
+            recast = ttnn.typecast(tensor, ccl_dtype, memory_config=tensor.memory_config())
             ttnn.deallocate(tensor)
-            tensor = wide
+            tensor = recast
         dims = [int(d) for d in tensor.shape]
         compact = (
             CCL_COMPACT_ROWS and len(dims) == 3 and _physical_rows(tensor.shape) > _align_up(dims[0] * dims[1], TILE)
@@ -1258,7 +1267,7 @@ class MultichipDecoder(OptimizedDecoder):
         # `DECODE_RESIDUAL_MEMORY` only at decode: a prefill chunk's residual is 2048 x 2048 x 2 B and
         # belongs in DRAM, while a decode step's is one tile row per batch entry.
         residual_mem = DECODE_RESIDUAL_MEMORY if mode == "decode" else None
-        h = ttnn.add(x, mixed, memory_config=residual_mem)
+        h = ttnn.add(x, mixed, memory_config=residual_mem, dtype=self.policy.residual_dtype)
         ttnn.deallocate(mixed)
 
         tokens = b * t
@@ -1278,7 +1287,7 @@ class MultichipDecoder(OptimizedDecoder):
             ttnn.deallocate(ff_out)
             ff_out = trimmed
         ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
-        out = ttnn.add(h, ff_out, memory_config=residual_mem)
+        out = ttnn.add(h, ff_out, memory_config=residual_mem, dtype=self.policy.residual_dtype)
         ttnn.deallocate(h)
         ttnn.deallocate(ff_out)
         return out

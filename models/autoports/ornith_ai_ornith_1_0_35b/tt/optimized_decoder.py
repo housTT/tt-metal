@@ -67,7 +67,7 @@ never inside anything measured here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 
 from loguru import logger
 
@@ -114,6 +114,30 @@ class PrecisionPolicy:
         Output dtype of the routed-expert ``sparse_matmul`` calls, i.e. the dtype of the
         ``num_experts``-wide intermediate the SwiGLU, the score multiply, the zero-fill and the
         expert reduction all pay for.
+    ``residual_dtype``
+        The inter-layer residual stream, i.e. the dtype of both ``ttnn.add`` results in
+        :meth:`MultichipDecoder._block` and therefore of what the next layer's first RMSNorm reads.
+    ``ccl_dtype``
+        What the two per-layer collectives carry. ``None`` means "whatever the producer emitted",
+        which is the inherited behaviour: bfloat16 out of the token mixer and ``expert_act_dtype``
+        out of the MoE. A dtype casts both operands to it before :meth:`MultichipDecoder._all_reduce`
+        and is therefore the CCL payload width.
+    ``lm_head_dtype`` / ``lm_head_fidelity`` / ``logits_dtype``
+        The terminal projection: weight dtype, math fidelity, and the dtype of the logits tensor the
+        split sampler's local top-k reads. ``None`` on the first two means "follow the dense
+        projection group", which is what the LM head inherits as the model's one extra dense
+        projection.
+    ``layer_exceptions``
+        Per-layer overrides, as ``((layer_idx, field_name, value), ...)``. :meth:`for_layer` resolves
+        them, and ``OrnithModel.from_pretrained`` calls it once per layer, so an exception is a
+        property of the built layer rather than a note in a document. The usual use is keeping the
+        first and last decoder layer off the most aggressive weight dtype.
+
+    Datatype-sweep note: the sweep stage's selected values live in
+    ``doc/datatype_sweep/selected_precision_config.json`` and are loaded by
+    ``tt/precision_config.py``, which is what ``OrnithModel.from_pretrained`` resolves by default.
+    The dataclass defaults below stay the decoder stage's own selections so a policy constructed in
+    code is still the decoder stage's contract.
     """
 
     name: str = "unnamed"
@@ -148,8 +172,71 @@ class PrecisionPolicy:
     sdpa_fidelity: object = ttnn.MathFidelity.HiFi2
     sdpa_fp32_acc: bool = True
 
+    #: The inter-layer residual stream. Passed explicitly to both residual adds, so changing it
+    #: changes the tensor the next norm reads rather than only this document.
+    residual_dtype: object = ttnn.bfloat16
+
+    #: CCL payload dtype. ``None`` = no cast, which is what the multichip stage measured and ships.
+    ccl_dtype: object = None
+
+    #: Terminal projection. ``None`` follows ``proj_dtype`` / ``proj_fidelity``.
+    lm_head_dtype: object = None
+    lm_head_fidelity: object = None
+    #: Dtype of the logits tensor the split sampler's local top-k consumes.
+    logits_dtype: object = ttnn.bfloat16
+
+    #: ``((layer_idx, field, value), ...)``; see :meth:`for_layer`.
+    layer_exceptions: tuple = ()
+
+    #: Measured chunked-SDPA prefill ``q_chunk``/``k_chunk`` for this policy. ``None`` falls back to
+    #: the name-keyed :data:`PREFILL_SDPA_CHUNK` table, which is where the three code-defined
+    #: policies keep theirs. A policy loaded from JSON carries its own measured value instead, so a
+    #: new policy name cannot silently take :data:`PREFILL_SDPA_CHUNK_DEFAULT`.
+    prefill_sdpa_chunk: int = None
+
     def replace(self, **kwargs) -> "PrecisionPolicy":
         return replace(self, **kwargs)
+
+    def for_layer(self, layer_idx: int) -> "PrecisionPolicy":
+        """This policy as the layer at ``layer_idx`` sees it, with :attr:`layer_exceptions` applied.
+
+        Returns ``self`` when the layer has no exception, so ``layer.policy is DEFAULT_POLICY``
+        stays true for an unexceptional build and the identity check in the delivered suite keeps
+        meaning what it meant.
+        """
+        overrides = {field: value for idx, field, value in self.layer_exceptions if int(idx) == int(layer_idx)}
+        if not overrides:
+            return self
+        unknown = set(overrides) - {f.name for f in fields(self)}
+        if unknown:
+            raise ValueError(f"layer_exceptions names unknown policy field(s) {sorted(unknown)}")
+        if "layer_exceptions" in overrides or "name" in overrides:
+            raise ValueError("layer_exceptions may not override 'name' or 'layer_exceptions'")
+        # The resolved per-layer policy keeps its own name so a capability dump distinguishes it.
+        return replace(self, name=f"{self.name}@L{int(layer_idx)}", layer_exceptions=(), **overrides)
+
+    def exception_layers(self) -> tuple:
+        return tuple(sorted({int(idx) for idx, _, _ in self.layer_exceptions}))
+
+    @property
+    def base_name(self) -> str:
+        """The policy name with any :meth:`for_layer` suffix removed.
+
+        Name-keyed tables (:data:`PREFILL_SDPA_CHUNK`) must resolve the same value for a layer that
+        carries an exception as for one that does not, because the exception is a weight dtype and
+        the table is about SDPA's L1 legality. Keying them on ``name`` directly would silently drop
+        an exceptional layer onto :data:`PREFILL_SDPA_CHUNK_DEFAULT`, which is exactly the dead-table
+        failure review round 15 found.
+        """
+        return self.name.split("@L")[0]
+
+    @property
+    def resolved_lm_head_dtype(self):
+        return self.proj_dtype if self.lm_head_dtype is None else self.lm_head_dtype
+
+    @property
+    def resolved_lm_head_fidelity(self):
+        return self.proj_fidelity if self.lm_head_fidelity is None else self.lm_head_fidelity
 
 
 #: The fused decoder's policy, exactly: bfloat16 everywhere, HiFi4 with fp32 accumulation on the
@@ -206,7 +293,18 @@ DEFAULT_POLICY = PrecisionPolicy(
 #: `doc/optimized_decoder/logs/probe_projection_dtype.txt` is the whole ladder, both arms.
 BFP4_PROJECTION_POLICY = DEFAULT_POLICY.replace(name="bfp4-projections", proj_dtype=ttnn.bfloat4_b)
 
-POLICIES = {p.name: p for p in (FUSED_PARITY_POLICY, DEFAULT_POLICY, BFP4_PROJECTION_POLICY)}
+#: The LoFi half of the same candidate. ``$datatype-sweep`` requires a BFP4+LoFi arm for **every**
+#: material BFP4 matmul group, and the decoder stage only ever measured BFP4 projections at the
+#: dense group's inherited HiFi2. Named here rather than only in the sweep's JSON so the pair
+#: ``bfp4-projections`` / ``bfp4-projections-lofi`` is constructible from code and the comparison
+#: stays reproducible without the sweep artifacts.
+BFP4_PROJECTION_LOFI_POLICY = BFP4_PROJECTION_POLICY.replace(
+    name="bfp4-projections-lofi", proj_fidelity=ttnn.MathFidelity.LoFi
+)
+
+POLICIES = {
+    p.name: p for p in (FUSED_PARITY_POLICY, DEFAULT_POLICY, BFP4_PROJECTION_POLICY, BFP4_PROJECTION_LOFI_POLICY)
+}
 
 #: Chunked-SDPA `q_chunk`/`k_chunk` for **prefill**, keyed by **policy name**, because the bound is L1 legality
 #: and legality depends on the whole policy rather than on any one field of it.
@@ -229,12 +327,26 @@ POLICIES = {p.name: p for p in (FUSED_PARITY_POLICY, DEFAULT_POLICY, BFP4_PROJEC
 PREFILL_SDPA_CHUNK = {
     "optimized": 256,
     "bfp4-projections": 256,
+    "bfp4-projections-lofi": 256,
     "fused-parity": 64,
 }
 
 #: What an unlisted policy gets: the fused stage's value, the only one every policy here has been shown to build.
 #: Deliberately conservative - a too-large chunk is not slow, it is a `TT_THROW` at program construction.
 PREFILL_SDPA_CHUNK_DEFAULT = 64
+
+#: Device bytes per element, including the shared exponent the block-float dtypes carry (one
+#: bfloat16 exponent per 16-element face row: 1 + 32*bits/8 bytes per 32 elements). Used to order
+#: cache dtypes by width rather than by identity, so a *narrower*-than-BFP8 cache is not clamped by
+#: :data:`PREFILL_SDPA_CHUNK_WIDE_CACHE`, which exists for the wider ones.
+DTYPE_BYTES = {
+    ttnn.bfloat4_b: 0.5625,
+    ttnn.bfloat8_b: 1.0625,
+    ttnn.bfloat16: 2.0,
+    ttnn.float32: 4.0,
+    ttnn.uint32: 4.0,
+    ttnn.int32: 4.0,
+}
 
 #: Ceiling for any policy whose KV cache is wider than BFP8. The entries above are keyed by policy name, which is
 #: what makes a miss visible - but a `--set kv_cache_dtype=...` override changes the dtypes *without* changing the
@@ -325,6 +437,19 @@ CONV1D_CHANNELS = 4096
 #: makes that comparison reproducible, and because ``test_rope_mode_equivalence`` uses it to prove
 #: the head-dim permutation is self-consistent across Q, K and the KV cache.
 DEFAULT_ROPE_MODE = "partial"
+
+#: What every RMSNorm in the layer must hand to its consumer. ``ttnn.rms_norm`` takes no ``dtype``,
+#: so its output is its input's dtype and a block-float ``residual_dtype`` would propagate into the
+#: token-mixer projection and then into ``nlp_create_qkv_heads_decode``, which accepts only FLOAT32
+#: and BFLOAT16. :meth:`OptimizedDecoder._widen_norm_output` restores this, and dispatches nothing
+#: at all under the shipped bfloat16 residual.
+NORM_OUTPUT_DTYPE = ttnn.bfloat16
+_NORM_SAFE_DTYPES = (ttnn.bfloat16, ttnn.float32)
+
+#: What ``ttnn.experimental.deepseek_moe_fast_reduce_nc`` accepts, and what a narrower routed-expert
+#: activation is widened to before it. See :meth:`OptimizedMoE._routed_experts`.
+_MOE_REDUCE_DTYPES = (ttnn.bfloat16, ttnn.bfloat8_b)
+MOE_REDUCE_FALLBACK_DTYPE = ttnn.bfloat8_b
 
 _SILU = [ttnn.UnaryOpType.SILU]
 _SIGMOID = [ttnn.UnaryOpType.SIGMOID]
@@ -1583,6 +1708,17 @@ class OptimizedMoE:
         # deepseek_moe_fast_reduce_nc over ttnn.experimental.fast_reduce_nc: same latency at these
         # shapes but a materially more accurate accumulation (PCC 0.999999 vs 0.999409 against a
         # float32 sum of 256 bfloat16 expert blocks — doc/fused_decoder/logs/probe_router_and_reduce.txt).
+        #
+        # The op accepts only BFLOAT16 and BFLOAT8_B ("DeepseekMoEFastReduceNC input only supports
+        # specific data types", `moreh_helper_functions.cpp:285`), so a bfloat4_b `expert_act_dtype`
+        # has to be widened first. That is the *adapted* form of the datatype-sweep's C19 candidate,
+        # and it is what makes that candidate measurable rather than rejected on a first API error;
+        # `doc/datatype_sweep/README.md` records what it measured. Under every shipped policy
+        # `expert_act_dtype` is already one of the two accepted dtypes and this dispatches nothing.
+        if down.dtype not in _MOE_REDUCE_DTYPES:
+            widened = ttnn.typecast(down, MOE_REDUCE_FALLBACK_DTYPE, memory_config=down.memory_config())
+            ttnn.deallocate(down)
+            down = widened
         reduced = ttnn.experimental.deepseek_moe_fast_reduce_nc(down, dim=1, split_size=H)[0]
         ttnn.deallocate(down)
         return ttnn.reshape(ttnn.unsqueeze_to_4D(reduced), [1, 1, tokens, H])
@@ -2356,6 +2492,30 @@ class OptimizedDecoder(LightweightModule):
             self._norm_shard_cache[key] = cached
         return cached
 
+    def _widen_norm_output(self, out):
+        """Restore :data:`NORM_OUTPUT_DTYPE` when a block-float residual made the norm produce one.
+
+        ``ttnn.rms_norm`` has no ``dtype`` argument, so its output takes the residual's dtype. With
+        the shipped ``residual_dtype=bfloat16`` this method is a no-op and no op is dispatched. With
+        a block-float residual it is what makes the arm *buildable*: the norm feeds the token-mixer
+        in-projection, whose output reaches
+        ``nlp_create_qkv_heads_decode``, which asserts
+        ``input_tensor.dtype() == FLOAT32 || input_tensor.dtype() == BFLOAT16``
+        (``nlp_create_qkv_heads_decode_device_operation.cpp:41``) and raises
+        ``TT_FATAL: Unsupported data format`` otherwise.
+
+        The cast is therefore the *adapted* form of the bfloat8_b-residual candidate rather than a
+        reason to reject it unmeasured - and its cost is why that candidate loses: it adds two
+        ``typecast`` dispatches per layer to a decode step the stage has measured as launch-bound,
+        against a residual stream that is one 2048-wide tile row per token. See
+        ``doc/datatype_sweep/README.md``'s rejected-candidate table for the measurement.
+        """
+        if out.dtype in _NORM_SAFE_DTYPES:
+            return out
+        wide = ttnn.typecast(out, NORM_OUTPUT_DTYPE, memory_config=out.memory_config())
+        ttnn.deallocate(out)
+        return wide
+
     def _norm(self, x, weight, *, keep_sharded_for=None):
         """Zero-centered RMSNorm — the ``+1`` is already folded into ``weight``.
 
@@ -2376,10 +2536,11 @@ class OptimizedDecoder(LightweightModule):
         shape = [int(d) for d in x.shape]
         cfg, mem = self._norm_shard(_physical_rows(shape), shape[-1]) if self._decode_phase else (None, None)
         if cfg is None:
-            return ttnn.rms_norm(x, weight=weight, epsilon=self.cfg.norm_eps)
+            return self._widen_norm_output(ttnn.rms_norm(x, weight=weight, epsilon=self.cfg.norm_eps))
         x_sh = ttnn.to_memory_config(x, mem)
         out = ttnn.rms_norm(x_sh, weight=weight, epsilon=self.cfg.norm_eps, program_config=cfg, memory_config=mem)
         ttnn.deallocate(x_sh)
+        out = self._widen_norm_output(out)
         if keep_sharded_for is not None and self._shard_feeds_projection(keep_sharded_for, shape, cfg):
             return out
         # Back to interleaved for the consumers that cannot take the shard - which is *not* a property of
@@ -2504,8 +2665,10 @@ class OptimizedDecoder(LightweightModule):
         question now answer it the same way.
         """
         cache_dtype = self.k_cache.dtype if self.k_cache is not None else self.policy.kv_cache_dtype
-        qk = PREFILL_SDPA_CHUNK.get(self.policy.name, PREFILL_SDPA_CHUNK_DEFAULT)
-        if cache_dtype is not ttnn.bfloat8_b:
+        qk = self.policy.prefill_sdpa_chunk
+        if qk is None:
+            qk = PREFILL_SDPA_CHUNK.get(self.policy.base_name, PREFILL_SDPA_CHUNK_DEFAULT)
+        if DTYPE_BYTES.get(cache_dtype, 4.0) > DTYPE_BYTES[ttnn.bfloat8_b]:
             qk = min(qk, PREFILL_SDPA_CHUNK_WIDE_CACHE)
         if chunk_start_idx:
             qk = min(qk, chunk_start_idx & -chunk_start_idx)
@@ -3393,7 +3556,7 @@ class OptimizedDecoder(LightweightModule):
                 mixed = self._gdn_decode(attn_in)
         ttnn.deallocate(attn_in)
 
-        h = ttnn.add(x, mixed)
+        h = ttnn.add(x, mixed, dtype=self.policy.residual_dtype)
         ttnn.deallocate(mixed)
 
         tokens = b * t
@@ -3411,7 +3574,7 @@ class OptimizedDecoder(LightweightModule):
             ttnn.deallocate(ff_out)
             ff_out = trimmed
         ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
-        out = ttnn.add(h, ff_out)
+        out = ttnn.add(h, ff_out, dtype=self.policy.residual_dtype)
         ttnn.deallocate(h)
         ttnn.deallocate(ff_out)
         return out

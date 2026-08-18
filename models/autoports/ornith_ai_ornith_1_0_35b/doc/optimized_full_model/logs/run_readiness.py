@@ -53,12 +53,16 @@ def _build_kwargs(args) -> dict:
 
 JSON_SUFFIX = ""
 
+#: Where the summaries go. Defaults to this stage's own doc directory; ``--out-dir`` points it at a
+#: later stage's, so a stage that reuses this driver does not overwrite this stage's artifacts.
+OUT_DIR = DOC_DIR
+
 
 def _write(name: str, payload) -> None:
-    DOC_DIR.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     if JSON_SUFFIX:
         name = name.replace(".json", f"{JSON_SUFFIX}.json")
-    path = DOC_DIR / name
+    path = OUT_DIR / name
     path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
     logger.info(f"wrote {path}")
 
@@ -203,9 +207,12 @@ def main():
     ap.add_argument("--suffix", default="")
     ap.add_argument("--lm-head-dtype", default=None, choices=["bfp8", "bfp4", "bf16"])
     ap.add_argument("--json-suffix", default="", help="appended to the written JSON names, for A/B arms")
+    ap.add_argument("--out-dir", default=None, help="where the summary JSONs go (default: this stage's doc dir)")
     args = ap.parse_args()
-    global JSON_SUFFIX
+    global JSON_SUFFIX, OUT_DIR
     JSON_SUFFIX = args.json_suffix
+    if args.out_dir:
+        OUT_DIR = Path(args.out_dir)
 
     mesh = open_ornith_mesh()
     summary = {}

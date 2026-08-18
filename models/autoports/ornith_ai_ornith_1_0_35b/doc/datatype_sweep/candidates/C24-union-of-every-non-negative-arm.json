@@ -1,0 +1,49 @@
+{
+  "schema": "ornith-precision-config/1",
+  "stage": "datatype-sweep",
+  "candidate_rationale": "the skill's step-6 extension: C06 unioned with every OTHER arm that measured non-negative on its own - C08 (shared expert BFP4/LoFi, +0.03 %), C15 (logits bfloat8_b, +0.07 %) and C20 (SDPA LoFi without fp32 accumulate, +0.04 %). Each is inside the warm spread alone; together they are the largest legal lower-precision configuration this sweep can build without the KV cache, and the one that decides whether 'fastest evaluated config' is true of the whole legal space",
+  "config_id": "C24-union-of-every-non-negative-arm",
+  "weight_groups": {
+    "routed_expert_gate_up": "bfloat4_b",
+    "routed_expert_down": "bfloat4_b",
+    "dense_projections": "bfloat4_b",
+    "shared_expert": "bfloat4_b",
+    "router": "bfloat16",
+    "lm_head": "bfloat4_b"
+  },
+  "compute_fidelities": {
+    "routed_experts": "LoFi",
+    "routed_experts_fp32_dest_acc": false,
+    "routed_experts_packer_l1_acc": false,
+    "dense_projections": "LoFi",
+    "dense_projections_fp32_dest_acc": false,
+    "dense_projections_packer_l1_acc": true,
+    "shared_expert": "LoFi",
+    "shared_expert_fp32_dest_acc": false,
+    "shared_expert_packer_l1_acc": true,
+    "router": "HiFi4",
+    "router_fp32_dest_acc": true,
+    "deltanet_state": "HiFi4",
+    "deltanet_state_fp32_dest_acc": true,
+    "sdpa": "LoFi",
+    "sdpa_fp32_dest_acc": false,
+    "lm_head": "LoFi"
+  },
+  "activations": {
+    "routed_expert_output": "bfloat8_b",
+    "residual_stream": "bfloat16"
+  },
+  "ccl": {
+    "payload_dtype": null
+  },
+  "kv_cache": {
+    "dtype": "bfloat8_b"
+  },
+  "logits_sampling": {
+    "logits_dtype": "bfloat8_b"
+  },
+  "layer_exceptions": [],
+  "prefill": {
+    "sdpa_q_k_chunk": 256
+  }
+}
