@@ -3,23 +3,26 @@
 --- stdout
 Context contract OK for models/autoports/ornith_ai_ornith_1_0_35b: target=262144, supported=262144 (full HF context).
 
---- stderr: advisory lines, summarised by source file rather than quoted
+--- stderr: advisory lines, tallied rather than quoted
 
-The gate greps text for a context cap smaller than the supported window, so quoting its advisory lines
-verbatim in a committed file would make the next run count them again - the total would grow every time
-this log was refreshed. What is recorded is the tally, which is what work log section 13's breakdown is
-derived from; re-run the command to see the lines themselves.
+The gate greps text for a context key followed by a number below the supported window, so a committed
+file that quoted its advisory lines verbatim would be counted by the next run - which is exactly what
+happened to earlier versions of this log and to work log section 13. Nothing below writes a context key
+next to a number, so this file contributes zero advisories to the next run.
 
-total advisory lines: 34
+total advisory lines: 32
 
-by matched text: max_context=3, other=31
+by the kind of line matched:
+   19  probe model build
+   12  adapter-suite model load
+    1  source comment
 
+by file:
    12  doc/vllm_integration/logs/pytest_generator_vllm.txt
     2  doc/vllm_integration/logs/probe_decode_nondeterminism_single_layer0.txt
     2  doc/vllm_integration/logs/probe_decode_nondeterminism_single_layer3.txt
     2  doc/vllm_integration/logs/probe_decode_nondeterminism_two_layer.txt
     2  doc/vllm_integration/logs/probe_logit_read_stability.txt
-    2  doc/vllm_integration/work_log.md
     1  doc/vllm_integration/logs/probe_decode_nondeterminism_pairs_1x1.txt
     1  doc/vllm_integration/logs/probe_decode_nondeterminism_pairs_1x4.txt
     1  doc/vllm_integration/logs/probe_decode_nondeterminism_pairs_1x4_batch4.txt

@@ -148,9 +148,11 @@ the datatype sweep measured.
 The generator's new `serving (vLLM) API` section adds **fifteen** public methods and the model one. The
 adapter calls **eleven** of them, and nothing else in it touches a device tensor:
 
-* the seven contract primitives in the table below (`ensure_serving_traces`, `ensure_replay_safe`,
+* the seven contract primitives of the table below — `ensure_serving_traces`, `ensure_replay_safe`,
   `ensure_sampling_trace`, `stage_serving_decode_inputs`, `submit_serving_decode`,
-  `prefill_requests_into_slots`, and the model's `remap_state_slots` through `remap_serving_slots`);
+  `prefill_requests_into_slots`, and the model's `remap_state_slots` through `remap_serving_slots`. (That
+  table has one extra row, `device_decode_state`: it is what `stage_serving_decode_inputs` merges against, so
+  it is documented with them even though the adapter does not call it — see the four below);
 * `read_output_async` — the async split's `cpu(blocking=False)` + `record_event`, for *either* output
   tensor: the token buffer on a device-sampled step, the vocab-sharded logits on a host-sampled one;
 * `tokens_from` and `logits_from`, the mesh composition and shaping of those two reads;
@@ -686,7 +688,7 @@ repeats (§7.5). Both gaps are stated where their numbers were.
 ### 7.10 Tests
 ```
 pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 21 passed in 199 s
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2140 s
 ```
 Console logs: the adapter suite's own run on the committed tree is
 [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) — **21 passed** (9 host-only cases and 12
@@ -711,10 +713,17 @@ a server to close a two-line refactor would have replaced the whole attribution-
 for no measurement gain.
 
 The second command is the regression check for this stage's generator/model additions: the full-model
-stage's own suite, unchanged, on the same reduced target it uses. It was **not** re-run after the last
-round of changes, and deliberately: `git diff` over `tt/` since that run touches only
-`tt/generator_vllm.py` (the `atexit` capability dump and the foreign-checkpoint warning), which nothing in
-`test_full_model.py` imports. The adapter suite, which does exercise it, was re-run and is the log above.
+stage's own suite, unchanged, on the same reduced target it uses. It was **re-run on the committed tree** —
+50 passed, 5 deselected, in 2139.77 s, `FULL_EXIT=0` at the end of
+[`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz), whose loguru line numbers match the
+committed `tt/generator.py`.
+
+Earlier rounds skipped that re-run on an argument — "`tt/generator.py` did not change" — which review round
+9 found to be false: rounds 7 and 8 had added `read_output_async` and rewired `_read_tokens_async`, which is
+the pipelined readback the standalone `generate()` loop uses and which `test_full_model.py` drives in about
+ten cases. The change is a line-for-line move (the same `cpu(blocking=False)` and `record_event`, in the same
+order, on the same mesh), so the risk was nil — but the suite that would prove it is cheap and now the record
+is a measurement rather than an argument.
 
 ---
 
@@ -1081,10 +1090,11 @@ split into bounded chunks. Recorded because the failure mode looks exactly like 
   guard and its line numbers match the committed adapter exactly.
 * The **final** state is [`logs/final_device_reset_and_mesh_smoke.txt`](logs/final_device_reset_and_mesh_smoke.txt),
   captured after the last device job of the stage: no device-owning process, 8 board lines before and after a
-  `tt-smi -r`, and `MESH_SMOKE_OK`. The file now carries the last device job's own start/end timestamps and
-  result, read out of its console log, so "after the last device job" is checkable rather than asserted —
-  rounds 3 and 8 both caught this record having gone stale behind a later run (round 3: three hours behind
-  the last server; round 8: an hour and three quarters behind a re-run of the adapter suite).
+  `tt-smi -r`, and `MESH_SMOKE_OK`. The file carries **both** test suites' start/end timestamps and results,
+  read out of their own console logs, so "after the last device job" is checkable rather than asserted —
+  rounds 3 and 8 both caught this record having gone stale behind a later run (round 3: three hours behind the
+  last server; round 8: an hour and three quarters behind a re-run of the adapter suite), and round 9's
+  re-run of the full-model suite would have made it stale a third time.
 * Liveness waits in this stage never used a `pgrep -f <pattern>` that could match the checking shell —
   the trap `$tt-device-usage` warns about. Waits keyed on the launched PID (`kill -0`), on an artifact
   appearing, or on `/health` returning 200. The final-state check above is keyed on the *executable* for the
@@ -1224,26 +1234,27 @@ python .agents/scripts/check_context_contract.py \
 # -> "Context contract OK ... target=262144, supported=262144 (full HF context)."   exit 0
 ```
 
-The context gate also prints **advisory** lines on stderr — 34 of them on the last run — and they are worth
-naming so nobody reads them as a served cap. Exactly, by the line each one matched:
+The context gate also prints **advisory** lines on stderr, and they are worth naming so nobody reads them
+as a served cap. Every one of them is a *text* match — the gate greps for a context key followed by a number
+smaller than the supported window — so the breakdown is by the line each advisory matched. On the committed
+tree there are **32**:
 
-* **19 lines from a probe's `building OrnithModel: … max_context=N`**, one per model build in an
-  *uncompressed* probe console log (the gate does not read `.gz`). A run that only needs a 2048-, 4096- or
-  8192-token window says so at startup. One line per *build*, not per file:
+* **19 lines from a probe's startup line**, `building OrnithModel: … max context N`, one per model build in
+  an *uncompressed* probe console log (the gate does not read `.gz`). A run that only needs a 2048-, 4096- or
+  8192-token window says so. One line per *build*, not per file:
   `probe_logit_read_stability.txt` contributes two, because it builds the reduced target at `tp=4` and
   `tp=1`;
-* **12 lines from the adapter suite's own log**, `generator_vllm:initialize_vllm_model` logging
-  `max_model_len=4096` — one per device test, since each builds a reduced adapter at the tests' 4096-token
-  context;
-* **1 line from `tt/functional_decoder.py:239`**, a pre-existing comment that uses `max_context=8000` as an
-  illustration of a prefill block ending past `max_context`;
-* **2 self-referential lines from this section**, because the text above quotes `max_context=8000` twice and
-  the gate greps text, not meaning.
+* **12 lines from the adapter suite's own log**, where `initialize_vllm_model` logs the max model length it
+  was handed — one per device test, since each builds a reduced adapter at the tests' 4096-token context;
+* **1 line from `tt/functional_decoder.py:239`**, a pre-existing comment whose illustration uses a max
+  context of 8000 to show a prefill block ending past it.
 
-The total moves whenever a probe or the suite is re-run, added or gzipped — 33 before the async-read test
-made the suite twelve device cases — which is why the breakdown matters more than the number. The committed
-tally is [`logs/check_context_contract.txt`](logs/check_context_contract.txt), which records the per-file
-counts rather than the lines themselves: quoting them would make the next run count them again.
+None of them comes from this section any more. Earlier versions quoted the key-and-number form literally,
+which the gate then counted — so §13 was reporting a total that its own text had inflated, and every edit
+moved it. The prose here deliberately writes those keys without a number attached, and the same rule applies
+to the committed tally, [`logs/check_context_contract.txt`](logs/check_context_contract.txt), which records
+per-file counts rather than the lines themselves. The number still moves whenever a probe or the suite is
+re-run, added or gzipped, which is why the breakdown matters more than the total.
 
 Advisories are not failures (the gate returns 2 only for a JSON
 *key* below the supported context, and `--strict-caps` is not used by the stage gate), and nothing in
@@ -1270,8 +1281,10 @@ In this repo:
 
 Nothing in `tt/model.py`, `tt/optimized_decoder.py`, `tt/multichip_decoder.py` or `tt/precision_config.py`
 changed behaviour for the earlier stages: the only model addition is a new method nothing else calls, and
-the generator's existing entry points are untouched apart from `skip_precompile=True` on the lazy
-sampling-trace capture (which is strictly safer) and one new buffer allocated at construction.
+the generator's existing entry points are untouched apart from three changes, all of which the re-run
+full-model suite covers (§7.10): `skip_precompile=True` on the lazy sampling-trace capture (strictly safer),
+one new buffer allocated at construction, and `_read_tokens_async` now calling `read_output_async` instead of
+repeating its two lines.
 
 Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff), not committed to tt-metal):
@@ -1398,10 +1411,19 @@ scope-of-claim corrections:
 | **P3** — §7.10 quoted "175 s", the duration of the round-3 log that round 7 replaced | 199 s, from the committed log — which is also now 21 tests, not 20 |
 | README §3 claimed "every device action" goes through the generator, while the adapter also calls `model.attach_kv_cache`, `mesh_device.num_program_cache_entries()` and the shared `SamplingGenerator`'s state methods | scoped to what is true and load-bearing: no `ttnn` import and no device-tensor operation of its own, with the three legitimate other routes named (the last of which `tt/generator.py` documents as the serving boundary) |
 | §4's `read_decode_output` row still described the adapter doing the copy and event itself | the row now names `read_output_async`, `tokens_from` and `logits_from`, which is what it calls |
-| §13 attributed the adapter suite's 12 advisory lines to `building OrnithModel: … max_context=N`; they come from `initialize_vllm_model` logging `max_model_len=4096` | the breakdown is now by the line each advisory actually matched (19 probe builds, 12 suite loads, 1 source comment, 2 self-references = 34), and the committed tally records the split |
+| §13 attributed the adapter suite's 12 advisory lines to the probes' model-build line; they come from `initialize_vllm_model` logging the max model length it was handed | the breakdown is now by the line each advisory actually matched, and the committed tally records the split |
 | both gate console logs were round-3 captures | both re-captured, and the context one now records the matched-text split as well as the per-file counts |
 | `read_output_async` and `read_tokens_async` differed only by a counter — an easy future drift | one implementation, two entry points: `read_tokens_async` now calls `read_output_async` and adds the counter |
 | the async read of the *logits* tensor had no test | `test_the_async_read_returns_the_same_result_for_tokens_and_for_logits` — one host-sampled step and one device-sampled step, each read both deferred and blocking, asserting bit-for-bit agreement on both tensors (21 passed) |
+
+**Round 9.** Three items, all documentation or hygiene:
+
+| finding | what it turned into |
+|---|---|
+| **P3** — two shell-redirect debris files (`armup_model_decodep`, `armup_model_prefillp`) had been committed into the importable model package, which also falsified §15's "only stage-owned paths" | deleted |
+| **P3** — §7.10 skipped the full-model regression re-run on the claim that only `tt/generator_vllm.py` had changed; rounds 7 and 8 had also changed `tt/generator.py`'s `_read_tokens_async`, which `test_full_model.py` exercises | the suite was **re-run** on the committed tree: 50 passed, 5 deselected, 2139.77 s, `FULL_EXIT=0`, log re-archived. §7.10 and §14 now record a measurement instead of an argument |
+| **P3** — the committed context-gate tally (34) was captured before the §13/§15 text it accounted for, and the log's own summary line quoted a context key next to a number, so it counted itself | §13 and the tally are both written so that no committed line puts a context key next to a number. The gate now reports **32** — 19 probe builds, 12 adapter-suite loads, 1 source comment — twice in a row, and the log contributes zero advisories to itself |
+| §4's seven-primitive sentence sat above a table of eight rows | the extra row (`device_decode_state`) is now called out as documented-with-them-but-not-adapter-called |
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two
