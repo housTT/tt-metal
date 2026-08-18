@@ -363,7 +363,7 @@ cases, a negative seed not crashing, all six temperature-variation cases, `test_
 `test_specific_seed_reproducible[42]`, and `test_uniform_seed_deterministic[1-0]`/`[1-1]`.
 
 The rest split cleanly: **15** pass at 1 and fail at 32 (the reproducibility class, including
-`test_topk[15]`, `test_topk[32]` and `test_mixed_params_batch` — so neither of those belongs in a
+`test_topk[15]`, `test_topk[32]` and `test_mixed_params_batch` — so none of those belongs in a
 "passes in both" list, which an earlier version of this section and README §6 both claimed), **3** fail in
 both (`test_*_penalty_mixed_batch`), **4** fail at 1 and pass at 32 (`test_uniform_noseed_varied` and the
 three `test_different_*_penalties`, all of them empty- or single-row slices at capacity 1), and **1** skips

@@ -12,7 +12,7 @@ dense and EP=4 over the 256 routed experts, precision policy **`C06-proj-bfp4-lo
 **Workload: 128-token prompt, 128 generated tokens, 1 request, `--max-concurrency 1`, greedy
 (`--temperature 0.0`), `ignore_eos`, `--max-num-seqs 1`, decode trace on, on-device sampling
 (`sample_on_device_mode: all`), async scheduling ON — which is this vLLM's default for a server that
-passes no scheduling flag, and is what the server behind these numbers ran ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6-)).** Raw
+passes no scheduling flag, and is what the server behind these numbers ran ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6)).** Raw
 [`readiness_vllm/vllm_result.json`](../../readiness_vllm/vllm_result.json), normalized
 [`readiness_vllm/vllm_benchmark.json`](../../readiness_vllm/vllm_benchmark.json).
 
@@ -82,7 +82,7 @@ Serving decode is **at** the model's own token-out figure — 0.009 ms/token abo
 it on the ITL median, both well inside the 9-repeat spread of the baseline — so there is no measurable
 vLLM-specific decode overhead left to remove. That is true of the *overlapped* configuration, which is
 this vLLM's default and the one measured here; with `--no-async-scheduling` the same server sits at
-24.591 ms ITL, 1.4 ms above the floor ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6-)).
+24.591 ms ITL, 1.4 ms above the floor ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6)).
 TTFT carries +6 to +12 ms of serving path across the three warm runs (145.3–151.7 ms against the model's
 139.5 ms median warmed TTFT): HTTP, tokenizer, scheduler and detokenization. Teacher forcing is quoted
 only as the lower-bound comparison the skill asks for, and serving is *faster* than it, as expected —
@@ -426,7 +426,7 @@ python -m models.common.readiness_check.run_vllm_server \
 ```
 
 `--max-num-seqs 32` is the same command with that one value changed. Overlap is already on in the command
-above (this vLLM's default, [§5](#5-async-decode-overlap-on-by-default-here-and-worth-6-)); the
+above (this vLLM's default, [§5](#5-async-decode-overlap-on-by-default-here-and-worth-6)); the
 non-overlapped control is `--additional-server-args="--no-async-scheduling"`. The `=` matters either way —
 without it argparse eats a value that starts with `-`.
 
@@ -533,7 +533,7 @@ Nothing in this README is measured on it.
    schedulers, characterised in
    [work log §7.6.1](work_log.md#761-a-seeded-request-is-reproducible-within-a-server-not-across-two-of-them);
    pinning it to a line is plugin work, not adapter work.
-11. **Async scheduling is on unless you turn it off.** It is worth ~6 % of decode here ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6-)),
+11. **Async scheduling is on unless you turn it off.** It is worth ~6 % of decode here ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6)),
    so that default is the right one for this model — but it is a default, not a choice this stage made, and
    the flag that changes it is `--no-async-scheduling`.
 
