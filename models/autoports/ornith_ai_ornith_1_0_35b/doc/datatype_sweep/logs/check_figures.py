@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import glob
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -465,6 +466,99 @@ def main():
     # Section 4.0: C24 adds no op, which is why section 2's mechanism is NOT the explanation.
     for cid, want in (("C08-shared-bfp4-lofi", 0.03), ("C15-logits-bfp8", 0.07), ("C20-sdpa-lofi-no-fp32-acc", 0.04)):
         chk(f"{cid} delta % (a C24 ingredient)", round(rows[cid]["decode_speedup_vs_baseline_pct"], 2), want, 5e-3)
+
+    # ---- section 6.2: the LM-head geometry ladder, re-measured on the selected policy ----
+    arms = {}
+    for line in (D / "logs" / "ab_terminal_geometry.txt").read_text(errors="ignore").splitlines():
+        if line.startswith("ARM_JSON "):
+            row = json.loads(line[len("ARM_JSON ") :])
+            arms[row["arm"]] = row
+    chk("geometry arms that built", len(arms), 7)
+    chk("every geometry arm ran at LoFi", sorted({a["fidelity"] for a in arms.values()}), ["LoFi"])
+    for arm, want in (
+        ("sel-mcast1d-c110-nsh-align32", 1.3367),
+        ("sel-mcast1d-c110-repeat", 1.3375),
+        ("sel-mcast1d-c88-nsh-align32", 1.3422),
+        ("sel-mcast1d-c64-nsh-align32", 1.3470),
+        ("sel-mcast1d-c110-k4", 1.3493),
+        ("sel-interleaved", 1.3540),
+        ("sel-dram-sharded-c64", 1.4917),
+    ):
+        chk(f"{arm} model trace ms", round(arms[arm]["model_trace"], 4), want, 5e-5)
+    shipped = arms["sel-mcast1d-c110-nsh-align32"]["model_trace"]
+    chk("shipped geometry is the fastest arm", min(a["model_trace"] for a in arms.values()), shipped)
+    chk(
+        "dram_sharded c64 penalty %",
+        round((arms["sel-dram-sharded-c64"]["model_trace"] / shipped - 1) * 100, 1),
+        11.6,
+        0.05,
+    )
+    chk("dram_sharded c64 terminal path ms", round(arms["sel-dram-sharded-c64"]["final_norm_head"], 3), 0.419, 5e-4)
+    chk(
+        "shipped terminal path ms",
+        round(shipped and arms["sel-mcast1d-c110-nsh-align32"]["final_norm_head"], 3),
+        0.282,
+        5e-4,
+    )
+    chk("shipped in0_block_w", arms["sel-mcast1d-c110-nsh-align32"]["in0_block_w"], 8)
+    chk("shipped output subblock", arms["sel-mcast1d-c110-nsh-align32"]["out_subblock"], "1x6")
+    geometry_log = (D / "logs" / "ab_terminal_geometry.txt").read_text(errors="ignore")
+    chk("dram_sharded c32 did not build", "sel-dram-sharded-c32" not in arms, True)
+    chk(
+        "dram_sharded c32 blocker is the L1 clash",
+        "Statically allocated circular buffers in program" in geometry_log,
+        True,
+    )
+    chk("in0_block_w=16 did not build", "sel-mcast1d-c110-k16" not in arms, True)
+    chk(
+        "in0_block_w=16 blocker is the divisibility contract",
+        "must divide both the tiled K (64) and the activation shard" in geometry_log,
+        True,
+    )
+
+    # ---- section 5.2: the $autofix outcome for C19 ----
+    autofix = (D / "logs" / "autofix_c19" / "probe_sparse_zero_fill.txt").read_text(errors="ignore")
+    chk(
+        "typecast bfp4->bfp8 is capturable (H1 refuted)",
+        "RESULT fill bfp4 in place" in autofix and "traced=CAPTURABLE" in autofix,
+        True,
+    )
+    widen = (D / "logs" / "autofix_c19" / "probe_bfp4_widen.txt").read_text(errors="ignore")
+    chk(
+        "the widening typecast captures in L1 and DRAM",
+        len(
+            re.findall(r"RESULT (?:L1|DRAM)\s+typecast\s+eager=ok dtype=DataType.BFLOAT8_B \| traced=CAPTURABLE", widen)
+        ),
+        2,
+    )
+    chk(
+        "sparse_matmul bfp4 is NOT capturable",
+        "sparse_matmul dtype=bfp4" in autofix
+        and "sparse_matmul dtype=bfp4           eager=ok dtype=DataType.BFLOAT4_B | traced=NOT-CAPTURABLE" in autofix,
+        True,
+    )
+    chk(
+        "a preallocated output does not help",
+        "sparse_matmul bfp4 + out=          eager=ok dtype=DataType.BFLOAT4_B | traced=NOT-CAPTURABLE" in autofix,
+        True,
+    )
+    chk(
+        "the reduction rejects bfp4", "DeepseekMoEFastReduceNC input only supports specific data types" in autofix, True
+    )
+    shim = (D / "logs" / "autofix_c19" / "probe_routed_experts_shim.txt").read_text(errors="ignore")
+    chk(
+        "with the zero-fill shimmed away the rest of the chain captures",
+        "VERDICT policy=C19-expert-act-bfp4 shim=True: CAPTURABLE" in shim,
+        True,
+    )
+    ctrl = (D / "logs" / "autofix_c19" / "probe_routed_experts_trace.txt").read_text(errors="ignore")
+    chk("the shipped policy's routed experts capture", "VERDICT policy=C06-proj-bfp4-lofi: CAPTURABLE" in ctrl, True)
+    blocked_rec = json.loads((D / "blocked" / "C19-expert-act-bfp4.json").read_text())
+    chk(
+        "the blocker record carries the autofix outcome",
+        blocked_rec["autofix"]["verdict"].startswith("proven-blocked"),
+        True,
+    )
 
     # ---- section 5.2: the blocked arm ----
     blocked = json.loads((D / "blocked" / "C19-expert-act-bfp4.json").read_text())

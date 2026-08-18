@@ -155,6 +155,33 @@ OK   archived run records do carry the built LM-head fidelity got 'MathFidelity.
 OK   C08-shared-bfp4-lofi delta % (a C24 ingredient) got 0.03 want 0.03
 OK   C15-logits-bfp8 delta % (a C24 ingredient) got 0.07 want 0.07
 OK   C20-sdpa-lofi-no-fp32-acc delta % (a C24 ingredient) got 0.04 want 0.04
+OK   geometry arms that built               got 7 want 7
+OK   every geometry arm ran at LoFi         got ['LoFi'] want ['LoFi']
+OK   sel-mcast1d-c110-nsh-align32 model trace ms got 1.3367 want 1.3367
+OK   sel-mcast1d-c110-repeat model trace ms got 1.3375 want 1.3375
+OK   sel-mcast1d-c88-nsh-align32 model trace ms got 1.3422 want 1.3422
+OK   sel-mcast1d-c64-nsh-align32 model trace ms got 1.347 want 1.347
+OK   sel-mcast1d-c110-k4 model trace ms     got 1.3493 want 1.3493
+OK   sel-interleaved model trace ms         got 1.354 want 1.354
+OK   sel-dram-sharded-c64 model trace ms    got 1.4917 want 1.4917
+OK   shipped geometry is the fastest arm    got 1.3367386873142095 want 1.3367386873142095
+OK   dram_sharded c64 penalty %             got 11.6 want 11.6
+OK   dram_sharded c64 terminal path ms      got 0.419 want 0.419
+OK   shipped terminal path ms               got 0.282 want 0.282
+OK   shipped in0_block_w                    got 8 want 8
+OK   shipped output subblock                got '1x6' want '1x6'
+OK   dram_sharded c32 did not build         got True want True
+OK   dram_sharded c32 blocker is the L1 clash got True want True
+OK   in0_block_w=16 did not build           got True want True
+OK   in0_block_w=16 blocker is the divisibility contract got True want True
+OK   typecast bfp4->bfp8 is capturable (H1 refuted) got True want True
+OK   the widening typecast captures in L1 and DRAM got 2 want 2
+OK   sparse_matmul bfp4 is NOT capturable   got True want True
+OK   a preallocated output does not help    got True want True
+OK   the reduction rejects bfp4             got True want True
+OK   with the zero-fill shimmed away the rest of the chain captures got True want True
+OK   the shipped policy's routed experts capture got True want True
+OK   the blocker record carries the autofix outcome got True want True
 OK   C19 blockers recorded                  got 2 want 2
 OK   C19 status                             got 'blocked' want 'blocked'
 

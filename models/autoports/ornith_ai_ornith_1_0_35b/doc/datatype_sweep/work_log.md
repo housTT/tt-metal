@@ -235,6 +235,18 @@ The frontier's other two points are one environment variable away:
    widening to `bfloat8_b` before the reduction (inert under every shipped policy). The arm then
    failed **at trace capture**: `TT_FATAL: Writes are not supported during trace capture. trace id: 0`
    on all four devices, followed by a stall.
+3. `$autofix` localised that second blocker — [`AUTOFIX_C19.md`](AUTOFIX_C19.md), consoles in
+   [`logs/autofix_c19/`](logs/autofix_c19/). It is **not** the widening typecast, which this record
+   originally blamed: `ttnn.typecast` `bfloat4_b`→`bfloat8_b` captures fine at the decode shape in
+   both L1 and DRAM. The write is `ttnn.sparse_matmul` with a `BFLOAT4_B` output dtype
+   (`tt/optimized_decoder.py:1651`), one op upstream. Its device operation zero-fills the output
+   with `ttnn::zeros_like` on every call (`sparse_matmul_device_operation.cpp:311-336`) and
+   `full_like_impl` (`creation.cpp:239-244`) has no device-fill fast path for `BFLOAT4_B`, so the
+   fill becomes a host tensor plus `copy_to_device` — the write `fd_mesh_command_queue.cpp:760`
+   forbids. `optional_output_tensor=` does not help (same zero-fill), and with the zero-fill shimmed
+   away the whole rest of the `bfloat4_b` chain captures. So C19 is one library gap wide; the
+   one-line upstream repair is core TTNN and out of this stage's scope. Four standalone probes, all
+   exiting cleanly — **no reset was needed in that pass**.
 
 `$tt-device-usage`'s hang path was followed: triage **before** the kill.
 
@@ -252,15 +264,31 @@ close_ornith_mesh(open_ornith_mesh()); print("MESH_SMOKE_OK")
 PY
 ```
 
-`check_binary_integrity` reports kernel `.text` mismatches on `eltwise_binary_no_bcast` and the
-interleaved reader/writer on all four devices — the same signature the optimized full-model stage's
-README §9 records for its traced-first-token-sampling hang. One reset was enough; no locks were
-cleared; recorded as **infrastructure recovery, not a model result**.
+**Two of the capture's checks report `fail`, and `triage-summary-C19.txt` does not say so** — its
+`pass` means "the script executed", not "the check found nothing" (`tools/triage/triage.py:918-925`
+writes `FAIL` only when the *script* raised). The capture is authoritative:
 
-The arm was not pursued further: it is a narrowing of an activation, and the two directly comparable
-narrowing arms that did run (C13, C14) both measured slower for exactly the reason this one would.
-The BFP4+LoFi coverage the skill requires is about matmul weight groups, all four of which were
-measured on both fidelities (README §4.1). The widening guard is left in place — it dispatches
+* `check_binary_integrity` — kernel `.text` mismatches on `eltwise_binary_no_bcast` and the
+  interleaved reader/writer on all four devices. The stall's own signature, and the same one the
+  optimized full-model stage's README §9 records for its traced-first-token-sampling hang;
+* `check_noc_status` — `erisc1 NOC0` mismatched state on two ethernet cores of each device,
+  *"Either the device is not idle and is currently processing transactions, … or the NoC is hung"*.
+  Expected: the capture was taken deliberately from a **live** stall, so the devices were not idle,
+  which is the check's own first reading.
+
+Neither survives the recovery. One reset was enough; no locks were cleared; recorded as
+**infrastructure recovery, not a model result**. Every measurement in `runs/` postdates it, and the
+four-repeat first pass — which predates the incident — reproduces the delivered pass to within
+0.172 %, an unplanned across-the-reset control.
+
+**Why the arm is closed.** On the op contract, not on a prediction: the two blockers are jointly
+exhaustive. The reduction accepts only `BFLOAT16`/`BFLOAT8_B`, so a `bfloat4_b` expert output must
+be widened before it; and the op that *produces* that output cannot be captured at `bfloat4_b` at
+all, with or without the widening. There is no spelling of C19 the current TTNN lets a traced decode
+execute, and untraced decode is not admissible evidence here. What C19 would have measured is
+unknown — C13 and C14 both lost, but that is an expectation, not the reason. The BFP4+LoFi coverage
+the skill requires is about matmul *weight* groups, all four of which were measured on both
+fidelities (README §4.1); `expert_act_dtype` is an activation. The widening guard is left in place — it dispatches
 nothing under any shipped policy and it is what turned a first-error rejection into a sharper second
 blocker.
 
@@ -381,7 +409,7 @@ The reformat was verified formatting-only by diff before the rerun, and the reru
 that fix was being made.
 
 Every number this stage's README states is re-derived from the artifacts by
-[`logs/check_figures.py`](logs/check_figures.py) — 159 assertions, `0 problem(s)`
+[`logs/check_figures.py`](logs/check_figures.py) — 186 assertions, `0 problem(s)`
 ([`logs/check_figures.txt`](logs/check_figures.txt)). It caught three drifted figures on its first
 run (the warm-spread range quoted the failing config, and two rounding differences) and they were
 corrected in the prose rather than in the check.
@@ -414,7 +442,8 @@ skills, read-only, twice.
 |---|---|---|
 | 1 | `more-work-needed` | four P2 findings — the official-runner control's quoted numbers, a false 4-vs-10-repeat reproducibility claim, the batch-slot test's unreachable strict branch and missing negative control, and no batch > 1 evidence at the 40-layer stack. §10.1 has the work; all four were closed with measurements, not prose |
 | 2 | `more-work-needed` | five P2 findings, **all documentation**: the reviewer verified every round-1 remediation independently against the raw artifacts and found the substance sound. What failed was three README figures the stage's own audit did not cover (the "passing part spans 0.9 %", which is the *non-regression* span and not the passing span; "six configurations" split their two gates, which is eight; and a claim that the archived run records carry per-layer built fidelity rows, which they do not because the field was added after the sweep ran), plus `tt/model.py`'s module docstring still naming the pre-sweep policy as the model's, and two stale paths |
-| 3 | *(this round)* | — |
+| 3 | `more-work-needed` | three P2 findings: C19's hang closed without `$autofix`, the LM head's geometry never re-measured under the selected policy, and the tt-triage summary contradicting its own capture. All three closed below |
+| 4 | *(this round)* | — |
 
 Round 2's fixes, all in this stage's own artifacts and in one docstring:
 
@@ -437,6 +466,26 @@ Round 2's fixes, all in this stage's own artifacts and in one docstring:
   three C24 ingredients, and an assertion that the archived records do *not* have the per-layer
   fidelity rows the README used to claim.
 
+### Round 3
+
+Round 3 verified all five of round 2's fixes independently and returned three P2 findings, two of
+which needed device work:
+
+| finding | what was done |
+|---|---|
+| **C19's hang was declared blocked without `$autofix`** — `$tt-device-usage` says a hang may not be called blocked until `$autofix` has tried and failed, and the record rejected the arm by analogy with C13/C14 | ran `$autofix`. It **refuted the record's own hypothesis**: the widening `ttnn.typecast` is trace-capturable at the exact decode shape, in L1 and in DRAM. The write is `ttnn.sparse_matmul` with a `BFLOAT4_B` output one op upstream, whose device operation zero-fills via `ttnn::zeros_like`, for which `full_like_impl` has no device-fill fast path at `BFLOAT4_B`. Four standalone probes, including a shim proving the entire rest of the chain captures. [`AUTOFIX_C19.md`](AUTOFIX_C19.md); the arm is now closed on an exact, *proven* op contract instead of on a prediction |
+| **the LM head's geometry was never re-measured under the selected policy**, and this stage's own capture shows the row's bound class changing from `DRAM`/69.0 % to `SLOW`/48.6 % | re-ran the whole terminal ladder on the selected config ([`logs/ab_terminal_geometry.sh`](logs/ab_terminal_geometry.sh)). The shipped `mcast1d` 110 + sharded norm is still the top of it, and `dram_sharded` at 64 — the profiler's own advice under the *baseline* policy — is **11.6 % slower** at BFP4/LoFi too. The two arms that do not build fail on the same exact contracts as at BFP8 (an L1 clash, a divisibility refusal). README §6.2 |
+| **the tt-triage summary artifact says every check passed while the capture records two failures**, one of them `check_noc_status: fail` ("or the NoC is hung"), classified nowhere | the summary's `pass` means "the script executed" (`tools/triage/triage.py:918-925`), not "the check found nothing". README §5.2 and §8 above now say so, quote both failing checks, classify each — the binary mismatch is the stall's own signature; the NoC state is what a capture taken from a *live* stall is expected to show — and the citations point at the capture rather than the summary |
+
+Round 3's other concerns were taken too: limitation 1's count (twenty is the *passing* non-regression
+set, twenty-one including C18), C19's lost first console added to the limitations, the `commit`
+provenance of every measured row (`sweep_results.json::provenance` now records that the sweep ran on
+an uncommitted tree and names the stage's checkpoint SHAs), the source file behind §6.1's row counts,
+`built.logits_dtype` being the one row read off the policy, C24's "every other non-negative arm"
+wording, and a limitation for the batch-slot test taking its lenient branch under the shipped
+default. **`logs/check_figures.py` grows 159 → 186 assertions**, now covering the geometry ladder and
+every `$autofix` probe result.
+
 ### Commits
 
 Local checkpoint commits only. Nothing was pushed.
@@ -444,7 +493,8 @@ Local checkpoint commits only. Nothing was pushed.
 | repo | branch | SHA | what |
 |---|---|---|---|
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `246c86d9084` | the stage: the selected precision config, `tt/precision_config.py`, the `PrecisionPolicy` fields and their plumbing, the tests, the context contract and all of `doc/datatype_sweep/` |
-| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | *(see below)* | review round 2's documentation corrections and the extended figure audit |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `7fd4c1d0399` | review round 2's documentation corrections and the extended figure audit (143 → 159 assertions) |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | *(round 3, below)* | the `$autofix` pass on C19, the LM-head geometry ladder under the selected policy, the triage-summary classification, and 159 → 186 assertions |
 
 Two files were already dirty before this stage began and are **not** stage-owned, so neither commit
 touches them: `.agents/skills/tt-device-usage/SKILL.md` (modified) and

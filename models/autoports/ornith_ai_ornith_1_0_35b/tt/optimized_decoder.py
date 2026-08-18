@@ -1711,10 +1711,17 @@ class OptimizedMoE:
         #
         # The op accepts only BFLOAT16 and BFLOAT8_B ("DeepseekMoEFastReduceNC input only supports
         # specific data types", `moreh_helper_functions.cpp:285`), so a bfloat4_b `expert_act_dtype`
-        # has to be widened first. That is the *adapted* form of the datatype-sweep's C19 candidate,
-        # and it is what makes that candidate measurable rather than rejected on a first API error;
-        # `doc/datatype_sweep/README.md` records what it measured. Under every shipped policy
-        # `expert_act_dtype` is already one of the two accepted dtypes and this dispatches nothing.
+        # has to be widened first. That is the *adapted* form of the datatype-sweep's C19 candidate:
+        # a first API error is not a rejection. Under every shipped policy `expert_act_dtype` is
+        # already one of the two accepted dtypes and this dispatches nothing.
+        #
+        # It is kept, and it is correct — `doc/datatype_sweep/AUTOFIX_C19.md` measured this exact
+        # typecast at the decode shape and it is trace-capturable in both L1 and DRAM — but it does
+        # NOT make C19 measurable. The blocker is one op *upstream*: `ttnn.sparse_matmul` cannot
+        # produce a BFLOAT4_B output inside a trace at all, because its device operation zero-fills
+        # the output with `ttnn::zeros_like` (the kernel never writes inactive experts' blocks) and
+        # `full_like_impl` has no device-fill fast path for BFLOAT4_B, so the fill is a host write.
+        # C19 stays blocked on that, not on this.
         if down.dtype not in _MOE_REDUCE_DTYPES:
             widened = ttnn.typecast(down, MOE_REDUCE_FALLBACK_DTYPE, memory_config=down.memory_config())
             ttnn.deallocate(down)

@@ -224,10 +224,13 @@ and [`sweep_results.json`](sweep_results.json); the per-candidate configs are in
 ### 4.0 The surviving choices were extended, as the skill's step 6 asks
 
 `$datatype-sweep`'s default search says to try extending the surviving choices once a passing config
-is found. Three arms measured non-negative on their own without being selected — C08 (shared expert
-BFP4/LoFi, +0.03 %), C15 (logits `bfloat8_b`, +0.07 %) and C20 (SDPA LoFi without fp32 accumulate,
-+0.04 %) — so **C24** is C06 unioned with all three, the largest legal lower-precision configuration
-this sweep can build short of the KV cache. It **passes** (0.940 / 0.930, top-5 and top-100 1.000)
+is found. Three arms measured non-negative on their own, without being selected and without touching the KV
+cache — C08 (shared expert BFP4/LoFi, +0.03 %), C15 (logits `bfloat8_b`, +0.07 %) and C20 (SDPA LoFi
+without fp32 accumulate, +0.04 %) — so **C24** is C06 unioned with all three, the largest legal lower-precision configuration
+this sweep can build short of the KV cache. (C11 at +0.00 % and C12 at +0.08 % also measured
+non-negative, and both are cache dtypes: C11 unioned with C06 is **C18**, which fails the gate, and
+C12 is *wider* than the shipped cache, so it is not a lower-precision extension at all.) It
+**passes** (0.940 / 0.930, top-5 and top-100 1.000)
 and it is **slower**: 42.126 t/s/u against C06's 42.296, −0.40 %.
 
 That is **not** §2's extra-dispatch mechanism: C24 adds no op at all — it narrows a weight group, a
@@ -331,7 +334,7 @@ C14 then ran, and lost on measurement — which is what the −1.87 % row record
    [BFLOAT16, BFLOAT8_B]` (`moreh_helper_functions.cpp:285`). The op's own validator enumerates the
    two it accepts; `bfloat4_b` is not a legal input at all.
 2. The adaptation — widen to `bfloat8_b` before the reduction, the same shape of fix §5.1 used, and
-   also left in place and inert — moved the failure to trace capture:
+   also left in place and inert — got past that and the arm then failed at **trace capture**:
    `TT_FATAL: Writes are not supported during trace capture. trace id: 0`, on all four devices,
    followed by a mesh stall. [`triage/tt-triage-C19.txt.gz`](triage/) captured it before the process was
    killed; `check_binary_integrity` reports kernel `.text` mismatches on `eltwise_binary_no_bcast` and
@@ -339,15 +342,59 @@ C14 then ran, and lost on measurement — which is what the −1.87 % row record
    stage's README §9 records for its traced-first-token-sampling hang. A decode step that cannot be
    *captured* cannot be ranked by this sweep at all, since untraced decode is not admissible evidence.
 
-The arm was not pursued further because it is a *narrowing of an activation*, and the two directly
-comparable narrowing arms that did run (C13 at −1.33 %, C14 at −1.87 %) both lost for exactly the
-reason this one would. There is no evidence it would be faster, and the BFP4+LoFi coverage the skill
-requires is about matmul weight groups — all four of which were measured on both fidelities (§4.1).
+   `$autofix` then localised that second blocker, and it is **not** the widening typecast this
+   record originally blamed — [`AUTOFIX_C19.md`](AUTOFIX_C19.md) has the four experiments and
+   [`logs/autofix_c19/`](logs/autofix_c19/) the consoles. `ttnn.typecast` from `bfloat4_b` to
+   `bfloat8_b` is trace-capturable at the exact decode shape, in L1 and in DRAM. The write comes
+   from `ttnn.sparse_matmul` itself, one op *upstream*: its device operation zero-fills its output
+   with `ttnn::zeros_like` on every call (the kernel never writes the blocks of inactive experts),
+   and `full_like_impl` takes the on-device `ttnn::fill` fast path only for `BFLOAT8_B`,
+   `BFLOAT16` and `FLOAT32` — a `BFLOAT4_B` output falls through to a host tensor plus
+   `copy_to_device`, which is the forbidden write
+   (`sparse_matmul_device_operation.cpp:311-336`, `creation.cpp:239-244`, raised at
+   `fd_mesh_command_queue.cpp:760`). A preallocated `optional_output_tensor` does not avoid it —
+   that branch zero-fills too — so there is no spelling of the op the model can reach that does.
+   With the zero-fill shimmed away, the whole rest of the `bfloat4_b` chain captures cleanly, so
+   C19 reduces to exactly this one gap. The upstream repair is one line
+   (`creation.cpp:241`, and `ttnn.fill` on a `bfloat4_b` tensor is already capturable), but it is a
+   core TTNN change affecting every model in the repo and is out of this stage's scope.
 
-Hardware was recovered as `$tt-device-usage` prescribes: the stalled process was killed, then bounded
-`tt-smi -ls --local` (8 rows) → `tt-smi -r` (all four PCI devices re-initialised) → `tt-smi -ls --local`
-(8 rows) → the mesh smoke (`open_ornith_mesh`/`close_ornith_mesh` → `MESH_SMOKE_OK`). No second reset
-was needed and no locks were cleared. Recorded as infrastructure recovery, not a model result.
+**So the arm is closed on the op contract, not on a prediction.** The two blockers are jointly
+exhaustive for this candidate: the reduction accepts only `BFLOAT16` and `BFLOAT8_B`, so a
+`bfloat4_b` expert output *must* be widened before it; and the op that produces that output cannot
+be captured at `bfloat4_b` at all, with or without the widening. There is no spelling of C19 in the
+current TTNN that a traced decode can execute, and an untraced decode is not admissible evidence for
+this sweep. (What C19 *would* have measured is a separate question, and the honest answer is that
+nobody knows: the two directly comparable narrowing arms that did run, C13 at −1.33 % and C14 at
+−1.87 %, both lost — but that is an expectation, not a result, and it is not what closes the arm.)
+The BFP4+LoFi coverage the skill requires is about matmul *weight* groups, all four of which were
+measured on both fidelities (§4.1); `expert_act_dtype` is an activation.
+
+**Hardware.** The stall was recovered as `$tt-device-usage` prescribes: the stalled process was
+killed, then bounded `tt-smi -ls --local` (8 rows) → `tt-smi -r` (all four PCI devices
+re-initialised) → `tt-smi -ls --local` (8 rows) → the mesh smoke
+(`open_ornith_mesh`/`close_ornith_mesh` → `MESH_SMOKE_OK`). No second reset was needed and no locks
+were cleared. Recorded as infrastructure recovery, not a model result. Every measurement in this
+stage's `runs/` postdates that recovery, and the four-repeat first pass — which *predates* the
+incident entirely — reproduces the delivered ten-repeat pass to within 0.172 % (median 0.048 %),
+which is an unplanned but real across-the-reset control. The `$autofix` pass itself stalled nothing
+and needed no reset.
+
+**What the triage capture actually says, and what its summary means.** `triage-summary-C19.txt`
+lists every script as `pass`, and that is *not* a verdict: `tt-triage`'s
+`_build_triage_summary` (`tools/triage/triage.py:918-925`) writes `pass` when the script **executed
+without raising**, and only reports `FAIL` when the script itself errored. The check verdicts are in
+the detailed capture, and two of them are `fail`:
+
+| check | verdict in `tt-triage-C19.txt.gz` | classification |
+|---|---|---|
+| `check_binary_integrity` | **fail** — `.text` mismatches in `eltwise_binary_no_bcast` and the interleaved reader/writer, all four devices | the stall's own signature: a trace-region kernel binary overwritten by the failed capture. Same signature as the optimized full-model stage's README §9 hang |
+| `check_noc_status` | **fail** — `Mismatched state: erisc1 NOC0 … Either the device is not idle and is currently processing transactions, the kernel has incorrectly modified the NOC transaction counters, **or the NoC is hung**`, on two ethernet cores of each of the four devices | expected while triaging a **live** stall: the capture was deliberately taken with the stalled process still running, so the devices were by definition not idle. The check's own message names that as its first reading |
+| the other 19 scripts | pass, and pass on their own terms | — |
+
+Neither survives the recovery: `tt-smi -r` re-initialised all four devices, the mesh smoke passed,
+and every subsequent run in this stage — including the `$autofix` pass, which drove the same ops on
+the same mesh with no stall — is on the far side of it.
 
 ---
 
@@ -368,8 +415,12 @@ independent things pin it:
    `test_the_selected_precision_config_artifact_is_complete_and_round_trips` closes the other half.
 3. **`model.precision_summary()` reads the built objects, not the policy.** Per layer: every weight
    tensor's own `dtype`, the K and V cache dtypes, the recurrent-state dtype, and the resolved
-   per-layer policy name. Globally: the LM-head weight dtype, the LM head's constructed
-   compute-kernel config, the logits dtype and the resolved prefill SDPA chunk.
+   per-layer policy name, and — added after the sweep ran, so not in `runs/` — all six constructed
+   compute-kernel fidelities. Globally: the LM-head weight dtype, the LM head's constructed
+   compute-kernel config, the resolved prefill SDPA chunk, and `logits_dtype`, which is the one row
+   in that block read off the *policy* rather than a live object, because the logits tensor does not
+   exist until a forward runs. Item 4 is what makes that one evidence: it asserts the dtype of the
+   **traced decode logits buffer**, which is the terminal matmul's own output.
    `test_the_selected_precision_config_is_the_built_policy` asserts all of it against the artifact,
    field by field, including `layer.compute_kernel_config.math_fidelity == proj_fidelity`,
    `layer.moe.expert_ckc.math_fidelity == expert_fidelity`,
@@ -401,16 +452,66 @@ the same script under the pre-sweep policy
 | `32 x 2048 x 256`, `32 x 256 x 64` ×32 | router | `HiFi4 BF16 x BF16 => BF16` | unchanged |
 | routed `SparseMatmul` ×32 | experts | `LoFi … x BFP4 => BFP8` | unchanged |
 
-The arithmetic closes exactly: the baseline capture has **72** `HiFi2 BF16 x BFP8 => BF16` rows and
-**zero** `LoFi BF16 x BFP4 => BF16`; the selected capture has **40** of the latter and **32** of the
-former, and 40 + 32 = 72. Forty rows moved — the four dense projection roles plus the LM head — and
+The arithmetic closes exactly, counted over `decode_perf_report.txt` — the per-op table: the
+baseline capture has **72** `HiFi2 BF16 x BFP8 => BF16` rows and **zero** `LoFi BF16 x BFP4 => BF16`;
+the selected capture has **40** of the latter and **32** of the former, and 40 + 32 = 72.
+(`decode_perf_report.csv.gz` in the same directory gives exactly half of each — 36, and 20 + 16 —
+because it is the deduplicated form. The ratio and the arithmetic are identical either way; the
+counts quoted here are the `.txt`'s.) Forty rows moved — the four dense projection roles plus the LM head — and
 thirty-two stayed, which is the shared expert. No row shows a dtype or a fidelity the selected config
 does not name.
 
 The LM-head row also shows §2's launch-bound story from the other side: the weight halves, but the row
-goes 374 → 273 µs (−27 %) rather than −47 %, because its DRAM efficiency falls from 69.0 % to 48.6 %.
-(Absolute times in a Tracy window are inflated by the profiler; the ratios are the point, and the
-un-profiled wall clock is §1's.)
+goes 374 → 273 µs (−27 %) rather than −47 %, because its DRAM efficiency falls from 69.0 % to 48.6 %
+and the row's bound class changes with it, from `DRAM` to `SLOW`. (Absolute times in a Tracy window
+are inflated by the profiler; the ratios are the point, and the un-profiled wall clock is §1's.)
+
+### 6.2 So the LM head's geometry was re-measured under the selected policy
+
+That bound-class change is exactly the situation `$stage-review` warns about: the terminal matmul's
+*geometry* — program spelling, core count, `in0_block_w`, terminal-norm layout — was chosen by the
+optimized full-model stage with every arm measured at `HiFi2 BF16 x BFP8`, and this stage moved the
+row to `LoFi BF16 x BFP4`. A core-count result from one precision policy does not validate or reject
+geometry under another, so the ladder was re-run on the selected config, unchanged in every other
+respect: the same harness
+([`../optimized_full_model/logs/ab_terminal.py`](../optimized_full_model/logs/ab_terminal.py)), the
+same reduced two-layer variant, one process per arm, and **no policy argument**
+([`logs/ab_terminal_geometry.sh`](logs/ab_terminal_geometry.sh), raw output
+[`logs/ab_terminal_geometry.txt`](logs/ab_terminal_geometry.txt)).
+
+| arm, all on the selected BFP4/LoFi policy | model trace (ms) | token-out, pipelined |
+|---|---|---|
+| **shipped: `mcast1d` 110 cores, sharded norm, vocab align 32** | **1.3367** | **2.4791** |
+| the same arm again, a different process | 1.3375 | 2.4767 |
+| `mcast1d` 88 cores | 1.3422 | 2.4820 |
+| `mcast1d` 64 cores | 1.3470 | 2.4863 |
+| `mcast1d` 110, `in0_block_w=4` | 1.3493 | 2.4810 |
+| inherited `interleaved`, unsharded norm | 1.3540 | 2.4907 |
+| **`dram_sharded` 64 cores** — `tt-perf-report`'s own advice under the *baseline* policy | **1.4917 (+11.6 %)** | 2.6318 |
+| `dram_sharded` 32 cores | **does not build** | — |
+| `mcast1d` 110, `in0_block_w=16` | **refused** | — |
+
+**The shipped geometry is still the top of the ladder under BFP4/LoFi**, and by a wider margin than
+the profiler's advice would suggest: `dram_sharded` at 64 cores — the only legal DRAM-sharded core
+count, and the arm the baseline capture's `Advice` column asked for — is **11.6 % slower on the model
+trace** and costs 0.137 ms of terminal path (`final_norm_head` 0.419 against 0.282 ms). Its own
+advice under the *selected* policy no longer asks for it; it reads
+`in0_block_w=8 and output subblock 1x6 look good`, which is the shipped configuration.
+
+The two arms that do not build fail on exact contracts, both re-confirmed at BFP4:
+
+* `dram_sharded` at 32 cores — `TT_THROW: Statically allocated circular buffers in program 466 clash
+  with L1 buffers on core range [0-0 - 7-9]. L1 buffer allocated at 1402880 and static circular
+  buffer region ends at 1470848` (`program.cpp:1779`). An L1 clash, unchanged by the dtype;
+* `in0_block_w=16` — refused at construction: `it must divide both the tiled K (64) and the
+  activation shard's tile width (8)`. A divisibility contract, also unchanged by the dtype.
+
+So the `SLOW` classification is accepted as the final result, with the alternative geometry measured
+under the selected policy rather than argued about. It is also worth keeping in proportion: `SLOW` is
+the *majority* class in this model's decode capture — 68 of 76 classified rows were already `SLOW`
+under the baseline policy, including both routed-expert sparse matmuls — and the LM head is 2.6 % of
+a two-layer profiled step. What the ladder rules out is that a different program spelling would
+recover the DRAM efficiency; it would not, and it would cost 0.15 ms of model trace to find out.
 
 `precision_summary().built` records the same two facts per candidate in
 [`sweep_results.csv`](sweep_results.csv)'s `built_lm_head_weight_dtype` and
@@ -653,9 +754,10 @@ as signal.
 
 ## 10. Limitations
 
-1. **The whole sweep spans 3.1 % of decode throughput, and the twenty non-regression configurations
-   span 0.92 %.** The *passing* set spans 3.07 %, because all three regressions clear the accuracy
-   gate — they are slow, not wrong. The step is
+1. **The whole sweep spans 3.1 % of decode throughput, and the twenty *passing* non-regression
+   configurations span 0.92 %.** (Twenty-one including C18, which fails the accuracy gate; the
+   *passing* set as a whole spans 3.07 %, because all three regressions clear the gate — they are
+   slow, not wrong.) The step is
    launch-bound (§2). Precision is not the lever that moves this model; op count is. A future stage
    that fuses or removes decode ops should re-run this sweep afterwards, because the balance between
    "bytes saved" and "one more dispatch" is exactly what decides rows like C13 and C14.
@@ -678,10 +780,25 @@ as signal.
    benchmark and capacity probe elsewhere in the stage is batch 1, which is the vLLM primary
    single-user profile the previous stage established. Batched *throughput* and batched capacity at
    the advertised bound of 32 are the vLLM stage's to measure.
-7. **The failing run's own pytest console log was overwritten** by the later all-pass rerun of the
-   same path (§9.1). `logs/post_status.txt` preserves the run's `rc=1` and its timestamp, and the
-   focused probe reproduces the exact tokens, but the original console is gone.
-8. **TTFT is not a metric this stage claims to move.** The teacher-forcing TTFTs span
+7. **Two console logs were overwritten by later runs of the same path.** The failing pytest console
+   (§9.1) — `logs/post_status.txt` preserves the run's `rc=1` and its timestamp, and the focused
+   probe reproduces the exact tokens — and C19's *first* smoke console, which held blocker 1's
+   message before the adaptation was added (§5.2). Neither is lost as evidence: blocker 1 is
+   reproduced verbatim by `logs/autofix_c19/probe_sparse_zero_fill.txt` and is verifiable in the
+   TTNN source, and §9.1's tokens are reproduced by `batch_slot_tie_selected.json`. But the original
+   consoles are gone, and the drivers writing to a fixed filename per arm is the habit that caused it.
+8. **Every row's `commit` field names the previous stage's SHA.** A sweep has to run before there is
+   anything to commit, so the tree that measured all 24 rows carried this stage's changes
+   uncommitted. `sweep_results.json::provenance` records the stage's own checkpoint SHAs and says so
+   explicitly; checking out the recorded `commit` and replaying a row's `command` would not reproduce
+   it.
+9. **`test_the_batched_prefill_state_reaches_every_decode_slot` takes its lenient branch under the
+   shipped default policy**, because the selected config is what produces the exact tie (§9.1). The
+   strict branch fires on `optimized`, on `fused-parity` and on the negative control — and the
+   lenient branch rejects the negative control too, on the batch-1 comparison — so the failure mode
+   is covered either way. But a future change that widened the contender spread further would keep
+   the test in the lenient branch silently.
+10. **TTFT is not a metric this stage claims to move.** The teacher-forcing TTFTs span
    **178.2 ms (C16) – 184.8 ms (C14)** across configurations whose prefill work differs by far less
    than that spread, and the
    optimized full-model stage established that this host's TTFT distribution is wider than the effects
@@ -718,5 +835,11 @@ doc/datatype_sweep/
 ├── capacity/                              §7, one allocator view per KV-cache dtype
 ├── blocked/                               §5.2, C19's blocker record and the config that was tried
 ├── triage/                                §5.2, the tt-triage capture
-└── logs/                                  every driver, and every raw console log
+├── AUTOFIX_C19.md                         §5.2, the $autofix pass that localised C19's second
+│                                          blocker (and refuted this record's first attribution)
+└── logs/                                  every driver, and every raw console log, incl.
+                                           logs/autofix_c19/         — §5.2, the four C19 probes
+                                           logs/ab_terminal_geometry.* — §6.2, the LM-head geometry
+                                           ladder, re-measured on the selected policy
+                                           logs/check_figures.*      — the figure audit
 ```

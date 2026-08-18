@@ -372,6 +372,22 @@ def main():
                 "both readiness checks, ranked by trace-verified teacher-forcing decode t/s/u",
                 "selected": selected_id,
                 "baseline": baseline["config_id"] if baseline else None,
+                "provenance": {
+                    "recorded_commit": "every row's `commit` field is the commit that was CHECKED OUT "
+                    "when that row was measured, which for this whole sweep is the previous stage's "
+                    "final SHA (e5477080792): the tree carried this stage's changes uncommitted, "
+                    "because a sweep has to run before there is anything to commit. Checking out "
+                    "that SHA and replaying a row's `command` would NOT reproduce it.",
+                    "stage_commits": [
+                        "246c86d9084 - the stage: the selected precision config, tt/precision_config.py, "
+                        "the PrecisionPolicy fields and their plumbing, the tests, the context contract "
+                        "and all of doc/datatype_sweep/. This is the tree every row in `results` was "
+                        "measured on, modulo the pre-commit hooks' formatting-only reflow (verified by "
+                        "diff, and the whole suite was re-run afterwards).",
+                        "7fd4c1d0399 - review round 2's documentation corrections and the extended "
+                        "figure audit. No measured row changed.",
+                    ],
+                },
                 "results": ordered,
                 "blocked": blocked,
                 "blocked_note": "candidates that could not be measured at all. Each carries the exact "

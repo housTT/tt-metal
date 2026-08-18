@@ -7,6 +7,13 @@
   "selection_rule": "the fastest evaluated config that satisfies both accuracy gates on both readiness checks, ranked by trace-verified teacher-forcing decode t/s/u",
   "selected": "C06-proj-bfp4-lofi",
   "baseline": "S00-baseline-optimized",
+  "provenance": {
+    "recorded_commit": "every row's `commit` field is the commit that was CHECKED OUT when that row was measured, which for this whole sweep is the previous stage's final SHA (e5477080792): the tree carried this stage's changes uncommitted, because a sweep has to run before there is anything to commit. Checking out that SHA and replaying a row's `command` would NOT reproduce it.",
+    "stage_commits": [
+      "246c86d9084 - the stage: the selected precision config, tt/precision_config.py, the PrecisionPolicy fields and their plumbing, the tests, the context contract and all of doc/datatype_sweep/. This is the tree every row in `results` was measured on, modulo the pre-commit hooks' formatting-only reflow (verified by diff, and the whole suite was re-run afterwards).",
+      "7fd4c1d0399 - review round 2's documentation corrections and the extended figure audit. No measured row changed."
+    ]
+  },
   "results": [
     {
       "config_id": "C06-proj-bfp4-lofi",
@@ -1436,16 +1443,20 @@
           "order": 1,
           "where": "ttnn.experimental.deepseek_moe_fast_reduce_nc, the routed-expert reduction",
           "exact_error": "TT_FATAL: DeepseekMoEFastReduceNC input only supports specific data types. [BFLOAT16, BFLOAT8_B] (ttnn/cpp/ttnn/operations/moreh/moreh_helper_functions.cpp:285)",
-          "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt was OVERWRITTEN by the second run; the first run's console is not preserved. The blocker is independently verifiable in the source: ttnn/cpp/ttnn/operations/experimental/reduction/deepseek_moe_fast_reduce_nc/device/deepseek_moe_fast_reduce_nc_device_operation.cpp validates the input against {DataType::BFLOAT16, DataType::BFLOAT8_B}, which is the message verbatim.",
+          "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt was OVERWRITTEN by the second run, but the assertion is now reproduced verbatim in doc/datatype_sweep/logs/autofix_c19/probe_sparse_zero_fill.txt ('REDUCE bfp4: FAIL ... moreh_helper_functions.cpp:285').",
           "note": "bfloat4_b is not a legal input dtype for the op at all - the op's own validator enumerates the two it accepts. This is the op contract, not a shape or layout mismatch."
         },
         {
           "order": 2,
-          "where": "the adaptation: widen the bfloat4_b expert output to bfloat8_b before the reduction (OptimizedMoE._routed_experts, guarded by _MOE_REDUCE_DTYPES)",
-          "exact_error": "TT_FATAL: Writes are not supported during trace capture. trace id: 0 (assert.hpp:104), raised on all four devices inside _ensure_decode_trace, followed by a mesh stall",
-          "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt (the run on disk)",
-          "triage": "doc/datatype_sweep/triage/tt-triage-C19.txt.gz (gzipped after capture; the repo rejects files over 500 KB) and triage-summary-C19.txt: check_binary_integrity reports kernel .text mismatches on eltwise_binary_no_bcast and the interleaved reader/writer on all four devices - the same signature doc/optimized_full_model/README.md section 9 records for its traced-first-token-sampling hang",
-          "note": "the widening typecast on a bfloat4_b operand takes a path that issues a host write, which trace capture forbids. The candidate is therefore not capturable, and a decode step that cannot be traced cannot be ranked by this sweep at all (the skill forbids untraced decode as sweep evidence)."
+          "where": "ttnn.sparse_matmul with dtype=bfloat4_b - the packed gate/up routed-expert projection (OptimizedMoE._routed_experts, tt/optimized_decoder.py:1651; the down projection at :1690 has the same property). NOT the widening typecast the adaptation added: that was this record's original attribution and $autofix refuted it.",
+          "exact_error": "TT_FATAL: Writes are not supported during trace capture. trace id: N (tt_metal/distributed/fd_mesh_command_queue.cpp:760, FDMeshCommandQueue::write_shard_to_device), raised on all four devices; in the model run it surfaced inside _ensure_decode_trace and was followed by a mesh stall",
+          "log": "doc/datatype_sweep/logs/smoke/C19-expert-act-bfp4.txt (the model run), and doc/datatype_sweep/logs/autofix_c19/ for the standalone probes that localised it - probe_routed_experts_trace.txt names the line, probe_sparse_zero_fill.txt isolates the mechanism, probe_bfp4_widen.txt refutes the typecast",
+          "triage": "doc/datatype_sweep/triage/tt-triage-C19.txt.gz is the capture and is authoritative for the check verdicts: check_binary_integrity FAILS (kernel .text mismatches on eltwise_binary_no_bcast and the interleaved reader/writer, all four devices - the stall's own signature, and the same one doc/optimized_full_model/README.md section 9 records for its traced-first-token-sampling hang) and check_noc_status FAILS ('erisc1 NOC0 mismatched state ... the device is not idle and is currently processing transactions, ... or the NoC is hung', two ethernet cores per device), which is the expected reading for a capture taken deliberately from a LIVE stall. triage/triage-summary-C19.txt lists every script as 'pass' and that is NOT a verdict: tools/triage/triage.py:918-925 writes 'pass' when the script executed without raising and 'FAIL' only when the script itself errored. Both failures were cleared by the tt-smi -r recovery and the mesh smoke that followed.",
+          "note": "the whole of C19 reduces to this one op's output zero-fill. With ttnn.sparse_matmul shimmed to produce its bfloat4_b output by a typecast instead of natively - a diagnostic, not a candidate fix - the entire rest of the chain (the two unpacking slices, the SwiGLU multiply, the reshape, the score multiply, the widening typecast and deepseek_moe_fast_reduce_nc) captures cleanly on bfloat4_b operands. The upstream fix is one line at creation.cpp:241; it is a core TTNN change affecting every model in the repo and was deliberately not made here.",
+          "mechanism": "SparseMatmulDeviceOperation::create_output_tensors (ttnn/cpp/ttnn/operations/matmul/device/sparse/sparse_matmul_device_operation.cpp:311-336) zero-fills its output with ttnn::zeros_like on every call, because the kernel never writes the blocks of inactive experts. full_like_impl (ttnn/cpp/ttnn/operations/creation/creation.cpp:239-244) takes the on-device ttnn::fill fast path only for BFLOAT8_B, BFLOAT16 and FLOAT32; BFLOAT4_B falls through to full_impl, which builds a host tensor and copy_to_device's it (creation.cpp:52-73). That is the forbidden write. It is a dtype-list gap, not a kernel limitation: ttnn.fill on a bfloat4_b device tensor is itself trace-capturable (probe_sparse_zero_fill.txt).",
+          "not_avoidable_from_the_model": "the zero-fill runs in both the fresh-output and the optional_output_tensor branch of create_output_tensors, and no ttnn.sparse_matmul argument disables it. Measured: 'sparse_matmul bfp4 + out=' is NOT-CAPTURABLE too.",
+          "what_else_was_tried": "ttnn.typecast (both L1 and DRAM), ttnn.clone(dtype=), ttnn.copy, ttnn.to_layout(dtype=), ttnn.multiply(x, 1.0, dtype=), ttnn.add(x, 0.0, dtype=), ttnn.experimental.typecast and the preallocated output_tensor= forms - all as *widening* spellings, which turned out to be the wrong question: the typecast that ships is already capturable.",
+          "autofix_report": "doc/datatype_sweep/AUTOFIX_C19.md"
         }
       ],
       "recovery": {
@@ -1454,8 +1465,21 @@
         "locks_cleared": false,
         "classification": "infrastructure recovery from a candidate-induced trace-capture stall, not a model correctness or performance result"
       },
-      "why_not_pursued_further": "the candidate is a *narrowing* of an activation, and the two directly comparable narrowing candidates that did run - C13 (CCL payload bfloat8_b, -1.33 %) and C14 (residual stream bfloat8_b, -1.87 %) - both measured SLOWER for exactly the reason this one would: the decode step is launch-bound at ~6 % of the DRAM roofline, so the typecast dispatches a narrower activation needs cost more than the bytes it saves. There is no evidence this arm would be faster, and the BFP4+LoFi coverage the skill requires is about matmul weight groups (routed experts, dense projections, shared expert, LM head), all four of which were measured on both fidelities.",
-      "code_left_in_place": "the widening guard stays in OptimizedMoE._routed_experts. It dispatches nothing under any shipped policy (both bfloat16 and bfloat8_b are accepted dtypes) and it is what turns a first-API-error rejection into a second, sharper blocker."
+      "why_not_pursued_further": "The two blockers are jointly exhaustive for this candidate and both are exact op contracts, so the arm is closed on the contract rather than on a prediction: the reduction accepts only BFLOAT16 and BFLOAT8_B, so a bfloat4_b expert output must be widened before it, and the op that produces that output cannot be captured at bfloat4_b at all, with or without the widening. There is no spelling of C19 in the current TTNN that a traced decode can execute, and untraced decode is not admissible evidence for this sweep. What C19 would have measured is unknown; the two comparable narrowing arms that did run (C13 -1.33 %, C14 -1.87 %) both lost, but that is an expectation and not what closes the arm. The BFP4+LoFi coverage the skill requires is about matmul WEIGHT groups, all four of which were measured on both fidelities; expert_act_dtype is an activation.",
+      "code_left_in_place": "the widening guard stays in OptimizedMoE._routed_experts. It dispatches nothing under any shipped policy (both bfloat16 and bfloat8_b are accepted dtypes), and $autofix proved it is correct and trace-capturable in its own right - it is simply downstream of the real blocker.",
+      "autofix": {
+        "report": "doc/datatype_sweep/AUTOFIX_C19.md",
+        "consoles": "doc/datatype_sweep/logs/autofix_c19/",
+        "verdict": "proven-blocked, and blocker 2 was RE-ATTRIBUTED",
+        "what_changed": "the record originally blamed the widening ttnn.typecast. $autofix refuted that (H1: the typecast is trace-capturable at the exact decode shape, in L1 and in DRAM) and localised the write to ttnn.sparse_matmul one op upstream (H2), then proved the mechanism (H3) and that nothing else in the chain is affected (H4).",
+        "proven_blocker": {
+          "op": "ttnn.sparse_matmul with dtype=BFLOAT4_B (tt/optimized_decoder.py:1651 and :1690)",
+          "assertion": "TT_FATAL: Writes are not supported during trace capture. trace id: N (tt_metal/distributed/fd_mesh_command_queue.cpp:760)",
+          "mechanism": "SparseMatmulDeviceOperation::create_output_tensors zero-fills the output with ttnn::zeros_like on every call, in BOTH the fresh-output and the optional_output_tensor branch, because the kernel never writes inactive experts' blocks (sparse_matmul_device_operation.cpp:311-336). full_like_impl takes the on-device ttnn::fill fast path only for BFLOAT8_B / BFLOAT16 / FLOAT32 (creation.cpp:239-244), so a BFLOAT4_B fill falls through to a host tensor plus copy_to_device (creation.cpp:52-73) - the forbidden write.",
+          "not_avoidable_from_the_model": "no ttnn.sparse_matmul argument disables the zero-fill, and a preallocated optional_output_tensor does not help because that branch zero-fills too (measured, logs/autofix_c19/probe_sparse_zero_fill.txt).",
+          "upstream_fix": "one line at creation.cpp:241 - add DataType::BFLOAT4_B to the fast-path condition. ttnn.fill on a bfloat4_b tensor is ALREADY capturable (measured), so the gap is the dtype list rather than a kernel limitation. Not made: it is a core TTNN behaviour change affecting every model in the repo."
+        }
+      }
     }
   ],
   "blocked_note": "candidates that could not be measured at all. Each carries the exact TTNN/runtime blocker, the adaptation that was tried, and why the arm was not pursued further. They are absent from the Pareto charts because they have no measurement."
