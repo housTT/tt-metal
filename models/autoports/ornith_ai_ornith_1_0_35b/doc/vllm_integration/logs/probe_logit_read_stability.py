@@ -49,12 +49,27 @@ PROMPT = [6, 66, 666, 6666, 66, 6, 66]
 
 
 def stats(a, b):
+    """Compare two logit rows, and record whether the rows were worth comparing.
+
+    The row index matters: on the ``return_logits="device"`` path the LM head runs over one row and the
+    tensor is tile-padded to 32, so ``[0, -1]`` is zero padding and "bit-identical" would be a claim about
+    two zero vectors. This probe reads row 0 (what the model's own host path returns) and carries the
+    row's own shape so a degenerate comparison cannot masquerade as a stable one.
+    """
     diff = (a - b).abs()
+    flat = a.float().reshape(-1)
+    top5 = torch.topk(flat, 5)
     return {
         "bitwise_identical": bool(torch.equal(a, b)),
         "max_abs_diff": float(diff.max()),
         "mean_abs_diff": float(diff.mean()),
         "nonzero_fraction": float((diff != 0).float().mean()),
+        "row_is_nondegenerate": bool(float(flat.max()) != float(flat.min())),
+        "row_nonzero_fraction": float((flat != 0).float().mean()),
+        "row_min": float(flat.min()),
+        "row_max": float(flat.max()),
+        "row_top1_id": int(torch.argmax(flat)),
+        "row_top5_values": [float(v) for v in top5.values],
     }
 
 
@@ -102,8 +117,8 @@ def one_mesh(shape, rounds, layer_indices=None, context=CONTEXT):
                 return_logits="device",
             )
             # Two independent compositions of the SAME device tensor.
-            first_read = model._logits_to_host(device_logits)[0, -1].clone()
-            second_read = model._logits_to_host(device_logits)[0, -1].clone()
+            first_read = model._logits_to_host(device_logits)[0, 0].clone()
+            second_read = model._logits_to_host(device_logits)[0, 0].clone()
             ttnn.deallocate(device_logits)
             out["read_twice"].append(stats(first_read, second_read))
             if previous is not None:
@@ -131,7 +146,7 @@ def one_mesh(shape, rounds, layer_indices=None, context=CONTEXT):
                 start_pos=0,
                 return_logits="device",
             )
-            after_read = model._logits_to_host(after)[0, -1].clone()
+            after_read = model._logits_to_host(after)[0, 0].clone()
             ttnn.deallocate(after)
             if previous_after_decode is not None:
                 out["forward_twice_after_decode"].append(stats(previous_after_decode, after_read))
@@ -176,6 +191,9 @@ def main():
     report["forward_twice_single_device"] = single["forward_twice"]
     report["forward_twice_after_decode_single_device"] = single["forward_twice_after_decode"]
 
+    def nondegenerate(rows):
+        return all(r["row_is_nondegenerate"] for r in rows) if rows else None
+
     def stable(rows):
         """``None`` for an arm that did not run.
 
@@ -203,6 +221,16 @@ def main():
         ),
         "max_abs_diff_forward_after_decode_1x1": max(
             (r["max_abs_diff"] for r in report["forward_twice_after_decode_single_device"]), default=None
+        ),
+        # Without this, "bit-stable" would also be true of two rows of zeros - which is exactly what the
+        # first version of this probe compared, because it read the tile padding instead of row 0.
+        "rows_are_nondegenerate_1x4": nondegenerate(
+            report["read_twice"] + report["forward_twice"] + report["forward_twice_after_decode"]
+        ),
+        "rows_are_nondegenerate_1x1": nondegenerate(
+            report["read_twice_single_device"]
+            + report["forward_twice_single_device"]
+            + report["forward_twice_after_decode_single_device"]
         ),
     }
     Path(args.output).write_text(json.dumps(report, indent=1) + "\n")

@@ -2,7 +2,10 @@
  "url": "http://localhost:8100",
  "model": "ornith-ai/Ornith-1.0-35B",
  "server": "max_num_seqs=1, no scheduling flag -> async scheduling ENABLED (this vLLM's default)",
- "server_label_added": "by hand after the run; the probe now requires --server-label",
+ "served_model": {
+  "id": "ornith-ai/Ornith-1.0-35B",
+  "max_model_len": 262144
+ },
  "single_user_determinism": {
   "prompt": "The capital of France is",
   "texts": [
@@ -17,60 +20,124 @@
    "1": {
     "prompt_tokens": 1,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "\nnot be a good idea to do",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "\nnot be a good idea to do"
+    }
    },
    "3": {
     "prompt_tokens": 3,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "ire\u201d to the court, i.e",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "ire\u201d to the court, i.e"
+    }
    },
    "17": {
     "prompt_tokens": 17,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "opletomorrow.\n\n<think>\n",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "opletomorrow.\n\n<think>\n"
+    }
    },
    "65": {
     "prompt_tokens": 65,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "s thes\n//\n//\n",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "s thes\n//\n//\n"
+    }
    },
    "130": {
     "prompt_tokens": 130,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "\t\t///\t\t///\t\t",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "\t\t///\t\t///\t\t"
+    }
    },
    "257": {
     "prompt_tokens": 257,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "s_\t\t//\t\t//",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "s_\t\t//\t\t//"
+    }
    },
    "999": {
     "prompt_tokens": 999,
     "completion_tokens": 8,
+    "finish_reason": "length",
     "text": "eader,\t\t//\t\t",
-    "length_preserved": true
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 8,
+     "finish_reason": "length",
+     "text": "eader,\t\t//\t\t"
+    }
    },
    "2049": {
     "prompt_tokens": 2049,
-    "completion_tokens": 3,
-    "text": "ers.",
-    "length_preserved": true
+    "completion_tokens": 8,
+    "finish_reason": "length",
+    "text": "ers.\nuser\n<think>",
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 3,
+     "finish_reason": "stop",
+     "text": "ers."
+    }
    },
    "4097": {
     "prompt_tokens": 4097,
-    "completion_tokens": 1,
-    "text": "",
-    "length_preserved": true
+    "completion_tokens": 8,
+    "finish_reason": "length",
+    "text": "\nuser\n<think>\nHere",
+    "length_preserved": true,
+    "without_ignore_eos": {
+     "completion_tokens": 1,
+     "finish_reason": "stop",
+     "text": ""
+    }
    }
   },
   "all_lengths_preserved": true,
-  "all_completed": false
+  "all_completed": true,
+  "short_completions_without_ignore_eos_are_eos_stops": {
+   "2049": [
+    true,
+    "stop"
+   ],
+   "4097": [
+    true,
+    "stop"
+   ]
+  }
  },
  "null_block_containment": {
   "baseline_alone": " Paris, a city that has been the country's political and cultural heart since the early Middle Ages. Paris is also the",
@@ -89,7 +156,8 @@
  },
  "long_prompt": {
   "prompt_tokens": 9000,
-  "text": "\t\t."
- },
- "server_label_corrected": "was 'max_num_seqs=1, no async scheduling'; this vLLM resolves async_scheduling=None to True, so a server passing no scheduling flag runs with overlap ENABLED; the earlier 'no async scheduling' labels were wrong and are corrected here"
+  "completion_tokens": 8,
+  "finish_reason": "length",
+  "text": "\t\t.\nuser\n"
+ }
 }

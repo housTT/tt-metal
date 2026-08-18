@@ -113,7 +113,12 @@ def main():
                 start_pos=0,
                 return_logits="device",
             )
-            host = model._logits_to_host(device_logits)[0, -1].clone()
+            # Row **0**, not -1. On the `return_logits="device"` path the LM head runs over a single
+            # row (`_sampler_rows(last, 1)`) and the tensor is tile-padded to 32 rows, so `[0, -1]` is
+            # padding - all zeros - and comparing it "bit-identically" proves nothing. The model's own
+            # host path takes `[:, :1, :]` for the same reason. The first version of this probe read
+            # `[0, -1]`, which is why every row it compared was degenerate.
+            host = model._logits_to_host(device_logits)[0, 0].clone()
             ttnn.deallocate(device_logits)
             return host
 

@@ -18,33 +18,36 @@ passes no scheduling flag, and is what the server behind these numbers ran ([§5
 
 | metric | **warm** (the committed artifact) | first request at this prompt length, same server |
 |---|---|---|
-| **TTFT** P50 / P99 | **152.3 / 152.3 ms** | 230.9 ms |
-| **TPOT** mean / P99 | **23.147 / 23.147 ms** | 24.962 ms |
-| **ITL** P50 / P99 | **23.140 / 25.05 ms** | 23.136 / 23.83 ms |
-| **decode t/s/u** (`1000 / mean_tpot_ms`) | **43.20 t/s/u** | 40.06 t/s/u |
-| decode t/s/u from ITL P50 | 43.21 t/s/u | 43.22 t/s/u |
-| aggregate output throughput | 41.39 tok/s | 37.63 tok/s |
+| **TTFT** P50 / P99 | **151.7 / 151.7 ms** | 228.3 ms |
+| **TPOT** mean / P99 | **23.174 / 23.174 ms** | 24.894 ms |
+| **ITL** P50 / P99 | **23.133 / 23.72 ms** | 23.134 / 25.47 ms |
+| **decode t/s/u** (`1000 / mean_tpot_ms`) | **43.15 t/s/u** | 40.17 t/s/u |
+| decode t/s/u from ITL P50 | 43.23 t/s/u | 43.23 t/s/u |
+| aggregate output throughput | 41.36 tok/s | 37.76 tok/s |
 | requests completed | **1/1, 128/128 tokens** | 1/1, 128/128 |
 
 Both columns are the same command on the same server, back to back: the cold run
 ([`batch1/vllm_benchmark_repeat_cold_first_request.json`](batch1/vllm_benchmark_repeat_cold_first_request.json)),
 then the warm run, which is the committed
-[`readiness_vllm/vllm_benchmark.json`](../../readiness_vllm/vllm_benchmark.json).
+[`readiness_vllm/vllm_benchmark.json`](../../readiness_vllm/vllm_benchmark.json) — byte-identical to
+[`batch1/vllm_benchmark_repeat_warm.json`](batch1/vllm_benchmark_repeat_warm.json), and produced by the same
+server as the committed `server.log.gz`, `sampling_tests.log.gz`, qualitative outputs and both capability
+reports (§9 explains why that attribution is checked explicitly).
 
-**The warm figure repeats; the cold one does not.** Three independent batch-1 servers, all warm:
+**The warm figure repeats; the cold one does not.** Three independent overlapped batch-1 servers, all warm:
 
 | server | TTFT P50 | TPOT | ITL P50 | t/s/u |
 |---|---|---|---|---|
-| the committed one ([artifact](batch1/vllm_benchmark_repeat_warm.json)) | 152.3 ms | 23.147 ms | 23.140 ms | 43.20 |
+| the committed one ([artifact](batch1/vllm_benchmark_repeat_warm.json)) | 151.7 ms | 23.174 ms | 23.133 ms | 43.15 |
 | an earlier one ([artifact](batch1/vllm_benchmark_second_server_warm.json)) | 145.3 ms | 23.170 ms | 23.140 ms | 43.16 |
 | another ([artifact](async/async_max_num_seqs_1_vllm_benchmark_warm.json)) | 148.3 ms | 23.146 ms | 23.139 ms | 43.20 |
 
-TPOT spans 0.024 ms (0.1 %) and ITL P50 0.001 ms across the three; warm TTFT spans 7 ms. The *first*
-request at a prompt length is much looser — 172.8, 230.9 and 236.3 ms on three servers — because it
+TPOT spans 0.028 ms (0.12 %) and ITL P50 0.007 ms across the three; warm TTFT spans 6.4 ms. The *first*
+request at a prompt length is much looser — 172.8, 228.3 and 236.3 ms on three servers — because it
 compiles that length's prefill programs and pays a trace re-capture inside its TTFT, and how much of that
 work is already done depends on what the process has served before. The datatype-sweep stage measured the
 same effect standalone ([`cold_prompt_length_cost`](../datatype_sweep/post_selection_token_out.json):
-312 ms cold against 177 ms warmed). Note that **ITL P50 is 23.1 ms in every column**: the cost is entirely
+312 ms cold against 177 ms warmed). Note that **ITL P50 is 23.13 ms in every column**: the cost is entirely
 in the first token, not in the decode loop. `OrnithGenerator.warmup(prompt_lengths)` removes it for a
 deployment that knows its lengths.
 
@@ -53,16 +56,16 @@ deployment that knows its lengths.
 | | ms/token | t/s/u | source |
 |---|---|---|---|
 | full-model token-out benchmark, same 128/128/1 shape, batch 1, 9 warm repeats | 23.165 | 43.169 | [`post_selection_token_out.json`](../datatype_sweep/post_selection_token_out.json) |
-| **vLLM serving, this stage** | **23.147** (TPOT mean), 23.140 (ITL P50) | **43.20** (43.21 from ITL) | this README |
+| **vLLM serving, this stage** | **23.174** (TPOT mean), 23.133 (ITL P50) | **43.15** (43.23 from ITL) | this README |
 | traced decode without sampling or readback (lower bound) | 21.965 | 45.526 | same artifact |
 | teacher-forcing traced decode (serial by construction) | 23.643 | 42.296 | [datatype sweep](../datatype_sweep/README.md) |
 
-Serving decode is **at** the model's own token-out figure — 0.018 ms/token below it, well inside the
-9-repeat spread of the baseline, and the ITL median matches it to 0.025 ms — so there is no measurable
+Serving decode is **at** the model's own token-out figure — 0.009 ms/token above it on TPOT and 0.032 below
+it on the ITL median, both well inside the 9-repeat spread of the baseline — so there is no measurable
 vLLM-specific decode overhead left to remove. That is true of the *overlapped* configuration, which is
 this vLLM's default and the one measured here; with `--no-async-scheduling` the same server sits at
 24.591 ms ITL, 1.4 ms above the floor ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6-)).
-TTFT carries +6 to +13 ms of serving path across the three warm runs (145.3–152.3 ms against the model's
+TTFT carries +6 to +12 ms of serving path across the three warm runs (145.3–151.7 ms against the model's
 139.5 ms median warmed TTFT): HTTP, tokenizer, scheduler and detokenization. Teacher forcing is quoted
 only as the lower-bound comparison the skill asks for, and serving is *faster* than it, as expected —
 teacher forcing decides step *N+1*'s input on the host.
@@ -118,7 +121,7 @@ For the same reason, a single user on a server built for 32 pays for the padded 
 | degenerate-output check | `no degenerate output detected` (`--scope vllm` and `--scope all`), on the default (overlapped) runs at both batch sizes and on the `--no-async-scheduling` control |
 | sampling suite | 54/73 at `max_num_seqs=32`, 65/73 at `max_num_seqs=1` (the latter reproduced exactly on a second server: same 7 failures, same 65 passes); every failure in both is a reproducibility or batch-size-structural assertion, none a correctness one (§6) |
 | single-user determinism | at `max_num_seqs=1`, repeated greedy requests are **identical** (3/3, and again after ~90 intervening requests), and the same greedy text comes back with overlap turned off. Seeded requests repeat within a scheduling mode but differ between the two (§5, limitation 10). At `max_num_seqs=32` greedy repeats are not identical — §6 |
-| what the built model is | [`readiness_vllm/vllm_serving_capability.json`](../../readiness_vllm/vllm_serving_capability.json), written by the adapter at the end of warm-up: policy `C06-proj-bfp4-lofi`, KV cache `BFLOAT8_B`, LM head `BFLOAT4_B`, 40 layers, 4097 blocks, no layer exceptions, `owns_cache=False`. [`…_final.json`](../../readiness_vllm/vllm_serving_capability_final.json) is the same report at engine-core exit, with the counters of the traffic that server served (11189 decode steps, 9781 of them copying nothing to the device) |
+| what the built model is | [`readiness_vllm/vllm_serving_capability.json`](../../readiness_vllm/vllm_serving_capability.json), written by the adapter at the end of warm-up: policy `C06-proj-bfp4-lofi`, KV cache `BFLOAT8_B`, LM head `BFLOAT4_B`, 40 layers, 4097 blocks, no layer exceptions, `owns_cache=False`. [`…_final.json`](../../readiness_vllm/vllm_serving_capability_final.json) is the same report at engine-core exit, with the counters of the traffic that server served (10831 decode steps, 9431 of them copying nothing to the device) |
 
 ---
 
@@ -175,14 +178,25 @@ TTNN control, generated at the same caps, stop in the same kind of place.
   continuation behaviour, expected of a chat model prompted without its template.
 * *"Translate … to French"* — French output ("Bonjour, comment allez-vous aujourd'hui ?", with the informal
   "comment ça va" weighed against it), and no wrong-language drift in any of the other five.
-* *"Write a Python function … Fibonacci"* — working iterative Python in both completions (`sequence = [0, 1]`
-  then a loop), followed by the same self-continuation: it invents further exercises ("Write a Python
-  function to find the maximum…", "…to check if a number is prime"). The code is correct; the extra
-  exercises are the raw-completion format, and the chat run — the verdict path — answers the one question it
-  was asked.
+* *"Write a Python function … Fibonacci"* — working iterative Python in both completions
+  (`sequence = [0, 1]` then a loop). Both then self-continue, and the two do it differently: the **sampled**
+  completion invents further exercises ("Write a Python function to find the maximum…", "…to check if a
+  number is prime"), while the **greedy** one gets stuck in a short loop, repeating
+  `"What is the output of the following Python code? … def greet(name) … The output is: Hello, World!"`
+  **four times** with the same 12-gram.
+
+  That loop is the one piece of mechanical repetition in the twelve raw completions, and it is a
+  *checkpoint/raw-continuation* property rather than a serving one — three controls: the
+  `--no-async-scheduling` server produces the byte-identical greedy completion with the same 4× loop, the
+  `max_num_seqs=32` server produces the same loop 2× (with a different variable), and the *chat* run of the
+  same prompt — the verdict path — has no repetition at all and answers the one question it was asked.
+  Mechanically it stays inside the gate: adjacent-duplication 0.000 and trigram-loop 0.101 against
+  thresholds of 0.10 and 0.50. Worth knowing before serving raw completions from this checkpoint without
+  its chat template; not a defect in the serving path.
 
 No prompt echo, no control-token leakage, no cross-request contamination (each completion answers its own
-prompt), no mechanical repetition. `check_degenerate_output.py` agrees mechanically: adjacent-duplication
+prompt). One completion does loop — the greedy Fibonacci one above — and it is reproduced on two other
+server configurations, so it belongs to the checkpoint's raw-continuation behaviour rather than to serving. `check_degenerate_output.py` agrees mechanically: adjacent-duplication
 0.000 – 0.020 and trigram-loop 0.021 – 0.115 across all twelve completions, **no degenerate output
 detected**.
 
@@ -211,11 +225,11 @@ token/position pair is merged per row so a continuing row keeps the device's aut
 
 | warm, 128/128/1 | overlap **on** (default): 3 servers | overlap **off** (`--no-async-scheduling`): 2 servers, 3 warm runs |
 |---|---|---|
-| TPOT | **23.146 – 23.170 ms** | 24.711 – 24.821 ms |
-| ITL P50 | **23.139 – 23.140 ms** | 24.591 – 24.595 ms |
-| decode t/s/u (TPOT-derived) | **43.16 – 43.20** | 40.29 – 40.47 |
-| TTFT P50 | 145.3 – 152.3 ms | 145.7 – 157.9 ms |
-| `async_reads` counter over the process | 11110 – 11189 | **0** |
+| TPOT | **23.146 – 23.174 ms** | 24.711 – 24.821 ms |
+| ITL P50 | **23.133 – 23.140 ms** | 24.591 – 24.595 ms |
+| decode t/s/u (TPOT-derived) | **43.15 – 43.20** | 40.29 – 40.47 |
+| TTFT P50 | 145.3 – 151.7 ms | 145.7 – 157.9 ms |
+| `async_reads` counter over the process | **10831** (= its decode-call count) | **0** |
 
 The ranges do not overlap on any decode metric and do not separate at all on TTFT: overlap is worth
 **~1.45 ms per token, 6.3 %**, in the decode loop and nothing measurable in time-to-first-token. The
@@ -223,7 +237,7 @@ The ranges do not overlap on any decode metric and do not separate at all on TTF
 with overlap on, none at all with it off.
 
 It also settles the decode-floor question in §1: the model's own traced token-out floor is 23.165 ms, the
-overlapped servers sit at 23.139 – 23.140 ms — *at* the floor — and the non-overlapped ones at 24.59 ms.
+overlapped servers sit at 23.133 – 23.140 ms — *at* the floor — and the non-overlapped ones at 24.59 ms.
 The 1.45 ms the async split hides is real host-side time, not a modelling artefact.
 
 **Equivalence at equal request length** ([`logs/probe_overlap_equivalence.py`](logs/probe_overlap_equivalence.py),
@@ -234,7 +248,7 @@ both arms 32 tokens):
 | **greedy text, overlap on vs off** | **character-for-character identical** ([`async/overlap_texts_no_async.json`](async/overlap_texts_no_async.json)) |
 | greedy repeats within each mode, fresh and after ~90 requests | identical, 4 arms |
 | one-token-stale host pair vs the correct pair, at the primitive level | **token-for-token identical**; with the merge removed the stream diverges and repeats a token ([`serving_primitives.json`](serving_primitives.json)) |
-| steady-state device copies | 0 tokens, 0 positions, 0 page tables over 5 consecutive steps; 9781 of 11189 served decode steps copied nothing ([`readiness_vllm/vllm_serving_capability_final.json`](../../readiness_vllm/vllm_serving_capability_final.json)) |
+| steady-state device copies | 0 tokens, 0 positions, 0 page tables over 5 consecutive steps; **9431 of 10831** served decode steps copied nothing ([`readiness_vllm/vllm_serving_capability_final.json`](../../readiness_vllm/vllm_serving_capability_final.json)) |
 | smoke sampling profile, overlap off | same result as with overlap on (3 passed, 1 skipped) |
 | request shapes and null-block containment, overlap off | unchanged ([`async/serving_requests_no_async_max_num_seqs_1.json`](async/serving_requests_no_async_max_num_seqs_1.json)) |
 | degenerate-output check, overlap off | no degenerate output detected |
@@ -450,15 +464,15 @@ Nothing in this README is measured on it.
    nothing at the serving layer can fix it. A deployment that needs bit-reproducible completions should
    serve at `--max-num-seqs 1`, where the whole reproducibility class of the shared suite passes.
 2. **The first request at a new prompt length is slower.** It compiles that length's prefill programs and
-   pays a trace re-capture inside its TTFT: **230.9 ms against 152.3 ms** warmed for the 128-token shape on
-   the committed server, and 172.8 and 236.3 ms on two others (§1 — the warm figure repeats to 0.1 % of
+   pays a trace re-capture inside its TTFT: **228.3 ms against 151.7 ms** warmed for the 128-token shape on
+   the committed server, and 172.8 and 236.3 ms on two others (§1 — the warm figure repeats to 0.12 % of
    TPOT, the cold one depends on what that process had already compiled). ITL P50 is 23.1 ms in every
    case, so the cost lands on the first token only.
    `OrnithGenerator.warmup(prompt_lengths)` removes it for a deployment that knows its lengths; the
    serving warm-up compiles one length (64) rather than guessing a bucket set.
 3. **Single-user latency and 32-user capacity are two server configurations.** A `--max-num-seqs 32`
    server pays the padded decode batch on every step, so single-user TPOT there is 140.069 ms (7.14 t/s/u)
-   against 23.147 ms (43.20 t/s/u) at `--max-num-seqs 1`. Both are measured and both artifacts are kept.
+   against 23.174 ms (43.15 t/s/u) at `--max-num-seqs 1`. Both are measured and both artifacts are kept.
 4. **Prefix caching is off** and not claimed (`supports_prefix_caching=False`).
 5. **Text only.** The checkpoint carries a vision tower this port does not implement. The adapter is
    registered as a text-only model, so vLLM refuses multimodal content at the API, and
@@ -492,9 +506,14 @@ Nothing in this README is measured on it.
 
 Under [`readiness_vllm/`](../../readiness_vllm/) — what the shared runner and the adapter wrote. **This
 directory is last-writer-wins**: the runner truncates `server.log`, `sampling_tests.log` and the benchmark
-files on every launch, so what is committed there is one server's output. Every console log is committed
-**gzipped** — the repo's `.gitignore` excludes `*.log`, so an uncompressed `server.log` silently would not
-be in the commit at all; the `.gz` beside it is the committed copy — the headline single-user
+files on every launch, so what is committed there is one server's output. Which server is not left to trust:
+every one of `vllm_benchmark.json`, `vllm_result.json`, `vllm_qualitative_outputs.json`,
+`vllm_serving_capability.json` and `…_final.json` is **byte-identical** to its `batch1/` copy on this tree,
+and `server.log.gz` is that same server's log (`Asynchronous scheduling is enabled`, 518 completion + 13 chat
+requests, 28 trace re-captures). This was wrong twice before the check existed — see
+[work log §7.7](work_log.md#77-benchmarks) and [§12](work_log.md#12-runtime-fallback-audit). Every console
+log is committed **gzipped**: the repo's `.gitignore` excludes `*.log`, so an uncompressed `server.log`
+silently would not be in the commit at all; the `.gz` beside it is the committed copy — the headline single-user
 configuration (`--max-num-seqs 1`, default flags, i.e. overlap on), which ran the full sampling suite,
 qualitative, both request probes and the benchmark pair. The exceptions are the two `vllm_ci_serving_*`
 files, which only a `--max-num-seqs 32` server produces. Per-configuration copies of everything live in
@@ -523,8 +542,8 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 | [`decode_nondeterminism.json`](decode_nondeterminism.json) + [`reduced_target/`](reduced_target/) | where the batch ≥ 8 deviation enters: traced against eager, generator against model driver, `1x4` against `1x1`, batch 4 against batch 8, counted over five run-pairs per arm |
 | [`prefill_alloc_vs_recapture.json`](prefill_alloc_vs_recapture.json) | refutes per-call page-row allocation and trace re-capture as sources of prefill drift |
 | [`prefill_determinism_bisect.json`](prefill_determinism_bisect.json) / [`…_fixed.json`](prefill_determinism_bisect_fixed.json) | the page-table-substitution defect, before and after the fix |
-| [`prefill_stability_with_traces.json`](prefill_stability_with_traces.json) | a live captured trace does not make repeated prefills drift |
-| [`logit_read_stability.json`](logit_read_stability.json) / [`…_full_model.json`](logit_read_stability_full_model.json) | the readback path is bit-stable: reduced target on `1x4` and `1x1`, full model on `1x4` (the full model does not fit on one device, so its `1x1` fields are `null`) |
+| [`prefill_stability_with_traces.json`](prefill_stability_with_traces.json) | a live captured trace does not make repeated prefills drift — and, since the review's round-2 finding, each comparison records the compared row's own min/max/nonzero fraction, because the first version of this probe was comparing tile padding ([work log §9.1](work_log.md#91-the-same-class-again-two-probes-were-comparing-the-tile-padding)) |
+| [`logit_read_stability.json`](logit_read_stability.json) / [`…_full_model.json`](logit_read_stability_full_model.json) | the readback path is bit-stable over **non-degenerate** rows: reduced target on `1x4` and `1x1`, full model on `1x4` (the full model does not fit on one device, so its `1x1` fields are `null`) |
 | [`vllm_checkout.txt`](vllm_checkout.txt) / [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) | the vLLM commit served, and the plugin changes (that repo is not committed here) |
 | [`batch32/`](batch32/) | the `--max-num-seqs 32` server's sampling log, qualitative outputs, server log, and its single-user benchmark |
 | [`batch1/`](batch1/) | the `--max-num-seqs 1` server's sampling log, qualitative outputs, and the cold/warm primary benchmark pair |
