@@ -1271,7 +1271,7 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `0f2d3aa310c` | the round-3 review record in §15 |
 | `tt-metal` | same | `b7347f123d1` | review round 4 remediation: the per-test pass/fail inventory rebuilt from the sampling logs, §8.1 rebuilt from the committed determinism arms, the recounted L1 and no-refresh figures, the `batch32/` CI-burst copies, and the smaller figure corrections |
 | `tt-metal` | same | `b90a91e05b9` | the round-4 review record in §15 |
-| `tt-metal` | same | *this round's commits* | review round 5 remediation: §8.3–§8.5's magnitudes rebuilt from `decode_nondeterminism.json` and `slot_reproducibility.json`, §9's page-row address corrected, the first-request-stall argument re-anchored to the call site that produces it, and §7.8/§12/§15's enumerations fixed |
+| `tt-metal` | same | `b33616cb851` | review round 5 remediation: §8.3–§8.5's magnitudes rebuilt from `decode_nondeterminism.json` and `slot_reproducibility.json`, §9's page-row address corrected, the first-request-stall argument re-anchored to the call site that produces it, and §7.8/§12/§15's enumerations fixed |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
