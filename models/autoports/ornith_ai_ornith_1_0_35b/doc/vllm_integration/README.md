@@ -78,9 +78,9 @@ bucket set.
 | traced decode without sampling or readback (lower bound) | 21.965 | 45.526 | same artifact |
 | teacher-forcing traced decode (serial by construction) | 23.643 | 42.296 | [datatype sweep](../datatype_sweep/README.md) |
 
-Serving decode is **at** the model's own token-out figure — 0.009 ms/token above it on TPOT and 0.032 below
-it on the ITL median, both well inside the 9-repeat spread of the baseline — so there is no measurable
-vLLM-specific decode overhead left to remove. That is true of the *overlapped* configuration, which is
+Serving decode is **at** the model's own token-out figure — 0.009 ms/token above it on TPOT (0.04 %) and
+0.032 below it on the ITL median (0.14 %), both inside the run-to-run spread the datatype sweep characterised
+for this benchmark (0.18 – 0.48 %) — so there is no measurable vLLM-specific decode overhead left to remove. That is true of the *overlapped* configuration, which is
 this vLLM's default and the one measured here; with `--no-async-scheduling` the same server sits at
 24.591 ms ITL, 1.4 ms above the floor ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6)).
 TTFT carries +6 to +12 ms of serving path across the three warm runs (145.3–151.7 ms against the model's
@@ -127,11 +127,11 @@ For the same reason, a single user on a server built for 32 pays for the padded 
 |---|---|
 | adapter | [`tt/generator_vllm.py`](../../tt/generator_vllm.py), class `TTQwen3_5MoeForConditionalGeneration`. It does not import `ttnn` and performs no device-tensor operation of its own — including the async read's copy-and-event, which is the generator's `read_output_async`. Device work goes through [`tt/generator.py`](../../tt/generator.py), or through the model for cache attachment and per-slot state, or through the shared `SamplingGenerator` for sampling state, which is the boundary the generator documents ([work log §4](work_log.md#4-the-adapter-and-the-primitives-it-drives)) |
 | registered as | `TTQwen3_5MoeForConditionalGeneration` **and** `Qwen3_5MoeForConditionalGeneration` in `vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py::register_tt_models` (why the second: [work log §3](work_log.md#3-plugin-registration-and-the-two-upstream-decisions-that-had-to-be-taken-away-from-upstream)) |
-| vLLM checkout | `tenstorrent/vllm@bf98d556` (`dev`), installed `VLLM_TARGET_DEVICE=empty` ([`vllm_checkout.txt`](vllm_checkout.txt), plugin diff [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff)) |
+| vLLM checkout | `tenstorrent/vllm@bf98d556` (`dev`) **plus this stage's two plugin commits** (`a8a5a4c`, `5380fd4`), installed `VLLM_TARGET_DEVICE=empty`. [`vllm_checkout.txt`](vllm_checkout.txt) names all three and [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) is the diff, byte for byte |
 | served context | **262144**, equal to `doc/context_contract.json`; no capability reduction |
 | batch coverage | `max_num_seqs=32` (the sampler's `MAX_SAMPLING_BATCH` bound) and `1` |
 | KV cache owner | **vLLM**. `allocate_kv_cache` builds the cache at the block count vLLM sized and the generator is constructed around it (`kv_cache=`), so nothing allocates a second one |
-| recurrent state owner | the model — 30 `linear_attention` layers' fixed-size DeltaNet matrix and conv window per slot, moved on a vLLM batch condense by `remap_state_slots` |
+| recurrent state owner | the model — 30 `linear_attention` layers' fixed-size DeltaNet matrix and conv window per slot, moved on a vLLM batch condense by `remap_state_slots`. Both that move and the per-slot prefill merge write the target row by *selection*, so a row that has run away to non-finite values cannot reach another request; pinned by `test_a_nonfinite_idle_row_cannot_reach_a_served_request` ([work log §9.2](work_log.md#92-the-idle-row-poison-the-state-merge-could-read--found-by-the-review-reproduced-fixed)) |
 | capability flags | `supports_async_decode=True` (proven, §5), `supports_sample_on_device=True` (enforced by the runner, `sample_on_device_mode: all`), `supports_prefix_caching=False` (not implemented, not claimed) |
 | sampling | **on device**, the full-model split-sampling path: one model-trace replay + one sampling-trace replay per token, `tt_out_tok` feeding the next replay. No host argmax, no full-logits readback, no top-k greedy fallback, no Python token feedback on the measured path |
 | host sampling | only when the plugin asks for it (log-probs on a 4-device mesh, `min_p`, `bad_words`, `logit_bias`, `allowed_token_ids`, `min_tokens`, structured output). Explicit, optional, and never the measured path |
@@ -299,7 +299,7 @@ both arms 32 tokens):
 |---|---|
 | **greedy text, overlap on vs off** | **character-for-character identical** ([`async/overlap_texts_no_async.json`](async/overlap_texts_no_async.json)) |
 | greedy repeats within each mode, fresh and after ~90 requests | identical, 4 arms |
-| one-token-stale host pair vs the correct pair, at the primitive level | **token-for-token identical**; with the merge removed the stream diverges and repeats a token ([`serving_primitives.json`](serving_primitives.json)) |
+| one-token-stale host pair vs the correct pair, at the primitive level | **token-for-token identical**; with the merge removed the stream diverges and re-emits the two tokens it produced two steps earlier ([`serving_primitives.json`](serving_primitives.json)'s `stale_inputs.arms`) |
 | steady-state device copies | 0 tokens, 0 positions, 0 page tables over 5 consecutive steps; **9431 of 10831** served decode steps copied nothing ([`readiness_vllm/vllm_serving_capability_final.json`](../../readiness_vllm/vllm_serving_capability_final.json)) |
 | smoke sampling profile, overlap off | same result as with overlap on (3 passed, 1 skipped) |
 | request shapes and null-block containment, overlap off | unchanged ([`async/serving_requests_no_async_max_num_seqs_1.json`](async/serving_requests_no_async_max_num_seqs_1.json)) |
@@ -624,7 +624,7 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 |---|---|
 | [`work_log.md`](work_log.md) | the engineering record, including every wrong turn |
 | [`qualitative_chat.json`](qualitative_chat.json) | the six prompts in the checkpoint's chat format, beside the HF and full-model controls |
-| [`serving_requests.json`](serving_requests.json) | non-aligned prompt lengths, null-block containment, 32-way concurrency, a 9000-token prompt |
+| [`serving_requests.json`](serving_requests.json) | non-aligned prompt lengths, null-block containment, 32-way concurrency, a 9000-token prompt (the `batch32/` copy predates the `ignore_eos` fix — [work log §7.2](work_log.md#72-non-aligned-prompt-lengths-and-the-block-vllm-pads-with)) |
 | [`serving_primitives.json`](serving_primitives.json) | the six mechanical contract checks (steady state, per-slot prefill, stale-pair merge, page-table-only refresh, layout change, slot remap) — reduced target, and mechanical by construction |
 | [`slot_reproducibility.json`](slot_reproducibility.json) | run-to-run logit reproducibility at batch 1, 2, 4, 8, 16 and 32, per step, with state and KV-page comparisons |
 | [`decode_nondeterminism.json`](decode_nondeterminism.json) + [`reduced_target/`](reduced_target/) | where the batch ≥ 8 deviation enters: traced against eager, generator against model driver, `1x4` against `1x1`, batch 4 against batch 8, counted over five run-pairs per arm |
@@ -632,13 +632,13 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 | [`prefill_determinism_bisect.json`](prefill_determinism_bisect.json) / [`…_fixed.json`](prefill_determinism_bisect_fixed.json) | the page-table-substitution defect, before and after the fix |
 | [`prefill_stability_with_traces.json`](prefill_stability_with_traces.json) | a live captured trace does not make repeated prefills drift — and, since the review's round-2 finding, each comparison records the compared row's own min/max/nonzero fraction, because the first version of this probe was comparing tile padding ([work log §9.1](work_log.md#91-the-same-class-again-two-probes-were-comparing-the-tile-padding)) |
 | [`logit_read_stability.json`](logit_read_stability.json) / [`…_full_model.json`](logit_read_stability_full_model.json) | the readback path is bit-stable over **non-degenerate** rows: reduced target on `1x4` and `1x1`, full model on `1x4` (the full model does not fit on one device, so its `1x1` fields are `null`) |
-| [`vllm_checkout.txt`](vllm_checkout.txt) / [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) | the vLLM commit served, and the plugin changes (that repo is not committed here) |
+| [`vllm_checkout.txt`](vllm_checkout.txt) / [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) | the three commits of the vLLM tree that served (base + this stage's two), and their plugin diff — that repo is not committed here |
 | [`batch32/`](batch32/) | the `--max-num-seqs 32` server's sampling log, qualitative outputs, server log, capability report, its single-user benchmark, and the CI serving-burst set (§2's numbers) |
 | [`batch1/`](batch1/) | the `--max-num-seqs 1` server's sampling log, qualitative outputs, and the cold/warm primary benchmark pair |
 | [`async/`](async/) | the decode-overlap comparison, **both** arms: the default (overlapped) servers' artifacts (including `async_max_num_seqs_32_sampling_tests.log.gz`, the smoke profile on an overlapped batch-32 server — 2 failed of 3, both from the batch-32 reproducibility class of §6) and the `--no-async-scheduling` control's server log, benchmarks, qualitative outputs, sampling smoke log and request probe, plus the four `overlap_texts_*.json` arms behind §5 |
 | [`reduced_target/`](reduced_target/) | the run-pair counts that localise the batch ≥ 8 nondeterminism to the collectives (mechanical, on the two-layer bring-up target — see [work log §8.3](work_log.md#83-where-it-enters-measured-the-multi-device-collectives)) |
 | [`logs/`](logs/) | every probe (`.py`) with the console log of its final run (`.txt`, gzipped where it is large), both test-suite logs, the two gate console logs ([`check_degenerate_output.txt`](logs/check_degenerate_output.txt), [`check_context_contract.txt`](logs/check_context_contract.txt)), and the device reset/mesh-smoke record |
 
-Tests: [`tests/test_generator_vllm.py`](../../tests/test_generator_vllm.py) — 9 host-only cases and 12 on
-the reduced two-layer target, driving the adapter through the plugin-facing API. **21 passed** on the
-committed tree; console log [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt).
+Tests: [`tests/test_generator_vllm.py`](../../tests/test_generator_vllm.py) — 9 host-only cases and 13 on
+the reduced two-layer target, driving the adapter through the plugin-facing API. **22 passed** on the
+committed tree; console log [`logs/pytest_generator_vllm.txt.gz`](logs/pytest_generator_vllm.txt.gz).

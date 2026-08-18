@@ -1607,12 +1607,23 @@ class OrnithModel(LightweightModule):
 
     @staticmethod
     def _merge_rows(src, dst, mask, inverse, batch: int):
+        """Write ``src``'s single row into ``dst``'s masked row, leaving every other row untouched.
+
+        A **select**, not arithmetic, and that distinction is a correctness fix rather than a style
+        choice. The first version computed ``dst * inverse + src * mask``, which reads the values it is
+        about to discard: a row holding ``inf`` or ``NaN`` gives ``inf * 0 = NaN``, so a slot whose idle
+        recurrent state had run away to float32 saturation stayed ``NaN`` after a fresh prefill merged
+        into it, and a remap that *moved* such a row poisoned every other row through the broadcast.
+        Both are reachable at ``max_num_seqs > 1``, where padding rows do run away
+        (``doc/vllm_integration/work_log.md`` §8.3), and
+        ``tests/test_generator_vllm.py::test_a_nonfinite_idle_row_cannot_reach_a_served_request``
+        is the regression pin. ``ttnn.where`` reads the same tensors but *selects* from them, so a
+        non-finite value in a branch that is not taken cannot propagate.
+        """
+        del inverse  # the mask alone selects; nothing multiplies the row it replaces
         wide = ttnn.repeat(src, ttnn.Shape([batch] + [1] * (len(src.shape) - 1)))
-        selected = ttnn.multiply(wide, mask)
+        ttnn.where(mask, wide, dst, output_tensor=dst)
         ttnn.deallocate(wide)
-        ttnn.multiply(dst, inverse, output_tensor=dst)
-        ttnn.add(dst, selected, output_tensor=dst)
-        ttnn.deallocate(selected)
 
     def _slot_mask(self, slot: int, batch: int, *, invert: bool = False):
         import torch

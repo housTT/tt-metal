@@ -835,6 +835,94 @@ def test_the_async_read_returns_the_same_result_for_tokens_and_for_logits(mesh_d
 
 
 @on_mesh
+def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
+    """An idle slot's recurrent state can go non-finite. It must not reach any other slot.
+
+    Measured precondition, not a hypothetical: at `max_num_seqs=32` the rows no prefill ever wrote
+    accumulate float32 saturation and a few `inf`/`NaN` entries within one decode step
+    (`doc/vllm_integration/decode_nondeterminism.json`, `state_after_first_step`), and nothing wipes them
+    between requests - vLLM reuses slots, and `reset_state()` runs only at warm-up.
+
+    Both of this stage's per-slot state paths *read* the rows they overwrite: `_merge_rows` computes
+    `dst * inverse + src * mask`, and `inf * 0` is `NaN` under IEEE. So a poisoned idle row could, in
+    principle, poison the request prefilled into it (via the prefill merge) or every row at once (via the
+    batch-condense remap, which broadcasts the source row). This test writes the poison itself and pins
+    that neither happens.
+    """
+    adapter = serving_adapter(mesh_device)
+    table = serving_page_table(adapter)
+    batch = adapter.max_batch_size
+    model = adapter.model
+    idle, target = batch - 2, 0
+    recurrent = [layer.recurrent_state for layer in model.layers if not layer.is_full_attention]
+    assert recurrent, "the reduced target must carry at least one linear_attention layer"
+
+    def poison_idle_rows():
+        """Write ``inf`` into the idle row of every DeltaNet recurrent buffer, in place."""
+        for buf in recurrent:
+            shape = [int(d) for d in buf.shape]
+            host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
+            host[idle] = float("inf")
+            ttnn.copy_host_to_device_tensor(
+                ttnn.from_torch(host.reshape(shape), dtype=buf.dtype, layout=ttnn.TILE_LAYOUT), buf
+            )
+
+    def rows_are_finite(*, skip):
+        """Is every row except ``skip`` finite, in every recurrent buffer?"""
+        for buf in recurrent:
+            host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
+            for row in range(batch):
+                if row in skip:
+                    continue
+                if not torch.isfinite(host[row]).all():
+                    return False, row
+        return True, None
+
+    prompt = [9, 99, 999, 9999]
+    poison_idle_rows()
+    finite, row = rows_are_finite(skip={idle})
+    assert finite, f"the poison itself leaked into row {row} before anything was served"
+
+    # 1. a request prefilled into a *different* slot must not see the poison...
+    logits = adapter.prefill_forward(
+        tokens=torch.tensor([prompt], dtype=torch.int64),
+        page_table=table[target : target + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[len(prompt)],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[target],
+    )[0]
+    assert torch.isfinite(logits).all(), "a poisoned idle row reached another slot's prefill logits"
+    finite, row = rows_are_finite(skip={idle})
+    assert finite, f"prefilling slot {target} left row {row} non-finite"
+
+    # 2. ...and neither must a request prefilled *into the poisoned slot itself*.
+    poison_idle_rows()
+    logits = adapter.prefill_forward(
+        tokens=torch.tensor([prompt], dtype=torch.int64),
+        page_table=table[idle : idle + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[len(prompt)],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[idle],
+    )[0]
+    assert torch.isfinite(logits).all(), "prefilling the poisoned slot produced non-finite logits"
+    finite, row = rows_are_finite(skip=set())
+    assert finite, f"prefilling the poisoned slot left row {row} non-finite"
+
+    # 3. a batch condense that *moves* a poisoned row must not spread it either.
+    poison_idle_rows()
+    remap = list(range(batch))
+    remap[target], remap[idle] = idle, target
+    moved = adapter.generator.remap_serving_slots(torch.tensor(remap, dtype=torch.int32))
+    assert moved >= 1, "the remap must actually move state"
+    finite, row = rows_are_finite(skip={target})
+    assert finite, f"a remap of a poisoned row left row {row} non-finite"
+
+
+@on_mesh
 def test_the_serving_build_carries_the_selected_precision_config(mesh_device):
     """Serving must run the datatype sweep's selection, and prove it from the *built* model.
 

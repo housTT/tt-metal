@@ -251,7 +251,7 @@ contract checks, each with the control that makes the answer observable:
 |---|---|
 | per-slot prefill, slots `[1, 3]` (not row order) | both prompts prefilled and decoded from their own slot |
 | steady state, 5 steps after the first | `tokens/positions/page_table` copied: **none**. Counters over 6 decode calls: 1 token refresh, 1 position refresh, 1 page-table refresh, 0 device syncs |
-| stale host inputs, three arms over the same prompt from an identical wiped batch | `fresh` (correct pair each step) and `stale-merged` (one-token-behind pair, row marked device-authoritative) are **token-for-token identical**; `stale-host` (same stale pair, host wins) **diverges** and repeats a token |
+| stale host inputs, three arms over the same prompt from an identical wiped batch | `fresh` (correct pair each step) and `stale-merged` (one-token-behind pair, row marked device-authoritative) are **token-for-token identical**; `stale-host` (same stale pair, host wins) **diverges** — it re-emits the pair it had already emitted two steps earlier: `…66275, 39739, 182993, 116502` becomes `…66275, 39739, 66275, 39739`. The probe's `host_wins_repeat_positions` is empty because it counts *adjacent* doubling, which this is not; the arms themselves are what shows it |
 | page-table-only refresh | page table copied, token/position refreshes unchanged |
 | batch-layout change (a second request prefilled mid-stream) | the continuing row's recurrent state is **bit-identical** across the interruption, its device position advanced by exactly 1, and its device token is the one vLLM was handed |
 | slot remap `[0, 1, 3, 2]` | row 2 took row 3's state and row 3 took row 2's, **bit-identically on every device shard**; rows 0 and 1 untouched |
@@ -267,9 +267,15 @@ configurations. The top-level [`serving_requests.json`](serving_requests.json) i
 run on the fixed probe, and [`batch1/serving_requests_max_num_seqs_1.json`](batch1/serving_requests_max_num_seqs_1.json)
 is the same file archived per configuration (byte-identical; the pre-fix copy it replaced is gone rather
 than kept, because its `ignore_eos` arm was measuring nothing — see below). The other two are
-[`batch32/serving_requests_max_num_seqs_32.json`](batch32/serving_requests_max_num_seqs_32.json) and, on
-the non-overlapped control server,
+[`batch32/serving_requests_max_num_seqs_32.json`](batch32/serving_requests_max_num_seqs_32.json) and, on the
+non-overlapped control server,
 [`async/serving_requests_no_async_max_num_seqs_1.json`](async/serving_requests_no_async_max_num_seqs_1.json).
+
+One label to read carefully: the **batch-32** copy predates the `ignore_eos` fix below. It has no
+`finish_reason` field and reports `all_completed: false` for the same reason the fixed table explains — the
+model answering a random-token prompt with end-of-text — so only its `length_preserved` rows are cited here.
+The two `max_num_seqs=1` copies are the fixed probe's, and they are what the `all_completed: true` claim rests
+on.
 
 Lengths 1, 3, 17, 65, **130**, 257, 999, **2049**, 4097 all served at their exact length
 (`prompt_tokens` equals the request length for every one), and a 9000-token prompt too. 130 and 2049 are
@@ -683,15 +689,17 @@ Servers whose logs are *not* committed are the ones the runner truncated before 
 the batch-1 server behind the withdrawn 149.4 ms headline (§7.7) and the two earlier batch-1 sampling
 repeats (§7.5). Both gaps are stated where their numbers were.
 
-`logs/pytest_final_sweep.txt.gz` and `logs/pytest_generator_vllm.txt` are the two test-suite logs (§7.10).
+`logs/pytest_final_sweep.txt.gz` and `logs/pytest_generator_vllm.txt.gz` are the two test-suite logs (§7.10);
+both are gzipped because the adapter suite's console output crossed the repo's 500 KB per-file pre-commit
+limit once it had thirteen device cases.
 
 ### 7.10 Tests
 ```
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 21 passed in 199 s
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2140 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 210 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2154 s
 ```
 Console logs: the adapter suite's own run on the committed tree is
-[`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) — **21 passed** (9 host-only cases and 12
+[`logs/pytest_generator_vllm.txt.gz`](logs/pytest_generator_vllm.txt.gz) — **22 passed** (9 host-only cases and 13
 on the reduced two-layer target), `PYTEST_EXIT=0` at the end of the file; the full-model regression run is in
 [`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz).
 
@@ -714,9 +722,11 @@ for no measurement gain.
 
 The second command is the regression check for this stage's generator/model additions: the full-model
 stage's own suite, unchanged, on the same reduced target it uses. It was **re-run on the committed tree** —
-50 passed, 5 deselected, in 2139.77 s, `FULL_EXIT=0` at the end of
-[`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz), whose loguru line numbers match the
-committed `tt/generator.py`.
+50 passed, 5 deselected, in 2154.23 s, `FULL_EXIT=0` at the end of
+[`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz). This run is *after* the `_merge_rows`
+correctness fix of §9.2, which is the change most in need of it: that primitive is what the full-model
+stage's own batched prefill uses, and `test_the_batched_prefill_state_reaches_every_decode_slot` is one of
+the 50.
 
 Earlier rounds skipped that re-run on an argument — "`tt/generator.py` did not change" — which review round
 9 found to be false: rounds 7 and 8 had added `read_output_async` and rewired `_read_tokens_async`, which is
@@ -927,9 +937,10 @@ greedy token only where the top-1/top-2 margin is inside that noise (every obser
 `--mesh 1,1` as the control, on the two-layer target, which needs neither vLLM nor the full weight load.
 The two things a decoder-stage fix would need to settle, which this stage deliberately did not: **which
 collective** (a per-op comparison under the same pair-count method — the ops that run per decode step are
-the TP all-gather/reduce-scatter and the EP expert dispatch/combine), and whether the padding rows'
-recurrent state should be clamped or masked rather than left to run away to float32 saturation (§8.3) —
-harmless where it sits today, and one shared reduction away from not being.
+the TP all-gather/reduce-scatter and the EP expert dispatch/combine), and **why the padding rows run away**
+to float32 saturation at all, which is a masking question inside the recurrent update. The serving-side
+*consequence* of that runaway is not handed on: it was reachable, it is fixed, and it is pinned by a test
+(§9.2).
 
 What that means for a deployment is in [README §8](README.md#8-limitations): serve at `--max-num-seqs 1`
 (or up to 4) for bit-reproducible completions, and expect near-tie variation above it. Quality is
@@ -1032,6 +1043,46 @@ and now the tile padding in two probes — and all three had the same tell: a su
 nothing else corroborated. The countermeasure that works is the one now in every comparison helper here:
 record what the compared data *was*, not only how it compared. `all([])` and `torch.equal(zeros, zeros)`
 are both true, and neither means anything.
+
+### 9.2 The idle-row poison the state merge could read — found by the review, reproduced, fixed
+§8.3 recorded that at batch 32 the rows no prefill ever wrote run away to float32 saturation, a few entries
+going non-finite, and argued it was harmless because the ops are row-independent and vLLM never decodes a row
+it never prefilled. Review round 10 pointed at the gap in that argument: this stage's *own* per-slot state
+code reads the rows it overwrites.
+
+`OrnithModel._merge_rows` — the primitive under both `_merge_prefill_state_into_slot` (every serving prefill
+at batch > 1) and `remap_state_slots` (the vLLM batch condense this stage added) — computed:
+
+```python
+selected = wide_src * mask          # mask is 1 on the target row, 0 elsewhere
+dst = dst * inverse + selected      # inverse is 0 on the target row
+```
+
+`inf * 0` and `NaN * 0` are `NaN`. So a slot whose idle recurrent state had run away would stay non-finite
+after a fresh prefill merged into it — and a remap that *moved* such a row would broadcast it through
+`wide_src * mask`, poisoning every other row of that buffer in one step.
+
+**Reproduced on hardware, before anything was fixed.**
+`tests/test_generator_vllm.py::test_a_nonfinite_idle_row_cannot_reach_a_served_request` writes `inf` into an
+idle slot's recurrent buffers on the reduced target at batch 4, then checks three things: a prefill into a
+*different* slot, a prefill into the *poisoned* slot, and a remap that moves the poisoned row. On the old
+merge the first passed and **the second failed** — `prefilling the poisoned slot left row 2 non-finite`. The
+prefill's own logits were finite, because they come from the batch-1 prefill pack before the merge, so the
+damage would have surfaced one step later as `NaN` logits for a request that did nothing wrong, at
+`max_num_seqs > 1`.
+
+**The fix is a select instead of arithmetic**: `ttnn.where(mask, wide_src, dst, output_tensor=dst)`. For
+finite rows it is bit-identical to the old expression (`dst * 0 + src * 1` and `dst * 1 + src * 0` are exact),
+and a non-finite value in the branch that is *not* taken cannot propagate. The new test passes on the fix, the
+adapter suite is 22 passed, and the full-model suite — which drives the same merge through its batched
+prefill, `test_the_batched_prefill_state_reaches_every_decode_slot` included — is unchanged at 50 passed.
+
+Two things worth saying plainly. This is the one *correctness* bug in model code that this stage's reviews
+found, and it was found by asking "what reads the thing you measured?" rather than by any gate: every served
+request in this stage's evidence was fine, because reaching a poisoned row needs a slot to idle at batch > 1
+and then be reused, which this stage's traffic never did (`slot_remaps` is 0 on every preserved server). And
+the argument that replaced the old one is not "the rows are independent" — it is a test that writes the poison
+and asserts what happens.
 
 ## 10. Device incidents and recovery
 
@@ -1235,26 +1286,25 @@ python .agents/scripts/check_context_contract.py \
 ```
 
 The context gate also prints **advisory** lines on stderr, and they are worth naming so nobody reads them
-as a served cap. Every one of them is a *text* match — the gate greps for a context key followed by a number
-smaller than the supported window — so the breakdown is by the line each advisory matched. On the committed
-tree there are **32**:
+as a served cap. Every one is a *text* match — the gate greps for a context key followed by a number smaller
+than the supported window — so the breakdown is by the line each advisory matched. On the committed tree
+there are **20**:
 
 * **19 lines from a probe's startup line**, `building OrnithModel: … max context N`, one per model build in
-  an *uncompressed* probe console log (the gate does not read `.gz`). A run that only needs a 2048-, 4096- or
-  8192-token window says so. One line per *build*, not per file:
-  `probe_logit_read_stability.txt` contributes two, because it builds the reduced target at `tp=4` and
-  `tp=1`;
-* **12 lines from the adapter suite's own log**, where `initialize_vllm_model` logs the max model length it
-  was handed — one per device test, since each builds a reduced adapter at the tests' 4096-token context;
+  an *uncompressed* probe console log. A run that only needs a 2048-, 4096- or 8192-token window says so.
+  One line per *build*, not per file: `probe_logit_read_stability.txt` contributes two, because it builds the
+  reduced target at `tp=4` and `tp=1`;
 * **1 line from `tt/functional_decoder.py:239`**, a pre-existing comment whose illustration uses a max
   context of 8000 to show a prefill block ending past it.
 
-None of them comes from this section any more. Earlier versions quoted the key-and-number form literally,
-which the gate then counted — so §13 was reporting a total that its own text had inflated, and every edit
-moved it. The prose here deliberately writes those keys without a number attached, and the same rule applies
-to the committed tally, [`logs/check_context_contract.txt`](logs/check_context_contract.txt), which records
-per-file counts rather than the lines themselves. The number still moves whenever a probe or the suite is
-re-run, added or gzipped, which is why the breakdown matters more than the total.
+Nothing here contributes, and neither do the two test-suite logs — the gate does not read `.gz`, and both are
+gzipped to fit the repo's 500 KB per-file limit. That is also why this total has moved during the review
+rounds (33 when the adapter-suite log was uncompressed and each of its 13 device tests logged the 4096-token
+context it was built with; 34 and 37 when earlier versions of §13 and of the committed tally quoted the
+key-and-number form and the gate counted them). The prose here deliberately writes those keys without a
+number attached, and the committed tally,
+[`logs/check_context_contract.txt`](logs/check_context_contract.txt), records per-file counts rather than the
+lines themselves, so the figure is now reproducible from the tree rather than a moving target.
 
 Advisories are not failures (the gate returns 2 only for a JSON
 *key* below the supported context, and `--strict-caps` is not used by the stage gate), and nothing in
@@ -1272,8 +1322,8 @@ In this repo:
 |---|---|
 | `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration`. Includes the `atexit` capability dump (§7.8) and the warning that fires when a checkpoint other than this one resolves to this class (§3) |
 | `tt/generator.py` | one new `serving (vLLM) API` section (fifteen public methods: the eleven the adapter calls — §4 — plus `device_decode_state` and the three standalone-loop readback helpers) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
-| `tt/model.py` | **+57 lines**: `remap_state_slots` and its `_remap_rows` helper |
-| `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 12 device cases on the reduced target (cache ownership; block-size refusal; per-slot prefill into the slot vLLM assigned; the steady state copying nothing; a stale host pair not overriding the device; only a changed page table being copied; a slot remap moving the recurrent state bit for bit; the adapter applying that remap *before* the decode step; host sampling returning logits and never becoming the default; the deferred (async) read agreeing bit for bit with the blocking one on **both** output tensors; the precision-config propagation; the capability report naming the selected policy) |
+| `tt/model.py` | `remap_state_slots` and its `_remap_rows` helper (**+57 lines**), plus one correctness fix in the pre-existing `_merge_rows`: the masked row is now written with `ttnn.where` instead of `dst * inverse + src * mask`, because the arithmetic form read the row it was replacing and `inf * 0` is `NaN` (§9.2). Bit-identical for finite rows, and the full-model suite that drives the same merge is unchanged at 50 passed |
+| `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 13 device cases on the reduced target (cache ownership; block-size refusal; per-slot prefill into the slot vLLM assigned; the steady state copying nothing; a stale host pair not overriding the device; only a changed page table being copied; a slot remap moving the recurrent state bit for bit; the adapter applying that remap *before* the decode step; host sampling returning logits and never becoming the default; the deferred (async) read agreeing bit for bit with the blocking one on **both** output tensors; a non-finite idle row reaching neither another slot's prefill nor a remap's other rows (§9.2); the precision-config propagation; the capability report naming the selected policy) |
 | `models/common/readiness_check/run_vllm_server.py` | **+65 / -4 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
 | `doc/vllm_integration/**` | **new.** This log, the README, ten probes with the console log of their final run, the evidence JSON, the reduced-target localisation set (`reduced_target/`), and the archived per-configuration artifact sets (`batch1/`, `batch32/`, `async/`) |
 | `doc/context_contract.json` | **+1 block**: `vllm_integration`, recording 262144 served against 262144 advertised, the KV-pool sizing and its cost, the non-aligned-length evidence, the 64-token block size, and the tested batch coverage |
@@ -1310,7 +1360,7 @@ published numbers. (An earlier version of this sentence hard-coded the number of
 | finding | what it turned into |
 |---|---|
 | **P1** — §8's mechanism claim ("a fixed reduction order cannot produce run-to-run variance") was unsupported, and it cited datatype-sweep §9.1, which concluded the opposite | three new probe arms plus a new probe (`probe_decode_nondeterminism.py`): the batch boundary is measured (bit-identical at 1/2/4, not at 8/16/32), four candidate causes are each ruled out by their own arm, and a 1x1 control names the collectives. §8.3–§8.5 are the result; §8.4 corrects the §9.1 citation to what it actually says |
-| **P2** — the adapter suite had not been run on the committed tree, and no console log existed | re-run: 19 passed, [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) (§7.10) |
+| **P2** — the adapter suite had not been run on the committed tree, and no console log existed | re-run: 19 passed, [`logs/pytest_generator_vllm.txt.gz`](logs/pytest_generator_vllm.txt.gz) (§7.10) |
 | **P2** — §12's fallback audit quoted counts no preserved log supported | the whole batch-1 set re-run on one server whose log is archived before shutdown, plus a third column for the no-overlap server, plus the traffic named per column (§12) |
 | **P2** — `serving_requests.json` was unlabelled and `all_completed` was false | the probe now requires `--server-label`, records `finish_reason`, and asks each length with and without `ignore_eos` (§7.2). `all_completed` is now true, and the short plain completions are shown to be end-of-text stops |
 | `overlap_equivalence.json` had no producer script and compared unequal lengths | [`probe_overlap_equivalence.py`](logs/probe_overlap_equivalence.py). Running it surfaced the bigger problem: this vLLM enables async scheduling by default, so both of that artifact's arms were overlapped. The artifact is withdrawn and the real control was run (§7.6) |
@@ -1424,6 +1474,16 @@ scope-of-claim corrections:
 | **P3** — §7.10 skipped the full-model regression re-run on the claim that only `tt/generator_vllm.py` had changed; rounds 7 and 8 had also changed `tt/generator.py`'s `_read_tokens_async`, which `test_full_model.py` exercises | the suite was **re-run** on the committed tree: 50 passed, 5 deselected, 2139.77 s, `FULL_EXIT=0`, log re-archived. §7.10 and §14 now record a measurement instead of an argument |
 | **P3** — the committed context-gate tally (34) was captured before the §13/§15 text it accounted for, and the log's own summary line quoted a context key next to a number, so it counted itself | §13 and the tally are both written so that no committed line puts a context key next to a number. The gate now reports **32** — 19 probe builds, 12 adapter-suite loads, 1 source comment — twice in a row, and the log contributes zero advisories to itself |
 | §4's seven-primitive sentence sat above a table of eight rows | the extra row (`device_decode_state`) is now called out as documented-with-them-but-not-adapter-called |
+
+**Round 10.** One correctness bug in model code, and one label:
+
+| finding | what it turned into |
+|---|---|
+| **P2** — §8.3 called the idle-row runaway harmless "because the ops are row-independent", but this stage's own `_merge_rows` reads the row it overwrites (`dst * inverse + src * mask`, and `inf * 0` is `NaN`), so a prefill into a runaway slot — or a remap that moved one — could poison served state | **reproduced on hardware and fixed.** A new test writes `inf` into an idle slot's recurrent buffers and checks three paths; on the old merge, prefilling *into* the poisoned slot left that slot non-finite. `_merge_rows` now writes the target row with `ttnn.where` (bit-identical for finite rows), the test pins all three paths, and both suites were re-run: 22 and 50 passed. Recorded as §9.2, and §8.5 hands on only the runaway itself rather than a serving hazard |
+| **P3** — `batch32/serving_requests_max_num_seqs_32.json` is the pre-`ignore_eos` probe run, and §7.2/README §9 presented it alongside the two fixed ones | labelled in both places, with only its `length_preserved` rows cited |
+| README §1's "well inside the 9-repeat spread" compared against the wrong spread | now compares against the sweep's characterised run-to-run spread (0.18–0.48 %) with both deltas as percentages |
+| `serving_primitives.json`'s empty `host_wins_repeat_positions` read as contradicting "the stream repeats a token" | both docs now say what the arms show — the stale-host stream re-emits the pair from two steps earlier, which is not adjacent doubling, which is what that field counts |
+| `vllm_checkout.txt` named only the base commit | it now names all three commits of the tree that ran, and how to reproduce the archived diff |
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two

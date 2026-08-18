@@ -1,3 +1,12 @@
 bf98d556bb46a5cda25fac540629251e7f474200 Scope disable_chunked_mm_input to models that actually chunk (#469)
 branch: dev
 installed as: 0.1.dev1+gbf98d556b
+
+The tree that actually ran is that base commit plus this stage's two plugin commits, which live in
+the separate `vllm` checkout and are archived here as `vllm_tt_plugin_changes.diff`:
+
+  5380fd4c974f0512975fd4c18a1df8190502531b [tt-plugin] Record the scope of the Qwen3.5-MoE architecture override
+  a8a5a4ce7afaffc1238d02777b0271e6a898383a [tt-plugin] Register ornith-ai/Ornith-1.0-35B, and pass the fabric router config through
+  bf98d556bb46a5cda25fac540629251e7f474200 Scope disable_chunked_mm_input to models that actually chunk (#469)
+
+i.e. `git -C <vllm> diff bf98d556 HEAD -- plugins/` reproduces the committed diff byte for byte.
