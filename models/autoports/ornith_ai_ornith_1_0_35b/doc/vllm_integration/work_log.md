@@ -1034,13 +1034,40 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 ## 15. Stage review and commits
 
+### Review round 1, and what it changed
+
+`$stage-review` did not return `clean-pass` on the first commit. Its findings, and the remediation each
+one produced, in the order of how much they changed:
+
+| finding | what it turned into |
+|---|---|
+| **P1** — §8's mechanism claim ("a fixed reduction order cannot produce run-to-run variance") was unsupported, and it cited datatype-sweep §9.1, which concluded the opposite | three new probe arms plus a new probe (`probe_decode_nondeterminism.py`): the batch boundary is measured (bit-identical at 1/2/4, not at 8/16/32), four candidate causes are each ruled out by their own arm, and a 1x1 control names the collectives. §8.3–§8.5 are the result; §8.4 corrects the §9.1 citation to what it actually says |
+| **P2** — the adapter suite had not been run on the committed tree, and no console log existed | re-run: 19 passed, [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) (§7.10) |
+| **P2** — §12's fallback audit quoted counts no preserved log supported | the whole batch-1 set re-run on one server whose log is archived before shutdown, plus a third column for the no-overlap server, plus the traffic named per column (§12) |
+| **P2** — `serving_requests.json` was unlabelled and `all_completed` was false | the probe now requires `--server-label`, records `finish_reason`, and asks each length with and without `ignore_eos` (§7.2). `all_completed` is now true, and the short plain completions are shown to be end-of-text stops |
+| `overlap_equivalence.json` had no producer script and compared unequal lengths | [`probe_overlap_equivalence.py`](logs/probe_overlap_equivalence.py). Running it surfaced the bigger problem: this vLLM enables async scheduling by default, so both of that artifact's arms were overlapped. The artifact is withdrawn and the real control was run (§7.6) |
+| `logit_read_stability_full_model.json` reported `1x1` stability from an arm that never ran (`all([])`) | the probe reports `null` for a skipped arm, and the artifact's summary was recomputed from its own recorded arms (§7.9 / README §9) |
+| `prefill_stability_with_traces.json` compared rows without showing they were non-degenerate | the probe records each row's min/max/mean, nonzero fraction and top-5, and the summary carries `rows_are_nondegenerate` |
+| the plain-architecture `ModelRegistry.register_model` override was unscoped and undocumented | scope, failure modes and collision point recorded at the line and in §3; the adapter warns when a foreign checkpoint resolves to it |
+| probe/console-log bookkeeping (a wrong probe count, a missing log, a superseded one) | §7.9 names which log belongs to which run, including the two kept from superseded runs; §14 and README §7 have the corrected inventory |
+| `numpy` was outside tt-metal's pin without the README saying so | disclosed in README §7 |
+| `serving_counters` were all zero in the capability artifact | the `atexit` second copy, with the counters of served traffic (§7.8, §12) |
+| `doc/context_contract.json` still said `"stage": "datatype-sweep"` at the top level | updated, with a note that per-stage blocks keep their own |
+| §13's advisory count was wrong | recounted and broken down by source (§13) |
+
+Two things the review did not ask for came out of doing the above, and both changed published numbers:
+the async-scheduling default (§7.6), and the fact that the headline benchmark's artifact had been
+overwritten (§7.7). Both are recorded where the numbers are, not only here.
+
 ### Commits
 
 | repo | branch | commit | contents |
 |---|---|---|---|
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `71f8bab9ff0` | the adapter, the generator/model serving primitives and the `_resolve_page_table` fix, the adapter suite, this stage's evidence, the `readiness_vllm/` artifacts, the context-contract block, and the two shared-runner fixes |
-| `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + this) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
+| `tt-metal` | same | `2e5675d669c` | review round 1 remediation: the localisation probe and the extended reproducibility arms, the no-overlap control and its artifacts, the re-run batch-1 evidence set, the `atexit` capability dump and the foreign-checkpoint warning, the corrected docs, and every console log gzipped so `.gitignore`'s `*.log` cannot silently drop it |
+| `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
+| `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
-Neither commit is pushed. The `tt-metal` commit contains only stage-owned paths; the two files that were
+No commit is pushed. The `tt-metal` commits contain only stage-owned paths; the two files that were
 already dirty when the stage started (`.agents/skills/tt-device-usage/SKILL.md`, modified, and
-`.agents/fast-models-fast-feedback.md`, untracked) were left untouched and out of it.
+`.agents/fast-models-fast-feedback.md`, untracked) were left untouched and out of them.
