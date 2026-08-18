@@ -55,10 +55,11 @@ intervals, against 127 × 23.174 ms = 2943.1 ms warm. And it is one interval, no
 is unchanged at 23.134 ms while ITL P99 is 25.47 ms, so at most one interval of the 127 is long, and it
 carries the whole ~220 ms. The second server's cold run gives ~231 ms the same way.
 
-The mechanism is in the committed server log: the cold request's prefill returns at `18:55:38.314`, and
-`_ensure_traces_replay_safe` re-captures the decode traces 180 ms later at `18:55:38.494` — *after* the
-first token, so the re-capture is charged to the first inter-token interval, not to TTFT. The warm request
-at `18:55:52.562` has no re-capture line. The datatype-sweep stage measured the same thing standalone and
+The mechanism is in the committed server log: the cold request enters prefill at `18:55:38.314` and the
+decode traces are re-captured at `18:55:38.494`. That re-capture is not part of the prefill — it comes from
+`submit_serving_decode`'s replay-safety check, which runs on the **first decode step**, so it lands after the
+first token has been returned and is charged to the first inter-token interval rather than to TTFT. The warm
+request at `18:55:52.562` has no re-capture line. The datatype-sweep stage measured the same thing standalone and
 called it by name: [`cold_prompt_length_cost`](../datatype_sweep/post_selection_token_out.json) records
 `hidden_cost_ms` 250.4 with `trace_recaptures` 1 (312 ms cold TTFT against 177 ms warmed, on its own
 harness where the re-capture fell inside the TTFT window instead).
@@ -136,7 +137,7 @@ For the same reason, a single user on a server built for 32 pays for the padded 
 | host sampling | only when the plugin asks for it (log-probs on a 4-device mesh, `min_p`, `bad_words`, `logit_bias`, `allowed_token_ids`, `min_tokens`, structured output). Explicit, optional, and never the measured path |
 | qualitative verdict | **coherent, on topic, English, no repetition loops, no gibberish, no cross-request contamination**, matched against the HF and full-model controls (§4) |
 | degenerate-output check | `no degenerate output detected` (`--scope vllm` and `--scope all`), on the default (overlapped) runs at both batch sizes and on the `--no-async-scheduling` control |
-| sampling suite | 54/73 at `max_num_seqs=32`, 65/73 at `max_num_seqs=1` (the latter reproduced exactly on a second server: same 7 failures, same 65 passes); every failure in both is a reproducibility or batch-size-structural assertion, none a correctness one (§6) |
+| sampling suite | 54/73 at `max_num_seqs=32`, 65/73 at `max_num_seqs=1`; every failure in both is a reproducibility or batch-size-structural assertion, none a correctness one (§6). The batch-1 result was seen three times on three servers, but only the last run's log is committed — `sampling_tests.log` is truncated per launch ([work log §7.5](work_log.md#75-sampling-suite)) |
 | single-user determinism | at `max_num_seqs=1`, repeated greedy requests are **identical** (3/3, and again after ~90 intervening requests), and the same greedy text comes back with overlap turned off. Seeded requests repeat within a scheduling mode but differ between the two (§5, limitation 10). At `max_num_seqs=32` greedy repeats are not identical — §6 |
 | what the built model is | [`readiness_vllm/vllm_serving_capability.json`](../../readiness_vllm/vllm_serving_capability.json), written by the adapter at the end of warm-up: policy `C06-proj-bfp4-lofi`, KV cache `BFLOAT8_B`, LM head `BFLOAT4_B`, 40 layers, 4097 blocks, no layer exceptions, `owns_cache=False`. [`…_final.json`](../../readiness_vllm/vllm_serving_capability_final.json) is the same report at engine-core exit, with the counters of the traffic that server served (10831 decode steps, 9431 of them copying nothing to the device) |
 

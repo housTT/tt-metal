@@ -506,9 +506,12 @@ against the model's own decode floor, and what the 32-row difference means, are 
 and README §1 both said. The cold row's TPOT is 24.894 ms against 23.174 warm while its ITL *median* is
 unchanged at 23.134, and `vllm bench serve` excludes TTFT from TPOT — so 3389.9 − 228.3 = 3161.6 ms of
 decode window over 127 intervals carries **~218 ms** more than 127 × 23.174, concentrated in at most one
-interval (ITL P99 25.47). The committed server log shows why: the cold request's prefill returns at
-`18:55:38.314` and `_ensure_traces_replay_safe` re-captures at `18:55:38.494`, i.e. *after* the first token,
-so the re-capture is charged to the first inter-token interval. The warm request logs no re-capture. The
+interval (ITL P99 25.47). The committed server log shows why. The cold request *enters* prefill at `18:55:38.314` (that
+`prefill_forward` INFO is logged before `prefill_requests_into_slots` runs), and `_ensure_traces_replay_safe`
+logs its re-capture at `18:55:38.494` — but not from the prefill: the re-capture is triggered by
+`submit_serving_decode`'s `ensure_replay_safe()` (`tt/generator.py`), which runs on the **first decode
+step**. So it lands after the first token has been returned, and is charged to the first inter-token
+interval rather than to TTFT. The warm request at `18:55:52.562` logs no re-capture at all. The
 datatype-sweep stage measured the same quantity standalone as
 [`cold_prompt_length_cost.hidden_cost_ms`](../datatype_sweep/post_selection_token_out.json) = 250.4 ms with
 one re-capture. README §1 and its limitation 2 now say both halves; round 3 of the review caught the
@@ -558,10 +561,11 @@ served model:
 field; `tests/test_generator_vllm.py::test_the_serving_build_carries_the_selected_precision_config`
 asserts exactly that against
 [`doc/datatype_sweep/selected_precision_config.json`](../datatype_sweep/selected_precision_config.json).
-The committed artifact file additionally carries prose and provenance keys the sweep put there for
-humans (`status`, `selection_rule`, `selected_from_run`, `measured`, the four `*_note` fields); those are
-not policy fields, `policy_to_dict` does not emit them, and their absence from the served report is not a
-policy difference.
+The committed artifact file additionally carries nine prose and provenance keys the sweep put there for
+humans — `stage`, `status`, `selected_from_run`, `selection_rule`, `measured`, `kv_cache_update_contract`,
+`lm_head_note`, `sampling_note`, `override_note`; those are not policy fields, `policy_to_dict` does not
+emit them, and their absence from the served report is not a policy difference. Every field that *is* a
+policy field is equal.
 
 **One way this report could lie, closed in round 3.** The writer fired for *any* built adapter, including
 the two-layer bring-up targets the adapter suite builds — so running the documented
@@ -767,11 +771,11 @@ On the **full 40-layer model** the same arms run at batch 4 and batch 32
 
 | arm | batch 4 | batch 32 |
 |---|---|---|
-| traced replay, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ 0.69 per step |
-| eager dispatch, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ 0.94 per step |
+| traced replay, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ **0.6875** over 4 steps, min PCC 0.99811 |
+| eager dispatch, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ **0.625**, min PCC 0.99866 |
 | prefill logits, two runs | identical | identical |
 | state after prefill (140 buffers + the written KV pages) | **bit-identical**, all finite | **bit-identical**, all finite |
-| the first decode step's logits | **bit-identical** | differs, max abs Δ 0.72 |
+| the first decode step's logits | **bit-identical** | differs, max abs Δ **0.671875** |
 | the state that first decode step writes | **bit-identical**, all finite | **differs**, the active row included |
 
 The last row carries a second observation worth recording on its own. At batch 32 with one active row, the
@@ -806,12 +810,12 @@ That is a different axis from the one that fails here, and the two agree:
 | | axis | batch 4 | batch ≥ 8 |
 |---|---|---|---|
 | datatype sweep §9.1 | slot against slot, within one run | differs (0.28–0.5), **stable across repeats** | not measured |
-| this stage §8.2 | run against run, same slot | **bit-identical** | differs (0.47–0.92) |
+| this stage §8.2 | run against run, same slot | **bit-identical** | differs, 0.70–0.84 per step before the first flip |
 
 So §9.1's determinism claim is confirmed here at batch 4, and the property that breaks above batch 4 is
 run-to-run reproducibility, which §9.1 never measured. Its cross-slot finding also still holds at batch 32
-in this stage's own data — the `slot 7` arm deviates from the `slot 0` arm by up to 1.0 logit while never
-flipping a token.
+in this stage's own data — the `slot 7` arm deviates from the `slot 0` arm by up to **1.25** logits (§8.2's
+table) while never flipping a token.
 
 ### 8.5 What is and is not fixable here, and the defect this stage hands on
 Not fixable at this layer, and not attempted: making the batch ≥ 8 decode bit-reproducible means changing
@@ -822,8 +826,10 @@ round ([`prefill_alloc_vs_recapture.json`](prefill_alloc_vs_recapture.json)).
 
 **Open defect, named and handed on:** *multi-device decode is not run-to-run bit-reproducible at batch ≥ 8*
 — it enters through the 1x4 fabric collectives (§8.3), the boundary is between batch 4 and batch 8, the
-per-step magnitude is 0.47–0.92 of a logit at PCC ≥ 0.997, and it flips a greedy token only where the
-top-1/top-2 margin is within that noise or where a discrete downstream choice amplifies it. Reproducer:
+per-step magnitude is **0.70–0.84** of a logit before the first flip on the full model at 12 steps
+(§8.2) and **0.47–0.69** over the shorter 4-step arms of §8.3, at PCC ≥ 0.997 throughout, and it flips a
+greedy token only where the top-1/top-2 margin is inside that noise (every observed first flip sits at
+0.0–0.125). Reproducer:
 `probe_decode_nondeterminism.py --pairs 5 --mesh 1,4 --batch 8 --force-model-driver` against
 `--mesh 1,1` as the control, on the two-layer target, which needs neither vLLM nor the full weight load.
 The two things a decoder-stage fix would need to settle, which this stage deliberately did not: **which
@@ -853,8 +859,9 @@ per-call page-row allocation, and the trace re-capture.
 → [`prefill_alloc_vs_recapture.json`](prefill_alloc_vs_recapture.json): six arms on one weight load —
 cold capture with a genuine re-capture (107 programs compiled after capture), a long-lived row, a
 per-call row, four forced re-captures — **all bit-identical, max |Δ| 0.0**, and the per-call page row
-landed at the *same* device address (132992448) in all four rounds, so "the allocator layout differs
-round to round" was simply false.
+landed at the *same* device address in all four rounds — 173233536 for the per-call arm, 142904448 for the
+long-lived one, `distinct_page_row_addresses: 1` in every arm — so "the allocator layout differs round to
+round" was simply false.
 
 **The cause.** [`probe_prefill_determinism_bisect.py`](logs/probe_prefill_determinism_bisect.py) →
 [`prefill_determinism_bisect.json`](prefill_determinism_bisect.json) rebuilt the failing probe verbatim
@@ -1014,6 +1021,7 @@ next to the requests that produced it:
 | log | [`batch1/server_max_num_seqs_1_all_checks.log.gz`](batch1/server_max_num_seqs_1_all_checks.log.gz) | [`batch32/server_max_num_seqs_32.log.gz`](batch32/server_max_num_seqs_32.log.gz) | [`async/server_no_async_max_num_seqs_1.log.gz`](async/server_no_async_max_num_seqs_1.log.gz) |
 | traffic it served | the full sampling suite, qualitative, the chat probe, the request-shape probe, the overlap arm, two primary benchmarks | the full sampling suite, qualitative, the request-shape probe, single-user and CI-burst benchmarks | the overlap control arm, the request-shape probe, the smoke sampling profile, qualitative, two primary benchmarks |
 | `POST /v1/completions` + `/v1/chat/completions` | 518 + 13 | 1565 + 38 | 103 + 1 |
+| adapter `prefill_calls` (one below the request count: the `logprobs=-1` chat request is rejected `400` by the plugin's clamp and never prefills — it is the case that skips `test_chat_logprobs_all_vocab`) | 530 | — | 103 |
 | **a foreign page table without a caller-owned cache** (`"was given a page_table but no kv_cache"`) | **0** | **0** | **0** |
 | **a program compiled inside the traced decode loop** (`"a program was compiled inside the traced decode loop"`) | **0** | **0** | **0** |
 | **KV cache falling back to a default dtype** (`"No dtype specified for the model KV cache"`) | **0** | **0** | **0** |
@@ -1170,8 +1178,8 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 ### Review rounds, and what they changed
 
-`$stage-review` returned `more-work-needed` three times. All three rounds' findings are listed below with
-the measurement or correction each one produced, because several of them changed published numbers.
+`$stage-review` returned `more-work-needed` four times. All four rounds' findings are listed below with the
+measurement or correction each one produced, because several of them changed published numbers.
 
 **Round 1.**
 
@@ -1233,6 +1241,19 @@ committed file.
 | the CI serving-burst artifacts had no per-configuration archive copy | copied into `batch32/`, byte-identical, so every committed serving number is attributable to a configuration directory (README §9) |
 | the committed server log's loguru line numbers predate the round-3 guard | noted in §11, with why the log cannot be re-run without breaking the attribution it anchors |
 
+**Round 5.** Documentation again, and all of it inside the sections earlier rounds had not touched:
+
+| finding | what it turned into |
+|---|---|
+| **P2** — §8.3's full-model table quoted an eager magnitude of 0.94 and a first-step magnitude of 0.72 that `decode_nondeterminism.json` does not carry, and §8.4/§8.5 stated the per-step range as 0.47–0.92 while §8.2 and README §6 said 0.70–0.84 | the table rebuilt from the artifact (traced 0.6875 / eager 0.625 / first step 0.671875, each with its min PCC), and the range in §8.4/§8.5 now names both arms and their lengths — 0.70–0.84 over §8.2's 12 steps, 0.47–0.69 over §8.3's 4-step arms — so no two sections disagree |
+| **P3** — §8.4 said the `slot 7` arm deviates by up to 1.0 logit; the artifact and §8.2's own table say 1.25 | corrected to 1.25 with the pointer to §8.2 |
+| **P3** — §9 quoted a per-call page-row address (132992448) no artifact carries | replaced with the recorded addresses (173233536 per-call, 142904448 long-lived) and `distinct_page_row_addresses: 1` |
+| **P3** — README §1 and §7.7 read the `prefill_forward` log line as prefill *returning*, making the 180 ms look like a gap after the first token; the line is logged on prefill **entry** | both re-anchored to the call site that actually produces the re-capture — `submit_serving_decode`'s replay-safety check on the first decode step — which is what puts the stall in the first inter-token interval |
+| **P3** — §15 said "three times" over four round tables; the commits table was out of chronological order and missing the current HEAD | fixed, and the table is now in `git log` order |
+| **P3** — §7.8 enumerated the sweep artifact's prose-only keys wrongly (four `*_note` fields, two keys missing) | replaced with the nine actual extras |
+| §12's request count (518 + 13) sat beside `prefill_calls: 530` with no explanation | the table now says why: the `logprobs=-1` chat request is rejected `400` by the plugin's clamp and never prefills — the same case that skips `test_chat_logprobs_all_vocab` |
+| README's serving-status row asserted the batch-1 sampling result "reproduced exactly on a second server" without the caveat §7.5 carries | the row now says three servers saw it and only the last run's log is committed |
+
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two
 probes comparing tile padding (§9.1). Each is recorded where its numbers are, not only here.
@@ -1246,9 +1267,11 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `ef5e63409dc` | the round-1 review record in §15 |
 | `tt-metal` | same | `a92706dbc4f` | review round 2 remediation: the re-run headline set with its attribution check, the tile-padding fix in two probes and their re-measured artifacts, the recomputed counters and audit counts, and the README/work-log corrections |
 | `tt-metal` | same | `7168b79045d` | the round-2 review record in §15 |
+| `tt-metal` | same | `5303a7a7a1d` | review round 3 remediation: the reduced-build guard on the capability writer with its regression test and the re-run suite, the corrected first-request cost accounting, README §4 rewritten from the committed qualitative artifacts, the two gate console logs, the re-captured final device state, and the small figure corrections |
 | `tt-metal` | same | `0f2d3aa310c` | the round-3 review record in §15 |
 | `tt-metal` | same | `b7347f123d1` | review round 4 remediation: the per-test pass/fail inventory rebuilt from the sampling logs, §8.1 rebuilt from the committed determinism arms, the recounted L1 and no-refresh figures, the `batch32/` CI-burst copies, and the smaller figure corrections |
-| `tt-metal` | same | `5303a7a7a1d` | review round 3 remediation: the reduced-build guard on the capability writer with its regression test and the re-run suite, the corrected first-request cost accounting, README §4 rewritten from the committed qualitative artifacts, the two gate console logs, the re-captured final device state, and the small figure corrections |
+| `tt-metal` | same | `b90a91e05b9` | the round-4 review record in §15 |
+| `tt-metal` | same | *this round's commits* | review round 5 remediation: §8.3–§8.5's magnitudes rebuilt from `decode_nondeterminism.json` and `slot_reproducibility.json`, §9's page-row address corrected, the first-request-stall argument re-anchored to the call site that produces it, and §7.8/§12/§15's enumerations fixed |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
