@@ -45,11 +45,28 @@ reports (§9 explains why that attribution is checked explicitly).
 TPOT spans 0.028 ms (0.12 %) and ITL P50 0.007 ms across the three; warm TTFT spans 6.4 ms. The *first*
 request at a prompt length is much looser — 172.8, 228.3 and 236.3 ms on three servers — because it
 compiles that length's prefill programs and pays a trace re-capture inside its TTFT, and how much of that
-work is already done depends on what the process has served before. The datatype-sweep stage measured the
-same effect standalone ([`cold_prompt_length_cost`](../datatype_sweep/post_selection_token_out.json):
-312 ms cold against 177 ms warmed). Note that **ITL P50 is 23.13 ms in every column**: the cost is entirely
-in the first token, not in the decode loop. `OrnithGenerator.warmup(prompt_lengths)` removes it for a
-deployment that knows its lengths.
+work is already done depends on what the process has served before.
+
+**Where that cost actually lands, because the ITL median hides it.** ITL P50 is 23.13 ms in *both* columns,
+which is why an earlier version of this section said the cost was entirely in the first token. It is not.
+`vllm bench serve` excludes TTFT from TPOT (`TPOT = (e2el − ttft)/(n−1)`), so the cold column's own numbers
+put **218 ms inside the inter-token intervals**: e2el 3389.9 ms − TTFT 228.3 ms = 3161.6 ms over 127
+intervals, against 127 × 23.174 ms = 2943.1 ms warm. And it is one interval, not a uniform shift — ITL P50
+is unchanged at 23.134 ms while ITL P99 is 25.47 ms, so at most one interval of the 127 is long, and it
+carries the whole ~220 ms. The second server's cold run gives ~231 ms the same way.
+
+The mechanism is in the committed server log: the cold request's prefill returns at `18:55:38.314`, and
+`_ensure_traces_replay_safe` re-captures the decode traces 180 ms later at `18:55:38.494` — *after* the
+first token, so the re-capture is charged to the first inter-token interval, not to TTFT. The warm request
+at `18:55:52.562` has no re-capture line. The datatype-sweep stage measured the same thing standalone and
+called it by name: [`cold_prompt_length_cost`](../datatype_sweep/post_selection_token_out.json) records
+`hidden_cost_ms` 250.4 with `trace_recaptures` 1 (312 ms cold TTFT against 177 ms warmed, on its own
+harness where the re-capture fell inside the TTFT window instead).
+
+So the first request at a new prompt length costs ~+77 ms of TTFT **and** one ~220 ms stall a few tokens in.
+Every later request at that length pays neither. `OrnithGenerator.warmup(prompt_lengths)` removes both for a
+deployment that knows its lengths; the serving warm-up compiles one length (64) rather than guessing a
+bucket set.
 
 ### Against the model's own decode floor
 
@@ -144,64 +161,73 @@ Against the controls, the chat run tracks the HF reference **character for chara
 of the same plan ("Analyze the Request" against "Deconstruct the request") — the near-tie behaviour §6
 measures, not a different answer.
 
-One thing to read correctly: **every** completion in both runs ends at its token cap (`finish_reason:
-length`, 128 tokens for the chat run and 256 for the raw one). Where it stops differs by prompt, and that
-is this checkpoint's format rather than truncation by the serving path — the HF control and the full-model
-TTNN control, generated at the same caps, stop in the same kind of place.
+**Where the completions stop.** The chat run's six all end at the 128-token cap
+(`finish_reason: length`, 128 completion tokens, in the artifact). The raw run is committed without
+`finish_reason` — the shared runner stores only the two texts — and four of its six sampled completions run
+to the 256-token cap while **two self-terminate**: the haiku (13 words) and the French translation (8
+words) skip the reasoning block entirely (`<think>\n\n</think>`) and answer, which is the checkpoint
+deciding it does not need to think aloud. Every greedy raw completion runs to the cap. Where a completion
+caps *inside* a `<think>` block, that is this checkpoint's format rather than truncation by the serving
+path: the HF control and the full-model TTNN control, generated at the same caps, stop in the same kind of
+place.
 
-**Verdict: pass.** Prompt by prompt, from the committed artifacts:
+**Verdict: pass.** Prompt by prompt, read from the committed artifacts:
 
-* *"Write a haiku about machine learning."* — the raw run opens a `<think>` block, restates the 5-7-5
-  constraint, brainstorms keywords ("Data, code, neural, nets, learn, predict, train, model, AI, brain,
-  silicon, patterns, future, hidden, deep") and drafts candidate lines with syllable counts ("Data flows
-  through wires (5) -> Da-ta flows through wi-res (5). Good."), then critiques its own attempt and starts
-  another ("Silicon minds wake (5)"). Both the greedy and the sampled completion reach the 256-token cap
-  inside that reasoning, so the artifact holds the plan rather than a finished haiku — and so does the HF
-  control. Coherent, on topic, English.
-* *"Explain the difference between supervised and unsupervised learning…"* — a structured plan naming
-  labelled vs unlabelled data, teacher-guided vs finding patterns on its own, prediction vs discovery, and
-  it caps mid-analogy ("Supervised = learning to identify fruits with a teacher saying 'this is an apple'";
-  the sampled run reaches for "flashcards with answers on the back"). Matches the HF control's content and
-  structure closely.
+* *"Write a haiku about machine learning."* — the greedy raw completion opens a `<think>` block, restates
+  the 5-7-5 constraint, brainstorms keywords ("Data, code, neural, nets, learn, predict, train, model, AI,
+  brain, silicon, patterns, future, hidden, deep"), drafts candidate lines with syllable counts ("Data
+  flows through wires (5) -> Da-ta flows through wi-res (5). Good."), critiques its own attempt and starts
+  another ("Silicon minds wake (5)") — and hits the 256-token cap mid-plan, as does the HF control. The
+  **sampled** completion takes the other route: empty `<think></think>`, then a finished haiku — *"Silicon
+  dreams deep, / Data flows through hidden layers, / Patterns come alive."* Coherent, on topic, English.
+* *"Explain the difference between supervised and unsupervised learning…"* — both completions plan the
+  answer: labelled vs unlabelled data, teacher-guided vs finding patterns alone, prediction vs discovery,
+  with analogies (greedy: "learning to identify fruits with a teacher"; sampled: "a child learning animals
+  with a parent pointing and naming each one", "exploring a new city without a map"). Matches the HF
+  control's content and structure closely.
 * *"Complete this story…"* — the greedy completion continues the sentence ("a strange device that could
   manipulate the fabric of reality"), then plans the story and names the device ("the Aether Loom"). The
-  **sampled** completion emits an *empty* `<think></think>` and writes the story straight out — a brass
-  sphere in the royal archives, an inventor called Elara, a three-dimensional map of the kingdom. Two
-  different valid shapes for the same prompt, both fluent. The greedy one also contains "Here's a thinking
-  thinking sequence" — a doubled word that is a **checkpoint** behaviour, not a serving artefact: the HF
-  reference and the full-model TTNN run produce it too, and the chat run matches the HF control for 236
-  characters *including* that phrase.
-* *"What are the three laws of thermodynamics?"* — answered directly and correctly (conservation of energy;
-  entropy of the universe increases in a spontaneous process; entropy approaches zero as temperature
-  approaches absolute zero), no repetition loop. Then, being a raw completion rather than a chat turn, the
-  sampled run poses itself a follow-up ("What is the Second Law of Thermodynamics?") and answers that too —
-  continuation behaviour, expected of a chat model prompted without its template.
-* *"Translate … to French"* — French output ("Bonjour, comment allez-vous aujourd'hui ?", with the informal
-  "comment ça va" weighed against it), and no wrong-language drift in any of the other five.
-* *"Write a Python function … Fibonacci"* — working iterative Python in both completions
-  (`sequence = [0, 1]` then a loop). Both then self-continue, and the two do it differently: the **sampled**
-  completion invents further exercises ("Write a Python function to find the maximum…", "…to check if a
-  number is prime"), while the **greedy** one gets stuck in a short loop, repeating
+  **sampled** completion writes the story instead, after an empty `<think></think>`: a pocket-watch-sized
+  device "crafted from a metal that seemed to drink in the light", an inventor called Elian, found beneath
+  the roots of the Ancient Oak in the Royal Gardens, ending with time snapping "back to normal with a
+  deafening *crack*". Fluent prose, consistent within itself. The greedy one also contains "Here's a
+  thinking thinking sequence" — a doubled word that is a **checkpoint** behaviour, not a serving artefact:
+  the HF reference and the full-model TTNN run produce it too, and the chat run matches the HF control for
+  236 characters *including* that phrase.
+* *"What are the three laws of thermodynamics?"* — answered directly and correctly in both (conservation of
+  energy; entropy of the universe increasing; entropy of a perfect crystal zero at absolute zero). Being a
+  raw completion rather than a chat turn, both then pose and answer their own follow-ups ("What does the
+  first law of thermodynamics state?") — continuation behaviour, expected of a chat model prompted without
+  its template.
+* *"Translate … to French"* — French, correct, and in the sampled case complete and nothing else:
+  *"Bonjour, comment allez-vous aujourd'hui ?"*. The greedy completion plans the register (formal
+  `allez-vous` against informal `ça va`) and caps inside that. No wrong-language drift in any of the twelve.
+* *"Write a Python function … Fibonacci"* — the greedy completion emits working iterative Python
+  (`sequence = [0, 1]` then a loop) and then **loops**, repeating
   `"What is the output of the following Python code? … def greet(name) … The output is: Hello, World!"`
-  **four times** with the same 12-gram.
+  four times with the same 12-gram. The sampled completion instead plans the implementation options
+  (naive recursion, memoised, iterative) and caps inside that plan.
 
-  That loop is the one piece of mechanical repetition in the twelve raw completions, and it is a
-  *checkpoint/raw-continuation* property rather than a serving one — three controls: the
-  `--no-async-scheduling` server produces the byte-identical greedy completion with the same 4× loop, the
-  `max_num_seqs=32` server produces the same loop 2× (with a different variable), and the *chat* run of the
-  same prompt — the verdict path — has no repetition at all and answers the one question it was asked.
-  Mechanically it stays inside the gate: adjacent-duplication 0.000 and trigram-loop 0.101 against
-  thresholds of 0.10 and 0.50. Worth knowing before serving raw completions from this checkpoint without
-  its chat template; not a defect in the serving path.
+  That loop is the one piece of mechanical repetition in the twelve raw completions. It is *not* produced by
+  the serving path: the `--no-async-scheduling` server returns the **byte-identical** greedy completion,
+  loop included, and the *chat* run of the same prompt — the verdict path — has no repetition at all and
+  answers the one question it was asked. (The `max_num_seqs=32` server's greedy completion also
+  self-quizzes, but with three *different* blocks rather than a repeat, so it is a weaker control and is
+  not counted as one.) Mechanically it stays inside the gate: adjacent-duplication 0.000 and trigram-loop
+  0.101 against thresholds of 0.10 and 0.50. Worth knowing before serving raw completions from this
+  checkpoint without its chat template; not a defect in the serving path.
 
 No prompt echo, no control-token leakage, no cross-request contamination (each completion answers its own
-prompt). One completion does loop — the greedy Fibonacci one above — and it is reproduced on two other
-server configurations, so it belongs to the checkpoint's raw-continuation behaviour rather than to serving. `check_degenerate_output.py` agrees mechanically: adjacent-duplication
-0.000 – 0.020 and trigram-loop 0.021 – 0.115 across all twelve completions, **no degenerate output
-detected**.
+prompt). One completion does loop — the greedy Fibonacci one above — and it is reproduced byte-for-byte on
+the non-overlapped server, so it belongs to the checkpoint's raw-continuation behaviour rather than to
+serving. `check_degenerate_output.py` agrees mechanically — over the ten raw completions long enough for it to
+measure (its `MIN_WORDS_FOR_DUPLICATION` is 20 words, and the two self-terminating sampled completions are
+13 and 8): adjacent-duplication **0.0000 – 0.0140** against a 0.10 threshold and trigram-loop
+**0.0149 – 0.1304** against 0.50 — so **no degenerate output detected**, on `--scope vllm` and on
+`--scope all`. Console log: [`logs/check_degenerate_output.txt`](logs/check_degenerate_output.txt).
 
 Greedy and sampled completions are both reasonable, and the sampled ones differ from the greedy ones
-without degrading — the haiku prompt is the clearest example.
+without degrading — the haiku and the story are the clearest examples: greedy plans, sampled delivers.
 
 ---
 
@@ -295,8 +321,9 @@ does not.
 `test_*_penalty_mixed_batch`, and `test_uniform_noseed_varied`. Each builds its request list by slicing it
 with `max_batch_size` and then asserts on ≥2 distinct outputs, ≥5 distinct outputs, or a comparison across
 rows. At a capacity of one, the `test_different_*_penalties` slice leaves one request and the
-`test_*_penalty_mixed_batch` slice leaves **none** — their failure message is literally
-`Got 0 unique results out of 0. Results: []`. A harness assumption, not a model answer.
+`test_*_penalty_mixed_batch` slice leaves **none** — two of them report `Got 0 unique results out of 0.`
+and the third, `test_frequency_penalty_mixed_batch`, raises `IndexError: list index out of range` indexing
+that empty list. A harness assumption, not a model answer.
 
 So **15 of the 18** batch-32 failures pass at `max_num_seqs=1`, and the three `test_*_penalty_mixed_batch`
 fail in both configurations: for the reproducibility reason at 32 and for the empty-slice reason at 1.
@@ -425,7 +452,8 @@ python .agents/scripts/check_context_contract.py \
   --model-dir models/autoports/ornith_ai_ornith_1_0_35b --hf-model ornith-ai/Ornith-1.0-35B \
   --stage vllm --require-contract
 
-# adapter suite (host-only cases need no device; the rest use the reduced two-layer target)
+# adapter suite (host-only cases need no device; the rest use the reduced two-layer target).
+# It builds reduced adapters, and a reduced build deliberately does not write readiness_vllm/ (§9).
 pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q
 ```
 
@@ -463,11 +491,13 @@ Nothing in this README is measured on it.
    [work log §8.5](work_log.md#85-what-is-and-is-not-fixable-here-and-the-defect-this-stage-hands-on);
    nothing at the serving layer can fix it. A deployment that needs bit-reproducible completions should
    serve at `--max-num-seqs 1`, where the whole reproducibility class of the shared suite passes.
-2. **The first request at a new prompt length is slower.** It compiles that length's prefill programs and
-   pays a trace re-capture inside its TTFT: **228.3 ms against 151.7 ms** warmed for the 128-token shape on
-   the committed server, and 172.8 and 236.3 ms on two others (§1 — the warm figure repeats to 0.12 % of
-   TPOT, the cold one depends on what that process had already compiled). ITL P50 is 23.1 ms in every
-   case, so the cost lands on the first token only.
+2. **The first request at a new prompt length is slower, in two places.** It compiles that length's prefill
+   programs — **228.3 ms TTFT against 151.7 ms** warmed for the 128-token shape on the committed server, and
+   172.8 and 236.3 ms on two others — *and* it pays the decode-trace re-capture as a single ~220 ms stall a
+   few tokens into the stream, which is why its TPOT is 24.894 ms against 23.174 warm while its ITL median
+   is unchanged (§1 derives both from the artifacts). Every later request at that length pays neither.
+   `OrnithGenerator.warmup(prompt_lengths)` removes it for a deployment that knows its lengths; the serving
+   warm-up compiles one length (64).
    `OrnithGenerator.warmup(prompt_lengths)` removes it for a deployment that knows its lengths; the
    serving warm-up compiles one length (64) rather than guessing a bucket set.
 3. **Single-user latency and 32-user capacity are two server configurations.** A `--max-num-seqs 32`
@@ -510,7 +540,9 @@ files on every launch, so what is committed there is one server's output. Which 
 every one of `vllm_benchmark.json`, `vllm_result.json`, `vllm_qualitative_outputs.json`,
 `vllm_serving_capability.json` and `…_final.json` is **byte-identical** to its `batch1/` copy on this tree,
 and `server.log.gz` is that same server's log (`Asynchronous scheduling is enabled`, 518 completion + 13 chat
-requests, 28 trace re-captures). This was wrong twice before the check existed — see
+requests, 28 trace re-captures). Nothing after that server writes into the directory either: the adapter
+suite builds *reduced* two-layer adapters, and the capability writer refuses to write for a reduced build
+(a regression test asserts the committed bytes survive it). This was wrong twice before the check existed — see
 [work log §7.7](work_log.md#77-benchmarks) and [§12](work_log.md#12-runtime-fallback-audit). Every console
 log is committed **gzipped**: the repo's `.gitignore` excludes `*.log`, so an uncompressed `server.log`
 silently would not be in the commit at all; the `.gz` beside it is the committed copy — the headline single-user
@@ -547,10 +579,10 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 | [`vllm_checkout.txt`](vllm_checkout.txt) / [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) | the vLLM commit served, and the plugin changes (that repo is not committed here) |
 | [`batch32/`](batch32/) | the `--max-num-seqs 32` server's sampling log, qualitative outputs, server log, and its single-user benchmark |
 | [`batch1/`](batch1/) | the `--max-num-seqs 1` server's sampling log, qualitative outputs, and the cold/warm primary benchmark pair |
-| [`async/`](async/) | the decode-overlap comparison, **both** arms: the default (overlapped) servers' artifacts and the `--no-async-scheduling` control's server log, benchmarks, qualitative outputs, sampling smoke log and request probe, plus the four `overlap_texts_*.json` arms behind §5 |
+| [`async/`](async/) | the decode-overlap comparison, **both** arms: the default (overlapped) servers' artifacts (including `async_max_num_seqs_32_sampling_tests.log.gz`, the smoke profile on an overlapped batch-32 server — 2 failed of 3, both from the batch-32 reproducibility class of §6) and the `--no-async-scheduling` control's server log, benchmarks, qualitative outputs, sampling smoke log and request probe, plus the four `overlap_texts_*.json` arms behind §5 |
 | [`reduced_target/`](reduced_target/) | the run-pair counts that localise the batch ≥ 8 nondeterminism to the collectives (mechanical, on the two-layer bring-up target — see [work log §8.3](work_log.md#83-where-it-enters-measured-the-multi-device-collectives)) |
-| [`logs/`](logs/) | every probe (`.py`) with the console log of its final run (`.txt`) |
+| [`logs/`](logs/) | every probe (`.py`) with the console log of its final run (`.txt`, gzipped where it is large), both test-suite logs, the two gate console logs ([`check_degenerate_output.txt`](logs/check_degenerate_output.txt), [`check_context_contract.txt`](logs/check_context_contract.txt)), and the device reset/mesh-smoke record |
 
-Tests: [`tests/test_generator_vllm.py`](../../tests/test_generator_vllm.py) — 8 host-only cases and 11 on
-the reduced two-layer target, driving the adapter through the plugin-facing API. 19 passed on the committed
-tree; console log [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt).
+Tests: [`tests/test_generator_vllm.py`](../../tests/test_generator_vllm.py) — 9 host-only cases and 11 on
+the reduced two-layer target, driving the adapter through the plugin-facing API. **20 passed** on the
+committed tree; console log [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt).

@@ -311,14 +311,19 @@ completion prompts are continuation coverage, not a verdict:
   controls the full-model stage left in [`readiness_qualitative.json`](../full_model/readiness_qualitative.json):
   its HF reference completions and its own TTNN completions.
 
-`check_degenerate_output.py --scope vllm` and `--scope all`: **no degenerate output detected** — on the
-committed served outputs (adjacent-duplication 0.000 – 0.020, trigram-loop 0.021 – 0.115 over the twelve
-raw completions), on the `--max-num-seqs 32` server's, and on the `--no-async-scheduling` control's (§7.6).
+`check_degenerate_output.py --scope vllm` and `--scope all`: **no degenerate output detected**, on the
+committed served outputs, on the `--max-num-seqs 32` server's and on the `--no-async-scheduling` control's
+(§7.6). Console log: [`logs/check_degenerate_output.txt`](logs/check_degenerate_output.txt). Over the ten
+committed raw completions the gate measures — its `MIN_WORDS_FOR_DUPLICATION` is 20 words, and two sampled
+completions self-terminate at 13 and 8 — adjacent-duplication is 0.0000 – 0.0140 against a 0.10 threshold
+and trigram-loop 0.0149 – 0.1304 against 0.50.
 
 The per-prompt reading, against the HF and full-model controls, is in
-[README §4](README.md#4-qualitative-output-with-controls); it is written from the *committed* artifacts,
-which were regenerated when the whole batch-1 set was re-run (§7.7), and the chat run's divergence points
-against the HF control (25/34/236/214/213/130 characters by prompt) are unchanged from the first run.
+[README §4](README.md#4-qualitative-output-with-controls). It is written from the *committed* artifacts, and
+that mattered: the qualitative set was regenerated twice while the batch-1 evidence was re-run (§7.7), and
+round 3 of the review found §4 still describing the **previous** generation's sampled completions. The chat
+run's divergence points against the HF control (25/34/236/214/213/130 characters by prompt) are unchanged
+across all of those runs.
 
 ### 7.5 Sampling suite
 `--sampling-profile full` (the whole `tests/tt` suite) was run twice, on two server configurations:
@@ -326,7 +331,7 @@ against the HF control (25/34/236/214/213/130 characters by prompt) are unchange
 | configuration | result | failures |
 |---|---|---|
 | `max_num_seqs=32` | **54 passed, 18 failed, 1 skipped** in 623 s ([log](batch32/sampling_tests_max_num_seqs_32.log.gz)) | every failure is a "same request must produce the same text" assertion. Exactly: `test_mixed_params_batch`, `test_seeding`, `test_same_seeds_reproduce_across_batches`, `test_specific_seed_reproducible[0/123/999]`, `test_batch1_seed_reproducible[0/1]`, `test_uniform_seed_deterministic[10-0/10-1/32-0/32-1]`, `test_top1_is_greedy`, `test_topk[15]`, `test_topk[32]`, `test_{repetition,presence,frequency}_penalty_mixed_batch`. `test_topk[19]` and `test_specific_seed_reproducible[42]` passed |
-| `max_num_seqs=1` | **65 passed, 7 failed, 1 skipped** in 289 s ([log](batch1/sampling_tests_max_num_seqs_1.log.gz)) | **15 of the 18 above now pass.** The 7 failures are the three `test_different_*_penalties`, the three `test_*_penalty_mixed_batch` and `test_uniform_noseed_varied` — all of which slice their request list by `max_batch_size` and then assert on ≥2 distinct outputs, ≥5 distinct outputs, or a cross-row comparison. At capacity 1 the `mixed_batch` slice is **empty**: `Got 0 unique results out of 0. Results: []` |
+| `max_num_seqs=1` | **65 passed, 7 failed, 1 skipped** in 292 s ([log](batch1/sampling_tests_max_num_seqs_1.log.gz)) | **15 of the 18 above now pass.** The 7 failures are the three `test_different_*_penalties`, the three `test_*_penalty_mixed_batch` and `test_uniform_noseed_varied` — all of which slice their request list by `max_batch_size` and then assert on ≥2 distinct outputs, ≥5 distinct outputs, or a cross-row comparison. At capacity 1 the `mixed_batch` slice is **empty**, which two of them report as `Got 0 unique results out of 0.` and the third (`test_frequency_penalty_mixed_batch`) as an outright `IndexError: list index out of range` when it indexes that empty list |
 
 The three `test_*_penalty_mixed_batch` cases therefore fail in *both* configurations, for different
 reasons: the reproducibility reason at 32, the empty-slice reason at 1. Neither is a correctness failure,
@@ -339,7 +344,7 @@ property §8 measures — the earlier run failed `test_topk[19]` and `test_speci
 and passed `test_topk[15]`/`[32]`, and the final run does the opposite.
 
 The `max_num_seqs=1` result then reproduced **three** times, on three different servers, to the test:
-7 failed / 65 passed / 1 skipped each time, in 289 – 291 s, and the same seven names every time
+7 failed / 65 passed / 1 skipped each time, in 289 – 292 s, and the same seven names every time
 (`test_uniform_noseed_varied`, the three `test_different_*_penalties`, the three
 `test_*_penalty_mixed_batch`). The committed log is the third of those, and the failure list above can be
 read straight out of it. That is a stronger statement than the batch-32 side, where membership moves
@@ -486,6 +491,18 @@ against the model's own decode floor, and what the 32-row difference means, are 
 [README §1](README.md#1-headline-primary-single-user-serving-performance) and
 [§2](README.md#2-secondary-ci-serving-burst-profile-vllm-nightly-shape).
 
+**Where the first-request cost lands.** Not only in TTFT, which is what an earlier version of this section
+and README §1 both said. The cold row's TPOT is 24.894 ms against 23.174 warm while its ITL *median* is
+unchanged at 23.134, and `vllm bench serve` excludes TTFT from TPOT — so 3389.9 − 228.3 = 3161.6 ms of
+decode window over 127 intervals carries **~218 ms** more than 127 × 23.174, concentrated in at most one
+interval (ITL P99 25.47). The committed server log shows why: the cold request's prefill returns at
+`18:55:38.314` and `_ensure_traces_replay_safe` re-captures at `18:55:38.494`, i.e. *after* the first token,
+so the re-capture is charged to the first inter-token interval. The warm request logs no re-capture. The
+datatype-sweep stage measured the same quantity standalone as
+[`cold_prompt_length_cost.hidden_cost_ms`](../datatype_sweep/post_selection_token_out.json) = 250.4 ms with
+one re-capture. README §1 and its limitation 2 now say both halves; round 3 of the review caught the
+single-token framing.
+
 **Two things about how this table was assembled, both of which changed it.** First, the warm single-user
 figure reproduces across three servers to within 0.028 ms of TPOT (23.146, 23.170, 23.174) and 0.007 ms of
 ITL P50, while the *first-request* TTFT does not (172.8, 228.3, 236.3 ms on three servers), because it
@@ -535,6 +552,16 @@ humans (`status`, `selection_rule`, `selected_from_run`, `measured`, the four `*
 not policy fields, `policy_to_dict` does not emit them, and their absence from the served report is not a
 policy difference.
 
+**One way this report could lie, closed in round 3.** The writer fired for *any* built adapter, including
+the two-layer bring-up targets the adapter suite builds — so running the documented
+`pytest tests/test_generator_vllm.py` replaced both committed reports with a `reduced: true,
+layer_indices: [0, 3]` description of a model nothing served, and silently broke the md5 attribution the
+evidence rests on. It only survived because a real server happened to run afterwards. `_write_serving_capability`
+now refuses to write when `capability["reduced"]` is set, logging the reduced report instead, and
+`test_a_reduced_target_does_not_overwrite_the_served_capability_report` asserts the committed bytes are
+unchanged after a reduced build calls it. Verified end to end: the suite's 24 "not writing" log lines, and
+`md5sum -c` on both artifacts after the run.
+
 **One thing that report cannot tell you, and the second copy that can.** Its `serving_counters` block is
 all zeros, and necessarily so: warm-up drives the generator's primitives directly rather than going
 through `decode_forward`/`prefill_forward`, so the adapter's own counters have nothing to count yet when
@@ -579,13 +606,18 @@ server behind README §1's earlier cold/warm pair) and two gzipped ones kept for
 
 ### 7.10 Tests
 ```
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 19 passed in 179 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 20 passed in 175 s
 pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected
 ```
 Console logs: the adapter suite's own run on the committed tree is
-[`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) (8 host-only cases and 11 on the
-reduced two-layer target, `PYTEST_EXIT=0` at the end of the file); the full-model regression run is in
+[`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) — **20 passed** (9 host-only cases and 11
+on the reduced two-layer target), `PYTEST_EXIT=0` at the end of the file; the full-model regression run is in
 [`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz).
+
+The suite's first attempt after the round-3 fixes errored 11 device cases on the ethernet 29-25 timeout
+(§10.1's recoverable fault, this time left behind by the final server), recovered with the bounded
+reset + mesh smoke, and passed on the retry. That is also why this log is the *second* run: round 3 noticed
+the previous log's loguru line numbers no longer matched the committed `tt/generator_vllm.py`.
 
 The second command is the regression check for this stage's generator/model additions: the full-model
 stage's own suite, unchanged, on the same reduced target it uses. It was **not** re-run after the last
@@ -930,11 +962,17 @@ split into bounded chunks. Recorded because the failure mode looks exactly like 
 ## 11. Process hygiene
 
 * No vLLM/EngineCore process was left holding a device: after each server the runner's SIGTERM path was
-  used (`_hold_until_signal` → `terminate`), then `ps -eo pid,args | awk '/EngineCore|vllm.entrypoints/'`
-  was checked, then the reset script ran. The final state of the stage was verified the same way.
+  used (`_hold_until_signal` → `terminate`), then the process table was checked, then the reset script ran.
+* The **final** state is [`logs/final_device_reset_and_mesh_smoke.txt`](logs/final_device_reset_and_mesh_smoke.txt),
+  captured after the last device job of the stage (the adapter suite, itself the last thing to touch a
+  device after the last server): no device-owning process, 8 board lines before and after a `tt-smi -r`, and
+  `MESH_SMOKE_OK`. Round 3 of the review caught that this file was three hours older than the last server —
+  it recorded an *intermediate* cleanup, not the final one.
 * Liveness waits in this stage never used a `pgrep -f <pattern>` that could match the checking shell —
   the trap `$tt-device-usage` warns about. Waits keyed on the launched PID (`kill -0`), on an artifact
-  appearing, or on `/health` returning 200.
+  appearing, or on `/health` returning 200. The final-state check above is keyed on the *executable* for the
+  same reason, and it excludes the bringup orchestrator, whose own command line names the vLLM stage
+  prompts and would otherwise look like a device holder forever.
 * No Tracy, `tt-perf-report`, `TT_METAL_DEVICE_PROFILER` or `ttnn.ReadDeviceProfiler` run was made
   around any serving job, per the skill's prohibition. The device-op-level evidence for this decode stack
   is the optimized-full-model and datatype-sweep stages' own non-serving profiles.
@@ -1081,8 +1119,8 @@ In this repo:
 | `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration`. Includes the `atexit` capability dump (§7.8) and the warning that fires when a checkpoint other than this one resolves to this class (§3) |
 | `tt/generator.py` | one new `serving (vLLM) API` section (the seven primitives of §4) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
 | `tt/model.py` | **+57 lines**: `remap_state_slots` and its `_remap_rows` helper |
-| `tests/test_generator_vllm.py` | **new.** 8 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal) + 11 device cases on the reduced target (cache ownership, block-size refusal, per-slot prefill, steady-state refresh, stale-pair merge, page-table-only refresh, slot remap and its identity skip, host-sampling logits, the precision-config propagation, the capability report) |
-| `models/common/readiness_check/run_vllm_server.py` | **+73 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
+| `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 11 device cases on the reduced target (cache ownership, block-size refusal, per-slot prefill, steady-state refresh, stale-pair merge, page-table-only refresh, slot remap and its identity skip, host-sampling logits, the precision-config propagation, the capability report) |
+| `models/common/readiness_check/run_vllm_server.py` | **+65 / -4 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
 | `doc/vllm_integration/**` | **new.** This log, the README, ten probes with the console log of their final run, the evidence JSON, the reduced-target localisation set (`reduced_target/`), and the archived per-configuration artifact sets (`batch1/`, `batch32/`, `async/`) |
 | `doc/context_contract.json` | **+1 block**: `vllm_integration`, recording 262144 served against 262144 advertised, the KV-pool sizing and its cost, the non-aligned-length evidence, the 64-token block size, and the tested batch coverage |
 | `readiness_vllm/**` | **new.** The shared runner's artifacts, last-writer-wins per launch, with every console log committed **gzipped** because the repo's `.gitignore` excludes `*.log`: `server.log.gz`, `sampling_tests.log.gz`, `vllm_qualitative_outputs.json`, `vllm_result.json`, `vllm_benchmark.json`, `vllm_benchmark.log.gz`, `vllm_ci_serving_result.json`, `vllm_ci_serving_benchmark.json`, `vllm_ci_serving_benchmark.log.gz`, and `vllm_serving_capability.json` plus `vllm_serving_capability_final.json` (written by the adapter at the end of warm-up and again at engine-core exit, from inside that process). What is committed there is the headline single-user server's output; the per-configuration archives under `doc/vllm_integration/{batch1,batch32,async}/` are the attributable copies |
@@ -1142,9 +1180,21 @@ found it plus three more:
 | the review's carry-forward that the plugin overlaps *any* TT model regardless of the capability flag | checked against the code: the default is resolved before `check_and_update_config`, and the plugin does disable overlap for a model that does not declare `supports_async_decode`. Recorded with line references in §7.6, along with the one real rough edge (the warning says "requested" when it was defaulted) |
 | the review's note that the batch-32 log's ~360 L1 `TT_THROW`/`TT_FATAL` lines are unexplained here | classified in §12 as `allocate_state`'s conv1d capability probe, already characterised by the full-model stage |
 
-Two things neither review asked for came out of doing the above, and both changed published numbers: the
-async-scheduling default (§7.6), and the fact that the headline benchmark's artifact had been overwritten
-(§7.7). Both are recorded where the numbers are, not only here.
+**Round 3.**
+
+| finding | what it turned into |
+|---|---|
+| **P2** — README §1 and limitation 2 said the first-request cost was "entirely in the first token"; the artifact shows ~220 ms of it inside one inter-token interval | derived from the committed numbers (cold TPOT 24.894 against 23.174 warm with an unchanged ITL median, e2el − TTFT over 127 intervals) and tied to the log line that proves it (prefill returns at `18:55:38.314`, the re-capture runs at `18:55:38.494`), with the datatype sweep's `hidden_cost_ms` = 250.4 as the prior-stage control (§7.7, README §1, limitation 2) |
+| **P2** — README §4's sampled column, its "every completion hits the cap" claim, its degeneracy ranges and one of its two loop controls described the *previous* qualitative generation | §4 rewritten from the committed artifacts: two sampled completions self-terminate (haiku and translation, with an empty `<think></think>`), the raw artifact carries no `finish_reason` so the cap claim is made only for the chat run, the batch-32 "control" is downgraded to what that file actually shows (three *different* self-quiz blocks, not a repeat), and the degeneracy figures are the gate's own over the ten completions it measures (dup 0.0000 – 0.0140, loop 0.0149 – 0.1304) with its console log now committed |
+| **P2** — the documented adapter-suite command overwrote two committed `readiness_vllm/` capability artifacts with a reduced two-layer report | `_write_serving_capability` refuses to write for a reduced build, a regression test asserts the committed bytes survive it, and the suite was re-run: 20 passed, both artifacts `md5sum -c` clean (§7.8) |
+| **P3** — `logs/final_device_reset_and_mesh_smoke.txt` predated the last three servers | re-captured after the last device job of the stage, with a process check keyed on the executable rather than the command line (§11) |
+| the pytest log's line numbers no longer matched the committed adapter | closed by the re-run above |
+| small unverifiable figures (`289 s` against the log's 292 s, `+73 lines` against 65/−4, the third `mixed_batch` failure's real `IndexError`) | corrected in §6, §7.5 and §14 |
+| `async/async_max_num_seqs_32_sampling_tests.log.gz` was committed but cited nowhere | described in README §9's `async/` row |
+
+Three things no review asked for came out of doing the above, and all three changed published numbers or
+claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two
+probes comparing tile padding (§9.1). Each is recorded where its numbers are, not only here.
 
 ### Commits
 

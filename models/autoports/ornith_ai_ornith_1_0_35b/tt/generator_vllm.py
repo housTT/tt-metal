@@ -598,10 +598,24 @@ class TTQwen3_5MoeForConditionalGeneration:
         """
         import json
 
+        report = self.serving_capability()
+        if report.get("capability", {}).get("reduced"):
+            # A reduced bring-up target must not overwrite the served model's report. The adapter suite
+            # builds two-layer adapters and warms them up, and this method used to write into the repo's
+            # `readiness_vllm/` from there — replacing the *served* capability artifacts with a
+            # `reduced: true, layer_indices: [0, 3]` description of a model nothing served, and silently
+            # breaking the md5 attribution the evidence rests on (README section 9). The reduced report
+            # still goes to the log, where a bring-up run wants it.
+            logger.info(
+                "reduced serving target: not writing the capability report to readiness_vllm/ "
+                f"(layers {report['capability'].get('layer_indices')}); report: {json.dumps(report['capability'])}"
+            )
+            return
+
         path = Path(__file__).resolve().parents[1] / "readiness_vllm" / f"vllm_serving_capability{suffix}.json"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(self.serving_capability(), indent=1) + "\n")
+            path.write_text(json.dumps(report, indent=1) + "\n")
             logger.info(f"wrote the serving capability report to {path}")
         except OSError as exc:  # pragma: no cover - never fail a warm-up over an artifact
             logger.warning(f"could not write the serving capability report: {exc}")

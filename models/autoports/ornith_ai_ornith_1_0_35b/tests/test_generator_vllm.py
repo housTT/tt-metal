@@ -200,6 +200,37 @@ def test_a_visual_payload_is_refused_rather_than_answered_from_the_text():
     assert adapter._carries_visual({"pixel_values_videos": [torch.zeros(1)]})
 
 
+def test_a_reduced_target_does_not_overwrite_the_served_capability_report():
+    """A two-layer bring-up adapter must not write into `readiness_vllm/`.
+
+    The capability report is written from inside the engine-core process, which is what makes it
+    evidence about the *served* model. This suite builds reduced adapters and warms them up, and the
+    writer used to fire there too — replacing the served artifacts with a `reduced: true` report of a
+    model nothing served, and quietly breaking the committed evidence's attribution.
+
+    The assertion is on the bytes of the real artifacts, so a regression here fails loudly instead of
+    corrupting them silently.
+    """
+    served = MODEL_DIR / "readiness_vllm"
+    before = {
+        name: (served / name).read_bytes()
+        for name in ("vllm_serving_capability.json", "vllm_serving_capability_final.json")
+        if (served / name).exists()
+    }
+
+    class ReducedStub:
+        _write_serving_capability = TTQwen3_5MoeForConditionalGeneration._write_serving_capability
+
+        def serving_capability(self):
+            return {"capability": {"reduced": True, "layer_indices": [0, 3], "policy": "stub"}}
+
+    ReducedStub()._write_serving_capability()
+    ReducedStub()._write_serving_capability(suffix="_final")
+
+    for name, blob in before.items():
+        assert (served / name).read_bytes() == blob, f"a reduced build rewrote readiness_vllm/{name}"
+
+
 # --------------------------------------------------------------------------------------
 # device: the plugin-facing API on the reduced target
 # --------------------------------------------------------------------------------------
