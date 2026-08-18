@@ -1204,6 +1204,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `2e5675d669c` | review round 1 remediation: the localisation probe and the extended reproducibility arms, the no-overlap control and its artifacts, the re-run batch-1 evidence set, the `atexit` capability dump and the foreign-checkpoint warning, the corrected docs, and every console log gzipped so `.gitignore`'s `*.log` cannot silently drop it |
 | `tt-metal` | same | `ef5e63409dc` | the round-1 review record in §15 |
 | `tt-metal` | same | `a92706dbc4f` | review round 2 remediation: the re-run headline set with its attribution check, the tile-padding fix in two probes and their re-measured artifacts, the recomputed counters and audit counts, and the README/work-log corrections |
+| `tt-metal` | same | `7168b79045d` | the round-2 review record in §15 |
+| `tt-metal` | same | `5303a7a7a1d` | review round 3 remediation: the reduced-build guard on the capability writer with its regression test and the re-run suite, the corrected first-request cost accounting, README §4 rewritten from the committed qualitative artifacts, the two gate console logs, the re-captured final device state, and the small figure corrections |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
