@@ -1513,6 +1513,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `372cf01b1c1` | review round 8 remediation: the re-captured final device state with the last job's timestamps in it, the logits async-read test, `read_tokens_async` delegating to `read_output_async`, the re-captured gate logs, and the scope corrections in README §3 and §4/§7.10/§13 |
 | `tt-metal` | same | `94b63822d7a` | the round-8 review record in §15 |
 | `tt-metal` | same | `f72952d822e` | review round 9 remediation: the debris files deleted, the full-model regression suite re-run and re-archived, the context-gate tally made self-stable at 32, and the final device-state record carrying both suites' timestamps |
+| `tt-metal` | same | `750bc528b63` | the round-9 review record in §15 |
+| `tt-metal` | same | `a0842ec599a` | review round 10: the `_merge_rows` correctness fix (§9.2) with its regression test and both suites re-run, plus the batch-32 request-artifact label, the decode-floor spread comparison, the stale-host wording, the served vLLM tree, and the gzipped adapter-suite log |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
