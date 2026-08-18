@@ -1427,6 +1427,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `0f1348bf307` | review round 6 remediation: README §7's reduced-target statement, §7.9's server-log inventory as a pid-keyed table, §8.3's per-layer bisect description, the generator's method count, the two Metal warnings classified in §12, and the enumerations §14 and README §9 left one short |
 | `tt-metal` | same | `628fb85d470` | the round-6 review record in §15 |
 | `tt-metal` | same | `888003d60a5` | review round 7 remediation: the same-policy qualitative control, the `read_output_async` delegation (after which the adapter no longer imports `ttnn`), the 120+20 buffer split, and the claim-scope corrections in README §4/§6 and §8.3 |
+| `tt-metal` | same | `54e87dca3aa` | the round-7 review record in §15 |
+| `tt-metal` | same | `372cf01b1c1` | review round 8 remediation: the re-captured final device state with the last job's timestamps in it, the logits async-read test, `read_tokens_async` delegating to `read_output_async`, the re-captured gate logs, and the scope corrections in README §3 and §4/§7.10/§13 |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
