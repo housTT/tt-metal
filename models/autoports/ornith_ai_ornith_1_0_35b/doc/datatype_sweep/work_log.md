@@ -402,9 +402,10 @@ python -m pytest .../tests/test_full_model.py -q -m long
 ```
 
 Results in [`logs/post/pytest_short.txt.gz`](logs/post/) and [`logs/post/pytest_long.txt`](logs/post/).
-Both were re-run **after** the checkpoint commit, because the repo's pre-commit hooks reformat
-(`black`, `isort`, `autoflake`) and the earlier logs were produced against the pre-reformat tree.
-The reformat was verified formatting-only by diff before the rerun, and the rerun confirms it.
+Both are re-run **after** each checkpoint commit, because the repo's pre-commit hooks reformat
+(`black`, `isort`, `autoflake`) and a log produced before the reformat does not describe what was
+committed. Each reformat was verified formatting-only by diff first, and each rerun confirms it. The
+delivered logs are from the round-3 tree, `22a6188c389`.
 `logs/post/pytest_fixed_cases.txt` is the targeted rerun of the four cases §10 touched, taken while
 that fix was being made.
 
@@ -495,6 +496,7 @@ Local checkpoint commits only. Nothing was pushed.
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `246c86d9084` | the stage: the selected precision config, `tt/precision_config.py`, the `PrecisionPolicy` fields and their plumbing, the tests, the context contract and all of `doc/datatype_sweep/` |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `7fd4c1d0399` | review round 2's documentation corrections and the extended figure audit (143 → 159 assertions) |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `22a6188c389` | the `$autofix` pass on C19, the LM-head geometry ladder under the selected policy, the triage-summary classification, and 159 → 186 assertions |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `0d94bdb977b` | the suite re-run on `22a6188c389` (53 + 5 passed) and this SHA table |
 
 Two files were already dirty before this stage began and are **not** stage-owned, so neither commit
 touches them: `.agents/skills/tt-device-usage/SKILL.md` (modified) and
