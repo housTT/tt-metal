@@ -4,10 +4,14 @@
 
 ``logit_read_stability_full_model.json`` shows the whole 40-layer prefill is bit-identical across
 rounds when it is driven straight through the model, with an eager decode step in between. The
-serving-path probe (``logit_determinism.json``) drives the *same* prefill through the generator - which
-captures a decode trace and replays it - and there the prefill logits move by 1-4 between rounds. This
-probe runs both in one process, on one weight load, so the only difference between the arms is the
-trace:
+serving-path probe (``logit_determinism.json``) drove the *same* prefill through the generator - which
+captures a decode trace and replays it - and there the prefill logits moved by 1-4 between rounds. This
+probe runs both in one process, on one weight load, so the only difference between the arms is the trace.
+
+That artifact was later **withdrawn**: the cause was neither the trace nor the model but a page table of
+zeros substituted into its prefill calls (``../work_log.md`` section 9,
+``prefill_determinism_bisect.json``). This probe's own result - a live captured trace does not make
+repeated prefills drift - is unaffected, and it is one of the arms that pointed the search elsewhere:
 
 * ``eager``     - model-only: reset, prefill, eager decode step, repeat;
 * ``traced``    - the same sequence through the generator, whose decode step is a captured trace replay.
@@ -42,7 +46,17 @@ PROMPT = [6, 66, 666, 6666, 66, 6, 66]
 
 
 def stats(a, b):
+    """Compare two prefill logit rows, and prove the rows are worth comparing.
+
+    "Bit-identical" is a vacuous claim over two rows of zeros, which is exactly how this stage's one
+    withdrawn measurement went wrong (``../work_log.md`` section 9). So every comparison also carries the
+    left row's own shape: its min/max/mean, how much of it is nonzero, and its top-5 ids and values. The
+    top-1 id here is genuinely token 0 for this synthetic ``[6, 66, 666, …]`` prompt - what makes that a
+    real reading rather than an artefact is the spread below it, which a zeroed row cannot have.
+    """
     diff = (a - b).abs()
+    top5 = torch.topk(a.flatten().float(), 5)
+    flat = a.flatten().float()
     return {
         "bitwise_identical": bool(torch.equal(a, b)),
         "max_abs_diff": float(diff.max()),
@@ -50,6 +64,13 @@ def stats(a, b):
         "nonzero_fraction": float((diff != 0).float().mean()),
         "top1_left": int(torch.argmax(a)),
         "top1_right": int(torch.argmax(b)),
+        "row_is_nondegenerate": bool(float(flat.max()) != float(flat.min())),
+        "row_nonzero_fraction": float((flat != 0).float().mean()),
+        "row_min": float(flat.min()),
+        "row_max": float(flat.max()),
+        "row_mean": float(flat.mean()),
+        "row_top5_ids": [int(v) for v in top5.indices],
+        "row_top5_values": [float(v) for v in top5.values],
     }
 
 
@@ -153,6 +174,9 @@ def main():
             "traced_max_abs_diff": max((r["max_abs_diff"] for r in traced), default=None),
             "eager_top1_stable": all(r["top1_left"] == r["top1_right"] for r in eager),
             "traced_top1_stable": all(r["top1_left"] == r["top1_right"] for r in traced),
+            # Without this, "bit-identical" would also be true of two rows of zeros.
+            "rows_are_nondegenerate": all(r["row_is_nondegenerate"] for r in eager + traced),
+            "min_row_nonzero_fraction": min(r["row_nonzero_fraction"] for r in eager + traced),
         }
         generator.teardown()
         ttnn.deallocate(table_tt)

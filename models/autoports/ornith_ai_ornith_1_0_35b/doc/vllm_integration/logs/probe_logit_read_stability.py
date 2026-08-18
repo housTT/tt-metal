@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Is the logit *readback* stable, or is the *computation* what varies run to run?
 
-``logit_determinism.json`` shows that two identical prefills of the same prompt return logits that
+``logit_determinism.json`` showed two identical prefills of the same prompt returning logits that
 differ by ~1-4 (bfloat16 logit units). Two explanations fit that: the read is racy, or the multichip
-forward pass is not bit-reproducible. This probe separates them on the reduced two-layer target, which
+forward pass is not bit-reproducible. (That artifact was later **withdrawn** - it had prefilled through a
+substituted all-zero page table, see ``../work_log.md`` section 9 - but this probe's own answers stand on
+their own and are what ruled the read path out.) This probe separates them on the reduced two-layer target, which
 is cheap enough to repeat:
 
 * ``read_twice``      - one forward, the resulting device logits composed to host **twice**. A racy read
@@ -174,21 +176,28 @@ def main():
     report["forward_twice_single_device"] = single["forward_twice"]
     report["forward_twice_after_decode_single_device"] = single["forward_twice_after_decode"]
 
+    def stable(rows):
+        """``None`` for an arm that did not run.
+
+        ``all([])`` is ``True``, so summarising a skipped arm with a bare ``all`` reports the strongest
+        possible claim from no measurement at all - and the 1x1 arms *are* skipped for the full model,
+        which does not fit on one device. A reader must be able to tell "measured, stable" from
+        "not measured".
+        """
+        return all(r["bitwise_identical"] for r in rows) if rows else None
+
+    report["single_device_arms_ran"] = bool(args.single_device)
     report["summary"] = {
-        "read_is_bit_stable_1x4": all(r["bitwise_identical"] for r in report["read_twice"]),
-        "read_is_bit_stable_1x1": all(r["bitwise_identical"] for r in report["read_twice_single_device"]),
-        "forward_is_bit_stable_1x4": all(r["bitwise_identical"] for r in report["forward_twice"]),
-        "forward_is_bit_stable_1x1": all(r["bitwise_identical"] for r in report["forward_twice_single_device"]),
+        "read_is_bit_stable_1x4": stable(report["read_twice"]),
+        "read_is_bit_stable_1x1": stable(report["read_twice_single_device"]),
+        "forward_is_bit_stable_1x4": stable(report["forward_twice"]),
+        "forward_is_bit_stable_1x1": stable(report["forward_twice_single_device"]),
         "max_abs_diff_forward_1x4": max((r["max_abs_diff"] for r in report["forward_twice"]), default=None),
         "max_abs_diff_forward_1x1": max(
             (r["max_abs_diff"] for r in report["forward_twice_single_device"]), default=None
         ),
-        "forward_after_decode_is_bit_stable_1x4": all(
-            r["bitwise_identical"] for r in report["forward_twice_after_decode"]
-        ),
-        "forward_after_decode_is_bit_stable_1x1": all(
-            r["bitwise_identical"] for r in report["forward_twice_after_decode_single_device"]
-        ),
+        "forward_after_decode_is_bit_stable_1x4": stable(report["forward_twice_after_decode"]),
+        "forward_after_decode_is_bit_stable_1x1": stable(report["forward_twice_after_decode_single_device"]),
         "max_abs_diff_forward_after_decode_1x4": max(
             (r["max_abs_diff"] for r in report["forward_twice_after_decode"]), default=None
         ),

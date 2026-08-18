@@ -28,6 +28,13 @@ pick - which is what the on-device sampler writes):
   slot on a later run, so this is the comparison a server-level reproducibility assertion is really
   making;
 * ``batch1_vs_batch32``   - batch 1 against batch 32, slot 0;
+* ``batch32_read_twice``  - one decode step at batch 32 whose device logits are composed to host
+  **twice**. The read path has to be controlled *where* the deviation lives, not only at batch 1;
+* ``batch32_all_rows_rerun`` - batch 32 with **every one of the 32 rows prefilled and decoding**, twice
+  from a wiped state. If the run-to-run deviation comes from idle rows carrying uninitialised state (no
+  prefill has ever written their DeltaNet buffers or their KV pages), it should disappear here;
+* ``batch{2,4,8,16}_rerun`` - the same prompt twice at each batch size, so the batch at which
+  run-to-run bit-identity is lost is located rather than assumed;
 * ``batch1_state_rerun`` / ``batch32_state_rerun`` / ``batch32_state_second_pair`` - the same prompt
   prefilled twice (three times at batch 32) with **no decode step**, comparing every DeltaNet
   recurrent/conv buffer of the decode state pack **and the pages of the paged KV cache the request
@@ -46,9 +53,12 @@ comparable to ``doc/datatype_sweep/README.md`` §9.1, which measured cross-slot 
 0.28-0.5 / PCC >= 0.9993 / top-1 margins 0.0-0.19 and classified it as reduction-order noise rather
 than a state bug.
 
-A reader should conclude: whether repeating one request is bit-identical when the slot is held fixed,
-and whether the residual variation across slots and batch sizes is the same reduction-order effect
-§9.1 already accepted, or something larger.
+A reader should conclude: whether repeating one request is bit-identical when the slot is held fixed, at
+which batch size that stops being true, whether the read path or the idle rows explain it, and whether
+what remains is the same reduction-order effect §9.1 accepted or something larger. Note that §9.1's own
+conclusion is about *cross-slot* determinism within a run ("the same slot flips on all three repeats"),
+which is a different axis from run-to-run bit-identity: it neither predicts nor excludes what these arms
+measure.
 
     python .../doc/vllm_integration/logs/probe_slot_reproducibility.py --layer-indices all
 """
@@ -150,23 +160,55 @@ def kv_fingerprint(model, blocks: int = 2):
 
 
 def compare_state(left, right, batch):
-    """Bitwise/absolute comparison of two state fingerprints, plus which batch rows moved."""
+    """Compare two state fingerprints, keeping non-finite entries separate from real differences.
+
+    Rows that no prefill wrote are still carried through every batched op — the recurrent update is a
+    dense matmul over all ``batch`` rows, and an inactive row (token 0, position -1) can accumulate
+    ``inf``/``NaN`` there. Comparing those with plain arithmetic poisons the summary twice over: ``inf -
+    inf`` is ``NaN``, ``NaN != 0`` marks the row as differing, and one ``inf`` makes ``max_abs_diff``
+    infinite regardless of what the finite entries did. So this reports both readings:
+
+    * ``bitwise_identical`` — ``torch.equal``, which is NaN-strict (two ``NaN`` rows count as different);
+    * ``finite_max_abs_diff`` and ``rows_that_differ`` — computed only where **both** sides are finite,
+      which is the arithmetic question;
+    * ``nonfinite_*`` — how much of each side is non-finite and whether the two sides put it in the same
+      places, so a non-finite pattern that is itself stable is visible as such.
+    """
     identical = True
     worst = 0.0
     rows = set()
+    nonfinite_left = nonfinite_right = total = 0
+    nonfinite_mask_identical = True
+    nonfinite_rows = set()
     for a, b in zip(left, right):
+        finite_a, finite_b = torch.isfinite(a), torch.isfinite(b)
+        nonfinite_left += int((~finite_a).sum())
+        nonfinite_right += int((~finite_b).sum())
+        total += a.numel()
+        if not torch.equal(finite_a, finite_b):
+            nonfinite_mask_identical = False
         if not torch.equal(a, b):
             identical = False
-            diff = (a - b).abs()
-            worst = max(worst, float(diff.max()))
-            if a.dim() >= 1 and a.shape[0] == batch:
-                per_row = diff.reshape(batch, -1).max(dim=1).values
-                rows.update(int(i) for i in (per_row > 0).nonzero().reshape(-1))
+        both = finite_a & finite_b
+        if a.dim() >= 1 and a.shape[0] == batch:
+            bad_rows = (~finite_a).reshape(batch, -1).any(dim=1) | (~finite_b).reshape(batch, -1).any(dim=1)
+            nonfinite_rows.update(int(i) for i in bad_rows.nonzero().reshape(-1))
+        if not bool(both.any()):
+            continue
+        diff = torch.where(both, (a - b).abs(), torch.zeros_like(a))
+        worst = max(worst, float(diff.max()))
+        if a.dim() >= 1 and a.shape[0] == batch:
+            per_row = diff.reshape(batch, -1).max(dim=1).values
+            rows.update(int(i) for i in (per_row > 0).nonzero().reshape(-1))
     return {
         "bitwise_identical": identical,
         "buffers": len(left),
-        "max_abs_diff": worst,
+        "finite_max_abs_diff": worst,
         "rows_that_differ": sorted(rows),
+        "nonfinite_fraction_left": nonfinite_left / max(1, total),
+        "nonfinite_fraction_right": nonfinite_right / max(1, total),
+        "nonfinite_in_same_places": nonfinite_mask_identical,
+        "rows_with_nonfinite_entries": sorted(nonfinite_rows),
     }
 
 
@@ -215,6 +257,71 @@ def run_request(generator, table, kv_cache, prompt_ids, slot, steps):
     return per_step
 
 
+def read_twice(generator, table, kv_cache, prompt_ids, slot):
+    """One prefill + one traced decode step, with the step's device logits composed to host twice.
+
+    Nothing runs on the device between the two reads, so a difference here is the read path and a match
+    means the deviation the rerun arms see is in the computation. This is the batch-32 counterpart of
+    ``logit_read_stability.json``'s ``read_twice``, which only ever ran at batch 1.
+    """
+    generator.reset()
+    prefill_logits = generator.prefill_requests_into_slots(
+        torch.tensor(prompt_ids, dtype=torch.int64).reshape(1, -1),
+        [len(prompt_ids)],
+        [slot],
+        page_table=table[slot : slot + 1],
+        kv_cache=kv_cache,
+        sample_on_device=False,
+    )
+    batch = generator.max_batch_size
+    tokens = torch.zeros(batch, dtype=torch.int64)
+    positions = torch.full((batch,), -1, dtype=torch.int64)
+    tokens[slot] = int(torch.argmax(prefill_logits[0, -1]).item())
+    positions[slot] = len(prompt_ids)
+    generator.stage_serving_decode_inputs(tokens, positions, table, full_refresh=True)
+    device_logits = generator.submit_serving_decode(sample_on_device=False)
+    first = generator.logits_from(device_logits)[slot, 0].clone()
+    second = generator.logits_from(device_logits)[slot, 0].clone()
+    return [first], [second]
+
+
+def run_all_rows(generator, table, kv_cache, prompt_ids, steps, watch_slot=0):
+    """Prefill **every** decode row, then decode with every row active, watching one row's logits.
+
+    The padded-batch arms above leave 31 rows that no prefill ever wrote: their DeltaNet buffers hold
+    whatever ``reset()`` zeroed and their KV pages were never filled, so the decode graph computes them
+    from a zero state. This arm removes that difference - every row holds a real prompt at a real
+    position - so a deviation that survives it is not about uninitialised rows.
+    """
+    generator.reset()
+    batch = generator.max_batch_size
+    row = torch.tensor(prompt_ids, dtype=torch.int64).reshape(1, -1)
+    tokens = torch.zeros(batch, dtype=torch.int64)
+    positions = torch.full((batch,), -1, dtype=torch.int64)
+    for slot in range(batch):
+        out = generator.prefill_requests_into_slots(
+            row,
+            [len(prompt_ids)],
+            [slot],
+            page_table=table[slot : slot + 1],
+            kv_cache=kv_cache,
+            sample_on_device=False,
+        )
+        tokens[slot] = int(torch.argmax(out[0, -1]).item())
+        positions[slot] = len(prompt_ids)
+        if slot == watch_slot:
+            watched = [out[0, -1].clone()]
+    for _ in range(steps):
+        generator.stage_serving_decode_inputs(tokens, positions, table, full_refresh=True)
+        device_logits = generator.submit_serving_decode(sample_on_device=False)
+        host = generator.logits_from(device_logits)
+        watched.append(host[watch_slot, 0].clone())
+        for slot in range(batch):
+            tokens[slot] = int(torch.argmax(host[slot]).item())
+            positions[slot] = int(positions[slot]) + 1
+    return watched
+
+
 def compare(left, right):
     steps = []
     for a, b in zip(left, right):
@@ -250,6 +357,12 @@ def main():
     ap.add_argument("--layer-indices", default=",".join(str(v) for v in PROBE_LAYERS))
     ap.add_argument("--context", type=int, default=8192)
     ap.add_argument("--batch", type=int, default=32)
+    ap.add_argument(
+        "--sweep",
+        type=lambda v: [int(x) for x in v.split(",") if x],
+        default=[2, 4, 8, 16],
+        help="batch sizes to locate where run-to-run bit-identity is lost (1 and --batch are already covered)",
+    )
     ap.add_argument("--output", default=str(MODEL_DIR / "doc" / "vllm_integration" / "slot_reproducibility.json"))
     args = ap.parse_args()
     layers = None if args.layer_indices.strip() == "all" else [int(v) for v in args.layer_indices.split(",")]
@@ -259,7 +372,17 @@ def main():
         "context": args.context,
         "batch": args.batch,
         "prompt": PROMPT,
+        "complete": False,
     }
+
+    def checkpoint():
+        """Persist what is measured so far.
+
+        Arms are minutes apart on the full model, and a crash in a later arm must not discard the
+        earlier ones. ``complete`` stays False until the run reaches the end, so a partial file is
+        never mistaken for a finished one.
+        """
+        Path(args.output).write_text(json.dumps(report, indent=1) + "\n")
 
     mesh = open_ornith_mesh()
     try:
@@ -277,6 +400,7 @@ def main():
         second = run_request(generator, table, kv_cache, PROMPT, 0, args.steps)
         report["batch1_rerun"] = compare(first, second)
         report["batch1_substitutions_warned"] = bool(generator._warned_page_table_substitution)
+        checkpoint()
         batch1_reference = first
         generator.teardown()
         del generator, model
@@ -301,6 +425,7 @@ def main():
         ]
         report["batch32_state_rerun"] = compare_state(state_a, state_b, args.batch)
         report["batch32_state_second_pair"] = compare_state(state_b, state_c, args.batch)
+        checkpoint()
         generator.reset()
         clean_a = run_request(generator, table, kv_cache, PROMPT, 0, args.steps)
         generator.reset()
@@ -311,6 +436,7 @@ def main():
         # Third clean run: if run 1 -> 2 differs but 2 -> 3 does not, the first run leaves residual
         # state behind rather than every run being independently noisy.
         report["batch32_same_slot_second_pair"] = compare(clean_b, clean_c)
+        checkpoint()
 
         generator.reset()
         run_request(generator, table, kv_cache, GHOST_PROMPT, 5, args.steps)
@@ -320,11 +446,64 @@ def main():
         generator.reset()
         other_slot = run_request(generator, table, kv_cache, PROMPT, 7, args.steps)
         report["batch32_other_slot"] = compare(clean_a, other_slot)
+        checkpoint()
         report["batch1_vs_batch32"] = compare(batch1_reference, clean_a)
+
+        # The read path, at the batch where the deviation lives.
+        first_read, second_read = read_twice(generator, table, kv_cache, PROMPT, 0)
+        report["batch32_read_twice"] = compare(first_read, second_read)
+        checkpoint()
+
+        # Every row occupied, so no row decodes from a state no prefill ever wrote.
+        all_rows_a = run_all_rows(generator, table, kv_cache, PROMPT, args.steps)
+        all_rows_b = run_all_rows(generator, table, kv_cache, PROMPT, args.steps)
+        report["batch32_all_rows_rerun"] = compare(all_rows_a, all_rows_b)
+        checkpoint()
+
         report["counters"] = dict(generator.counters)
         report["trace_recaptures"] = generator.trace_recaptures
         report["batch32_substitutions_warned"] = bool(generator._warned_page_table_substitution)
         generator.teardown()
+        del generator
+
+        # Where does run-to-run bit-identity stop? One fresh generator per batch size, same prompt,
+        # same slot, twice from a wiped state. The model (and its weights) are reused; only the state
+        # pack, the sampler and the traces are rebuilt, which is what a batch size changes.
+        sweep = {}
+        for batch in args.sweep:
+            if batch in (1, args.batch):
+                continue  # already measured, as batch1_rerun / batch{args.batch}_same_slot
+            logger.info(f"batch sweep: rebuilding the generator at batch {batch}")
+            blocks_per_user = num_blocks_for_context(args.context, model.page_block_size)
+            sweep_table = torch.zeros(batch, blocks_per_user, dtype=torch.int32)
+            for user in range(batch):
+                base = 1 + user * blocks_per_user
+                sweep_table[user] = torch.arange(base, base + blocks_per_user, dtype=torch.int32)
+            sweep_generator = OrnithGenerator(
+                model,
+                max_batch_size=batch,
+                cache_context=args.context,
+                sampling_mode="device",
+                kv_cache=kv_cache,
+                page_table=sweep_table,
+            )
+            # `state_is_live` is a *model* flag, and the arms above left a prompt in it: capture over
+            # live state is refused (it would wipe the prompt it is about to warm against). Wipe
+            # first, which is what `generate(reset=True)` does for the same reason.
+            sweep_generator.reset()
+            sweep_generator.ensure_serving_traces()
+            sweep_generator.ensure_sampling_trace()
+            try:
+                sweep_generator.reset()
+                first = run_request(sweep_generator, sweep_table, kv_cache, PROMPT, 0, args.steps)
+                sweep_generator.reset()
+                second = run_request(sweep_generator, sweep_table, kv_cache, PROMPT, 0, args.steps)
+                sweep[f"batch{batch}_rerun"] = compare(first, second)
+            finally:
+                sweep_generator.teardown()
+                del sweep_generator
+            report.update(sweep)
+            checkpoint()
     finally:
         close_ornith_mesh(mesh)
 
@@ -340,7 +519,8 @@ def main():
         for key, value in report.items()
         if isinstance(value, dict) and "all_bitwise_identical" in value
     }
-    Path(args.output).write_text(json.dumps(report, indent=1) + "\n")
+    report["complete"] = True
+    checkpoint()
     logger.info(f"wrote {args.output}")
     print(json.dumps(report["summary"], indent=1))
 

@@ -1,6 +1,8 @@
 {
  "url": "http://localhost:8100",
  "model": "ornith-ai/Ornith-1.0-35B",
+ "server": "max_num_seqs=32, --async-scheduling passed explicitly (the same state as the default here)",
+ "server_label_added": "by hand after the run; the probe now requires --server-label",
  "single_user_determinism": {
   "prompt": "The capital of France is",
   "texts": [
@@ -88,5 +90,6 @@
  "long_prompt": {
   "prompt_tokens": 9000,
   "text": "\t\t("
- }
+ },
+ "server_label_corrected": "was 'max_num_seqs=32, --async-scheduling'; this vLLM resolves async_scheduling=None to True, so a server passing no scheduling flag runs with overlap ENABLED; the earlier 'no async scheduling' labels were wrong and are corrected here"
 }

@@ -1,6 +1,6 @@
 {
  "hf_model_id": "ornith-ai/Ornith-1.0-35B",
- "stage": "datatype-sweep",
+ "stage": "vllm-integration",
  "target": "the whole 40-layer text model - token embedding, the optimized multichip decoder stack, the final norm, a column-parallel LM head and on-device split sampling - on a 1x4 Blackhole (p300c) mesh under FABRIC_1D_RING; the per-stage blocks below keep each earlier stage's own target",
  "_flat_keys_note": "hf_advertised_context and current_supported_context mirror advertised.context_length and supported.context_length. They exist because .agents/scripts/check_context_contract.py resolves the context with first_int(), a flat mapping.get() over the top level with no recursion, so the nested objects below are invisible to it and 06-full-model.check.sh would exit 2 (critical). Keep the two in sync; the nested objects remain authoritative for humans.",
  "hf_advertised_context": 262144,
@@ -709,5 +709,6 @@
    "bound": "32, the sampler's MAX_SAMPLING_BATCH; the adapter raises above it",
    "note": "max_num_seqs=1 is the primary single-user benchmark configuration and the one with bit-reproducible completions; max_num_seqs=32 is the concurrency/capacity configuration"
   }
- }
+ },
+ "_stage_note": "top-level `stage` names the stage that last updated this file; each per-stage block below keeps its own `stage` field, so the datatype-sweep record is unchanged under `datatype_sweep`"
 }

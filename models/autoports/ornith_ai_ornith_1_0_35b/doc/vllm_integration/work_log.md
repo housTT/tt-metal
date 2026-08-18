@@ -98,6 +98,26 @@ four members on the adapter (`vllm_config` on `__init__`, `embed_input_ids`, `fo
 `compute_logits`) that exist only because `interfaces_base.is_text_generation_model` is a structural
 check and `ModelConfig` validates `--runner generate` against it. They raise; nothing on TT calls them.
 
+**What replacing the architecture costs, and the scope it takes.** `ModelRegistry.register_model` is
+unconditional: it replaces the *architecture*, not one checkpoint, so in a TT process every checkpoint
+declaring `Qwen3_5MoeForConditionalGeneration` now resolves to this port. Registration runs at
+plugin-import time, before any model config exists, so there is nothing available to scope it against.
+The consequences, in order of how likely they are to bite:
+
+* a **different Qwen3.5-MoE checkpoint** served on TT would be built by this port's code rather than
+  upstream's. It fails loudly rather than serving something wrong — `OrnithConfig.from_hf` raises on
+  `layer_types` it does not implement, and the weight loader raises `no checkpoint entries under
+  'model.language_model.'` for a checkpoint that does not nest the way this one does — and
+  `initialize_vllm_model` now logs a warning naming the override whenever the resolved checkpoint is not
+  `ornith-ai/Ornith-1.0-35B`. What it will *not* do is fall back to upstream;
+* a **second TT port of the same architecture** would collide on this line. There is none today; the
+  comment at the registration says so, and that line is where the collision must be resolved;
+* **image requests** are refused by the API for any checkpoint of this architecture in a TT process,
+  because the class vLLM introspects is text-only. For this checkpoint that is correct — the port has no
+  vision half — but it is a property of the architecture name now, not of the checkpoint.
+
+Only `ornith-ai/Ornith-1.0-35B` was validated by this stage.
+
 One more plugin change, in `vllm_tt_plugin/worker.py`: `set_fabric` now honours a
 `fabric_router_max_packet_bytes` key from the TT config and passes it to
 `ttnn.set_fabric_config(..., router_config=...)`. Fabric configuration happens before
@@ -182,9 +202,14 @@ logprobs (host sampling), seeded reproducibility, penalties, greedy determinism,
 sampling profile at `max_num_seqs=1` and `32`. Only after all of that did the 40-layer model run.
 
 The reduced target is a bring-up tool. No number or output from it is reported as this model's accuracy
-or performance, and its own artifacts live in `/tmp`, not here — except
-[`serving_primitives.json`](serving_primitives.json), which is a *mechanical* contract check (§7.1) and
-says so.
+or performance, and its own artifacts live in `/tmp`, not here — with two deliberate exceptions, both
+*mechanical* rather than quality or speed claims, and both labelled as reduced-target at the top of their
+files: [`serving_primitives.json`](serving_primitives.json), the contract checks of §7.1, and
+[`reduced_target/`](reduced_target/), the run-pair counts that localise the batch ≥ 8 nondeterminism to
+the collectives (§8.3). The property they measure — "are two identical runs bit-identical" — is not a
+number that depends on having all 40 layers, and every one of their conclusions is re-confirmed on the
+full model in [`decode_nondeterminism.json`](decode_nondeterminism.json) and
+[`slot_reproducibility.json`](slot_reproducibility.json).
 
 ---
 
@@ -210,13 +235,34 @@ than as tokens on purpose — at batch > 1 a neighbouring row changes the last b
 (§8), so token equality is the wrong instrument for a state question.
 
 ### 7.2 Non-aligned prompt lengths, and the block vLLM pads with
-[`probe_serving_requests.py`](logs/probe_serving_requests.py) →
-[`serving_requests.json`](serving_requests.json), full model, `max_num_seqs=32`.
+[`probe_serving_requests.py`](logs/probe_serving_requests.py), full model, run on both server
+configurations: [`batch1/serving_requests_max_num_seqs_1.json`](batch1/serving_requests_max_num_seqs_1.json)
+(which is also the copy kept at the top level as [`serving_requests.json`](serving_requests.json)) and
+[`batch32/serving_requests_max_num_seqs_32.json`](batch32/serving_requests_max_num_seqs_32.json).
 
 Lengths 1, 3, 17, 65, **130**, 257, 999, **2049**, 4097 all served at their exact length
-(`prompt_tokens` equals the request length for every one). 130 and 2049 are the interesting ones: 130
-divides neither the 64-token page nor the 128-token prefill-block alignment nor the 32-row tile, and
-2049 crosses the 2048-token internal prefill chunk.
+(`prompt_tokens` equals the request length for every one), and a 9000-token prompt too. 130 and 2049 are
+the interesting ones: 130 divides neither the 64-token page nor the 128-token prefill-block alignment nor
+the 32-row tile, and 2049 crosses the 2048-token internal prefill chunk.
+
+**Why `all_completed` was false, and what fixed the measurement rather than the model.** Every length is
+asked for 8 output tokens, and in the first version of this arm the 2049- and 4097-token prompts came back
+with 3 and 1 tokens. That is not truncation: these prompts are *random token ids*, and the model answered
+some of them with an immediate end-of-text. The probe now records `finish_reason` and asks each length
+twice, once with `ignore_eos`:
+
+| length | with `ignore_eos` | plain request |
+|---|---|---|
+| 1, 3, 17, 65, 130, 257, 999 | 8 tokens, `finish_reason: length` | 8 tokens, `length` |
+| 2049 | **8 tokens**, `length` | 3 tokens, **`stop`** |
+| 4097 | **8 tokens**, `length` | 1 token, **`stop`** |
+| 9000 | **8 tokens**, `length` | — |
+
+So with `ignore_eos` the arm is `all_completed: true` at every length, and the short plain completions are
+the model choosing to stop, which the recorded `finish_reason` now says outright. (The first attempt at
+this passed `ignore_eos` inside `extra_body`, which is an OpenAI *client* concept — a raw POST nests it
+into a field the server ignores, and both arms came back identical. That is why the flag now goes at the
+top level, and why this artifact was re-measured on a fresh server rather than edited.)
 
 130 also answers a question the padded prefill raises. The prefill's KV write covers
 `align_up(len, 128)` = 256 tokens, i.e. four 64-token pages, while vLLM allocated `ceil(130/64)` = three
@@ -225,7 +271,7 @@ vLLM v1's `BlockPool` pops block 0 as `null_block` at construction and never all
 (`vllm/v1/core/block_pool.py`), and `block_tables_for_rows` pads with zeros. The padded write therefore
 lands where no request reads.
 
-The served evidence for that is on the **`max_num_seqs=1`** server, and deliberately so: there the decode
+The served evidence for that is on a **`max_num_seqs=1`** server, and deliberately so: there the decode
 path is bit-reproducible (§8.2), which is what makes an exact-match comparison mean something. A baseline
 greedy request is answered alone, then answered again while eight 130-token requests are in flight
 (serialised by the scheduler at that capacity, so this is interleaving rather than simultaneity), and the
@@ -261,20 +307,39 @@ completion prompts are continuation coverage, not a verdict:
   controls the full-model stage left in [`readiness_qualitative.json`](../full_model/readiness_qualitative.json):
   its HF reference completions and its own TTNN completions.
 
-`check_degenerate_output.py --scope vllm` and `--scope all`: **no degenerate output detected**, on the
-served outputs and on the async-scheduling run's (§7.6).
+`check_degenerate_output.py --scope vllm` and `--scope all`: **no degenerate output detected** — on the
+committed served outputs (adjacent-duplication 0.000 – 0.020, trigram-loop 0.021 – 0.115 over the twelve
+raw completions), on the `--max-num-seqs 32` server's, and on the `--no-async-scheduling` control's (§7.6).
+
+The per-prompt reading, against the HF and full-model controls, is in
+[README §4](README.md#4-qualitative-output-with-controls); it is written from the *committed* artifacts,
+which were regenerated when the whole batch-1 set was re-run (§7.7), and the chat run's divergence points
+against the HF control (25/34/236/214/213/130 characters by prompt) are unchanged from the first run.
 
 ### 7.5 Sampling suite
 `--sampling-profile full` (the whole `tests/tt` suite) was run twice, on two server configurations:
 
 | configuration | result | failures |
 |---|---|---|
-| `max_num_seqs=32` | **54 passed, 18 failed, 1 skipped** in 623 s ([log](batch32/sampling_tests_max_num_seqs_32.log)) | every failure is a "same request must produce the same text" assertion: `test_top1_is_greedy`, `test_topk[…]`, `test_seeding`, `test_specific_seed_reproducible[42/123/999/0]`, `test_batch1_seed_reproducible[0/1]`, `test_uniform_seed_deterministic[10/32-0/1]`, `test_same_seeds_reproduce_across_batches`, `test_mixed_params_batch`, `test_{repetition,presence,frequency}_penalty_mixed_batch` |
-| `max_num_seqs=1` | **65 passed, 7 failed, 1 skipped** in 289 s ([log](batch1/sampling_tests_max_num_seqs_1.log)) | every reproducibility test above now **passes**; the 7 failures are tests that cannot pass with a batch of one — they slice their config list by `max_batch_size` and then assert on ≥2 or ≥5 distinct outputs, or index `results[1]` |
+| `max_num_seqs=32` | **54 passed, 18 failed, 1 skipped** in 623 s ([log](batch32/sampling_tests_max_num_seqs_32.log.gz)) | every failure is a "same request must produce the same text" assertion. Exactly: `test_mixed_params_batch`, `test_seeding`, `test_same_seeds_reproduce_across_batches`, `test_specific_seed_reproducible[0/123/999]`, `test_batch1_seed_reproducible[0/1]`, `test_uniform_seed_deterministic[10-0/10-1/32-0/32-1]`, `test_top1_is_greedy`, `test_topk[15]`, `test_topk[32]`, `test_{repetition,presence,frequency}_penalty_mixed_batch`. `test_topk[19]` and `test_specific_seed_reproducible[42]` passed |
+| `max_num_seqs=1` | **65 passed, 7 failed, 1 skipped** in 289 s ([log](batch1/sampling_tests_max_num_seqs_1.log.gz)) | **15 of the 18 above now pass.** The 7 failures are the three `test_different_*_penalties`, the three `test_*_penalty_mixed_batch` and `test_uniform_noseed_varied` — all of which slice their request list by `max_batch_size` and then assert on ≥2 distinct outputs, ≥5 distinct outputs, or a cross-row comparison. At capacity 1 the `mixed_batch` slice is **empty**: `Got 0 unique results out of 0. Results: []` |
+
+The three `test_*_penalty_mixed_batch` cases therefore fail in *both* configurations, for different
+reasons: the reproducibility reason at 32, the empty-slice reason at 1. Neither is a correctness failure,
+and both are visible in the logs above.
 
 Both runs are on the **final** code (§9 explains why every measurement was re-run). The 18/7 split
-reproduced exactly across the before-fix and after-fix runs; only *which* `test_topk[…]`
-parameterisations land on a near-tie moved, which is itself the property §8 measures.
+reproduced across the before-fix and after-fix runs; only *which* `test_topk[…]` and
+`test_specific_seed_reproducible[…]` parameterisations land on a near-tie moved, which is itself the
+property §8 measures — the earlier run failed `test_topk[19]` and `test_specific_seed_reproducible[42]`
+and passed `test_topk[15]`/`[32]`, and the final run does the opposite.
+
+The `max_num_seqs=1` result then reproduced **three** times, on three different servers, to the test:
+7 failed / 65 passed / 1 skipped each time, in 289 – 291 s, and the same seven names every time
+(`test_uniform_noseed_varied`, the three `test_different_*_penalties`, the three
+`test_*_penalty_mixed_batch`). The committed log is the third of those, and the failure list above can be
+read straight out of it. That is a stronger statement than the batch-32 side, where membership moves
+between runs because it depends on which requests land on a near-tie.
 
 The one skip in both runs is `test_chat_logprobs_all_vocab`, which skips itself: the plugin clamps
 `max_logprobs` to 20, so `logprobs=-1` is rejected and the test's own `pytest.skip` fires.
@@ -286,45 +351,119 @@ temperature variation within and between batches, `test_topk[15]`, request isola
 parameters, structured output at full capacity, and the penalties-differ tests at `max_num_seqs=32`.
 §8 is the investigation of the reproducibility class.
 
-### 7.6 Async scheduling (decode overlap)
-`--additional-server-args="--async-scheduling"` with `sample_on_device_mode=all` and decode tracing, at
-`max_num_seqs=32` and at `1`. The server log confirms `async_scheduling=True` with no "Disabling async
-scheduling" warning, i.e. the plugin accepted `supports_async_decode=True` and overlap really ran.
+### 7.6 Async scheduling (decode overlap), and the default this stage first got wrong
+**The correction first, because it changes what every other number in this stage means.** This vLLM
+resolves an unset `async_scheduling` to **True**: `vllm/config/vllm.py` says "Enable async scheduling
+unless there is an incompatible option" and only turns it off for speculative decoding, an unsupported
+executor backend or Mamba prefix caching. So *every* server this stage ran with no scheduling flag — the
+headline single-user server included — ran with **overlap enabled**, and passing
+`--additional-server-args="--async-scheduling"` changed nothing. Every preserved server log says
+`Asynchronous scheduling is enabled` and `Scheduler class: TTScheduler, async_scheduling=True`, including
+the ones an earlier version of this log called "non-overlapped".
+
+The earlier "sync vs async" comparison was therefore two overlapped servers, and its conclusion — "overlap
+buys nothing measurable" — was an artefact of that. The genuine control is `--no-async-scheduling`
+(`--async-scheduling` is a `BooleanOptionalAction`, so the negative form exists), and it was run:
+[`async/server_no_async_max_num_seqs_1.log.gz`](async/server_no_async_max_num_seqs_1.log.gz) logs
+`Asynchronous scheduling is disabled` and `async_scheduling=False`.
+
+| primary single-user 128/128/1, warm, `max_num_seqs=1` | overlap **on** (the default): 3 servers | overlap **off** (`--no-async-scheduling`): 2 servers, 3 warm runs |
+|---|---|---|
+| TPOT | **23.146 – 23.170 ms** | 24.711 – 24.821 ms |
+| ITL P50 | **23.139 – 23.140 ms** | 24.591 – 24.595 ms |
+| decode t/s/u (TPOT-derived) | **43.16 – 43.20** | 40.29 – 40.47 |
+| TTFT P50 | 145.3 – 152.3 ms | 145.7 – 157.9 ms |
+| `serving_counters["async_reads"]` for the whole process | **11110 – 11189** | **0** |
+| artifacts | [`batch1/vllm_benchmark_repeat_warm.json`](batch1/vllm_benchmark_repeat_warm.json), [`…_second_server_warm.json`](batch1/vllm_benchmark_second_server_warm.json), [`async/async_max_num_seqs_1_vllm_benchmark_warm.json`](async/async_max_num_seqs_1_vllm_benchmark_warm.json) | [`async/no_async_vllm_benchmark_warm.json`](async/no_async_vllm_benchmark_warm.json), [`…_second_server_warm.json`](async/no_async_second_server_warm.json), [`…_second_server_warm_run2.json`](async/no_async_second_server_warm_run2.json) |
+
+So overlap is worth **~1.45 ms per token, 6.3 %**, at batch 1 on this model — in the decode loop only, since
+the TTFT ranges overlap completely — and the decode ranges do not overlap at all across five warm runs.
+The `async_reads` counter is the mechanical proof of which path each server took: it equals the decode-call
+count with overlap on, and the non-overlapped servers never entered `read_decode_output(async_read=True)`
+at all. It also explains the decode-floor comparison in §7.7: the
+model's own traced token-out floor is 23.165 ms, the overlapped server's ITL is 23.140 ms (at the floor),
+and the non-overlapped servers' is 24.59 ms — the 1.45 ms of host-side gap that the async split is there
+to hide.
+
+**Equivalence, at equal request length.** [`probe_overlap_equivalence.py`](logs/probe_overlap_equivalence.py)
+asks the same greedy request on both servers with the same `max_tokens=32`:
 
 | check | result |
 |---|---|
-| degenerate-output check on the overlapped run's qualitative outputs | no degenerate output detected ([artifact](async/async_max_num_seqs_32_vllm_qualitative_outputs.json)) |
-| smoke sampling profile under overlap | the same 2 reproducibility failures as the non-overlapped run at `max_num_seqs=32` — overlap adds none |
-| 32-request burst, non-aligned lengths, 9000-token prompt under overlap | all completed at their exact lengths ([artifact](async/serving_requests_async_max_num_seqs_32.json)) |
-| **batch-1 greedy text, overlapped vs not** | **character-for-character identical** ([`async/overlap_equivalence.json`](async/overlap_equivalence.json)); 3/3 identical repeats under overlap, 2/2 for a seeded request |
-| CI serving burst 100/100/32, overlapped vs not (both warm) | TTFT P50 5504.1 → 5495.8 ms, aggregate 158.5 → 158.7 tok/s, TPOT mean 149.98 → 149.72 ms — unchanged within noise |
-| primary single-user 128/128/1, overlapped vs not (both warm) | TTFT 149.4 → 148.3 ms, TPOT 23.19 → 23.14 ms, ITL P50 23.12 → 23.13 ms — unchanged |
+| greedy text, overlap on vs off | **character-for-character identical** ([`async/overlap_texts_no_async.json`](async/overlap_texts_no_async.json) carries both arms) |
+| greedy repeats within each arm | 3/3 identical on each |
+| seeded (temp 0.8, top-p 0.9, seed 4242) repeats within each arm | 2/2 identical on each |
+| seeded text across the two arms | **differs** — investigated in §7.6.1 |
+| smoke sampling profile, overlap off | 3 passed, 1 skipped — the same result as with overlap on ([`async/sampling_tests_smoke_no_async.log.gz`](async/sampling_tests_smoke_no_async.log.gz)) |
+| request shapes, overlap off | every non-aligned length served exactly, 32-way burst complete, null-block containment identical ([`async/serving_requests_no_async_max_num_seqs_1.json`](async/serving_requests_no_async_max_num_seqs_1.json)) |
+| degenerate-output check, overlap off | no degenerate output detected ([artifact](async/vllm_qualitative_outputs_no_async_max_num_seqs_1.json)) |
 
-The batch-1 row is the serving-level stale-input proof: with overlap on, vLLM submits step *N+1* before
-token *N* has been applied to its host state, and the emitted text is the same text the non-overlapped
-server produced. A staged stale pair would have doubled a subword.
+The greedy row is the serving-level stale-input proof: with overlap on, vLLM submits step *N+1* before
+token *N* has been applied to its host state, so a row that kept the host's lagging pair would double a
+subword. The text is identical to the non-overlapped server's, which is what the refresh policy's per-row
+merge (§5) is for.
 
-An earlier pass at this table reported overlap *improving* the burst TTFT by 15 % (6518 → 5520 ms). That
-was wrong, and the re-run on the final code is why it is not in the table: the 6518 ms measurement was
-the **first** burst on a freshly started server, so it included compiling the 100-token prefill program
-set, while the async number was measured on a server that had already served the sampling suite. With
-both warm the two are within 0.2 %. Overlap buys nothing measurable here, and it should not: the decode
-loop has no host-side gap to hide, because the token reaches the next replay through ``tt_out_tok`` on
-device and the positions advance inside the trace. What the async split buys is the *freedom* to run
-under `--async-scheduling` without corrupting generation.
+An earlier artifact, `async/overlap_equivalence.json`, is **withdrawn**: its two arms were both overlapped
+servers *and* it compared unequal completion lengths (one arm requested fewer tokens), so its
+"identical on the compared prefix" claim measured neither overlap nor a full completion.
+`probe_overlap_equivalence.py` replaces it — a script rather than a hand-assembled file, with the request
+length fixed on both arms and the tag recorded in the artifact.
 
-The headline numbers in [README.md](README.md) are from the **non-overlapped** server, because that is
-vLLM's default and the skill's rule is that overlap stays off unless a deployment opts in.
+**One more correction to the burst row.** The CI serving burst was measured twice, and both runs were
+overlapped (158.5 and 158.7 tok/s aggregate, TTFT P50 5504.1 and 5495.8 ms) — that pair is a repeatability
+check, not an overlap comparison. No non-overlapped burst was measured; the overlap comparison in this
+stage is the batch-1 pair above.
+
+#### 7.6.1 A seeded request is reproducible within a server, not across two of them
+The seeded arm differs between the two servers while being 2/2 reproducible inside each. Two candidate
+causes, and they are not the same thing: overlap itself, or the sampler's RNG state depending on how much
+traffic the server has already served (the overlapped arm ran after the full sampling suite and ~500
+requests; the non-overlapped arm ran on a fresh server).
+
+The control keeps the server fixed — non-overlapped, one process — and varies only history: the same seeded
+request before and after the smoke sampling profile.
+
+The control was run on **both** scheduling modes, one server each, the same seeded request before and
+after the smoke sampling profile (~90 requests of mixed parameters):
+
+| control | greedy, fresh vs after traffic | seeded, fresh vs after traffic |
+|---|---|---|
+| `--no-async-scheduling` server ([fresh](async/overlap_texts_no_async_fresh.json), [after](async/overlap_texts_no_async_after_traffic.json)) | identical | **identical** |
+| default (overlapped) server ([fresh](async/overlap_texts_async_fresh.json), [after](async/overlap_texts_async_after_traffic.json)) | identical | **identical** |
+
+So history is not the cause: a seeded completion survives ~90 intervening requests unchanged, in both
+modes. What differs is the mode itself, and it differs *reproducibly* — four arms, two per mode, and each
+mode returns its own text every time:
+
+* overlap **on**: `" Paris, a city of approximately 2.2 million inhabitants, which serves as the country's economic hub…"`
+* overlap **off**: `" Paris, a city renowned for its rich history and iconic landmarks such as the Eiffel Tower…"`
+
+Both completions are fluent, on topic and in English, and greedy output is identical across the modes, so
+this is not a correctness failure — it is the sampler's draw sequence landing differently under the two
+schedulers, most plausibly because the async path applies per-slot sampling state at a different point
+relative to the decode steps it submits (the async scheduler runs a request's step *N+1* before token *N*
+is applied on the host). Pinning that down is plugin work in `vllm_tt_plugin`'s async decode path, not
+adapter work: the adapter is handed the sampling parameters per step and applies them where it is told.
+
+**What a deployment should take from it**: a seed reproduces a completion on a given server configuration,
+including across other traffic — but the same seed on the same model with `--async-scheduling` toggled is a
+different sample. It is recorded in [README §8](README.md#8-limitations) as such. Reproducer:
+`probe_overlap_equivalence.py --tag a` on one server, then `--tag b --compare-with <a's file>` on the other.
 
 ### 7.7 Benchmarks
 Both profiles, on the final code, with the workload beside every number:
 
 | profile | workload | TTFT P50/P99 | TPOT mean/P99 | ITL P50/P99 | aggregate | t/s/u |
 |---|---|---|---|---|---|---|
-| primary single-user, **warm** | 128 in / 128 out, 1 request, `--max-concurrency 1`, greedy, `max_num_seqs=1` | 149.4 / 149.4 ms | 23.19 / 23.19 ms | 23.12 / 23.68 ms | 41.36 tok/s | **43.1** (43.25 from ITL) |
-| primary single-user, first request at that length | same | 172.8 ms | 24.89 ms | 23.13 / 24.1 ms | 38.5 tok/s | 40.2 |
+| **primary single-user, warm — the committed artifact** | 128 in / 128 out, 1 request, `--max-concurrency 1`, greedy, `max_num_seqs=1`, overlap on (default) | 152.3 / 152.3 ms | 23.147 / 23.147 ms | 23.140 / 25.05 ms | 41.39 tok/s | **43.20** (43.21 from ITL) |
+| primary single-user, first request at that length, same server | same | 230.9 ms | 24.962 ms | 23.136 / 23.83 ms | 37.63 tok/s | 40.06 |
+| primary single-user, warm, an earlier server | same | 145.3 ms | 23.170 ms | 23.140 / 23.84 ms | 41.45 tok/s | 43.16 |
+| primary single-user, warm, another server | same | 148.3 ms | 23.146 ms | 23.139 / 23.76 ms | 41.45 tok/s | 43.20 |
+| primary single-user, warm, `--no-async-scheduling` | same, overlap **off** | 157.9 ms | 24.742 ms | 24.591 / 27.66 ms | 38.78 tok/s | 40.42 |
+| primary single-user, warm, `--no-async-scheduling`, a second server | same, overlap **off** | 149.0 ms | 24.711 ms | 24.595 / 27.53 ms | 38.93 tok/s | 40.47 |
+| primary single-user, first request, `--no-async-scheduling` | same, overlap **off** | 240.5 ms | 26.493 ms | 24.576 / 26.69 ms | 35.50 tok/s | 37.75 |
 | CI serving burst | 100 in / 100 out, 32 requests, no concurrency cap, greedy, `max_num_seqs=32` | 5504.1 / 5505.4 ms | 149.98 / 185.02 ms | 141.65 / 366.0 ms | **158.5 tok/s** | 6.67 |
-| primary single-user on a `max_num_seqs=32` server | 128/128/1 | 227.9 ms | 140.1 ms | 138.2 / 139.7 ms | 7.1 tok/s | 7.1 |
+| primary single-user on a `max_num_seqs=32` server | 128/128/1 | 227.9 ms | 140.069 ms | 138.211 / 139.7 ms | 7.1 tok/s | 7.14 |
 
 Raw JSON: [`readiness_vllm/vllm_result.json`](../../readiness_vllm/vllm_result.json) and
 [`vllm_ci_serving_result.json`](../../readiness_vllm/vllm_ci_serving_result.json); normalized:
@@ -334,14 +473,102 @@ against the model's own decode floor, and what the 32-row difference means, are 
 [README §1](README.md#1-headline-primary-single-user-serving-performance) and
 [§2](README.md#2-secondary-ci-serving-burst-profile-vllm-nightly-shape).
 
-### 7.8 Tests
+**Two things about how this table was assembled, both of which changed it.** First, the warm single-user
+figure reproduces across three servers to within 0.024 ms of TPOT (23.146, 23.147, 23.170) and 0.001 ms of
+ITL P50, while the *first-request* TTFT does not (172.8, 230.9, 236.3 ms on three servers), because it
+depends on what that process had already compiled. That is why the first request is a separate row rather
+than folded into the headline.
+
+Second, an earlier version of this table quoted a warm run of **149.4 ms TTFT / 23.19 ms TPOT** whose
+artifact no longer existed: `readiness_vllm/vllm_benchmark.json` is truncated per launch, and the two files
+archived under `batch1/` at that point (`vllm_benchmark_primary_canonical_run.json`, 162.3 ms / 24.970 ms,
+and `…_cold_first_request.json`, 172.8 ms / 24.888 ms) are both *first-request* runs — neither is the number
+that was published. Rather than keep a headline no file supports, the whole batch-1 set was re-run on one
+server, its artifacts archived before shutdown, and the headline is now that server's warm run, which is
+also what `readiness_vllm/` holds. The published figure moves by 2.9 ms of TTFT and 0.04 ms of TPOT; the
+conclusion — serving decode sits at the model's own token-out floor — does not.
+
+### 7.8 The precision policy the served build actually carries
+[`readiness_vllm/vllm_serving_capability.json`](../../readiness_vllm/vllm_serving_capability.json) is
+written by the adapter at the end of warm-up, from inside the engine-core process, and it reads the
+*built* objects rather than a config file (`OrnithModel.precision_summary()`). What it records for the
+served model:
+
+| | |
+|---|---|
+| policy on every one of the 40 layers | `C06-proj-bfp4-lofi`, `reduced: false` |
+| weight groups | routed expert gate/up + down `bfloat4_b`, dense projections `bfloat4_b`, shared expert `bfloat8_b`, router `bfloat16`, LM head `bfloat4_b` |
+| math fidelity | dense projections **LoFi**, routed experts **LoFi**, shared expert HiFi2, router HiFi4, SDPA HiFi2, DeltaNet state HiFi4 — one identical set on all 40 layers |
+| KV-cache dtype, read off the live cache tensors | `DataType.BFLOAT8_B` on all 10 `full_attention` layers — i.e. the cache **vLLM owns** was allocated at the policy's dtype, not at vLLM's `torch.bfloat16` view |
+| residual / CCL activation dtype | `bfloat16` / `None` (no cast), on every layer |
+| layer exceptions | `[]` |
+
+`policy_to_dict(load_selected_policy())` and this report's `selected_config` block are equal field for
+field; `tests/test_generator_vllm.py::test_the_serving_build_carries_the_selected_precision_config`
+asserts exactly that against
+[`doc/datatype_sweep/selected_precision_config.json`](../datatype_sweep/selected_precision_config.json).
+The committed artifact file additionally carries prose and provenance keys the sweep put there for
+humans (`status`, `selection_rule`, `selected_from_run`, `measured`, the four `*_note` fields); those are
+not policy fields, `policy_to_dict` does not emit them, and their absence from the served report is not a
+policy difference.
+
+**One thing that report cannot tell you, and the second copy that can.** Its `serving_counters` block is
+all zeros, and necessarily so: warm-up drives the generator's primitives directly rather than going
+through `decode_forward`/`prefill_forward`, so the adapter's own counters have nothing to count yet when
+that copy is written, and no request has arrived either. Reading those zeros as "no refresh, no remap and
+no host-sampled decode ever happened while serving" would be wrong in the other direction. So the adapter now registers an `atexit` hook that
+writes the same report again at engine-core exit, as
+[`readiness_vllm/vllm_serving_capability_final.json`](../../readiness_vllm/vllm_serving_capability_final.json),
+whose counters *do* describe the traffic that server handled — no-refresh steady-state steps, page-table
+refreshes, slot remaps, async reads, and device- against host-sampled decodes. The warm-up copy is kept
+because it is the one a crashed process still leaves behind.
+
+### 7.9 Which console log belongs to which run
+Every probe keeps the console log of the run whose artifact is committed, as `logs/<probe>.txt`. Three
+files need a word of explanation, because a probe that was re-run leaves more than one:
+
+* [`logs/probe_slot_reproducibility_first_run.txt.gz`](logs/probe_slot_reproducibility_first_run.txt.gz) —
+  the *first* run of that probe, before the batch sweep, the all-rows arm and the read-twice arm were
+  added. Kept because it is the log behind the numbers the stage first reported;
+* [`logs/probe_slot_reproducibility_extended_attempt_crash_tail.txt`](logs/probe_slot_reproducibility_extended_attempt_crash_tail.txt) —
+  the tail of the first *extended* attempt, which crashed in the new batch-sweep arm: `state_is_live` is a
+  model-level flag and the arms before it had left a prompt in the model, so capturing the sweep
+  generator's traces was refused. Kept because the fix (wipe first, as `generate(reset=True)` does) and the
+  probe's new per-arm checkpointing are both consequences of it;
+* [`logs/probe_logit_read_stability_full.txt`](logs/probe_logit_read_stability_full.txt) — the full-model
+  run of the read-stability probe, whose artifact is `logit_read_stability_full_model.json`; the
+  reduced-target run's log is `probe_logit_read_stability.txt`.
+
+**Everything in `logs/`, `batch1/`, `batch32/` and `async/` that is a console log is committed gzipped.**
+The repo's `.gitignore` has `*.log` at line 7, so a `server.log` copied into the evidence tree is silently
+*not* in the commit — which is how the first commit of this stage ended up citing five server and sampling
+logs it did not contain. Two probe logs are also over the repo's 500 KB per-file pre-commit limit
+uncompressed. Both problems have the same fix, and `gzip` output is what the links point at.
+
+Server logs follow the same rule, one per server, and there are six: the three the fallback audit reads
+(§12) plus [`batch1/server_max_num_seqs_1.log.gz`](batch1/server_max_num_seqs_1.log.gz) (the benchmark-only
+server behind README §1's earlier cold/warm pair) and two gzipped ones kept for completeness —
+[`batch1/server_max_num_seqs_1_requests_probe.log.gz`](batch1/server_max_num_seqs_1_requests_probe.log.gz)
+(the server that re-ran the request-shape probe after the `ignore_eos` fix, §7.2) and the two
+`async/server_*_history_control.log.gz` files (the seeded-history controls of §7.6.1).
+
+`logs/pytest_final_sweep.txt.gz` and `logs/pytest_generator_vllm.txt` are the two test-suite logs (§7.10).
+
+### 7.10 Tests
 ```
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 19 passed
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 19 passed in 179 s
 pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected
 ```
-Console log: [`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz). The second command is the
-regression check for this stage's generator/model additions: the full-model stage's own suite, unchanged,
-on the same reduced target it uses.
+Console logs: the adapter suite's own run on the committed tree is
+[`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt) (8 host-only cases and 11 on the
+reduced two-layer target, `PYTEST_EXIT=0` at the end of the file); the full-model regression run is in
+[`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz).
+
+The second command is the regression check for this stage's generator/model additions: the full-model
+stage's own suite, unchanged, on the same reduced target it uses. It was **not** re-run after the last
+round of changes, and deliberately: `git diff` over `tt/` since that run touches only
+`tt/generator_vllm.py` (the `atexit` capability dump and the foreign-checkpoint warning), which nothing in
+`test_full_model.py` imports. The adapter suite, which does exercise it, was re-run and is the log above.
 
 ---
 
@@ -367,49 +594,175 @@ Both remain fluent, on topic and in English. A near-tie flip, not corruption.
 [`slot_reproducibility.json`](slot_reproducibility.json), full 40-layer model, greedy, 13 logit vectors
 per arm (the prefill's plus 12 traced decode steps), every call passing the caller-owned cache:
 
-| arm | bit-identical | max abs Δ | min logit PCC | top-1 agreement | first flip |
+The deviation columns are *per step, while the two streams still agree* — up to but not including the flip.
+Once two greedy streams emit different tokens they are different text; and the step *at* a flip sometimes
+jumps by ~10 logits, which is a separate phenomenon (below) rather than the cause of the flip. The artifact
+carries every step, so both readings are available.
+
+| arm, two identical runs from a wiped state | bit-identical | max abs Δ per step, pre-flip | min PCC there | top-1 agreement | first flip (margin there) |
 |---|---|---|---|---|---|
-| **batch 1**, same prompt twice from a wiped state | **yes, all 13** | **0.0** | **1.0** | 13/13 | none |
-| batch 32, same slot, runs 1 vs 2 | no | 0.85 per step | 0.9973 | 10/13 | step 10 |
-| batch 32, same slot, runs 2 vs 3 | no | 0.84 per step | 0.9975 | 10/13 | step 10 |
-| batch 32, an occupied padding row beside it | no | 0.85 | 0.9975 | 12/13 | step 10 |
-| batch 32, the same prompt in slot 7 instead of slot 0 | no | 1.09 | 0.9960 | 9/13 | step 1 |
-| batch 1 against batch 32 | no | — | — | 10/13 | step 10 |
+| **batch 1**, same prompt twice | **yes, all 13** | **0.0** | **1.0** | 13/13 | none |
+| **batch 2**, same prompt twice | **yes, all 13** | **0.0** | **1.0** | 13/13 | none |
+| **batch 4**, same prompt twice | **yes, all 13** | **0.0** | **1.0** | 13/13 | none |
+| batch 8, same prompt twice | no | 0.78 | 0.99757 | 9/13 | step 9 (0.0625) |
+| batch 16, same prompt twice | no | 0.84 | 0.99761 | 10/13 | step 10 (0.0625) |
+| batch 32, same slot, runs 1 vs 2 | no | 0.72 | 0.99794 | 10/13 | step 10 (0.0625) |
+| batch 32, same slot, runs 2 vs 3 | no | 0.81 | 0.99783 | 12/13 | step 12 (0.125) |
+| batch 32, all 32 rows occupied, watching slot 0 | no | 0.84 | 0.99831 | 10/13 | step 10 (**0.0**) |
+| batch 32, an occupied ghost row beside it | no | 0.70 | 0.99817 | 10/13 | step 10 (0.0625) |
+| batch 32, the same prompt in slot 7 | no | 1.25 | 0.99356 | 13/13 | none |
+| batch 1 against batch 32 | no | 0.91 | 0.99730 | 10/13 | step 10 (**0.0**) |
+| batch 32, one step's device logits composed to host twice | **yes** | **0.0** | **1.0** | — | none |
 
-Three things follow, and together they settle the class:
+Four things follow, and the batch sweep is what makes them sharp:
 
-* **At batch 1 the whole path is bit-reproducible** — prefill and every traced decode step, PCC 1.0.
-  That is why every reproducibility test passes at `max_num_seqs=1`.
-* **At batch 32 the state is also bit-identical, and the decode replay is not.** The probe compares all
-  140 DeltaNet recurrent/conv buffers and the written KV pages after prefill: identical in every round.
-  So the prefill, the per-slot state merge, the cache fill and the staged inputs are all deterministic;
-  what deviates is the batch-32 traced decode step itself, by 0.47 – 0.85 of a logit at PCC ≥ 0.9973.
-* **A tie decides the flip, and the tie is visible.** Step 10 of this prompt has a top-1/top-2 margin of
-  **exactly 0.0** — the same bfloat16 value for two tokens — in *both* configurations. At batch 1 both
-  runs resolve it identically (bit-identical logits, deterministic tie-break) and pick 71100; at batch 32
-  the 0.8 of per-step deviation decides it, one run picking 2548 and the other 71100. From there the two
-  streams feed different tokens and PCC drops to 0.62 — the large numbers in the table are the
-  *consequence* of a flip, not its cause.
+* **Bit-reproducibility survives to batch 4 and is lost at batch 8.** Batch 1, 2 and 4 are bit-identical
+  run to run — prefill and all 12 traced decode steps, PCC 1.0, max |Δ| exactly 0.0. Batch 8, 16 and 32
+  are not. The boundary is between 4 and 8, and it is reproducible: an independent five-pair count on the
+  reduced target puts batch 4 at 0/5 deviating pairs and batch 8 at 4/5 (§8.3).
+* **The prefill and the state it writes are deterministic at every batch size.** The probe compares all
+  **140** DeltaNet recurrent/conv buffers and the written KV pages after prefill: bit-identical in every
+  round at batch 1 and at batch 32 (`finite_max_abs_diff` 0.0, `rows_that_differ` empty, nothing non-finite), and the prefill logits
+  are identical too (three rounds at batch 32). So the prefill, the per-slot merge, the cache fill and the
+  staged inputs are all exonerated; what deviates is the decode step.
+* **The readback path is exonerated too.** `batch32_read_twice` composes one step's device logits to host
+  twice: bit-identical. A deviation that appeared only on the second composition would have been a read
+  bug rather than a compute one.
+* **Every flip sits at a margin the noise can cover.** The pre-flip deviation is 0.70–0.84 of a logit and
+  every first flip in the table happens at a top-1/top-2 margin of **0.0 to 0.125** — an exact tie (two
+  tokens holding the same bfloat16 value) or one to two bfloat16 steps at that magnitude. Nothing flips
+  where the margin is comfortable: the `slot 7` arm deviates by up to 1.25 across all 13 vectors and never
+  changes a token, and so does `batch32_same_slot_second_pair` until step 12. After a flip the per-step
+  numbers jump to 8–16, which is simply two different texts being compared and says nothing about the
+  cause — that is why the table's deviation columns stop before the flip.
 
-### 8.3 The same property, one batch size down, already on file
-The datatype sweep measured this across *slots* rather than runs and wrote it up as
-[§9.1](../datatype_sweep/README.md) with [`batch_slot_tie_selected.json`](../datatype_sweep/batch_slot_tie_selected.json):
-at batch 4 on this exact precision policy, cross-slot max |Δ| 0.28 – 0.5, logit PCC ≥ 0.9993, and
-top-1/top-2 margins of **0.0 – 0.19**, with the conclusion "cross-slot decode has never been
-bit-identical, at any precision … a batch-4 decode gives each row a different position in the sharded
-matmuls and collectives, so the reduction order differs per row". The numbers here — 0.47 – 0.85 at
-PCC ≥ 0.9973 for batch 32 — are the same class one batch size up.
+### 8.3 Where it enters, measured: the multi-device collectives
+[`probe_decode_nondeterminism.py`](logs/probe_decode_nondeterminism.py) exists to answer the next
+question, because "the batch-32 decode step deviates" is not yet a mechanism. It runs the same
+prefill-plus-decode sequence twice and compares, with one variable changed per arm, and it counts *pairs*
+rather than trusting one comparison — the effect is intermittent, so a single non-deviating pair proves
+nothing (a first attempt at a per-layer bisect learned that the hard way:
+[`reduced_target/decode_nondeterminism_single_layer0.json`](reduced_target/decode_nondeterminism_single_layer0.json)
+and [`…layer3.json`](reduced_target/decode_nondeterminism_single_layer3.json) each show one clean pair and
+therefore exclude nothing).
 
-### 8.4 What is and is not fixable here
-Not fixable at this layer, and not attempted: making the batch-32 decode bit-reproducible means changing
-the decode geometry or the collectives, which is decoder-stage work with its own accuracy and performance
-gates. Nothing at the serving layer can do it — in particular a persistent per-slot page-table row cannot,
-because per-call allocation is already bit-identical and lands at the same device address every round
-([`prefill_alloc_vs_recapture.json`](prefill_alloc_vs_recapture.json)).
+On the reduced two-layer target (one `full_attention` + one `linear_attention`), context 2048, 4 decode
+steps, five pairs of identical runs per arm:
+
+| arm | driver | mesh | batch | pairs that deviated |
+|---|---|---|---|---|
+| traced replay, through the generator | generator | `1x4` | 32 | **5/5** |
+| eager dispatch, through the generator | generator | `1x4` | 32 | **5/5** |
+| eager dispatch, model level | model | `1x4` | 32 | **3/5** |
+| eager dispatch, model level | model | **`1x1`** | 32 | **0/5** |
+| eager dispatch, model level | model | `1x4` | 4 | **0/5** |
+| eager dispatch, model level | model | `1x4` | 8 | **4/5** |
+
+Artifacts: [`reduced_target/decode_nondeterminism_pairs_1x4.json`](reduced_target/decode_nondeterminism_pairs_1x4.json),
+[`…_1x4_model_driver.json`](reduced_target/decode_nondeterminism_pairs_1x4_model_driver.json),
+[`…_1x1.json`](reduced_target/decode_nondeterminism_pairs_1x1.json),
+[`…_1x4_batch4.json`](reduced_target/decode_nondeterminism_pairs_1x4_batch4.json),
+[`…_1x4_batch8.json`](reduced_target/decode_nondeterminism_pairs_1x4_batch8.json). The full-model arms
+(traced, eager and a one-step arm that also compares the state the first decode step *writes*) are
+[`decode_nondeterminism.json`](decode_nondeterminism.json).
+
+What each row buys:
+
+* **Not the trace.** The eager path — every op dispatched individually, no captured graph — deviates as
+  often as trace replay. A trace-replay artefact (a stale kernel binary, an input buffer read before it is
+  written) would not survive that arm.
+* **Not the driver.** The `1x1` control cannot build a generator at all, because this model's device
+  sampler is the multi-device vocabulary-shard path and its constructor refuses a single device. So the
+  comparison is run *twice* on `1x4`: once through the generator and once through the same model-level
+  driver the control uses. Both deviate. The mesh is the variable, not the driver.
+* **The collectives.** On one device — no all-gather, no reduce-scatter, no MoE traffic over the fabric,
+  same weights, same driver, same batch 32 — five pairs are bit-identical. On the `1x4` ring, three of five
+  deviate. That is what names the mechanism: **run-to-run variation enters through the multi-device
+  collectives**, not through the local matmuls, the sampler, the trace or the read path.
+* **The batch threshold is a property of those collectives, not of the driver.** With the driver and the
+  mesh held fixed, batch 4 gives 0/5 and batch 8 gives 4/5 — the same boundary the full-model sweep in
+  §8.2 shows. A plausible reading is a payload that fits one fabric transfer at small batch and splits at
+  batch ≥ 8, so the per-chunk accumulation order stops being fixed; the tuned router packet size is 8192 B
+  (§3). This stage did not instrument the fabric, so that mapping stays a hypothesis — what is *measured*
+  is that the collectives are where it enters and that the boundary sits between batch 4 and batch 8.
+* **Where it first appears inside a request.** Index 0 of every arm is the prefill and it is bit-identical
+  everywhere; index 1 is the *first* decode step, and at batch ≥ 8 it already deviates. Nothing has to
+  accumulate: the very first multi-row decode step is already not reproducible.
+
+On the **full 40-layer model** the same arms run at batch 4 and batch 32
+([`decode_nondeterminism.json`](decode_nondeterminism.json), 4 decode steps per run):
+
+| arm | batch 4 | batch 32 |
+|---|---|---|
+| traced replay, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ 0.69 per step |
+| eager dispatch, two runs | **bit-identical**, max abs Δ 0.0 | differs, max abs Δ 0.94 per step |
+| prefill logits, two runs | identical | identical |
+| state after prefill (140 buffers + the written KV pages) | **bit-identical**, all finite | **bit-identical**, all finite |
+| the first decode step's logits | **bit-identical** | differs, max abs Δ 0.72 |
+| the state that first decode step writes | **bit-identical**, all finite | **differs**, the active row included |
+
+The last row carries a second observation worth recording on its own. At batch 32 with one active row, the
+31 rows no prefill wrote are still carried through every batched op — the recurrent update is a dense
+matmul over all rows — and, fed token 0 at position -1, their recurrent state runs away to float32
+saturation, with a few entries going non-finite (1.8e-6 of entries in one run against 1.2e-7 in the other,
+in rows 18 and 29, *and not in the same places*). Three things about that:
+
+* **it does not cause the deviation under investigation.** The all-rows arm of §8.2 — all 32 rows holding a
+  real prompt, so no runaway rows at all — deviates just the same;
+* **it does not corrupt served output.** These ops are row-independent, the active row's logits stay finite
+  and fluent, and the degenerate-output gate passes on both served configurations. vLLM also never decodes
+  a row it never prefilled: the padding rows exist because the graph is a fixed 32-row batch, not because
+  any request reads them;
+* **it is a latent hazard all the same**, and it belongs with the defect in §8.5 — a non-finite value in a
+  row that *is* read would not stay local, and it is why `compare_state` now separates non-finite entries
+  from real differences (the first version of this measurement reported an *infinite* state difference,
+  which was this garbage rather than a real deviation).
+
+### 8.4 What the datatype sweep's §9.1 does and does not say
+[`doc/datatype_sweep/README.md` §9.1](../datatype_sweep/README.md#91-one-of-four-identical-decode-slots-emits-a-different-token)
+is the nearest earlier measurement, and it is a **control that holds** rather than corroboration — an
+earlier draft of this section cited it the wrong way round, which the stage review caught.
+
+What §9.1 measured: four slots *inside one run* at batch 4, on this exact precision policy — cross-slot
+max |Δ| 0.28 – 0.5, logit PCC ≥ 0.9993, top-1/top-2 margins 0.0 – 0.19, one slot picking a different token
+at an exact tie. Its conclusion about repeats is explicit: "It is fully deterministic — the same slot flips
+on all three repeats — so this is a fixed reduction order, not nondeterminism."
+
+That is a different axis from the one that fails here, and the two agree:
+
+| | axis | batch 4 | batch ≥ 8 |
+|---|---|---|---|
+| datatype sweep §9.1 | slot against slot, within one run | differs (0.28–0.5), **stable across repeats** | not measured |
+| this stage §8.2 | run against run, same slot | **bit-identical** | differs (0.47–0.92) |
+
+So §9.1's determinism claim is confirmed here at batch 4, and the property that breaks above batch 4 is
+run-to-run reproducibility, which §9.1 never measured. Its cross-slot finding also still holds at batch 32
+in this stage's own data — the `slot 7` arm deviates from the `slot 0` arm by up to 1.0 logit while never
+flipping a token.
+
+### 8.5 What is and is not fixable here, and the defect this stage hands on
+Not fixable at this layer, and not attempted: making the batch ≥ 8 decode bit-reproducible means changing
+the collectives or the decode geometry, which is decoder-stage work with its own accuracy and performance
+gates. Nothing at the serving layer can substitute — in particular a persistent per-slot page-table row
+cannot, because per-call allocation is already bit-identical and lands at the same device address every
+round ([`prefill_alloc_vs_recapture.json`](prefill_alloc_vs_recapture.json)).
+
+**Open defect, named and handed on:** *multi-device decode is not run-to-run bit-reproducible at batch ≥ 8*
+— it enters through the 1x4 fabric collectives (§8.3), the boundary is between batch 4 and batch 8, the
+per-step magnitude is 0.47–0.92 of a logit at PCC ≥ 0.997, and it flips a greedy token only where the
+top-1/top-2 margin is within that noise or where a discrete downstream choice amplifies it. Reproducer:
+`probe_decode_nondeterminism.py --pairs 5 --mesh 1,4 --batch 8 --force-model-driver` against
+`--mesh 1,1` as the control, on the two-layer target, which needs neither vLLM nor the full weight load.
+The two things a decoder-stage fix would need to settle, which this stage deliberately did not: **which
+collective** (a per-op comparison under the same pair-count method — the ops that run per decode step are
+the TP all-gather/reduce-scatter and the EP expert dispatch/combine), and whether the padding rows'
+recurrent state should be clamped or masked rather than left to run away to float32 saturation (§8.3) —
+harmless where it sits today, and one shared reduction away from not being.
 
 What that means for a deployment is in [README §8](README.md#8-limitations): serve at `--max-num-seqs 1`
-for bit-reproducible completions, and expect near-tie variation above it. Quality is unaffected — every
-arm stays fluent and on topic, and the degenerate-output check passes on both configurations.
+(or up to 4) for bit-reproducible completions, and expect near-tie variation above it. Quality is
+unaffected — every arm stays fluent and on topic, and the degenerate-output check passes on both served
+configurations.
 
 ---
 
@@ -537,23 +890,58 @@ split into bounded chunks. Recorded because the failure mode looks exactly like 
 
 ## 12. Runtime-fallback audit
 
-What the served logs say about paths that would silently cost correctness or speed:
+What the served logs say about paths that would silently cost correctness or speed. Each column is one
+**preserved server log**, and the traffic each one served is named, because a count only means something
+next to the requests that produced it:
 
-| thing that would be wrong | how it shows up | batch-1 server | batch-32 server |
+| | batch-1, default flags | batch-32, default flags | batch-1, `--no-async-scheduling` |
 |---|---|---|---|
-| a foreign page table without a caller-owned cache (the generator substitutes its own and warns) | `"was given a page_table but no kv_cache"` | **0** | **0** |
-| a program compiled *inside* the traced decode loop, whose binaries a replay may have overwritten | `"a program was compiled inside the traced decode loop"` | **0** | **0** |
-| trace re-captures | `"re-capturing the decode traces"` | 13 | 25 |
-| the KV cache falling back to a default dtype | `"No dtype specified for the model KV cache"` | **0** | **0** |
-| async scheduling silently disabled | `"Disabling async scheduling"` | **0** | **0** |
-| the sampler taking the force-argmax path | `"Forcing argmax sampling"` | **0** | **0** |
+| log | [`batch1/server_max_num_seqs_1_all_checks.log.gz`](batch1/server_max_num_seqs_1_all_checks.log.gz) | [`batch32/server_max_num_seqs_32.log.gz`](batch32/server_max_num_seqs_32.log.gz) | [`async/server_no_async_max_num_seqs_1.log.gz`](async/server_no_async_max_num_seqs_1.log.gz) |
+| traffic it served | the full sampling suite, qualitative, the chat probe, the request-shape probe, the overlap arm, two primary benchmarks | the full sampling suite, qualitative, the request-shape probe, single-user and CI-burst benchmarks | the overlap control arm, the request-shape probe, the smoke sampling profile, qualitative, two primary benchmarks |
+| `POST /v1/completions` | 518 | 1565 | 103 |
+| **a foreign page table without a caller-owned cache** (`"was given a page_table but no kv_cache"`) | **0** | **0** | **0** |
+| **a program compiled inside the traced decode loop** (`"a program was compiled inside the traced decode loop"`) | **0** | **0** | **0** |
+| **KV cache falling back to a default dtype** (`"No dtype specified for the model KV cache"`) | **0** | **0** | **0** |
+| **async scheduling silently disabled** (`"Disabling async scheduling"`) | **0** | **0** | **0** |
+| **the sampler taking the force-argmax path** (`"Forcing argmax sampling"`) | **0** | **0** | **0** |
+| **a reduced serving target** (`"REDUCED serving target"`) | **0** | **0** | **0** |
+| trace re-captures (`"re-capturing the decode traces"`) — the designed mechanism, not a fallback | 19 | 26 | 19 |
 
-The re-captures are the designed mechanism, not a fallback: a prompt length the process has not seen
-compiles programs whose kernel binaries were allocated while the traces were live, and
-`_ensure_traces_replay_safe` re-captures before the next replay can overwrite them. 13 and 25 are the
-number of *distinct* prompt lengths those servers saw (the sampling suite alone sends many), and
-`test_traces_are_recaptured_when_a_new_program_is_compiled` pins that a repeat length re-captures
-nothing.
+An earlier version of this table had a batch-1 column that no preserved log supported: the batch-1 server
+log kept at that point was a *benchmark-only* server (2 POSTs, 1 re-capture), while the counts quoted were
+from the earlier server that had run the sampling suite and whose log had been overwritten — `server.log`
+is truncated per launch. The fix was to re-run the whole batch-1 set on one server and preserve its log
+before shutting it down, which is the first column above; the benchmark-only log is still kept, as
+[`batch1/server_max_num_seqs_1.log.gz`](batch1/server_max_num_seqs_1.log.gz), because it is the log behind the
+cold/warm benchmark pair in README §1.
+
+The re-captures are the designed mechanism: a prompt length the process has not seen compiles programs
+whose kernel binaries were allocated while the traces were live, and `_ensure_traces_replay_safe`
+re-captures before the next replay can overwrite them. The count tracks the number of *distinct* prompt
+lengths a server saw rather than its request count — 518 requests and 19 re-captures on one server, 1565
+and 26 on another — and
+`test_traces_are_recaptured_when_a_new_program_is_compiled` pins that a repeat length re-captures nothing.
+
+**The adapter's own counters, after real traffic.** `readiness_vllm/vllm_serving_capability_final.json`
+(§7.8) is written at engine-core exit, so it reports what the process did rather than what it was
+configured to do:
+
+| counter | batch-1, default flags | batch-1, `--no-async-scheduling` |
+|---|---|---|
+| `prefill_calls` / `decode_calls` | 530 / 11189 | 103 / 5051 |
+| `device_sampled_decodes` / `host_sampled_decodes` | 10327 / 862 | 5042 / 9 |
+| `no_refresh_steps` (the steady state copies nothing) | **9781** of 11189 | **4891** of 5051 |
+| `full_refreshes` / `page_table_only_refreshes` | 1346 / 62 | 110 / 50 |
+| `slot_remaps` | 0 | 0 |
+| `async_reads` | **11189** | **0** |
+
+Three things that table settles that a config dump cannot: 87 % of served decode steps copied **nothing**
+to the device (the refresh policy's steady state is the common case, not a special case); the host sampler
+was entered 862 times on the server that ran the log-probs tests and 9 times on the one that did not, so
+that fallback is request-driven rather than accidental; and `async_reads` is exactly the decode-call count
+with overlap on and exactly **zero** with it off, which is the mechanical proof of which path each server
+took (§7.6). `slot_remaps` stays 0 because `max_num_seqs=1` has no second row to condense into — the remap
+path's evidence is the primitive-level arm in §7.1 and the two adapter tests, not this counter.
 
 The zero force-argmax count is also the intended state, and it is a *measured* decision rather than an
 oversight: the full-model stage rejected `allow_force_argmax` because it would all-gather the whole
@@ -562,8 +950,8 @@ the goal forbids" ([`doc/full_model/README.md` §4.2](../full_model/README.md),
 [`doc/optimized_full_model/README.md` §9](../optimized_full_model/README.md)). Greedy therefore runs the
 same captured split-sampling graph as every other mode (local top-32 per vocabulary shard, gather 4×32
 candidates, `ttnn.sampling` with `k=1, p=0, temp=1`), which is the fastest strategy measured for this
-mesh. Serving inherits it unchanged: the serving benchmark's 23.15 ms/token against the model's own
-23.165 ms is the proof that no other sampling path crept in.
+mesh. Serving inherits it unchanged: the serving benchmark's 23.140 ms ITL against the model's own
+23.165 ms token-out figure is the proof that no other sampling path crept in.
 
 Two more fallbacks that are *reachable by request* rather than by accident, and are supposed to be:
 
@@ -592,11 +980,21 @@ python .agents/scripts/check_context_contract.py \
 # -> "Context contract OK ... target=262144, supported=262144 (full HF context)."   exit 0
 ```
 
-The context gate also prints eleven **advisory** lines, and they are worth naming so nobody reads them as
-a served cap. Ten are one line each from a probe's own console log — every probe logs
-`building OrnithModel: … max_context=N` at startup, and a probe that only needs a 2048-, 4096- or
-8192-token window says so. The eleventh is a pre-existing comment in `tt/functional_decoder.py` that uses
-`max_context=8000` as an illustration. Advisories are not failures (the gate returns 2 only for a JSON
+The context gate also prints **advisory** lines on stderr — 37 of them on the last run — and they are
+worth naming so nobody reads them as a served cap. Exactly:
+
+* **34 lines, one per model build in a probe or test console log.** Every build logs
+  `building OrnithModel: … max_context=N` at startup, and a run that only needs a 2048-, 4096- or
+  8192-token window says so. This is one line per *build*, not per file:
+  `probe_logit_read_stability.txt` contributes two (it builds the reduced target at `tp=4` and `tp=1`),
+  and `logs/pytest_generator_vllm.txt` contributes eleven, one per device test. The count therefore grows
+  whenever a probe is re-run or added, which is why the breakdown matters more than the total;
+* **1 line from `tt/functional_decoder.py:239`**, a pre-existing comment that uses `max_context=8000`
+  as an illustration of a prefill block ending past `max_context`;
+* **2 self-referential lines from this section**, because the text above quotes `max_context=8000` twice
+  and the gate greps text, not meaning.
+
+Advisories are not failures (the gate returns 2 only for a JSON
 *key* below the supported context, and `--strict-caps` is not used by the stage gate), and nothing in
 `tt/`, `readiness_vllm/` or this directory's JSON caps the served window: `doc/context_contract.json`'s new
 `vllm_integration` block records 262144 served against 262144 advertised, and
@@ -610,14 +1008,14 @@ In this repo:
 
 | file | change |
 |---|---|
-| `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration` |
+| `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration`. Includes the `atexit` capability dump (§7.8) and the warning that fires when a checkpoint other than this one resolves to this class (§3) |
 | `tt/generator.py` | one new `serving (vLLM) API` section (the seven primitives of §4) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
 | `tt/model.py` | **+57 lines**: `remap_state_slots` and its `_remap_rows` helper |
 | `tests/test_generator_vllm.py` | **new.** 8 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal) + 11 device cases on the reduced target (cache ownership, block-size refusal, per-slot prefill, steady-state refresh, stale-pair merge, page-table-only refresh, slot remap and its identity skip, host-sampling logits, the precision-config propagation, the capability report) |
 | `models/common/readiness_check/run_vllm_server.py` | **+73 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
-| `doc/vllm_integration/**` | **new.** This log, the README, nine probes with the console log of their final run, the evidence JSON, and the archived per-configuration artifact sets (`batch1/`, `batch32/`, `async/`) |
+| `doc/vllm_integration/**` | **new.** This log, the README, ten probes with the console log of their final run, the evidence JSON, the reduced-target localisation set (`reduced_target/`), and the archived per-configuration artifact sets (`batch1/`, `batch32/`, `async/`) |
 | `doc/context_contract.json` | **+1 block**: `vllm_integration`, recording 262144 served against 262144 advertised, the KV-pool sizing and its cost, the non-aligned-length evidence, the 64-token block size, and the tested batch coverage |
-| `readiness_vllm/**` | **new.** The shared runner's artifacts: `server.log`, `sampling_tests.log`, `vllm_qualitative_outputs.json`, `vllm_result.json`, `vllm_benchmark.json`, `vllm_benchmark.log`, `vllm_ci_serving_result.json`, `vllm_ci_serving_benchmark.json`, `vllm_ci_serving_benchmark.log`, and `vllm_serving_capability.json` (written by the adapter at the end of warm-up, from inside the engine-core process) |
+| `readiness_vllm/**` | **new.** The shared runner's artifacts, last-writer-wins per launch, with every console log committed **gzipped** because the repo's `.gitignore` excludes `*.log`: `server.log.gz`, `sampling_tests.log.gz`, `vllm_qualitative_outputs.json`, `vllm_result.json`, `vllm_benchmark.json`, `vllm_benchmark.log.gz`, `vllm_ci_serving_result.json`, `vllm_ci_serving_benchmark.json`, `vllm_ci_serving_benchmark.log.gz`, and `vllm_serving_capability.json` plus `vllm_serving_capability_final.json` (written by the adapter at the end of warm-up and again at engine-core exit, from inside that process). What is committed there is the headline single-user server's output; the per-configuration archives under `doc/vllm_integration/{batch1,batch32,async}/` are the attributable copies |
 
 Nothing in `tt/model.py`, `tt/optimized_decoder.py`, `tt/multichip_decoder.py` or `tt/precision_config.py`
 changed behaviour for the earlier stages: the only model addition is a new method nothing else calls, and
@@ -629,5 +1027,20 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 | file | change |
 |---|---|
-| `plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py` | register this adapter for `TTQwen3_5MoeForConditionalGeneration` and, replacing upstream's class, for `Qwen3_5MoeForConditionalGeneration` (§3) |
+| `plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py` | register this adapter for `TTQwen3_5MoeForConditionalGeneration` and, replacing upstream's class, for `Qwen3_5MoeForConditionalGeneration`, with a comment recording that the override is architecture-wide and where a future collision would have to be resolved (§3) |
 | `plugins/vllm-tt-plugin/src/vllm_tt_plugin/worker.py` | `get_fabric_router_config()` + `set_fabric` honouring a `fabric_router_max_packet_bytes` TT-config key, because fabric configuration has to happen before the mesh is opened (§3) |
+
+---
+
+## 15. Stage review and commits
+
+### Commits
+
+| repo | branch | commit | contents |
+|---|---|---|---|
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `71f8bab9ff0` | the adapter, the generator/model serving primitives and the `_resolve_page_table` fix, the adapter suite, this stage's evidence, the `readiness_vllm/` artifacts, the context-contract block, and the two shared-runner fixes |
+| `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + this) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
+
+Neither commit is pushed. The `tt-metal` commit contains only stage-owned paths; the two files that were
+already dirty when the stage started (`.agents/skills/tt-device-usage/SKILL.md`, modified, and
+`.agents/fast-models-fast-feedback.md`, untracked) were left untouched and out of it.

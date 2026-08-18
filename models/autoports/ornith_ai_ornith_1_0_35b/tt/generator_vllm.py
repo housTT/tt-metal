@@ -51,6 +51,7 @@ the measured path and does not replace it.
 
 from __future__ import annotations
 
+import atexit
 import os
 from pathlib import Path
 from typing import Any
@@ -297,6 +298,21 @@ class TTQwen3_5MoeForConditionalGeneration:
             raise ValueError(f"max_model_len={max_model_len} exceeds the advertised context {advertised}")
 
         snapshot = _resolve_snapshot(hf_config)
+        # The plugin replaces the plain `Qwen3_5MoeForConditionalGeneration` architecture in a TT
+        # process (work log section 3), which is process-global: *any* checkpoint declaring that
+        # architecture resolves to this class, not just this one. That is safe but worth saying out
+        # loud, because it is a scope this stage did not test. A foreign checkpoint does not silently
+        # serve: `OrnithConfig.from_hf` refuses unknown `layer_types`, and the weight loader refuses a
+        # checkpoint that does not nest under `model.language_model.`. What it will not do is fall
+        # back to upstream's implementation.
+        served_name = str(getattr(hf_config, "_name_or_path", "") or "")
+        if HF_MODEL_ID.split("/")[-1].lower() not in (served_name + " " + str(snapshot)).lower():
+            logger.warning(
+                f"serving {served_name or snapshot!r} through the {HF_MODEL_ID} TT port: this process "
+                "registers the TT class for the plain Qwen3.5-MoE architecture, so a different "
+                "checkpoint of that architecture also resolves here. Only "
+                f"{HF_MODEL_ID} was validated by the vLLM-integration stage."
+            )
         # The model's own config parse, not vLLM's: the vision half of this checkpoint's config is
         # not this port's, and `load_text_config` is what every other stage builds from.
         model_config = load_text_config(snapshot)
@@ -560,19 +576,29 @@ class TTQwen3_5MoeForConditionalGeneration:
             f"{gen.trace_recaptures} trace re-capture(s), {gen.sampling_trace_captures} sampling capture(s)"
         )
         self._write_serving_capability()
+        # ...and again when the engine-core process exits, so the counters describe the traffic it served
+        # rather than the warm-up that wrote the first copy. The warm-up copy is kept as
+        # `vllm_serving_capability.json`; this one lands beside it with a `_final` suffix, because a
+        # crashed process should leave the warm-up evidence rather than nothing.
+        atexit.register(self._write_serving_capability, suffix="_final")
 
-    def _write_serving_capability(self) -> None:
+    def _write_serving_capability(self, suffix: str = "") -> None:
         """Record what this serving build is, next to the readiness artifacts.
 
-        Written from inside the engine-core process at the end of warm-up, because that is the only
-        place that can read the *built* model rather than a config file: the precision policy every
-        layer actually carries, the KV-cache dtype the cache was allocated at, the capability flags the
-        plugin read, and the page-table geometry. A stage that reports a policy it did not serve is the
-        failure this file exists to make impossible.
+        Written from inside the engine-core process, because that is the only place that can read the
+        *built* model rather than a config file: the precision policy every layer actually carries, the
+        KV-cache dtype the cache was allocated at, the capability flags the plugin read, and the
+        page-table geometry. A stage that reports a policy it did not serve is the failure this file
+        exists to make impossible.
+
+        Written twice: once at the end of warm-up, and once at process exit with ``suffix="_final"``, so
+        the counters (refreshes, no-refresh steps, slot remaps, async reads, device- against
+        host-sampled decodes) describe the traffic the server actually handled. The warm-up copy is
+        always complete even if the process dies later.
         """
         import json
 
-        path = Path(__file__).resolve().parents[1] / "readiness_vllm" / "vllm_serving_capability.json"
+        path = Path(__file__).resolve().parents[1] / "readiness_vllm" / f"vllm_serving_capability{suffix}.json"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(self.serving_capability(), indent=1) + "\n")
