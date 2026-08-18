@@ -125,7 +125,7 @@ For the same reason, a single user on a server built for 32 pays for the padded 
 
 | | |
 |---|---|
-| adapter | [`tt/generator_vllm.py`](../../tt/generator_vllm.py), class `TTQwen3_5MoeForConditionalGeneration`. It does not import `ttnn`: every device action, down to the async read's copy-and-event, is a call into [`tt/generator.py`](../../tt/generator.py) ([work log §4](work_log.md#4-the-adapter-and-the-primitives-it-drives)) |
+| adapter | [`tt/generator_vllm.py`](../../tt/generator_vllm.py), class `TTQwen3_5MoeForConditionalGeneration`. It does not import `ttnn` and performs no device-tensor operation of its own — including the async read's copy-and-event, which is the generator's `read_output_async`. Device work goes through [`tt/generator.py`](../../tt/generator.py), or through the model for cache attachment and per-slot state, or through the shared `SamplingGenerator` for sampling state, which is the boundary the generator documents ([work log §4](work_log.md#4-the-adapter-and-the-primitives-it-drives)) |
 | registered as | `TTQwen3_5MoeForConditionalGeneration` **and** `Qwen3_5MoeForConditionalGeneration` in `vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py::register_tt_models` (why the second: [work log §3](work_log.md#3-plugin-registration-and-the-two-upstream-decisions-that-had-to-be-taken-away-from-upstream)) |
 | vLLM checkout | `tenstorrent/vllm@bf98d556` (`dev`), installed `VLLM_TARGET_DEVICE=empty` ([`vllm_checkout.txt`](vllm_checkout.txt), plugin diff [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff)) |
 | served context | **262144**, equal to `doc/context_contract.json`; no capability reduction |
@@ -639,6 +639,6 @@ Under [`doc/vllm_integration/`](.) — this stage's own evidence:
 | [`reduced_target/`](reduced_target/) | the run-pair counts that localise the batch ≥ 8 nondeterminism to the collectives (mechanical, on the two-layer bring-up target — see [work log §8.3](work_log.md#83-where-it-enters-measured-the-multi-device-collectives)) |
 | [`logs/`](logs/) | every probe (`.py`) with the console log of its final run (`.txt`, gzipped where it is large), both test-suite logs, the two gate console logs ([`check_degenerate_output.txt`](logs/check_degenerate_output.txt), [`check_context_contract.txt`](logs/check_context_contract.txt)), and the device reset/mesh-smoke record |
 
-Tests: [`tests/test_generator_vllm.py`](../../tests/test_generator_vllm.py) — 9 host-only cases and 11 on
-the reduced two-layer target, driving the adapter through the plugin-facing API. **20 passed** on the
+Tests: [`tests/test_generator_vllm.py`](../../tests/test_generator_vllm.py) — 9 host-only cases and 12 on
+the reduced two-layer target, driving the adapter through the plugin-facing API. **21 passed** on the
 committed tree; console log [`logs/pytest_generator_vllm.txt`](logs/pytest_generator_vllm.txt).

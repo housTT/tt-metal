@@ -454,13 +454,13 @@ class OrnithGenerator(Generator):
     def _read_tokens_async(self):
         """Enqueue the token readback **behind** the replay that produced it, without waiting.
 
-        ``cpu(blocking=False)`` puts the device->host copy on the same command queue as the model
-        and sampling replays, so it observes exactly this step's sampled token: the queue is
-        in-order, and the *next* step's replay is enqueued after it. The recorded event is what the
-        host waits on later, once the next step is already running on the device.
+        The mechanism is :meth:`read_output_async`'s: ``cpu(blocking=False)`` puts the device->host copy
+        on the same command queue as the model and sampling replays, so it observes exactly this step's
+        sampled token (the queue is in-order and the *next* step's replay is enqueued after it), and the
+        recorded event is what the host waits on later. This wrapper adds the ``token_readbacks``
+        counter and is what the pipelined ``generate`` loop calls.
         """
-        host = self._trace_inputs[0].cpu(blocking=False)
-        event = ttnn.record_event(self.mesh_device, 0)
+        host, event = self.read_output_async()
         self.counters["token_readbacks"] += 1
         return host, event
 
@@ -1013,7 +1013,12 @@ class OrnithGenerator(Generator):
         return self._read_tokens()
 
     def read_tokens_async(self):
-        """Enqueue the token readback behind the replay that produced it, without waiting."""
+        """Enqueue the token readback behind the replay that produced it, without waiting.
+
+        The token-buffer shorthand for :meth:`read_output_async`, plus the ``token_readbacks`` counter
+        the standalone ``generate`` loop is measured by. One implementation, two entry points: the only
+        difference between them is that counter.
+        """
         return self._read_tokens_async()
 
     def read_output_async(self, tensor=None):

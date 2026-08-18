@@ -770,6 +770,71 @@ def test_host_sampling_returns_logits_and_never_becomes_the_default(mesh_device)
 
 
 @on_mesh
+def test_the_async_read_returns_the_same_result_for_tokens_and_for_logits(mesh_device):
+    """`read_decode_output(async_read=True)` must work on **either** output tensor.
+
+    The plugin defers the read on every step when async scheduling is on, and what the adapter is
+    handed is the token buffer on a device-sampled step and the vocab-sharded logits on a host-sampled
+    one. Both go through the generator's `read_output_async`, so this pins that the deferred path and
+    the blocking path agree bit for bit on both - which is what makes the async split safe to be the
+    default (it is, in this vLLM: README section 5).
+    """
+    adapter = serving_adapter(mesh_device)
+    table = serving_page_table(adapter)
+    prompt = [7, 77, 777, 7777]
+    slot = 0
+    prefill_logits = adapter.prefill_forward(
+        tokens=torch.tensor([prompt], dtype=torch.int64),
+        page_table=table[slot : slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[len(prompt)],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[slot],
+    )[0]
+    batch = adapter.max_batch_size
+    tokens = torch.zeros(batch, dtype=torch.int64)
+    positions = torch.full((batch,), -1, dtype=torch.int64)
+    tokens[slot] = int(torch.argmax(prefill_logits[0, -1]))
+    positions[slot] = len(prompt)
+
+    def step(sampling_params, is_tokens):
+        """One decode step read both ways: deferred (async) and blocking."""
+        deferred = adapter.decode_forward(
+            tokens=tokens,
+            page_table=table,
+            kv_cache=adapter._test_kv_cache,
+            start_pos=positions,
+            enable_trace=True,
+            read_from_device=False,
+            sampling_params=sampling_params,
+            reset_batch=True,
+        )
+        pending, events = adapter.read_decode_output(deferred, async_read=True)
+        for event in events:
+            ttnn.event_synchronize(event)
+        from_async = adapter.process_decode_output_host(pending, is_tokens=is_tokens)
+        from_blocking = adapter.process_decode_output_host(
+            adapter.read_decode_output(deferred, async_read=False), is_tokens=is_tokens
+        )
+        return from_async, from_blocking
+
+    # host-sampled step: the deferred tensor is the logits row
+    async_logits, blocking_logits = step(None, is_tokens=False)
+    assert tuple(async_logits.shape) == (batch, 1, adapter.model.vocab_size)
+    assert torch.equal(async_logits, blocking_logits), "the async logits read must match the blocking one"
+
+    tokens[slot] = int(torch.argmax(async_logits[slot, 0]))
+    positions[slot] = int(positions[slot]) + 1
+
+    # device-sampled step: the deferred tensor is the persistent token buffer
+    async_tokens, blocking_tokens = step(greedy_params(batch), is_tokens=True)
+    assert tuple(async_tokens.shape) == (batch,)
+    assert torch.equal(async_tokens, blocking_tokens), "the async token read must match the blocking one"
+    assert adapter.serving_counters["async_reads"] >= 2, "both deferred reads go through the generator"
+
+
+@on_mesh
 def test_the_serving_build_carries_the_selected_precision_config(mesh_device):
     """Serving must run the datatype sweep's selection, and prove it from the *built* model.
 
