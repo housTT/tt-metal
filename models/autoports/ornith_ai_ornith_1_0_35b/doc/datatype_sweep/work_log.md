@@ -496,7 +496,9 @@ Local checkpoint commits only. Nothing was pushed.
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `246c86d9084` | the stage: the selected precision config, `tt/precision_config.py`, the `PrecisionPolicy` fields and their plumbing, the tests, the context contract and all of `doc/datatype_sweep/` |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `7fd4c1d0399` | review round 2's documentation corrections and the extended figure audit (143 → 159 assertions) |
 | `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `22a6188c389` | the `$autofix` pass on C19, the LM-head geometry ladder under the selected policy, the triage-summary classification, and 159 → 186 assertions |
-| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `0d94bdb977b` | the suite re-run on `22a6188c389` (53 + 5 passed) and this SHA table |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `0d94bdb977b` | the suite re-run on `22a6188c389` (53 + 5 passed) |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `556912e05c7` | the SHA table |
+| `tt-metal` | `agentic-research/hous/ornith-1.0-35B` | `525d37c41fa` | review round 4's `clean-pass`, its non-blocking concerns closed, and 186 → 193 assertions |
 
 Two files were already dirty before this stage began and are **not** stage-owned, so neither commit
 touches them: `.agents/skills/tt-device-usage/SKILL.md` (modified) and
