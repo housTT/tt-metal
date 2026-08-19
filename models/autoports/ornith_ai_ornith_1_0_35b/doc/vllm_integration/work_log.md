@@ -1563,6 +1563,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `2aac1793a98` | round 11's fold-in: the dead complement mask removed, the idle-row test extended to the conv window, and the seeded-sampling, decode-floor-spread, replay-safety and plugin-diff wordings tightened (that round returned **clean-pass**) |
 | `tt-metal` | same | `c1027d63913` | the round-11 clean-pass record in §15 |
 | `tt-metal` | same | `cade3cfce98` | round 12's findings closed: the `vllm_checkout.txt` half of the diff-exactness correction, the regression test's docstring tense, the dead `invert` mask branch deleted, and a positive control that the test's poke landed |
+| `tt-metal` | same | `494f1859da7` | the round-12 review record in §15 |
+| `tt-metal` | same | `8a6e5e26dd0` | round 13's two boundaries closed by measurement: the idle-row test made mesh-wide, and both suites re-run on the final tree (that round returned **clean-pass**) |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
