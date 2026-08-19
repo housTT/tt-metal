@@ -812,7 +812,6 @@ class OrnithModel(LightweightModule):
             return
         for slot in range(max_batch_size):
             self._slot_mask(slot, max_batch_size)
-            self._slot_mask(slot, max_batch_size, invert=True)
 
     def _share_fused_gate_buffers(self):
         """One set of fused-router-gate buffers for the whole stack instead of one per layer.
@@ -1536,16 +1535,15 @@ class OrnithModel(LightweightModule):
         import torch
 
         mask = self._slot_mask(slot, batch)
-        inverse = self._slot_mask(slot, batch, invert=True)
         src_pack = self._packs[1]
         dst_pack = self._packs[batch]
         for src, dst in zip(src_pack, dst_pack):
             if src["recurrent_state"] is None:
                 continue
             for key in ("recurrent_state",):
-                self._merge_rows(src[key], dst[key], mask["r"], inverse["r"], batch)
+                self._merge_rows(src[key], dst[key], mask["r"], batch)
             for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
-                self._merge_rows(src_buf, dst_buf, mask["c"], inverse["c"], batch)
+                self._merge_rows(src_buf, dst_buf, mask["c"], batch)
         del torch
 
     def remap_state_slots(self, remap) -> int:
@@ -1600,13 +1598,12 @@ class OrnithModel(LightweightModule):
             sources[src] = ttnn.slice(buf, [src] + [0] * (len(shape) - 1), [src + 1] + shape[1:])
         for row, src in moves:
             mask = self._slot_mask(row, batch)[kind]
-            inverse = self._slot_mask(row, batch, invert=True)[kind]
-            self._merge_rows(sources[src], buf, mask, inverse, batch)
+            self._merge_rows(sources[src], buf, mask, batch)
         for tensor in sources.values():
             ttnn.deallocate(tensor)
 
     @staticmethod
-    def _merge_rows(src, dst, mask, inverse, batch: int):
+    def _merge_rows(src, dst, mask, batch: int):
         """Write ``src``'s single row into ``dst``'s masked row, leaving every other row untouched.
 
         A **select**, not arithmetic, and that distinction is a correctness fix rather than a style
@@ -1620,12 +1617,19 @@ class OrnithModel(LightweightModule):
         is the regression pin. ``ttnn.where`` reads the same tensors but *selects* from them, so a
         non-finite value in a branch that is not taken cannot propagate.
         """
-        del inverse  # the mask alone selects; nothing multiplies the row it replaces
         wide = ttnn.repeat(src, ttnn.Shape([batch] + [1] * (len(src.shape) - 1)))
         ttnn.where(mask, wide, dst, output_tensor=dst)
         ttnn.deallocate(wide)
 
     def _slot_mask(self, slot: int, batch: int, *, invert: bool = False):
+        """A cached 0/1 row selector for ``slot``, in both state-buffer shapes.
+
+        ``invert`` is unused by the model since :meth:`_merge_rows` became a select rather than
+        ``dst * inverse + src * mask`` (see its docstring): nothing multiplies the row it replaces any
+        more, so nothing needs the complement. The parameter stays because the mask cache is keyed on it
+        and a caller that wants "every row but this one" has a correct implementation here rather than an
+        ad-hoc one.
+        """
         import torch
 
         key = ("mask", slot, batch, invert)

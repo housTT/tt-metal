@@ -695,8 +695,8 @@ limit once it had thirteen device cases.
 
 ### 7.10 Tests
 ```
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 210 s
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2154 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 305 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2316 s
 ```
 Console logs: the adapter suite's own run on the committed tree is
 [`logs/pytest_generator_vllm.txt.gz`](logs/pytest_generator_vllm.txt.gz) — **22 passed** (9 host-only cases and 13
@@ -722,7 +722,7 @@ for no measurement gain.
 
 The second command is the regression check for this stage's generator/model additions: the full-model
 stage's own suite, unchanged, on the same reduced target it uses. It was **re-run on the committed tree** —
-50 passed, 5 deselected, in 2154.23 s, `FULL_EXIT=0` at the end of
+50 passed, 5 deselected, in 2316.15 s, `FULL_EXIT=0` at the end of
 [`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz). This run is *after* the `_merge_rows`
 correctness fix of §9.2, which is the change most in need of it: that primitive is what the full-model
 stage's own batched prefill uses, and `test_the_batched_prefill_state_reaches_every_decode_slot` is one of
@@ -1073,9 +1073,13 @@ damage would have surfaced one step later as `NaN` logits for a request that did
 
 **The fix is a select instead of arithmetic**: `ttnn.where(mask, wide_src, dst, output_tensor=dst)`. For
 finite rows it is bit-identical to the old expression (`dst * 0 + src * 1` and `dst * 1 + src * 0` are exact),
-and a non-finite value in the branch that is *not* taken cannot propagate. The new test passes on the fix, the
-adapter suite is 22 passed, and the full-model suite — which drives the same merge through its batched
-prefill, `test_the_batched_prefill_state_reaches_every_decode_slot` included — is unchanged at 50 passed.
+and a non-finite value in the branch that is *not* taken cannot propagate. The complement mask the old
+expression needed is gone from both call sites with it, so `_merge_rows` now takes what it uses. The test
+covers both buffer kinds — the float32 recurrent matrix and the bfloat16 conv window, which are different
+dtypes, ranks and mask shapes through the same primitive — and asserts finiteness across every row of every
+one of them. It passes on the fix; the adapter suite is 22 passed, and the full-model suite — which drives the
+same merge through its batched prefill, `test_the_batched_prefill_state_reaches_every_decode_slot` included —
+is unchanged at 50 passed.
 
 Two things worth saying plainly. This is the one *correctness* bug in model code that this stage's reviews
 found, and it was found by asking "what reads the thing you measured?" rather than by any gate: every served
@@ -1322,7 +1326,7 @@ In this repo:
 |---|---|
 | `tt/generator_vllm.py` | **new.** The vLLM adapter: `TTQwen3_5MoeForConditionalGeneration`. Includes the `atexit` capability dump (§7.8) and the warning that fires when a checkpoint other than this one resolves to this class (§3) |
 | `tt/generator.py` | one new `serving (vLLM) API` section (fifteen public methods: the eleven the adapter calls — §4 — plus `device_decode_state` and the three standalone-loop readback helpers) plus four small changes elsewhere: `_sample_traced` passes `skip_precompile=True`; the constructor allocates the prefill sampling scratch buffer (before any capture) and a `sampling_trace_captures` counter; `submit_serving_decode` calls the replay-safety check itself; and `_resolve_page_table` substitutes only when the generator owns its cache (§9) |
-| `tt/model.py` | `remap_state_slots` and its `_remap_rows` helper (**+57 lines**), plus one correctness fix in the pre-existing `_merge_rows`: the masked row is now written with `ttnn.where` instead of `dst * inverse + src * mask`, because the arithmetic form read the row it was replacing and `inf * 0` is `NaN` (§9.2). Bit-identical for finite rows, and the full-model suite that drives the same merge is unchanged at 50 passed |
+| `tt/model.py` | `remap_state_slots` and its `_remap_rows` helper (**+57 lines**), plus one correctness fix in the pre-existing `_merge_rows` (and the removal of the complement mask it no longer needs): the masked row is now written with `ttnn.where` instead of `dst * inverse + src * mask`, because the arithmetic form read the row it was replacing and `inf * 0` is `NaN` (§9.2). Bit-identical for finite rows, and the full-model suite that drives the same merge is unchanged at 50 passed |
 | `tests/test_generator_vllm.py` | **new.** 9 host-only cases (registration, the flags the plugin reads, the interface vLLM introspects, the shared adapter contract, no sampling path of its own, the token-pool bound, the log-probs refusal reading rows rather than the container, visual-payload refusal, a reduced build not overwriting the served capability report) + 13 device cases on the reduced target (cache ownership; block-size refusal; per-slot prefill into the slot vLLM assigned; the steady state copying nothing; a stale host pair not overriding the device; only a changed page table being copied; a slot remap moving the recurrent state bit for bit; the adapter applying that remap *before* the decode step; host sampling returning logits and never becoming the default; the deferred (async) read agreeing bit for bit with the blocking one on **both** output tensors; a non-finite idle row reaching neither another slot's prefill nor a remap's other rows (§9.2); the precision-config propagation; the capability report naming the selected policy) |
 | `models/common/readiness_check/run_vllm_server.py` | **+65 / -4 lines**: `_tt_config_flag()` picks `--additional-config` / `--plugin-config` from the installed engine, and `_mesh_device()` accepts a mesh name or an explicit `(rows, cols)` grid. Both are fixes against the current vLLM fork, not model-specific |
 | `doc/vllm_integration/**` | **new.** This log, the README, ten probes with the console log of their final run, the evidence JSON, the reduced-target localisation set (`reduced_target/`), and the archived per-configuration artifact sets (`batch1/`, `batch32/`, `async/`) |
@@ -1484,6 +1488,18 @@ scope-of-claim corrections:
 | README §1's "well inside the 9-repeat spread" compared against the wrong spread | now compares against the sweep's characterised run-to-run spread (0.18–0.48 %) with both deltas as percentages |
 | `serving_primitives.json`'s empty `host_wins_repeat_positions` read as contradicting "the stream repeats a token" | both docs now say what the arms show — the stale-host stream re-emits the pair from two steps earlier, which is not adjacent doubling, which is what that field counts |
 | `vllm_checkout.txt` named only the base commit | it now names all three commits of the tree that ran, and how to reproduce the archived diff |
+
+**Round 11** returned **`clean-pass`** with no required work. Its non-blocking observations were folded in
+anyway, because each was a claim that was looser than the evidence:
+
+| observation | what it turned into |
+|---|---|
+| README §3's "one sampling-trace replay per token" is unconditional, but the shared sampler refuses to trace while a per-request **seed** is active | §3 names the exception (same graph, on device, untraced) and limitation 10 says seeded requests are therefore the configuration with no published TPOT here |
+| the round-10 fix left `_merge_rows`' complement mask with no consumer | the parameter and both call sites' `invert=True` masks are gone; `_slot_mask` documents why its `invert` branch is now caller-only |
+| the new test poked and asserted only the float32 recurrent matrix, leaving the bfloat16 conv window covered by construction | it now asserts finiteness over both, which is also what makes the `ttnn.where` fix cover two dtypes, ranks and mask shapes |
+| README §1's decode-floor comparison cited a spread that belongs to the sweep's teacher-forcing rows | it now gives both spreads and says which one the conclusion rests on: the baseline's own nine repeats span 0.02 %, serving's three warm runs span 0.12 %, and the serving-vs-floor difference (0.04 % of TPOT) is inside the second |
+| README §1 credited `submit_serving_decode`'s replay-safety check; `decode_forward`'s own call fires first | corrected — both are inside the first decode step, so the timing conclusion is unchanged |
+| "byte for byte" overstated the archived plugin diff | it is identical in content; the repo's whitespace hook stripped the trailing space from three blank context lines, and both places now say so |
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two

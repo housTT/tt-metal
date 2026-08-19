@@ -57,8 +57,9 @@ carries the whole ~220 ms. The second server's cold run gives ~231 ms the same w
 
 The mechanism is in the committed server log: the cold request enters prefill at `18:55:38.314` and the
 decode traces are re-captured at `18:55:38.494`. That re-capture is not part of the prefill — it comes from
-`submit_serving_decode`'s replay-safety check, which runs on the **first decode step**, so it lands after the
-first token has been returned and is charged to the first inter-token interval rather than to TTFT. The warm
+the replay-safety check on the **first decode step** (`decode_forward` calls `ensure_replay_safe()` before it
+stages anything, and `submit_serving_decode`'s own check is then a no-op), so it lands after the first token
+has been returned and is charged to the first inter-token interval rather than to TTFT. The warm
 request at `18:55:52.562` has no re-capture line. The datatype-sweep stage measured the same thing standalone and
 called it by name: [`cold_prompt_length_cost`](../datatype_sweep/post_selection_token_out.json) records
 `hidden_cost_ms` 250.4 with `trace_recaptures` 1 (312 ms cold TTFT against 177 ms warmed, on its own
@@ -79,8 +80,12 @@ bucket set.
 | teacher-forcing traced decode (serial by construction) | 23.643 | 42.296 | [datatype sweep](../datatype_sweep/README.md) |
 
 Serving decode is **at** the model's own token-out figure — 0.009 ms/token above it on TPOT (0.04 %) and
-0.032 below it on the ITL median (0.14 %), both inside the run-to-run spread the datatype sweep characterised
-for this benchmark (0.18 – 0.48 %) — so there is no measurable vLLM-specific decode overhead left to remove. That is true of the *overlapped* configuration, which is
+0.032 below it on the ITL median (0.14 %). Two spreads to compare that against, because they measure
+different things: the token-out baseline's own **nine repeats** span 23.1647 – 23.1693 ms, i.e. 0.02 %, so
+serving is outside the *baseline harness's* repeat noise — while the same three overlapped serving runs span
+0.12 % of TPOT (23.146 – 23.174 ms), which is where a 0.04 % difference disappears. The honest statement is
+the second one: serving decode and the model's own decode differ by less than serving's own run-to-run
+variation, so there is no measurable vLLM-specific decode overhead left to remove. That is true of the *overlapped* configuration, which is
 this vLLM's default and the one measured here; with `--no-async-scheduling` the same server sits at
 24.591 ms ITL, 1.4 ms above the floor ([§5](#5-async-decode-overlap-on-by-default-here-and-worth-6)).
 TTFT carries +6 to +12 ms of serving path across the three warm runs (145.3–151.7 ms against the model's
@@ -127,13 +132,13 @@ For the same reason, a single user on a server built for 32 pays for the padded 
 |---|---|
 | adapter | [`tt/generator_vllm.py`](../../tt/generator_vllm.py), class `TTQwen3_5MoeForConditionalGeneration`. It does not import `ttnn` and performs no device-tensor operation of its own — including the async read's copy-and-event, which is the generator's `read_output_async`. Device work goes through [`tt/generator.py`](../../tt/generator.py), or through the model for cache attachment and per-slot state, or through the shared `SamplingGenerator` for sampling state, which is the boundary the generator documents ([work log §4](work_log.md#4-the-adapter-and-the-primitives-it-drives)) |
 | registered as | `TTQwen3_5MoeForConditionalGeneration` **and** `Qwen3_5MoeForConditionalGeneration` in `vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py::register_tt_models` (why the second: [work log §3](work_log.md#3-plugin-registration-and-the-two-upstream-decisions-that-had-to-be-taken-away-from-upstream)) |
-| vLLM checkout | `tenstorrent/vllm@bf98d556` (`dev`) **plus this stage's two plugin commits** (`a8a5a4c`, `5380fd4`), installed `VLLM_TARGET_DEVICE=empty`. [`vllm_checkout.txt`](vllm_checkout.txt) names all three and [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) is the diff, byte for byte |
+| vLLM checkout | `tenstorrent/vllm@bf98d556` (`dev`) **plus this stage's two plugin commits** (`a8a5a4c`, `5380fd4`), installed `VLLM_TARGET_DEVICE=empty`. [`vllm_checkout.txt`](vllm_checkout.txt) names all three and [`vllm_tt_plugin_changes.diff`](vllm_tt_plugin_changes.diff) is the diff (identical in content; the repo's whitespace hook stripped the trailing space from three blank context lines) |
 | served context | **262144**, equal to `doc/context_contract.json`; no capability reduction |
 | batch coverage | `max_num_seqs=32` (the sampler's `MAX_SAMPLING_BATCH` bound) and `1` |
 | KV cache owner | **vLLM**. `allocate_kv_cache` builds the cache at the block count vLLM sized and the generator is constructed around it (`kv_cache=`), so nothing allocates a second one |
 | recurrent state owner | the model — 30 `linear_attention` layers' fixed-size DeltaNet matrix and conv window per slot, moved on a vLLM batch condense by `remap_state_slots`. Both that move and the per-slot prefill merge write the target row by *selection*, so a row that has run away to non-finite values cannot reach another request; pinned by `test_a_nonfinite_idle_row_cannot_reach_a_served_request` ([work log §9.2](work_log.md#92-the-idle-row-poison-the-state-merge-could-read--found-by-the-review-reproduced-fixed)) |
 | capability flags | `supports_async_decode=True` (proven, §5), `supports_sample_on_device=True` (enforced by the runner, `sample_on_device_mode: all`), `supports_prefix_caching=False` (not implemented, not claimed) |
-| sampling | **on device**, the full-model split-sampling path: one model-trace replay + one sampling-trace replay per token, `tt_out_tok` feeding the next replay. No host argmax, no full-logits readback, no top-k greedy fallback, no Python token feedback on the measured path |
+| sampling | **on device**, the full-model split-sampling path: one model-trace replay + one sampling-trace replay per token, `tt_out_tok` feeding the next replay. No host argmax, no full-logits readback, no top-k greedy fallback, no Python token feedback on the measured path. One exception, inherited from the shared sampler and still on device: a request carrying an explicit `seed` runs the *same* sampling graph **untraced** (`SamplingGenerator` refuses to trace while a per-request seed is active, so the seed cannot be baked into a replay). Every benchmark here is unseeded, so the measured path is the traced one |
 | host sampling | only when the plugin asks for it (log-probs on a 4-device mesh, `min_p`, `bad_words`, `logit_bias`, `allowed_token_ids`, `min_tokens`, structured output). Explicit, optional, and never the measured path |
 | qualitative verdict | **coherent, on topic, English, no repetition loops, no gibberish, no cross-request contamination**, matched against the HF and full-model controls (§4) |
 | degenerate-output check | `no degenerate output detected` (`--scope vllm` and `--scope all`), on the default (overlapped) runs at both batch sizes and on the `--no-async-scheduling` control |
@@ -575,7 +580,8 @@ reasoning).
 10. **A seed reproduces a completion within one scheduling mode, not across both.** The same seeded request
    (temperature 0.8, top-p 0.9, seed 4242) returns one text on an overlapped server and a different one
    with `--no-async-scheduling` — each reproducibly, including after ~90 intervening requests, and greedy
-   output is identical across the two. It is the sampler's draw sequence landing differently under the two
+   output is identical across the two. Seeded requests also take the sampler's **untraced** on-device path
+   (§3), so they are the configuration with no published TPOT here. It is the sampler's draw sequence landing differently under the two
    schedulers, characterised in
    [work log §7.6.1](work_log.md#761-a-seeded-request-is-reproducible-within-a-server-not-across-two-of-them);
    pinning it to a line is plugin work, not adapter work.

@@ -854,11 +854,17 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
     batch = adapter.max_batch_size
     model = adapter.model
     idle, target = batch - 2, 0
-    recurrent = [layer.recurrent_state for layer in model.layers if not layer.is_full_attention]
-    assert recurrent, "the reduced target must carry at least one linear_attention layer"
+    state = []
+    for layer in model.layers:
+        if layer.is_full_attention or layer.recurrent_state is None:
+            continue
+        state.append(layer.recurrent_state)
+        state.extend(layer.conv_state)
+    assert state, "the reduced target must carry at least one linear_attention layer"
+    recurrent = state
 
     def poison_idle_rows():
-        """Write ``inf`` into the idle row of every DeltaNet recurrent buffer, in place."""
+        """Write ``inf`` into the idle row of every DeltaNet buffer - recurrent matrix and conv window."""
         for buf in recurrent:
             shape = [int(d) for d in buf.shape]
             host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
@@ -868,7 +874,7 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
             )
 
     def rows_are_finite(*, skip):
-        """Is every row except ``skip`` finite, in every recurrent buffer?"""
+        """Is every row except ``skip`` finite, in every per-slot buffer (both dtypes)?"""
         for buf in recurrent:
             host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
             for row in range(batch):
