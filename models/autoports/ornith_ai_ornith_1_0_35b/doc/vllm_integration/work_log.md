@@ -1354,10 +1354,17 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 ### Review rounds, and what they changed
 
-`$stage-review` returned `more-work-needed` in every round listed below — one table per round, in order.
-Each finding is recorded beside the measurement or correction it produced, because several of them changed
-published numbers. (An earlier version of this sentence hard-coded the number of rounds, and then said
-"twice" over three tables and "three times" over four; the count now comes from the tables themselves.)
+`$stage-review` ran until it returned **`clean-pass`**. Every round before that returned
+`more-work-needed`; there is one table per round below, in order, and each finding is recorded beside the
+measurement or correction it produced, because several of them changed published numbers. (An earlier version
+of this sentence hard-coded the number of rounds and drifted twice; the count now comes from the tables.)
+
+Two of the rounds changed the model or the adapter rather than the record: round 7 moved the async read's
+`ttnn` calls behind a generator primitive, and round 10 found and fixed a real correctness bug in the
+per-slot state merge (§9.2). The other rounds were the record catching up with the artifacts — which is worth
+saying plainly, because the pattern of what they caught is the useful part: a number quoted from a file that
+had been overwritten, a control that did not control for what it was cited for, a claim whose support was an
+argument, and a measurement that was comparing zeros.
 
 **Round 1.**
 
@@ -1531,6 +1538,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `f72952d822e` | review round 9 remediation: the debris files deleted, the full-model regression suite re-run and re-archived, the context-gate tally made self-stable at 32, and the final device-state record carrying both suites' timestamps |
 | `tt-metal` | same | `750bc528b63` | the round-9 review record in §15 |
 | `tt-metal` | same | `a0842ec599a` | review round 10: the `_merge_rows` correctness fix (§9.2) with its regression test and both suites re-run, plus the batch-32 request-artifact label, the decode-floor spread comparison, the stale-host wording, the served vLLM tree, and the gzipped adapter-suite log |
+| `tt-metal` | same | `cb33a7c8ddc` | the round-10 review record in §15 |
+| `tt-metal` | same | `2aac1793a98` | round 11's fold-in: the dead complement mask removed, the idle-row test extended to the conv window, and the seeded-sampling, decode-floor-spread, replay-safety and plugin-diff wordings tightened (that round returned **clean-pass**) |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
