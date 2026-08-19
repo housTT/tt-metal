@@ -695,8 +695,8 @@ limit once it had thirteen device cases.
 
 ### 7.10 Tests
 ```
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 320 s
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2316 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 279 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2279 s
 ```
 Console logs: the adapter suite's own run on the committed tree is
 [`logs/pytest_generator_vllm.txt.gz`](logs/pytest_generator_vllm.txt.gz) — **22 passed** (9 host-only cases and 13
@@ -722,11 +722,13 @@ for no measurement gain.
 
 The second command is the regression check for this stage's generator/model additions: the full-model
 stage's own suite, unchanged, on the same reduced target it uses. It was **re-run on the committed tree** —
-50 passed, 5 deselected, in 2316.15 s, `FULL_EXIT=0` at the end of
-[`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz). This run is *after* the `_merge_rows`
-correctness fix of §9.2, which is the change most in need of it: that primitive is what the full-model
-stage's own batched prefill uses, and `test_the_batched_prefill_state_reaches_every_decode_slot` is one of
-the 50.
+50 passed, 5 deselected, in 2279.34 s, `FULL_EXIT=0` at the end of
+[`logs/pytest_final_sweep.txt.gz`](logs/pytest_final_sweep.txt.gz). This run is *after* every change to `tt/`, including the
+`_merge_rows` correctness fix of §9.2 and the mask removal that followed it — which is the sequence most in
+need of it, because that primitive is what the full-model stage's own batched prefill uses and
+`test_the_batched_prefill_state_reaches_every_decode_slot` is one of the 50. Review round 13 pointed out that
+an earlier version of this claim had gone stale behind a later `tt/model.py` edit by exactly one commit; both
+suites were re-run rather than argued about.
 
 Earlier rounds skipped that re-run on an argument — "`tt/generator.py` did not change" — which review round
 9 found to be false: rounds 7 and 8 had added `read_output_async` and rewired `_read_tokens_async`, which is
@@ -1355,17 +1357,21 @@ Outside this repo, in the `tenstorrent/vllm` checkout (kept here as
 
 ### Review rounds, and what they changed
 
-`$stage-review` ran until it returned **`clean-pass`**. Every round before that returned
-`more-work-needed`; there is one table per round below, in order, and each finding is recorded beside the
-measurement or correction it produced, because several of them changed published numbers. (An earlier version
-of this sentence hard-coded the number of rounds and drifted twice; the count now comes from the tables.)
+`$stage-review` ran to `clean-pass` twice: once on the stage as it stood (round 11), and again after the
+rounds that reviewed the fold-ins that followed. There is one table per round below, in order, each finding
+beside the measurement or correction it produced, because several of them changed published numbers. (Earlier
+versions of this sentence hard-coded a round count and drifted twice, then claimed a monotone sequence the
+tables contradict — round 11 passed, and the next round found three things inside the fold-in that answered
+it. The tables are the record; this paragraph describes them rather than counting them.)
 
-Two of the rounds changed the model or the adapter rather than the record: round 7 moved the async read's
-`ttnn` calls behind a generator primitive, and round 10 found and fixed a real correctness bug in the
-per-slot state merge (§9.2). The other rounds were the record catching up with the artifacts — which is worth
-saying plainly, because the pattern of what they caught is the useful part: a number quoted from a file that
-had been overwritten, a control that did not control for what it was cited for, a claim whose support was an
-argument, and a measurement that was comparing zeros.
+Some rounds changed the model, the adapter or the tests rather than the record: round 7 moved the async
+read's `ttnn` calls behind a generator primitive, round 10 found and fixed a real correctness bug in the
+per-slot state merge (§9.2), and rounds 11–13 finished that fix — removing the mask it no longer needed,
+extending its regression test to both buffer kinds and every device of the mesh, and adding the control that
+proves the test's own poke lands. The rest were the record catching up with the artifacts, and the *pattern*
+of what those rounds caught is the useful part: a number quoted from a file that had since been overwritten,
+a control that did not control for what it was cited for, a claim whose support was an argument, and a
+measurement that was comparing two vectors of zeros.
 
 **Round 1.**
 
@@ -1509,11 +1515,19 @@ anyway, because each was a claim that was looser than the evidence:
 | README §1 credited `submit_serving_decode`'s replay-safety check; `decode_forward`'s own call fires first | corrected — both are inside the first decode step, so the timing conclusion is unchanged |
 | "byte for byte" overstated the archived plugin diff | it is identical in content; the repo's whitespace hook stripped the trailing space from three blank context lines. README §3 was corrected in the fold-in and `vllm_checkout.txt` in round 12, which caught that only one of the two had been |
 
-**Round 12** re-reviewed the fold-in itself and found three things in it: the `vllm_checkout.txt` half of the
+**Rounds 12 and 13.** Round 12 re-reviewed the fold-in itself and found three things in it: the `vllm_checkout.txt` half of the
 "byte for byte" correction had been missed, the regression test's own docstring still described the arithmetic
 merge in the present tense, and the retained `invert` mask branch was now an uncovered post-capture allocation
-path. All three are fixed above, with the positive-control assertion added for good measure; the adapter suite
-was re-run on the result.
+path. All three are fixed above, with the positive-control assertion added for good measure.
+
+**Round 13 then returned `clean-pass`**, and named two boundaries rather than defects, both of which were
+closed by measurement instead of argument: the idle-row test poisoned and inspected only one device of the
+four, and §7.10's "re-run on the committed tree" had gone stale behind round 12's own `tt/model.py` edit by
+one commit. The test now writes the poison to every shard of the replicated state buffers and asserts
+containment on every shard — the mesh replication is what makes `ttnn.where`'s per-device program worth
+checking per device — and both suites were re-run once more on the final tree: **22 passed** and **50
+passed, 5 deselected**. Round 13's one remaining prose observation, that §15's framing paragraph contradicted
+its own tables about the round sequence, is fixed in the paragraph above.
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two

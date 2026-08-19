@@ -866,31 +866,44 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
     recurrent = state
 
     def poison_idle_rows():
-        """Write ``inf`` into the idle row of every DeltaNet buffer - recurrent matrix and conv window."""
+        """Write ``inf`` into the idle row of every DeltaNet buffer - recurrent matrix and conv window.
+
+        The state buffers are replicated across the mesh, so the write is replicated too: poisoning one
+        device would only prove containment on that device, and `ttnn.where` runs its own program per device.
+        """
         for buf in recurrent:
             shape = [int(d) for d in buf.shape]
             host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
             host[idle] = float("inf")
             ttnn.copy_host_to_device_tensor(
-                ttnn.from_torch(host.reshape(shape), dtype=buf.dtype, layout=ttnn.TILE_LAYOUT), buf
+                ttnn.from_torch(
+                    host.reshape(shape),
+                    dtype=buf.dtype,
+                    layout=ttnn.TILE_LAYOUT,
+                    mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+                ),
+                buf,
             )
 
+    def every_shard(buf):
+        """Each device's copy of one replicated state buffer, on host."""
+        return (ttnn.to_torch(shard).float() for shard in ttnn.get_device_tensors(buf))
+
     def rows_are_finite(*, skip):
-        """Is every row except ``skip`` finite, in every per-slot buffer (both dtypes)?"""
+        """Is every row except ``skip`` finite, in every per-slot buffer, on every device?"""
         for buf in recurrent:
-            host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
-            for row in range(batch):
-                if row in skip:
-                    continue
-                if not torch.isfinite(host[row]).all():
-                    return False, row
+            for host in every_shard(buf):
+                for row in range(batch):
+                    if row in skip:
+                        continue
+                    if not torch.isfinite(host[row]).all():
+                        return False, row
         return True, None
 
     def idle_row_is_poisoned():
-        """Did the poke actually land? A containment test that poisons nothing passes vacuously."""
-        return all(
-            not torch.isfinite(ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()[idle]).all() for buf in recurrent
-        )
+        """Did the poke actually land, on every device? A containment test that poisons nothing passes
+        vacuously."""
+        return all(not torch.isfinite(host[idle]).all() for buf in recurrent for host in every_shard(buf))
 
     prompt = [9, 99, 999, 9999]
     poison_idle_rows()
