@@ -1547,6 +1547,8 @@ probes comparing tile padding (§9.1). Each is recorded where its numbers are, n
 | `tt-metal` | same | `a0842ec599a` | review round 10: the `_merge_rows` correctness fix (§9.2) with its regression test and both suites re-run, plus the batch-32 request-artifact label, the decode-floor spread comparison, the stale-host wording, the served vLLM tree, and the gzipped adapter-suite log |
 | `tt-metal` | same | `cb33a7c8ddc` | the round-10 review record in §15 |
 | `tt-metal` | same | `2aac1793a98` | round 11's fold-in: the dead complement mask removed, the idle-row test extended to the conv window, and the seeded-sampling, decode-floor-spread, replay-safety and plugin-diff wordings tightened (that round returned **clean-pass**) |
+| `tt-metal` | same | `c1027d63913` | the round-11 clean-pass record in §15 |
+| `tt-metal` | same | `cade3cfce98` | round 12's findings closed: the `vllm_checkout.txt` half of the diff-exactness correction, the regression test's docstring tense, the dead `invert` mask branch deleted, and a positive control that the test's poke landed |
 | `vllm` (separate checkout, `tenstorrent/vllm@bf98d556` + these) | `dev` | `a8a5a4c` | the plugin registration and the fabric-router-config passthrough |
 | `vllm` | same | `5380fd4` | the comment recording the architecture-override's scope |
 
