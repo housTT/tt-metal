@@ -540,6 +540,7 @@ shipped runtime code is provably the code the 26/26 device suite exercised.
 | repo | branch | commit | contents |
 |---|---|---|---|
 | `tt-metal` (`/home/ttuser/dev/ornith/tt-metal`) | `agentic-research/hous/ornith-1.0-35B` | **`bc170c90240`** | the three adapter/generator/model changes, four new adapter test cases, the refreshed `readiness_vllm/` artifacts and all of `doc/optimized_vllm/` |
+| `tt-metal` | same | **`2e648879bf8`** | this review record and the post-commit host-only suite log |
 | `vllm` (`/home/ttuser/dev/ornith/vllm`) | `dev` | *none* | this stage changed nothing in the plugin or the fork; it still stands at `5380fd4`, the vLLM-integration stage's last commit |
 
 Nothing was pushed. The commit excludes the two dirty paths that are not this stage's:
