@@ -171,3 +171,5 @@ The retained 262144-token Watcher prefill took 71.869 s; the 47.66 s value above
 ## Stage review
 
 Fresh final `$stage-review` verdict: `clean-pass`. It reported no required work and no hard-check gaps after inspecting source, all 30 jointly evidenced tests, context/PCC/trace coverage, Watcher scans, anomaly controls, and refreshed profiler reports.
+
+Stage implementation commit: `c0bb9982f0d`. This commit is local only and was not pushed.
