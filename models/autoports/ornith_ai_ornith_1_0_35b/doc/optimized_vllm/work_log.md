@@ -534,3 +534,24 @@ The reviewer closed the one gap this stage could not: an AST comparison against 
 `06dd1ea31bd` — docstrings stripped, `ast.dump` compared — shows `tt/generator.py` and `tt/model.py`
 byte-identical and `tt/generator_vllm.py` and `tests/test_generator_vllm.py` identical in structure. The
 shipped runtime code is provably the code the 26/26 device suite exercised.
+
+### Commits
+
+| repo | branch | commit | contents |
+|---|---|---|---|
+| `tt-metal` (`/home/ttuser/dev/ornith/tt-metal`) | `agentic-research/hous/ornith-1.0-35B` | **`bc170c90240`** | the three adapter/generator/model changes, four new adapter test cases, the refreshed `readiness_vllm/` artifacts and all of `doc/optimized_vllm/` |
+| `vllm` (`/home/ttuser/dev/ornith/vllm`) | `dev` | *none* | this stage changed nothing in the plugin or the fork; it still stands at `5380fd4`, the vLLM-integration stage's last commit |
+
+Nothing was pushed. The commit excludes the two dirty paths that are not this stage's:
+`.agents/skills/tt-device-usage/SKILL.md` (already modified in the working tree when this stage began)
+and the untracked `.agents/fast-models-fast-feedback.md`.
+
+One thing the commit did change that is worth recording, because it moved shipped code after the last
+device run: the repo's `pre-commit` hooks reformatted `tt/model.py`, `tt/generator.py` and
+`tests/test_generator_vllm.py` (black split the `None if page_table_only else ttnn.from_torch(...)`
+expressions across lines; `end-of-file-fixer` added trailing newlines to the JSON and log artifacts).
+The reformatting was checked to be semantics-preserving the same way review round 6 checked the revert —
+`ast.dump` of each file before and after the hooks is identical — and the host-only half of the adapter
+suite was re-run against the committed bytes (10 passed,
+[`logs/pytest_host_only_postcommit.txt`](logs/pytest_host_only_postcommit.txt)). The 16 device cases
+still date from 06:14; the host cannot run them (§7).
