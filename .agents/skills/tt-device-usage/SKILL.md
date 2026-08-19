@@ -14,6 +14,17 @@ Use this skill for the hardware-facing parts of model bringup. It covers only no
 - Keep watcher and profiler evidence in separate runs. Do not combine `TT_METAL_WATCHER` with device-profiler or Tracy collection.
 - Do not profile live vLLM serving stages. Use serving benchmark JSON and logs instead.
 - Preserve evidence before cleanup: work logs, README files, benchmark JSON, server logs, compact perf summaries, and exact failing commands. Do not delete `CODEX_HOME`, auth/config, completed stage artifacts, or the repo state.
+- **Never narrate progress while a background run is in flight — narration ends your turn and ends the stage.** When you launch a long device job (an evidence sweep, a full suite, a benchmark) in the background, stay in tool calls until it exits. Emitting a prose summary such as "the sweep is at phase 1 of 9, summarising while it works" is read as the end of your request: the stage is terminated, your verdict is forced, and the job is left orphaned for an operator to notice. Wait with consecutive bounded blocking calls instead, each guarded on the process so a crash does not hang you:
+
+      until grep -qE "=== done ===|problem\(s\)" "$LOG" 2>/dev/null \
+            || ! kill -0 "$PID" 2>/dev/null; do sleep 30; done
+
+  Repeat that call as many times as the wait needs; consecutive tool calls are free, and only prose ends the turn. Report what the run found *after* it exits, in the same turn that acts on it.
+- **A liveness check must not be able to match the shell running it.** `pgrep -f "test_foo.py"` and `ps | grep test_foo.py` both match your own command line, because the pattern is *in* it. A wait built on one never fires: `! pgrep -f "test_foo.py"` is never true, so the loop runs to its iteration cap every time and reports nothing. Prefer waiting on a PID you captured when you launched the job (`kill -0 "$PID"`), or key the check on a field the checking shell cannot satisfy:
+
+      ps -eo pid,args | awk '$2=="python" && /test_foo\.py/ {f=1} END{exit !f}'
+
+  Verify it both ways before trusting it — that it sees the job while the job is running, and that it does *not* see your own shell. A wait that fails this way is silent: it looks like slow hardware.
 
 ## Reset And Health Checks
 
