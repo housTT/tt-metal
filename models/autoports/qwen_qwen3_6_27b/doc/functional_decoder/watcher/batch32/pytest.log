@@ -1,0 +1,376 @@
+2026-08-19 18:30:30.302 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 30 items / 24 deselected / 6 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_paged_decode_trace[blackhole-device_params0-1] 2026-08-19 18:30:32.191 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-19 18:30:32.191 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-19 18:30:32.191 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-19 18:30:32.191 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-19 18:30:32.204 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-19 18:30:32.204 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-19 18:30:32.282 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-19 18:30:32.282 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-19 18:30:32.282 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-19 18:30:32.282 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-19 18:30:32.284 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-19 18:30:32.491 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-19 18:30:32.609 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-19 18:30:32.609 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:30:32.609 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-19 18:30:32.609 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-19 18:30:32.668 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:30:32.668 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:30:32.668 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:30:32.668 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:30:32.668 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:30:32.668 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:30:32.668 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:30:32.668 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:32.674 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:32.679 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:32.684 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:32.737 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-19 18:30:33.314 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349991 GHz, device_time_at_sync=3118111869565 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-19 18:30:33.325 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+0.9983485931536239
+1.0
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_linear_attention_real_weight_multi_user_prefill_and_decode[blackhole-device_params0-1] 2026-08-19 18:30:35.156 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:30:35.156 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:30:35.156 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:30:35.156 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:30:35.156 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:30:35.225 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:30:35.225 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:30:35.225 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:30:35.225 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:30:35.225 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:30:35.225 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:30:35.225 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:30:35.225 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:35.230 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:35.236 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:35.241 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:35.292 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+0.9971504905589578
+0.9970185861006623
+0.9974249460673067
+0.9988352834281242
+0.9984412951584657
+0.9994057087358106
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_multi_user_paged_prefill_and_decode[blackhole-device_params0-1] 2026-08-19 18:30:37.844 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:30:37.844 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:30:37.844 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:30:37.844 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:30:37.844 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:30:37.913 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:30:37.913 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:30:37.913 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:30:37.913 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:30:37.913 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:30:37.913 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:30:37.913 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:37.913 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:30:37.919 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:37.924 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:37.930 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:37.981 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+0.998821057811424
+0.99874839652767
+0.9989119115911556
+0.9980538990406657
+0.9983336126119706
+0.99863697411184
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1] 2026-08-19 18:30:39.833 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:30:39.834 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:30:39.834 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:30:39.834 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:30:39.834 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:30:39.903 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:30:39.903 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:30:39.903 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:30:39.903 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:30:39.903 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:30:39.903 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:30:39.903 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:30:39.903 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:39.908 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:39.914 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:39.919 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:39.970 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+batch32 per-user decode PCC: [0.9996578693389893, 0.9995401501655579, 0.9995291829109192, 0.9994962811470032, 0.9995843768119812, 0.9995559453964233, 0.9995962977409363, 0.9996496438980103, 0.9995704889297485, 0.9994380474090576, 0.9994587898254395, 0.9995447397232056, 0.999593198299408, 0.9994812607765198, 0.9995952248573303, 0.9995589256286621, 0.9995344281196594, 0.9996035695075989, 0.9994653463363647, 0.9994999170303345, 0.9996199011802673, 0.9996660351753235, 0.9996665120124817, 0.9995724558830261, 0.9996203780174255, 0.9996698498725891, 0.9996349215507507, 0.9995372295379639, 0.9995324015617371, 0.9995530247688293, 0.9995825290679932, 0.9996276497840881]
+0.9983063791265094
+0.9995318472616151
+0.9982835301248127
+0.9996580690380822
+0.9982832935439133
+0.9995402174187418
+0.9984752649053108
+0.9995298384434314
+0.9987210477340643
+0.9994961436770219
+0.9986137672887717
+0.9995851138853783
+0.9980679237543041
+0.9995555313694604
+0.9970447454650261
+0.9995964588098771
+0.9977532809465782
+0.9996494102933672
+0.9977358473475558
+0.999570253876837
+0.9984565546647082
+0.9994378294845198
+0.9981471279459
+0.9994585265022632
+0.9982876257845474
+0.9995443262247923
+0.9986932824994379
+0.9995936534349072
+0.9987424458652653
+0.9994805297382799
+0.9983539914966704
+0.999595401743681
+0.9985687099328301
+0.9995586615264588
+0.9982972774689662
+0.9995342221275044
+0.9982391373065682
+0.9996033674210132
+0.9978947698224299
+0.9994656623143063
+0.9981346008169082
+0.9995000990831846
+0.9982768405373926
+0.9996195189382807
+0.9978153166466278
+0.9996656078979541
+0.9982945630439739
+0.9996663424194189
+0.9981807754187243
+0.9995723558333501
+0.9983988849777857
+0.9996202049435873
+0.9984166165029176
+0.9996689835894164
+0.998747019274006
+0.999635049963041
+0.9986620476544298
+0.9995369443415062
+0.9986435080868168
+0.9995325613483786
+0.9986076647957984
+0.9995527210015542
+0.9987271748844594
+0.9995820123933817
+0.9987181840939359
+0.9996272844014881
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_advertised_context_decode[blackhole-device_params0-1] 2026-08-19 18:30:44.919 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:30:44.919 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:30:44.919 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:30:44.919 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:30:44.919 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:30:44.989 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:30:44.989 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:30:44.989 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:30:44.989 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:30:44.989 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:30:44.989 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:30:44.989 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:30:44.989 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:44.995 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:45.000 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:45.005 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:45.057 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+0.9998143516227287
+0.9998143516227287
+1.0
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1] 2026-08-19 18:30:48.284 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:30:48.284 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:30:48.284 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:30:48.284 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:30:48.284 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:30:48.353 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:30:48.353 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:30:48.353 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:30:48.353 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:30:48.353 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:30:48.353 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:30:48.353 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:48.353 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:30:48.359 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:48.364 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:48.370 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:30:48.421 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+batch32 per-user decode PCC: [0.9978772401809692, 0.998099148273468, 0.9976604580879211, 0.9981708526611328, 0.9981794953346252, 0.9984780550003052, 0.998038649559021, 0.9983006119728088, 0.998383104801178, 0.9985232949256897, 0.9984490275382996, 0.9981633424758911, 0.9980571866035461, 0.9981071352958679, 0.997778058052063, 0.9985458850860596, 0.9986976981163025, 0.9983013868331909, 0.9981814026832581, 0.9980971813201904, 0.9983465075492859, 0.9987857937812805, 0.9986635446548462, 0.9987764358520508, 0.9989305734634399, 0.9982752799987793, 0.9984249472618103, 0.9983268976211548, 0.99854576587677, 0.9980275630950928, 0.9982807040214539, 0.9978894591331482]
+0.9987803457606623
+0.9982452819771753
+0.9987501579792497
+0.9978773724196341
+0.9987651390418176
+0.9980993465644907
+0.9987033158938731
+0.9976609305536144
+0.998833813994147
+0.998171011045025
+0.9987801993088382
+0.9981795556210151
+0.998717885820239
+0.9984779212295503
+0.9987454398260767
+0.9980385475224085
+0.9987695503753856
+0.9983002866093422
+0.9987886322529146
+0.9983833103467743
+0.9987140658207027
+0.9985232717299313
+0.9987856755403048
+0.9984491092791689
+0.9987086018605806
+0.9981635244939061
+0.9987712442189266
+0.9980574005231647
+0.9988659548383287
+0.9981070626325087
+0.9987806083208668
+0.9977781558689087
+0.9987723886117494
+0.9985460183184255
+0.9988459856446247
+0.9986978228428148
+0.9988517200386688
+0.9983012300932185
+0.998768092593874
+0.9981813948864355
+0.9987725487012078
+0.9980973038183375
+0.9987398957849024
+0.9983465564602677
+0.9988536981339377
+0.9987857762883328
+0.9987916082149473
+0.9986635955205787
+0.9988110675058939
+0.9987762447027523
+0.9988207554695181
+0.9989306080725701
+0.9988649778620393
+0.9982752213778017
+0.9988075816189738
+0.9984250995452318
+0.9987597660749279
+0.9983270472573279
+0.9987866055459976
+0.998546070490651
+0.9987497474895156
+0.9980274646547718
+0.9987279634305761
+0.9982805136821197
+0.9987962876100719
+0.9978890829008176
+PASSED
+
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/junit.xml -
+============================== slowest durations ===============================
+4.64s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+2.95s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_advertised_context_decode[blackhole-device_params0-1]
+2.26s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_linear_attention_real_weight_multi_user_prefill_and_decode[blackhole-device_params0-1]
+2.12s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+1.57s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_multi_user_paged_prefill_and_decode[blackhole-device_params0-1]
+1.53s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_paged_decode_trace[blackhole-device_params0-1]
+1.28s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_paged_decode_trace[blackhole-device_params0-1]
+0.31s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_advertised_context_decode[blackhole-device_params0-1]
+0.30s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_linear_attention_real_weight_multi_user_prefill_and_decode[blackhole-device_params0-1]
+0.29s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_multi_user_paged_prefill_and_decode[blackhole-device_params0-1]
+0.29s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+0.29s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_multi_user_paged_prefill_and_decode[blackhole-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_linear_attention_real_weight_multi_user_prefill_and_decode[blackhole-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_paged_decode_trace[blackhole-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_advertised_context_decode[blackhole-device_params0-1]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+=========================== short test summary info ============================
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_paged_decode_trace[blackhole-device_params0-1]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_linear_attention_real_weight_multi_user_prefill_and_decode[blackhole-device_params0-1]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_real_weight_multi_user_paged_prefill_and_decode[blackhole-device_params0-1]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_full_attention_advertised_context_decode[blackhole-device_params0-1]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+================ 6 passed, 24 deselected, 3 warnings in 19.72s =================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7010e6de5308 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7010e299a538 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 34 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - ... skipped remainder
+nanobind: leaked 305 functions!
+ - leaked function ""
+ - leaked function "GetDefaultDevice"
+ - leaked function "RegisterProgramRealtimeProfilerCallback"
+ - leaked function "__ne__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__eq__"
+ - leaked function ""
+ - leaked function "from_json"
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-19 18:30:51.839 | info     |    BuildKernels | JIT cache stats: 684/686 hits (99.7%) [684 cached, 1779 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-19 18:30:51.839 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-19 18:30:51.840 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:30:51.841 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:30:51.841 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:30:51.841 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:30:51.841 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:30:51.858 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-19 18:30:51.858 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-19 18:30:52.357 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-19 18:30:52.357 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-19 18:30:52.357 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

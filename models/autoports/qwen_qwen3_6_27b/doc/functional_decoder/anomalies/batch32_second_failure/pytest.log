@@ -1,0 +1,501 @@
+2026-08-19 18:16:01.709 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 30 items / 28 deselected / 2 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1] 2026-08-19 18:16:03.613 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-19 18:16:03.613 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-19 18:16:03.613 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-19 18:16:03.613 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-19 18:16:03.625 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-19 18:16:03.626 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-19 18:16:03.704 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-19 18:16:03.704 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-19 18:16:03.704 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-19 18:16:03.704 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-19 18:16:03.705 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-19 18:16:03.777 | warning  |             UMD | AICLK settled at 1343 MHz, within 5% of the requested 1350 MHz but not an exact match. Proceeding. (chip.cpp:237)
+2026-08-19 18:16:03.888 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-19 18:16:04.004 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-19 18:16:04.004 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-19 18:16:04.004 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.004 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.004 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.004 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.004 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.004 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.005 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.005 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:16:04.005 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-19 18:16:04.005 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-19 18:16:04.064 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:16:04.064 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:16:04.064 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:16:04.064 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:16:04.064 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:16:04.064 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:16:04.064 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:04.064 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:16:04.069 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:04.075 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:04.080 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:04.132 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-19 18:16:04.709 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349990 GHz, device_time_at_sync=2954231510434 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-19 18:16:04.720 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+0.9976605996806137
+0.9983140730799401
+0.9989860604069584
+0.9993192419048363
+0.9983148931590606
+0.999016748319456
+0.9985231352288864
+0.9996476349331365
+0.9979520234591488
+0.993556650691869
+direct_pcc= 0.9935566186904907 mae= 0.025074828416109085 max_error= 2.125
+FAILED2026-08-19 18:16:08.827 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1] 2026-08-19 18:16:08.974 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:16:08.974 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:16:08.974 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:16:08.974 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:16:08.974 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:16:09.043 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:16:09.043 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:16:09.043 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:16:09.043 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:16:09.043 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:16:09.043 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:16:09.043 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:16:09.043 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:09.049 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:09.054 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:09.060 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:16:09.111 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+0.9989011311272628
+0.3192228113590356
+direct_pcc= 0.31922289729118347 mae= 0.6320185661315918 max_error= 59.25
+FAILED2026-08-19 18:16:12.038 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+_ test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1] _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 0
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    def test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx):
+        """Exercise the target maximum of 32 active users with per-user PCC."""
+        torch.manual_seed(47 + layer_idx)
+        config = _config()
+        state = _load_layer_state(layer_idx)
+        reference_layer = _reference_layer(config, layer_idx, state)
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+    
+        batch_size = 32
+        prefill_len = 32
+        prefill_hidden = (
+            torch.randn(batch_size, prefill_len, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        )
+        decode_hidden = torch.randn(batch_size, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+    
+        if config.layer_types[layer_idx] == "linear_attention":
+            dummy_prefill_rope = (
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+            )
+            dummy_decode_rope = (
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+            )
+            reference_cache = DynamicCache(config=config)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=dummy_prefill_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=dummy_decode_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len + 1, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+    
+            linear_state = decoder.allocate_linear_state(batch_size=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        torch.full((batch_size,), prefill_len, dtype=torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+        else:
+            positions = torch.arange(prefill_len).expand(batch_size, -1)
+            rotary = Qwen3_5TextRotaryEmbedding(config)
+            prefill_cos, prefill_sin = rotary(prefill_hidden, positions)
+            causal_mask = torch.full(
+                (batch_size, 1, prefill_len, prefill_len), torch.finfo(torch.float32).min
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1).to(torch.bfloat16)
+            reference_cache = DynamicCache(config=config)
+            decode_positions = torch.full((batch_size, 1), prefill_len, dtype=torch.int64)
+            decode_cos, decode_sin = rotary(decode_hidden, decode_positions)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=(prefill_cos, prefill_sin),
+                    attention_mask=causal_mask,
+                    position_ids=positions,
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=(decode_cos, decode_sin),
+                    attention_mask=torch.zeros(
+                        batch_size, 1, 1, prefill_len + 1, dtype=torch.bfloat16
+                    ),
+                    position_ids=decode_positions,
+                    past_key_values=reference_cache,
+                )
+    
+            page_table = _to_tt(
+                torch.arange(batch_size, dtype=torch.int32).reshape(batch_size, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            kv_cache = decoder.allocate_paged_kv_cache(num_blocks=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    cos=_to_tt(prefill_cos.unsqueeze(1), mesh_device),
+                    sin=_to_tt(prefill_sin.unsqueeze(1), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        decode_positions[:, 0].to(torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    cos=_to_tt(decode_cos.unsqueeze(0), mesh_device),
+                    sin=_to_tt(decode_sin.unsqueeze(0), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+    
+        _pcc(reference_prefill, actual_prefill)
+        _pcc(reference_decode[:, 0], actual_decode)
+        for user in range(batch_size):
+            _pcc(reference_prefill[user], actual_prefill[user])
+>           _pcc(reference_decode[user, 0], actual_decode[user])
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:760: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([ 0.5703,  0.0908,  0.0947,  ..., -0.4238, -0.4863,  0.3750],
+       dtype=torch.bfloat16)
+actual = tensor([ 0.5742,  0.0474,  0.0620,  ..., -0.4004, -0.4805,  0.3145],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+>       assert passed, message
+E       AssertionError: np.float64(0.993556650691869)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError
+_ test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1] _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    def test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx):
+        """Exercise the target maximum of 32 active users with per-user PCC."""
+        torch.manual_seed(47 + layer_idx)
+        config = _config()
+        state = _load_layer_state(layer_idx)
+        reference_layer = _reference_layer(config, layer_idx, state)
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+    
+        batch_size = 32
+        prefill_len = 32
+        prefill_hidden = (
+            torch.randn(batch_size, prefill_len, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        )
+        decode_hidden = torch.randn(batch_size, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+    
+        if config.layer_types[layer_idx] == "linear_attention":
+            dummy_prefill_rope = (
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+            )
+            dummy_decode_rope = (
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+            )
+            reference_cache = DynamicCache(config=config)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=dummy_prefill_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=dummy_decode_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len + 1, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+    
+            linear_state = decoder.allocate_linear_state(batch_size=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        torch.full((batch_size,), prefill_len, dtype=torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+        else:
+            positions = torch.arange(prefill_len).expand(batch_size, -1)
+            rotary = Qwen3_5TextRotaryEmbedding(config)
+            prefill_cos, prefill_sin = rotary(prefill_hidden, positions)
+            causal_mask = torch.full(
+                (batch_size, 1, prefill_len, prefill_len), torch.finfo(torch.float32).min
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1).to(torch.bfloat16)
+            reference_cache = DynamicCache(config=config)
+            decode_positions = torch.full((batch_size, 1), prefill_len, dtype=torch.int64)
+            decode_cos, decode_sin = rotary(decode_hidden, decode_positions)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=(prefill_cos, prefill_sin),
+                    attention_mask=causal_mask,
+                    position_ids=positions,
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=(decode_cos, decode_sin),
+                    attention_mask=torch.zeros(
+                        batch_size, 1, 1, prefill_len + 1, dtype=torch.bfloat16
+                    ),
+                    position_ids=decode_positions,
+                    past_key_values=reference_cache,
+                )
+    
+            page_table = _to_tt(
+                torch.arange(batch_size, dtype=torch.int32).reshape(batch_size, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            kv_cache = decoder.allocate_paged_kv_cache(num_blocks=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    cos=_to_tt(prefill_cos.unsqueeze(1), mesh_device),
+                    sin=_to_tt(prefill_sin.unsqueeze(1), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        decode_positions[:, 0].to(torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    cos=_to_tt(decode_cos.unsqueeze(0), mesh_device),
+                    sin=_to_tt(decode_sin.unsqueeze(0), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+    
+        _pcc(reference_prefill, actual_prefill)
+>       _pcc(reference_decode[:, 0], actual_decode)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:757: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([[-1.0469, -0.5898,  0.2305,  ...,  0.4277, -0.2441,  0.1504],
+        [ 0.1953, -0.6133,  0.4785,  ..., -0.582... -1.0625,  1.6562],
+        [ 0.1260, -0.5938,  0.7578,  ...,  0.0469, -0.6719, -0.0605]],
+       dtype=torch.bfloat16)
+actual = tensor([[-0.9688, -0.5430,  0.2002,  ...,  0.4004, -0.2285,  0.1348],
+        [ 0.1523, -0.5938,  0.4258,  ..., -0.511... -0.6133,  0.7070],
+        [ 0.1963, -0.7656, -0.3340,  ...,  0.6172,  1.1250, -0.1484]],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+>       assert passed, message
+E       AssertionError: np.float64(0.3192228113590356)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/junit.xml -
+============================== slowest durations ===============================
+3.95s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+2.78s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+1.25s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+0.28s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+=========================== short test summary info ============================
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+================= 2 failed, 28 deselected, 3 warnings in 9.68s =================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7304cdda7f78 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7304c9939188 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 34 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - ... skipped remainder
+nanobind: leaked 305 functions!
+ - leaked function "__iter__"
+ - leaked function ""
+ - leaked function "__init__"
+ - leaked function "remove_sub_device_manager"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function "contains"
+ - leaked function "pad_to_tile"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-19 18:16:13.334 | info     |    BuildKernels | JIT cache stats: 652/653 hits (99.8%) [652 cached, 471 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-19 18:16:13.334 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-19 18:16:13.335 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:16:13.335 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:16:13.335 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:16:13.335 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:16:13.335 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:16:13.348 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-19 18:16:13.348 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-19 18:16:13.852 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-19 18:16:13.852 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-19 18:16:13.852 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

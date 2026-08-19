@@ -1,0 +1,589 @@
+2026-08-19 18:14:11.406 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 30 items / 28 deselected / 2 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1] 2026-08-19 18:14:13.315 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-19 18:14:13.315 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-19 18:14:13.315 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-19 18:14:13.315 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-19 18:14:13.327 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-19 18:14:13.327 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-19 18:14:13.405 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-19 18:14:13.405 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-19 18:14:13.405 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-19 18:14:13.405 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-19 18:14:13.407 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-19 18:14:13.464 | warning  |             UMD | AICLK settled at 1343 MHz, within 5% of the requested 1350 MHz but not an exact match. Proceeding. (chip.cpp:237)
+2026-08-19 18:14:13.575 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-19 18:14:13.693 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-19 18:14:13.693 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 18:14:13.693 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-19 18:14:13.693 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-19 18:14:13.752 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:14:13.752 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:14:13.752 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:14:13.752 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:14:13.752 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:14:13.752 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:14:13.752 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:14:13.752 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:13.758 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:13.763 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:13.768 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:13.821 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-19 18:14:14.399 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349991 GHz, device_time_at_sync=2918786465258 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-19 18:14:14.410 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+Building brisc, compile step:
+cd /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/2325097410862154023/brisc/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow -c -o /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/2325097410862154023/brisc/brisck.10680161749402310091.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/2325097410862154023/brisc/brisck.10680161749402310091.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"writer_permute_interleaved_tiled_row_invariant/2325097410862154023/\"" -DNOC_INDEX='1' -DNOC_MODE='0' -DKERNEL_COMPILE_TIME_ARGS=2,4096 -DKERNEL_COMPILE_TIME_ARG_MAP="{\"h_in_dest\",0}, {\"rank\",4}, {\"tile_width\",32}, {\"needs_padding\",0}, {\"face_width\",16}, {\"tile_height\",32}, {\"face_height\",16}, {\"W\",1}, {\"H\",64}, {\"output_H\",32}, {\"output_cb_index\",0}, {\"element_size\",4}, " 
+In file included from ../kernel_includes.hpp:1,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp:138:14: warning: variable 'input_padded_shape' set but not used [-Wunused-but-set-variable]
+  138 |     uint32_t input_padded_shape[RANK];
+      |              ^~~~~~~~~~~~~~~~~~
+Building brisc, compile step:
+cd /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/13881824405026369670/brisc/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow -c -o /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/13881824405026369670/brisc/brisck.10680161749402310091.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/13881824405026369670/brisc/brisck.10680161749402310091.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"writer_permute_interleaved_tiled_row_invariant/13881824405026369670/\"" -DNOC_INDEX='1' -DNOC_MODE='0' -DKERNEL_COMPILE_TIME_ARGS=2,4096 -DKERNEL_COMPILE_TIME_ARG_MAP="{\"h_in_dest\",0}, {\"rank\",4}, {\"tile_width\",32}, {\"needs_padding\",0}, {\"face_width\",16}, {\"tile_height\",32}, {\"face_height\",16}, {\"W\",1}, {\"H\",32}, {\"output_H\",64}, {\"output_cb_index\",0}, {\"element_size\",4}, " 
+In file included from ../kernel_includes.hpp:1,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp:138:14: warning: variable 'input_padded_shape' set but not used [-Wunused-but-set-variable]
+  138 |     uint32_t input_padded_shape[RANK];
+      |              ^~~~~~~~~~~~~~~~~~
+2026-08-19 18:14:23.780 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:23.786 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:23.792 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:23.797 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+Building brisc, compile step:
+cd /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/8724092856075581902/brisc/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow -c -o /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/8724092856075581902/brisc/brisck.10680161749402310091.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/8724092856075581902/brisc/brisck.10680161749402310091.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"writer_permute_interleaved_tiled_row_invariant/8724092856075581902/\"" -DNOC_INDEX='1' -DNOC_MODE='0' -DKERNEL_COMPILE_TIME_ARGS=2,2048 -DKERNEL_COMPILE_TIME_ARG_MAP="{\"h_in_dest\",0}, {\"rank\",4}, {\"tile_width\",32}, {\"needs_padding\",1}, {\"face_width\",16}, {\"tile_height\",32}, {\"face_height\",16}, {\"W\",5120}, {\"H\",32}, {\"output_H\",1}, {\"output_cb_index\",0}, {\"element_size\",2}, " 
+In file included from ../kernel_includes.hpp:1,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp:138:14: warning: variable 'input_padded_shape' set but not used [-Wunused-but-set-variable]
+  138 |     uint32_t input_padded_shape[RANK];
+      |              ^~~~~~~~~~~~~~~~~~
+Building brisc, compile step:
+cd /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/15035597035236002253/brisc/ && /home/ttuser/.local/lib/model-bringup/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/.local/lib/model-bringup/tt-metal/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/api/ -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow -c -o /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/15035597035236002253/brisc/brisck.10680161749402310091.o /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /tmp/qwen36_functional_tt_cache/tt-metal-cache10407736407418577232/kernels/writer_permute_interleaved_tiled_row_invariant/15035597035236002253/brisc/brisck.10680161749402310091.d -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="\"writer_permute_interleaved_tiled_row_invariant/15035597035236002253/\"" -DNOC_INDEX='1' -DNOC_MODE='0' -DKERNEL_COMPILE_TIME_ARGS=2,2048 -DKERNEL_COMPILE_TIME_ARG_MAP="{\"h_in_dest\",0}, {\"rank\",4}, {\"tile_width\",32}, {\"needs_padding\",0}, {\"face_width\",16}, {\"tile_height\",32}, {\"face_height\",16}, {\"W\",5120}, {\"H\",1}, {\"output_H\",32}, {\"output_cb_index\",0}, {\"element_size\",2}, " 
+In file included from ../kernel_includes.hpp:1,
+                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp: In function 'void kernel_main()':
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/data_movement/permute/device/kernels/dataflow/writer_permute_interleaved_tiled_row_invariant.cpp:138:14: warning: variable 'input_padded_shape' set but not used [-Wunused-but-set-variable]
+  138 |     uint32_t input_padded_shape[RANK];
+      |              ^~~~~~~~~~~~~~~~~~
+0.997530072881082
+0.9984849676769826
+0.9985660039074316
+0.9988717555848192
+0.9986232088448315
+0.9991693337810675
+0.9971440698095203
+0.9997481022138462
+0.997789701376675
+0.9987931844801712
+0.9988491969359325
+0.9994496391087784
+0.9980654366666124
+0.9993672623210635
+0.9971080313253528
+0.9997344615613164
+0.9961033555656239
+0.9985126632279531
+0.9981249274485817
+0.9995405441452658
+0.9966210606997998
+0.9992653557905599
+0.9960677053895411
+0.9993183675950514
+0.9975200718942487
+0.9996893655403052
+0.9979519917063656
+0.9997805176314329
+0.9980788459009877
+0.9994628986440651
+0.9978260260008585
+0.9996165800973634
+0.9988758818151838
+0.9996074325267404
+0.9982469827209345
+0.9996198324173807
+0.9972748717422103
+0.9996503536213341
+0.9978894537574973
+0.9993645656174346
+0.9976261196756177
+0.9991806425957838
+0.9974009210954794
+0.999725841476172
+0.9962046540741473
+0.9927449446383086
+direct_pcc= 0.9927444458007812 mae= 0.037916578352451324 max_error= 7.75
+FAILED2026-08-19 18:14:33.809 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:33.814 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:33.820 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:33.820 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1] 2026-08-19 18:14:33.825 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:33.967 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:14:33.967 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:14:33.967 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:14:33.967 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:14:33.967 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:14:34.037 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-19 18:14:34.037 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-19 18:14:34.037 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-19 18:14:34.037 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-19 18:14:34.037 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-19 18:14:34.037 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-19 18:14:34.037 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:34.037 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 18:14:34.043 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:34.048 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:34.053 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-19 18:14:34.105 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+0.9989297170814602
+0.4141064074582892
+direct_pcc= 0.4141066074371338 mae= 0.6108835339546204 max_error= 59.5
+FAILED2026-08-19 18:14:37.857 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+_ test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1] _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 0
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    def test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx):
+        """Exercise the target maximum of 32 active users with per-user PCC."""
+        torch.manual_seed(47 + layer_idx)
+        config = _config()
+        state = _load_layer_state(layer_idx)
+        reference_layer = _reference_layer(config, layer_idx, state)
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+    
+        batch_size = 32
+        prefill_len = 32
+        prefill_hidden = (
+            torch.randn(batch_size, prefill_len, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        )
+        # A deterministic per-user offset makes state/cache aliasing observable.
+        user_offsets = torch.linspace(-0.03, 0.03, batch_size, dtype=torch.float32).to(
+            torch.bfloat16
+        )
+        prefill_hidden.add_(user_offsets[:, None, None])
+        decode_hidden = torch.randn(batch_size, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        decode_hidden.sub_(user_offsets[:, None, None])
+    
+        if config.layer_types[layer_idx] == "linear_attention":
+            dummy_prefill_rope = (
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+            )
+            dummy_decode_rope = (
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+            )
+            reference_cache = DynamicCache(config=config)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=dummy_prefill_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=dummy_decode_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len + 1, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+    
+            linear_state = decoder.allocate_linear_state(batch_size=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        torch.full((batch_size,), prefill_len, dtype=torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+        else:
+            positions = torch.arange(prefill_len).expand(batch_size, -1)
+            rotary = Qwen3_5TextRotaryEmbedding(config)
+            prefill_cos, prefill_sin = rotary(prefill_hidden, positions)
+            causal_mask = torch.full(
+                (batch_size, 1, prefill_len, prefill_len), torch.finfo(torch.float32).min
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1).to(torch.bfloat16)
+            reference_cache = DynamicCache(config=config)
+            decode_positions = torch.full((batch_size, 1), prefill_len, dtype=torch.int64)
+            decode_cos, decode_sin = rotary(decode_hidden, decode_positions)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=(prefill_cos, prefill_sin),
+                    attention_mask=causal_mask,
+                    position_ids=positions,
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=(decode_cos, decode_sin),
+                    attention_mask=torch.zeros(
+                        batch_size, 1, 1, prefill_len + 1, dtype=torch.bfloat16
+                    ),
+                    position_ids=decode_positions,
+                    past_key_values=reference_cache,
+                )
+    
+            page_table = _to_tt(
+                torch.arange(batch_size, dtype=torch.int32).reshape(batch_size, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            kv_cache = decoder.allocate_paged_kv_cache(num_blocks=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    cos=_to_tt(prefill_cos.unsqueeze(1), mesh_device),
+                    sin=_to_tt(prefill_sin.unsqueeze(1), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        decode_positions[:, 0].to(torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    cos=_to_tt(decode_cos.unsqueeze(0), mesh_device),
+                    sin=_to_tt(decode_sin.unsqueeze(0), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+    
+        _pcc(reference_prefill, actual_prefill)
+        _pcc(reference_decode[:, 0], actual_decode)
+        for user in range(batch_size):
+            _pcc(reference_prefill[user], actual_prefill[user])
+>           _pcc(reference_decode[user, 0], actual_decode[user])
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:766: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([ 0.9805,  0.0225, -0.5469,  ..., -0.0674,  0.0713, -0.6758],
+       dtype=torch.bfloat16)
+actual = tensor([ 0.9219,  0.0811, -0.4766,  ..., -0.0520,  0.0098, -0.6250],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+>       assert passed, message
+E       AssertionError: np.float64(0.9927449446383086)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError
+_ test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1] _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    def test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx):
+        """Exercise the target maximum of 32 active users with per-user PCC."""
+        torch.manual_seed(47 + layer_idx)
+        config = _config()
+        state = _load_layer_state(layer_idx)
+        reference_layer = _reference_layer(config, layer_idx, state)
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+    
+        batch_size = 32
+        prefill_len = 32
+        prefill_hidden = (
+            torch.randn(batch_size, prefill_len, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        )
+        # A deterministic per-user offset makes state/cache aliasing observable.
+        user_offsets = torch.linspace(-0.03, 0.03, batch_size, dtype=torch.float32).to(
+            torch.bfloat16
+        )
+        prefill_hidden.add_(user_offsets[:, None, None])
+        decode_hidden = torch.randn(batch_size, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        decode_hidden.sub_(user_offsets[:, None, None])
+    
+        if config.layer_types[layer_idx] == "linear_attention":
+            dummy_prefill_rope = (
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+            )
+            dummy_decode_rope = (
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+            )
+            reference_cache = DynamicCache(config=config)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=dummy_prefill_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=dummy_decode_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len + 1, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+    
+            linear_state = decoder.allocate_linear_state(batch_size=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        torch.full((batch_size,), prefill_len, dtype=torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+        else:
+            positions = torch.arange(prefill_len).expand(batch_size, -1)
+            rotary = Qwen3_5TextRotaryEmbedding(config)
+            prefill_cos, prefill_sin = rotary(prefill_hidden, positions)
+            causal_mask = torch.full(
+                (batch_size, 1, prefill_len, prefill_len), torch.finfo(torch.float32).min
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1).to(torch.bfloat16)
+            reference_cache = DynamicCache(config=config)
+            decode_positions = torch.full((batch_size, 1), prefill_len, dtype=torch.int64)
+            decode_cos, decode_sin = rotary(decode_hidden, decode_positions)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=(prefill_cos, prefill_sin),
+                    attention_mask=causal_mask,
+                    position_ids=positions,
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=(decode_cos, decode_sin),
+                    attention_mask=torch.zeros(
+                        batch_size, 1, 1, prefill_len + 1, dtype=torch.bfloat16
+                    ),
+                    position_ids=decode_positions,
+                    past_key_values=reference_cache,
+                )
+    
+            page_table = _to_tt(
+                torch.arange(batch_size, dtype=torch.int32).reshape(batch_size, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            kv_cache = decoder.allocate_paged_kv_cache(num_blocks=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    cos=_to_tt(prefill_cos.unsqueeze(1), mesh_device),
+                    sin=_to_tt(prefill_sin.unsqueeze(1), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        decode_positions[:, 0].to(torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    cos=_to_tt(decode_cos.unsqueeze(0), mesh_device),
+                    sin=_to_tt(decode_sin.unsqueeze(0), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+    
+        _pcc(reference_prefill, actual_prefill)
+>       _pcc(reference_decode[:, 0], actual_decode)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:763: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([[-0.8906, -0.7109, -0.2070,  ...,  0.1074, -0.2275,  0.0391],
+        [-0.7500, -0.2314, -0.8203,  ..., -0.726... -0.6172,  1.5000],
+        [ 0.5117, -1.1562,  0.6875,  ...,  0.7344, -0.7500, -0.2539]],
+       dtype=torch.bfloat16)
+actual = tensor([[-0.8164, -0.6172, -0.1914,  ...,  0.0996, -0.1885,  0.0293],
+        [-0.7188, -0.2637, -0.7812,  ..., -0.644... -0.7812,  0.9258],
+        [-0.2500, -1.2578, -0.2236,  ...,  1.5156,  0.8906, -0.6992]],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+>       assert passed, message
+E       AssertionError: np.float64(0.4141064074582892)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/watcher/batch32/junit.xml -
+============================== slowest durations ===============================
+19.25s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+3.61s call     models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+1.24s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+0.28s setup    models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+0.13s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+=========================== short test summary info ============================
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py::test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]
+================ 2 failed, 28 deselected, 3 warnings in 25.80s =================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7946e9735188 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7946e978e538 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 34 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - ... skipped remainder
+nanobind: leaked 305 functions!
+ - leaked function "__eq__"
+ - leaked function "tensor_topology"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "host_buffer"
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "get_l1_alignment"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-19 18:14:39.143 | info     |    BuildKernels | JIT cache stats: 416/652 hits (63.8%) [416 cached, 406 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-19 18:14:39.143 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-19 18:14:39.144 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-19 18:14:39.144 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-19 18:14:39.144 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-19 18:14:39.144 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-19 18:14:39.144 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-19 18:14:39.157 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-19 18:14:39.157 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-19 18:14:39.641 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-19 18:14:39.641 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-19 18:14:39.641 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

@@ -1,0 +1,111 @@
+2026-08-19 18:13:52.224 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 30 items
+
+<Dir tt-metal>
+  <Dir models>
+    <Dir autoports>
+      <Package qwen_qwen3_6_27b>
+        <Package tests>
+          <Module test_functional_decoder.py>
+            <Function test_real_config_layer_kinds[0-linear_attention]>
+            <Function test_real_config_layer_kinds[3-full_attention]>
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-1-device_params0-1]>
+            <Function test_full_attention_real_weight_paged_decode_trace[blackhole-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-1-device_params0-1]>
+            <Function test_linear_attention_real_weight_multi_user_prefill_and_decode[blackhole-device_params0-1]>
+              Keep two independent DeltaNet users active through prefill and decode.
+            <Function test_full_attention_real_weight_multi_user_paged_prefill_and_decode[blackhole-device_params0-1]>
+              Validate two paged users, including distinct page maps and decode positions.
+            <Function test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]>
+              Exercise the target maximum of 32 active users with per-user PCC.
+            <Function test_full_attention_real_weight_forced_chunked_prefill_pcc[blackhole-device_params0-1]>
+              PCC-gate the distinct paged multi-chunk prefill implementation.
+            <Function test_full_attention_advertised_context_prefill[blackhole-non_aligned_long-device_params0-1]>
+              Execute real-weight paged prefill at the long boundary and native limit.
+              
+              Both lengths are explicit pytest cases so JUnit proves that the non-aligned
+              tail and the HF-advertised maximum were executed.
+            <Function test_full_attention_advertised_context_decode[blackhole-device_params0-1]>
+              Execute paged decode at the last HF-advertised native position.
+            <Function test_linear_attention_advertised_context_prefill[blackhole-device_params0-1]>
+              Execute the real DeltaNet layer through the full native context.
+            <Function test_linear_attention_advertised_context_decode[blackhole-device_params0-1]>
+              Build 262,143 DeltaNet states and trace decode at the final native position.
+            <Function test_functional_decoder_perf[blackhole-device_params0-1-linear_attention]>
+              Profiler entry point for warmed prefill and traced warmed decode.
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-31-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-31-device_params0-1]>
+            <Function test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]>
+              Exercise the target maximum of 32 active users with per-user PCC.
+            <Function test_full_attention_advertised_context_prefill[blackhole-native_max-device_params0-1]>
+              Execute real-weight paged prefill at the long boundary and native limit.
+              
+              Both lengths are explicit pytest cases so JUnit proves that the non-aligned
+              tail and the HF-advertised maximum were executed.
+            <Function test_functional_decoder_perf[blackhole-device_params0-1-full_attention]>
+              Profiler entry point for warmed prefill and traced warmed decode.
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-32-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-32-device_params0-1]>
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-33-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-33-device_params0-1]>
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-63-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-63-device_params0-1]>
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-64-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-64-device_params0-1]>
+            <Function test_full_attention_real_weight_paged_prefill[blackhole-65-device_params0-1]>
+            <Function test_linear_attention_real_weight_prefill_and_decode[blackhole-65-device_params0-1]>
+            <Function test_functional_contract_boundary_matrix_and_fallback_audit>
+              Document every public boundary without requiring a device allocation.
+
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+========================= 30 tests collected in 1.11s ==========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7234dd931188 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7234dd992178 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 247 functions!
+ - leaked function ""
+ - leaked function "get_tile"
+ - leaked function ""
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

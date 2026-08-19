@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "model_id": "Qwen/Qwen3.6-27B",
+  "checkpoint_snapshot": "6a9e13bd6fc8f0983b9b99948120bc37f49c13e9",
+  "architecture": "qwen3_5_text",
+  "hf_advertised_context_length": 262144,
+  "source": {
+    "field": "text_config.max_position_embeddings",
+    "local_config": "/home/ttuser/.cache/huggingface/hub/models--Qwen--Qwen3.6-27B/snapshots/6a9e13bd6fc8f0983b9b99948120bc37f49c13e9/config.json"
+  },
+  "functional_decoder": {
+    "layer_kinds": [
+      "linear_attention",
+      "full_attention"
+    ],
+    "maximum_active_batch_size_tested": 32,
+    "batch_evidence": {
+      "status": "passed",
+      "minimum_per_user_pcc": 0.9970447454650261,
+      "watcher_junit": "functional_decoder/watcher/batch32/junit.xml"
+    },
+    "tested_context": {
+      "prefill": {
+        "maximum_logical_sequence_length": 262144,
+        "layer_kinds": [
+          "linear_attention",
+          "full_attention"
+        ],
+        "status": "passed",
+        "evidence": {
+          "full_attention_seconds": 47.66,
+          "full_attention_watcher_seconds": 71.869,
+          "full_attention_non_aligned_trial": 32769,
+          "full_attention_forced_chunk_hf_pcc": 0.9984344295573281,
+          "linear_attention_seconds": 31.25,
+          "weights": "real checkpoint layer 3 and layer 0 weights",
+          "watcher_junit": "functional_decoder/watcher/review_rerun/junit.xml"
+        }
+      },
+      "decode": {
+        "maximum_current_position": 262143,
+        "layer_kinds": [
+          "linear_attention",
+          "full_attention"
+        ],
+        "status": "passed",
+        "execution": "ttnn trace capture and replay",
+        "evidence": {
+          "full_attention_pcc": 0.9997240988397557,
+          "full_attention_repeated_replay_pcc": 1.0,
+          "linear_attention_seconds_including_prefix_build": 36.01,
+          "watcher_junit": "functional_decoder/watcher/review_rerun/junit.xml"
+        }
+      }
+    },
+    "capability_reduction": null,
+    "completion_status": "passed",
+    "boundary_lengths_executed": [
+      1,
+      31,
+      32,
+      33,
+      63,
+      64,
+      65,
+      32769,
+      262143,
+      262144
+    ]
+  }
+}

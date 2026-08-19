@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="9.683" timestamp="2026-08-19T18:16:02.356153-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_functional_decoder" name="test_real_weight_batch32_prefill_and_decode[blackhole-linear_attention-device_params0-1]" time="5.324"><properties><property name="start_timestamp" value="2026-08-19T18:16:03" /><property name="end_timestamp" value="2026-08-19T18:16:08" /></properties><failure message="AssertionError: np.float64(0.993556650691869)&#10;assert np.False_">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 0
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    def test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx):
+        """Exercise the target maximum of 32 active users with per-user PCC."""
+        torch.manual_seed(47 + layer_idx)
+        config = _config()
+        state = _load_layer_state(layer_idx)
+        reference_layer = _reference_layer(config, layer_idx, state)
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+    
+        batch_size = 32
+        prefill_len = 32
+        prefill_hidden = (
+            torch.randn(batch_size, prefill_len, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        )
+        decode_hidden = torch.randn(batch_size, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+    
+        if config.layer_types[layer_idx] == "linear_attention":
+            dummy_prefill_rope = (
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+            )
+            dummy_decode_rope = (
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+            )
+            reference_cache = DynamicCache(config=config)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=dummy_prefill_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=dummy_decode_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len + 1, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+    
+            linear_state = decoder.allocate_linear_state(batch_size=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        torch.full((batch_size,), prefill_len, dtype=torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+        else:
+            positions = torch.arange(prefill_len).expand(batch_size, -1)
+            rotary = Qwen3_5TextRotaryEmbedding(config)
+            prefill_cos, prefill_sin = rotary(prefill_hidden, positions)
+            causal_mask = torch.full(
+                (batch_size, 1, prefill_len, prefill_len), torch.finfo(torch.float32).min
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1).to(torch.bfloat16)
+            reference_cache = DynamicCache(config=config)
+            decode_positions = torch.full((batch_size, 1), prefill_len, dtype=torch.int64)
+            decode_cos, decode_sin = rotary(decode_hidden, decode_positions)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=(prefill_cos, prefill_sin),
+                    attention_mask=causal_mask,
+                    position_ids=positions,
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=(decode_cos, decode_sin),
+                    attention_mask=torch.zeros(
+                        batch_size, 1, 1, prefill_len + 1, dtype=torch.bfloat16
+                    ),
+                    position_ids=decode_positions,
+                    past_key_values=reference_cache,
+                )
+    
+            page_table = _to_tt(
+                torch.arange(batch_size, dtype=torch.int32).reshape(batch_size, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            kv_cache = decoder.allocate_paged_kv_cache(num_blocks=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    cos=_to_tt(prefill_cos.unsqueeze(1), mesh_device),
+                    sin=_to_tt(prefill_sin.unsqueeze(1), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        decode_positions[:, 0].to(torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    cos=_to_tt(decode_cos.unsqueeze(0), mesh_device),
+                    sin=_to_tt(decode_sin.unsqueeze(0), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+    
+        _pcc(reference_prefill, actual_prefill)
+        _pcc(reference_decode[:, 0], actual_decode)
+        for user in range(batch_size):
+            _pcc(reference_prefill[user], actual_prefill[user])
+&gt;           _pcc(reference_decode[user, 0], actual_decode[user])
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:760: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([ 0.5703,  0.0908,  0.0947,  ..., -0.4238, -0.4863,  0.3750],
+       dtype=torch.bfloat16)
+actual = tensor([ 0.5742,  0.0474,  0.0620,  ..., -0.4004, -0.4805,  0.3145],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+&gt;       assert passed, message
+E       AssertionError: np.float64(0.993556650691869)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_functional_decoder" name="test_real_weight_batch32_prefill_and_decode[blackhole-full_attention-device_params0-1]" time="3.198"><properties><property name="start_timestamp" value="2026-08-19T18:16:08" /><property name="end_timestamp" value="2026-08-19T18:16:12" /></properties><failure message="AssertionError: np.float64(0.3192228113590356)&#10;assert np.False_">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    def test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx):
+        """Exercise the target maximum of 32 active users with per-user PCC."""
+        torch.manual_seed(47 + layer_idx)
+        config = _config()
+        state = _load_layer_state(layer_idx)
+        reference_layer = _reference_layer(config, layer_idx, state)
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+    
+        batch_size = 32
+        prefill_len = 32
+        prefill_hidden = (
+            torch.randn(batch_size, prefill_len, config.hidden_size, dtype=torch.bfloat16) * 0.1
+        )
+        decode_hidden = torch.randn(batch_size, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+    
+        if config.layer_types[layer_idx] == "linear_attention":
+            dummy_prefill_rope = (
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, prefill_len, 64, dtype=torch.bfloat16),
+            )
+            dummy_decode_rope = (
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+                torch.zeros(batch_size, 1, 64, dtype=torch.bfloat16),
+            )
+            reference_cache = DynamicCache(config=config)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=dummy_prefill_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=dummy_decode_rope,
+                    attention_mask=torch.ones(batch_size, prefill_len + 1, dtype=torch.bool),
+                    past_key_values=reference_cache,
+                )
+    
+            linear_state = decoder.allocate_linear_state(batch_size=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        torch.full((batch_size,), prefill_len, dtype=torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    linear_state=linear_state,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+        else:
+            positions = torch.arange(prefill_len).expand(batch_size, -1)
+            rotary = Qwen3_5TextRotaryEmbedding(config)
+            prefill_cos, prefill_sin = rotary(prefill_hidden, positions)
+            causal_mask = torch.full(
+                (batch_size, 1, prefill_len, prefill_len), torch.finfo(torch.float32).min
+            )
+            causal_mask = torch.triu(causal_mask, diagonal=1).to(torch.bfloat16)
+            reference_cache = DynamicCache(config=config)
+            decode_positions = torch.full((batch_size, 1), prefill_len, dtype=torch.int64)
+            decode_cos, decode_sin = rotary(decode_hidden, decode_positions)
+            with torch.no_grad():
+                reference_prefill = reference_layer(
+                    prefill_hidden,
+                    position_embeddings=(prefill_cos, prefill_sin),
+                    attention_mask=causal_mask,
+                    position_ids=positions,
+                    past_key_values=reference_cache,
+                )
+                reference_decode = reference_layer(
+                    decode_hidden,
+                    position_embeddings=(decode_cos, decode_sin),
+                    attention_mask=torch.zeros(
+                        batch_size, 1, 1, prefill_len + 1, dtype=torch.bfloat16
+                    ),
+                    position_ids=decode_positions,
+                    past_key_values=reference_cache,
+                )
+    
+            page_table = _to_tt(
+                torch.arange(batch_size, dtype=torch.int32).reshape(batch_size, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            kv_cache = decoder.allocate_paged_kv_cache(num_blocks=batch_size)
+            actual_prefill = ttnn.to_torch(
+                decoder.prefill_forward(
+                    _to_tt(prefill_hidden.unsqueeze(1), mesh_device),
+                    logical_seq_len=prefill_len,
+                    cos=_to_tt(prefill_cos.unsqueeze(1), mesh_device),
+                    sin=_to_tt(prefill_sin.unsqueeze(1), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[:, 0]
+            actual_decode = ttnn.to_torch(
+                decoder.decode_forward(
+                    _to_tt(decode_hidden.transpose(0, 1).unsqueeze(0), mesh_device),
+                    current_positions=_to_tt(
+                        decode_positions[:, 0].to(torch.int32),
+                        mesh_device,
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                    cos=_to_tt(decode_cos.unsqueeze(0), mesh_device),
+                    sin=_to_tt(decode_sin.unsqueeze(0), mesh_device),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                ),
+                mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0),
+            )[0, 0]
+    
+        _pcc(reference_prefill, actual_prefill)
+&gt;       _pcc(reference_decode[:, 0], actual_decode)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:757: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([[-1.0469, -0.5898,  0.2305,  ...,  0.4277, -0.2441,  0.1504],
+        [ 0.1953, -0.6133,  0.4785,  ..., -0.582... -1.0625,  1.6562],
+        [ 0.1260, -0.5938,  0.7578,  ...,  0.0469, -0.6719, -0.0605]],
+       dtype=torch.bfloat16)
+actual = tensor([[-0.9688, -0.5430,  0.2002,  ...,  0.4004, -0.2285,  0.1348],
+        [ 0.1523, -0.5938,  0.4258,  ..., -0.511... -0.6133,  0.7070],
+        [ 0.1963, -0.7656, -0.3340,  ...,  0.6172,  1.1250, -0.1484]],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+&gt;       assert passed, message
+E       AssertionError: np.float64(0.3192228113590356)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError</failure></testcase></testsuite></testsuites>
