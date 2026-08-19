@@ -1656,8 +1656,13 @@ class OrnithModel(LightweightModule):
         return cached[key]
 
     # ------------------------------------------------------------------ decode
-    def prepare_decode_inputs_host(self, tokens, current_pos, page_table=None):
-        """Host TTNN tensors for the decode trace inputs. Never called inside a captured trace."""
+    def prepare_decode_inputs_host(self, tokens, current_pos, page_table=None, *, page_table_only=False):
+        """Host TTNN tensors for the decode trace inputs. Never called inside a captured trace.
+
+        ``page_table_only`` returns ``(None, None, None, page_tt)``. A serving step that only has to
+        refresh the page table - the growing-request case - would otherwise build three host tensors
+        it throws away, which is host work and three allocations per refresh.
+        """
         import torch
 
         batch = self.max_batch_size
@@ -1669,32 +1674,44 @@ class OrnithModel(LightweightModule):
         # first ``max_batch_size`` entries back out before the embedding lookup.
         padded = torch.zeros(MAX_SAMPLING_BATCH, dtype=torch.int32)
         padded[: tokens.numel()] = tokens
-        tokens_tt = ttnn.from_torch(
-            padded.reshape(1, 1, 1, MAX_SAMPLING_BATCH),
-            device=None,
-            dtype=ttnn.uint32,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        tokens_tt = (
+            None
+            if page_table_only
+            else ttnn.from_torch(
+                padded.reshape(1, 1, 1, MAX_SAMPLING_BATCH),
+                device=None,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+            )
         )
 
         current_pos = torch.as_tensor(current_pos).reshape(-1).to(torch.int32)
         positions = torch.full((batch,), -1, dtype=torch.int32)
         positions[: current_pos.numel()] = current_pos
-        pos_tt = ttnn.from_torch(
-            positions,
-            device=None,
-            dtype=ttnn.int32,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        pos_tt = (
+            None
+            if page_table_only
+            else ttnn.from_torch(
+                positions,
+                device=None,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+            )
         )
         # RoPE rows must stay non-negative even for inactive rows: the gather reads the table
         # unconditionally and only the KV write is skipped for a negative position.
-        rot_tt = ttnn.from_torch(
-            positions.clamp_min(0).reshape(1, batch),
-            device=None,
-            dtype=ttnn.uint32,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        rot_tt = (
+            None
+            if page_table_only
+            else ttnn.from_torch(
+                positions.clamp_min(0).reshape(1, batch),
+                device=None,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+            )
         )
 
         page_tt = None

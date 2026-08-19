@@ -21,6 +21,7 @@ Run:
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,14 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.generator_vllm import (
 MODEL_DIR = Path(__file__).resolve().parents[1]
 ADAPTER_SOURCE = MODEL_DIR / "tt" / "generator_vllm.py"
 
+# The device fixture builds a fresh mesh - and therefore a fresh adapter - per test, and the shipped
+# prefill warm-up compiles all 16 physical prefill blocks, which is 60-150 s of compiling. A server
+# pays that once at start-up; a per-test rebuild cannot. The suite pins two blocks instead: enough to
+# drive the multi-length path and the "a warmed block compiles nothing, and never re-captures"
+# contract, cheap enough to rebuild per test. That the *default* is all 16 is asserted by
+# `test_the_prefill_warm_up_covers_every_physical_block_the_path_can_produce`, which needs no device.
+os.environ.setdefault("ORNITH_VLLM_PREFILL_WARMUP", "256,128")
+
 #: The reduced serving target: layer 0 is ``linear_attention``, layer 3 is ``full_attention``.
 PROBE_LAYERS = [0, 3]
 TEST_CONTEXT = 4096
@@ -51,6 +60,37 @@ ADAPTER_TARGET = "models.autoports.ornith_ai_ornith_1_0_35b.tt.generator_vllm:TT
 # --------------------------------------------------------------------------------------
 # host-only: registration, flags, interface
 # --------------------------------------------------------------------------------------
+def test_the_prefill_warm_up_covers_every_physical_block_the_path_can_produce(monkeypatch):
+    """The optimized-vLLM warm-up set, without a device.
+
+    The prefill path pads each internal block up to a multiple of ``PREFILL_ALIGN`` and never past
+    ``prefill_chunk``, so those multiples are the whole set of physical prefill shapes a server can
+    need - including for prompts longer than one chunk, which are full chunks plus one of these
+    tails. Every one of them has to be compiled *before* the decode traces are captured, because a
+    compile afterwards forces a re-capture inside a request's latency.
+    """
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt.generator_vllm import ENV_PREFILL_WARMUP
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import PREFILL_ALIGN
+
+    class _Model:
+        prefill_chunk = 2048
+
+    adapter = TTQwen3_5MoeForConditionalGeneration.__new__(TTQwen3_5MoeForConditionalGeneration)
+    adapter.model = _Model()
+
+    monkeypatch.delenv(ENV_PREFILL_WARMUP, raising=False)
+    lengths = adapter.prefill_warmup_lengths()
+    assert lengths == list(range(2048, 0, -PREFILL_ALIGN)), "every physical block, longest first"
+    assert len(lengths) == 2048 // PREFILL_ALIGN == 16
+    assert all(n % PREFILL_ALIGN == 0 for n in lengths)
+
+    monkeypatch.setenv(ENV_PREFILL_WARMUP, "min")
+    assert adapter.prefill_warmup_lengths() == [64], "`min` is the pre-optimization single length"
+
+    monkeypatch.setenv(ENV_PREFILL_WARMUP, "128,999999,256")
+    assert adapter.prefill_warmup_lengths() == [2048, 256, 128], "an explicit list, clamped to the chunk"
+
+
 def test_the_plugin_registers_this_adapter_for_both_architectures():
     """Both registrations matter, and for different reasons.
 
@@ -994,3 +1034,167 @@ def test_the_serving_capability_report_names_the_selected_policy(mesh_device):
     assert report["capability"]["kv_cache_dtype"] == str(adapter.model.policy.kv_cache_dtype)
     assert report["generator"]["sampling_mode"] == "device"
     assert report["generator"]["owns_cache"] is False
+
+
+@on_mesh
+def test_a_warmed_physical_block_compiles_nothing_and_never_re_captures(mesh_device):
+    """What the prefill warm-up actually buys, measured at the adapter.
+
+    A prefill whose *physical* block was warmed compiles no program at all when its logical length
+    was warmed too, and only the handful of logical-length-keyed programs otherwise - so the decode
+    traces survive it. The pre-optimization warm-up compiled one length, and a first request at any
+    other physical block compiled ~100 programs and forced a re-capture inside its latency
+    (``doc/optimized_vllm/before/new_length_cost.json``).
+
+    The counted classes are the ones ``doc/optimized_vllm/candidates/prefill_program_keys.json``
+    separates: the physical block shape (all warmed here) and the logical length (still open - see
+    ``doc/optimized_vllm/README.md`` section 3.3 A; ``ttnn.slice`` does have a runtime-bounds overload,
+    so that class is an unverified candidate rather than a closed-off op contract).
+    """
+    adapter = serving_adapter(mesh_device)
+    generator = adapter.generator
+    table = serving_page_table(adapter)
+    warmed = adapter.prefill_warmup_lengths()
+    assert len(warmed) > 1, "this test measures the multi-length warm-up"
+
+    def one(length, slot=0):
+        before_programs = mesh_device.num_program_cache_entries()
+        before_recaptures = generator.trace_recaptures
+        adapter.prefill_forward(
+            tokens=torch.randint(10, 90000, (1, length), dtype=torch.int64),
+            page_table=table[slot : slot + 1],
+            kv_cache=adapter._test_kv_cache,
+            prompt_lens=[length],
+            start_pos=[0],
+            sampling_params=greedy_params(adapter.max_batch_size),
+            empty_slots=[slot],
+        )
+        batch = adapter.max_batch_size
+        positions = torch.full((batch,), -1, dtype=torch.int64)
+        positions[slot] = length
+        # The re-capture happens on the first decode step after the prefill, not in the prefill.
+        adapter.decode_forward(
+            tokens=torch.zeros(batch, dtype=torch.int64),
+            page_table=table,
+            kv_cache=adapter._test_kv_cache,
+            start_pos=positions,
+            enable_trace=True,
+            read_from_device=True,
+            sampling_params=greedy_params(batch),
+            reset_batch=True,
+        )
+        return (
+            mesh_device.num_program_cache_entries() - before_programs,
+            generator.trace_recaptures - before_recaptures,
+        )
+
+    aligned = warmed[-1]
+    programs, recaptures = one(aligned)
+    assert programs == 0, f"a warmed length compiled {programs} program(s)"
+    assert recaptures == 0, "a warmed length must not force a decode-trace re-capture"
+
+    # A different physical block, also warmed: still nothing physical, and no re-capture.
+    other = warmed[-2]
+    programs, recaptures = one(other)
+    assert programs == 0 and recaptures == 0, f"warmed block {other}: {programs} program(s), {recaptures} re-capture(s)"
+
+    # A *new logical* length inside a warmed block is the residual this stage documents rather than
+    # removes: a few programs, and therefore one re-capture.
+    residual, residual_recaptures = one(other - 7)
+    assert residual <= 16, f"a new logical length compiled {residual} programs; the physical set regressed"
+    assert residual_recaptures <= 1
+
+
+@on_mesh
+def test_unchanged_sampling_parameters_are_not_re_pushed_every_token(mesh_device):
+    """The steady state does not rebuild and re-copy the sampler's parameter tensors per token.
+
+    ``SamplingGenerator.apply_decode_state`` builds four host tensors and copies each to the device.
+    The parameters of a serving batch change when vLLM changes the batch, not every token, so the
+    adapter keeps the formatted row it last pushed and skips the push while it is unchanged - and
+    pushes again the moment any row's parameters differ.
+    """
+    adapter = serving_adapter(mesh_device)
+    table = serving_page_table(adapter)
+    batch = adapter.max_batch_size
+    prompt = [7, 77, 777, 7777]
+    slot = 0
+    sampled, _ = adapter.prefill_forward(
+        tokens=torch.tensor([prompt], dtype=torch.int64),
+        page_table=table[slot : slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[len(prompt)],
+        start_pos=[0],
+        sampling_params=greedy_params(batch),
+        empty_slots=[slot],
+    )
+    tokens = torch.zeros(batch, dtype=torch.int64)
+    positions = torch.full((batch,), -1, dtype=torch.int64)
+    tokens[slot] = int(sampled[0])
+    positions[slot] = len(prompt)
+
+    def step(params, reset=False):
+        out = adapter.decode_forward(
+            tokens=tokens,
+            page_table=table,
+            kv_cache=adapter._test_kv_cache,
+            start_pos=positions,
+            enable_trace=True,
+            read_from_device=True,
+            sampling_params=params,
+            reset_batch=reset,
+        )
+        tokens[slot] = int(out[slot])
+        positions[slot] = int(positions[slot]) + 1
+        return out
+
+    step(greedy_params(batch), reset=True)
+    adapter.serving_counters["sampling_state_pushes"] = 0
+    adapter.serving_counters["sampling_state_skips"] = 0
+    for _ in range(4):
+        step(greedy_params(batch))
+    assert adapter.serving_counters["sampling_state_pushes"] == 0, "unchanged parameters were re-pushed"
+    assert adapter.serving_counters["sampling_state_skips"] == 4
+
+    # A changed row must push again - the skip is a cache, not a latch.
+    from models.common.sampling import SamplingParams
+
+    changed = SamplingParams(
+        temperature=[0.8] + [0.0] * (batch - 1),
+        top_k=[20] + [1] * (batch - 1),
+        top_p=[0.9] + [1.0] * (batch - 1),
+        seed=[None] * batch,
+        enable_log_probs=[False] * batch,
+        num_logprobs=[0] * batch,
+    )
+    step(changed)
+    assert adapter.serving_counters["sampling_state_pushes"] == 1, "a parameter change must re-push"
+    step(changed)
+    assert adapter.serving_counters["sampling_state_pushes"] == 1, "the new parameters are now the cached ones"
+    step(greedy_params(batch))
+    assert adapter.serving_counters["sampling_state_pushes"] == 2, "going back to greedy must re-push"
+
+
+@on_mesh
+def test_a_page_table_only_refresh_builds_only_the_page_table(mesh_device):
+    """The growing-request refresh does not build the three host tensors it would throw away.
+
+    ``prepare_decode_inputs_host(..., page_table_only=True)`` is what
+    ``OrnithGenerator._refresh_page_table_only`` asks for; the token, position and RoPE tensors come
+    back as ``None`` and the page table is unchanged from the full build.
+    """
+    adapter = serving_adapter(mesh_device)
+    model = adapter.model
+    batch = adapter.max_batch_size
+    table = serving_page_table(adapter)
+    zeros = torch.zeros(batch, dtype=torch.int32)
+
+    full = model.prepare_decode_inputs_host(zeros, zeros, table)
+    only = model.prepare_decode_inputs_host(zeros, zeros, table, page_table_only=True)
+    assert [t is None for t in only[:3]] == [True, True, True], "only the page table should be built"
+    assert only[3] is not None
+    # Both are replicated host tensors, so they need the mesh composer to come back to torch.
+    composer = ttnn.concat_mesh_to_tensor_composer(mesh_device, dim=0)
+    assert torch.equal(
+        ttnn.to_torch(only[3], mesh_composer=composer), ttnn.to_torch(full[3], mesh_composer=composer)
+    ), "the page table must be identical to the one the full build produces"

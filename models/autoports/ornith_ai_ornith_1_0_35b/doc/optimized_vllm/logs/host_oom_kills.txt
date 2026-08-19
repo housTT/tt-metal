@@ -1,0 +1,24 @@
+# Kernel OOM kills during this stage, from journalctl -k / dmesg -T. The host, not the devices:
+# tt-smi -r returned 0 with all eight board rows and the mesh smoke passed after every one of these.
+
+[Wed Aug 19 08:04:37 2026] Out of memory: Killed process 3679778 (pipewire) total-vm:14296kB, anon-rss:616kB, file-rss:8kB, shmem-rss:0kB, UID:120 pgtables:68kB oom_score_adj:200
+[Wed Aug 19 08:04:38 2026] Out of memory: Killed process 3679792 (dbus-daemon) total-vm:9376kB, anon-rss:400kB, file-rss:8kB, shmem-rss:0kB, UID:120 pgtables:60kB oom_score_adj:200
+[Wed Aug 19 08:04:42 2026] Out of memory: Killed process 3679752 (systemd) total-vm:21032kB, anon-rss:2468kB, file-rss:72kB, shmem-rss:0kB, UID:120 pgtables:84kB oom_score_adj:100
+[Wed Aug 19 08:04:49 2026] Out of memory: Killed process 3679753 ((sd-pam)) total-vm:21484kB, anon-rss:1740kB, file-rss:12kB, shmem-rss:0kB, UID:120 pgtables:72kB oom_score_adj:100
+[Wed Aug 19 08:04:55 2026] Out of memory: Killed process 3678909 (VLLM::EngineCor) total-vm:165548160kB, anon-rss:7134224kB, file-rss:32kB, shmem-rss:16kB, UID:1000 pgtables:288532kB oom_score_adj:0
+[Wed Aug 19 08:11:30 2026] Out of memory: Killed process 3683387 (VLLM::EngineCor) total-vm:161264768kB, anon-rss:7727712kB, file-rss:28kB, shmem-rss:16kB, UID:1000 pgtables:288768kB oom_score_adj:0
+[Wed Aug 19 08:15:48 2026] Out of memory: Killed process 3688852 (VLLM::EngineCor) total-vm:151732196kB, anon-rss:995004kB, file-rss:128kB, shmem-rss:0kB, UID:1000 pgtables:270420kB oom_score_adj:0
+[Wed Aug 19 08:56:49 2026] Out of memory: Killed process 3730486 (python) total-vm:153683008kB, anon-rss:1003856kB, file-rss:168kB, shmem-rss:0kB, UID:1000 pgtables:271612kB oom_score_adj:0
+[Wed Aug 19 09:13:05 2026] Out of memory: Killed process 3752007 (python) total-vm:149225912kB, anon-rss:723144kB, file-rss:76kB, shmem-rss:0kB, UID:1000 pgtables:269280kB oom_score_adj:0
+
+# journalctl -k since 07:00 (dmesg's ring buffer had already dropped the first two EngineCore kills):
+Aug 19 07:28:44 tt-quietbox-part-2 kernel: Out of memory: Killed process 3652454 (VLLM::EngineCor) total-vm:160958068kB, anon-rss:6548368kB, file-rss:88kB, shmem-rss:12kB, UID:1000 pgtables:289096kB oom_score_adj:0
+Aug 19 07:52:55 tt-quietbox-part-2 kernel: Out of memory: Killed process 3663767 (VLLM::EngineCor) total-vm:161177860kB, anon-rss:7073188kB, file-rss:32kB, shmem-rss:20kB, UID:1000 pgtables:288588kB oom_score_adj:0
+Aug 19 08:05:22 tt-quietbox-part-2 kernel: Out of memory: Killed process 3678909 (VLLM::EngineCor) total-vm:165548160kB, anon-rss:7134224kB, file-rss:32kB, shmem-rss:16kB, UID:1000 pgtables:288532kB oom_score_adj:0
+Aug 19 08:11:57 tt-quietbox-part-2 kernel: Out of memory: Killed process 3683387 (VLLM::EngineCor) total-vm:161264768kB, anon-rss:7727712kB, file-rss:28kB, shmem-rss:16kB, UID:1000 pgtables:288768kB oom_score_adj:0
+Aug 19 08:16:15 tt-quietbox-part-2 kernel: Out of memory: Killed process 3688852 (VLLM::EngineCor) total-vm:151732196kB, anon-rss:995004kB, file-rss:128kB, shmem-rss:0kB, UID:1000 pgtables:270420kB oom_score_adj:0
+Aug 19 08:57:58 tt-quietbox-part-2 kernel: Out of memory: Killed process 3730486 (python) total-vm:153683008kB, anon-rss:1003856kB, file-rss:168kB, shmem-rss:0kB, UID:1000 pgtables:271612kB oom_score_adj:0
+Aug 19 09:13:33 tt-quietbox-part-2 kernel: Out of memory: Killed process 3752007 (python) total-vm:149225912kB, anon-rss:723144kB, file-rss:76kB, shmem-rss:0kB, UID:1000 pgtables:269280kB oom_score_adj:0
+
+# and again at 09:54, the second full-suite re-verification attempt (PYTEST_EXIT=137):
+[Wed Aug 19 09:54:36 2026] Out of memory: Killed process 3791137 (python) total-vm:151555076kB, anon-rss:723180kB, file-rss:200kB, shmem-rss:0kB, UID:1000 pgtables:269708kB oom_score_adj:0

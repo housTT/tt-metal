@@ -1,0 +1,80 @@
+{
+  "workload": {
+    "profile": "single_user_decode",
+    "prompt_len": 128,
+    "gen_len": 128,
+    "batch": 1,
+    "harness": "python -m models.common.readiness_check.run_vllm_server --stages benchmark (primary profile)",
+    "server": "--mesh-device (1,4) --max-num-seqs 1 --max-model-len 262144, greedy, ignore_eos, decode trace on, sample_on_device_mode=all, async scheduling on"
+  },
+  "ttft_ms": 157.735,
+  "ttft_ms_cold_first_request_at_this_length": 220.324,
+  "decode_ms_per_token_e2e": 23.155,
+  "decode_tps_per_user": 43.188,
+  "decode_ms_per_token_device": null,
+  "decode_ms_per_token_device_scope": "vllm_serving_profiler_disabled_to_protect_hardware: $vllm-integration, $optimize and $tt-enable-tracing all forbid Tracy, tt-perf-report, TT_METAL_DEVICE_PROFILER and ttnn.ReadDeviceProfiler in vLLM stages. No profiler run was attempted here. The device-op split for this decode stack is the optimized-full-model and datatype-sweep stages' own non-serving profiles (doc/optimized_full_model/, doc/datatype_sweep/); this stage changed no device graph, so those remain the current device evidence.",
+  "roofline_ms_per_token_estimate": 1.1114994807729845,
+  "roofline_source": "doc/datatype_sweep/post_selection_token_out.json performance_accounting.roofline_ms_per_token_estimate; unchanged, because this stage changed no weight dtype, no cache dtype and no device graph",
+  "e2e_minus_generator_floor_ms": -0.0097,
+  "generator_floor_ms_per_token": 23.1647,
+  "generator_floor_source": "doc/datatype_sweep/post_selection_token_out.json token_out_decode.ms_per_token, same 128/128/1 shape, batch 1, 9 warm repeats - the model's own traced token-out decode, without vLLM",
+  "ci_serving_burst": {
+    "workload": {
+      "prompt_len": 100,
+      "gen_len": 100,
+      "num_prompts": 32,
+      "max_concurrency": null,
+      "max_num_seqs": 32
+    },
+    "median_ttft_ms": 4859.315,
+    "mean_tpot_ms": 146.917,
+    "median_itl_ms": 141.747,
+    "output_throughput_tok_s": 166.149,
+    "note": "capacity / vLLM-nightly parity evidence only; not the headline decode t/s/u"
+  },
+  "named_limitations": [
+    "Warmed single-user decode cannot be improved from the serving layer: it already sits on the model's own traced token-out decode (23.155 ms/token served against a 23.1647 ms/token generator floor measured without vLLM, with the allocation caveat in README section 1). The remaining gap to the 1.111 ms/token roofline is the decoder stack's, measured and named by doc/optimized_full_model/ and doc/datatype_sweep/.",
+    "A request at a prompt length no earlier request used still compiles 3-13 programs and pays one decode-trace re-capture: 1.03-2.25 s when tt-metal must build those kernels, 0.03-0.10 s when it can load them, plus a ~230 ms stall on the first decode step. This is the LARGEST residual class - the 56-program re-capture bucket on a 32-slot server is 8 new logical lengths x 7 programs, not a slot remap. It is NOT closed off by an op contract: an earlier claim that ttnn.slice has no tensor-valued form was refuted in review round 3 from slice_nanobind.cpp/slice.cpp/slice_device_operation.cpp, which do expose a runtime-bounds overload. That overload takes an even split of slice_dim into num_devices parts and still wants a TILE output tile-aligned, so the adapted form is the 32-row window containing the last token plus a within-tile selection - a named, unverified candidate. README section 3.3 A.",
+    "Two further compile classes survive the warm-up, both measured and both with a written-then-reverted fix: a multi-chunk prompt compiles 6 programs per new chunk offset (candidates/prefill_chunk_offsets.json - the 19-program bucket is 2 new offsets plus one new tail length, not 4 offsets) and a slot remap compiles about 2 programs per row index not moved before (candidates/slot_program_keys.json plus the log ordering: 4/4/8 at widths 2/4/8, 20 at width 10, 64 at a first width-32 remap on both trees). Prefilling into a slot compiles nothing, so multi-request prefill is not a class. README section 3.3 B and C.",
+    "A single user on a --max-num-seqs 32 server pays the 32-row decode step (138.1 ms/token against 23.2 at --max-num-seqs 1). Measured to be per-row DeltaNet/attention work, not idle-row expert routing: before/batch_occupancy.json and batch_occupancy_distinct.json show 137.96 ms/token at 1 active row and 143.23 at 32, with and without a shared routed-expert union. Removing it needs batch-bucketed decode traces, which the recurrent state's per-pack layout blocks - README section 6 limitation 4.",
+    "The cold-JIT-cache arm of the new-length measurement was completed for the before tree only; the two launches attempted for the after arm were OOM-killed by the host kernel, as were three more after them (README section 7; 13 launch attempts in total, 8 of which came up). The after tree's cold-JIT first-request cost is composed from the same run's already-built-block rows (1.03-2.25 s) and labelled as composed.",
+    "No device-profiler, Tracy or tt-perf-report evidence was collected in this stage, by instruction; no watcher run either, because this stage changed no kernel, memory config, CCL or captured graph."
+  ],
+  "startup_cost": {
+    "prefill_warmup_s": {
+      "before": 0.835,
+      "after_warm_jit_cache": [
+        11.7,
+        14.9
+      ],
+      "after_cold_jit_cache_reduced_two_layer_target": {
+        "value": 65.4,
+        "caveat": "cache state not controlled for that run; quoted as an observation, not as the cold-cache cost"
+      }
+    },
+    "init_engine_s": {
+      "before_max_num_seqs_1": 11.02,
+      "after_max_num_seqs_1": 22.21,
+      "before_max_num_seqs_32": 60.61,
+      "after_max_num_seqs_32": 72.04
+    },
+    "warmup_programs": {
+      "before": "not counted on that tree; program cache held 402 entries (max_num_seqs=1) / 448 (32) when warm-up finished",
+      "after": {
+        "prefill_warmup_programs": 2887,
+        "program_cache_entries_at_end_of_warmup": 3098,
+        "max_num_seqs_32": {
+          "prefill_warmup_programs": 2891,
+          "program_cache_entries_at_end_of_warmup": 3144
+        }
+      }
+    },
+    "cold_kernel_cache_bound": {
+      "basis": "this stage's own cold-JIT before server built the same 402-entry program set in 73.74 s (07:12:33.615 -> 07:13:47.354) where the warm before server took 2.255 s (06:47:10.152 -> 06:47:12.407)",
+      "seconds_per_program_built": 0.178,
+      "after_warmup_programs": 2887,
+      "estimated_cold_warmup_s": 514,
+      "note": "paid once per machine - the tt-metal kernel cache is on disk - and on a cold machine it is mostly a relocation of build time that would otherwise land inside user requests. A deployment that only ever uses two or three block shapes does build more total kernels than before; ORNITH_VLLM_PREFILL_WARMUP takes an explicit list for that case."
+    }
+  }
+}

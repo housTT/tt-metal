@@ -1,0 +1,272 @@
+{
+  "schema": "ornith-optimized-vllm-new-length-cost/2",
+  "what": "First request at a prompt length the server has not served, against a repeat of the same request. `excess_ttft_ms` = first TTFT - repeat TTFT on the same server, which removes the length's own prefill cost and leaves the one-off.",
+  "workload": {
+    "max_tokens": 24,
+    "temperature": 0.0,
+    "ignore_eos": true,
+    "stream": true,
+    "prompts": "explicit token-id lists, so the logical length is exact",
+    "server": "--max-num-seqs 1, --max-model-len 262144, mesh (1,4), same --tt-config as every other run"
+  },
+  "arms": {
+    "warm_jit_before": {
+      "tree": "81c01e1360a (stashed working tree)",
+      "tt_metal_jit_cache": "warm (default ~/.cache/tt-metal-cache, these shapes already built)",
+      "max_num_seqs": 1,
+      "when": "06:47"
+    },
+    "warm_jit_after": {
+      "tree": "this stage",
+      "tt_metal_jit_cache": "warm",
+      "max_num_seqs": 1,
+      "when": "04:59"
+    },
+    "cold_jit_before": {
+      "tree": "81c01e1360a (stashed working tree)",
+      "tt_metal_jit_cache": "COLD (TT_METAL_CACHE=/home/ttuser/.cache/ornith-coldjit-before, empty at launch)",
+      "max_num_seqs": 1,
+      "when": "07:14"
+    },
+    "mixed_config_before_first_ever_build": {
+      "tree": "81c01e1360a",
+      "tt_metal_jit_cache": "cold for these shapes (first build of the session)",
+      "max_num_seqs": "1 for 211/347/613, 32 for 300/900/2000/3000",
+      "when": "03:04 and 03:16",
+      "caveat": "NOT a like-for-like arm: the long rows ran on a --max-num-seqs 32 server whose decode step is 138 ms rather than 23 ms, so its ITL numbers are not comparable. Superseded by cold_jit_before; kept because it is what the stage first measured."
+    }
+  },
+  "lengths": [
+    {
+      "prompt_len": 211,
+      "physical_block": 256,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 420.2967790188268,
+        "repeat_ttft_ms": 186.95733102504164,
+        "excess_ttft_ms": 233.33944799378514,
+        "first_itl_max_ms": 231.53397697024047,
+        "repeat_itl_max_ms": 29.246049001812935
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 324.49498993810266,
+        "repeat_ttft_ms": 194.52573207672685,
+        "excess_ttft_ms": 129.9692578613758,
+        "first_itl_max_ms": 233.68025105446577,
+        "repeat_itl_max_ms": 30.972477979958057
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 10182.291071978398,
+        "repeat_ttft_ms": 194.8041059076786,
+        "excess_ttft_ms": 9987.486966070719,
+        "first_itl_max_ms": 230.3297829348594,
+        "repeat_itl_max_ms": 29.974229051731527
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 1278.2032730756328,
+        "repeat_ttft_ms": 202.53959693945944,
+        "excess_ttft_ms": 1075.6636761361733,
+        "first_itl_max_ms": 221.39027994126081,
+        "repeat_itl_max_ms": 26.659460039809346
+      }
+    },
+    {
+      "prompt_len": 300,
+      "physical_block": 384,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 259.6112019382417,
+        "repeat_ttft_ms": 227.04537701793015,
+        "excess_ttft_ms": 32.56582492031157,
+        "first_itl_max_ms": 256.9827779661864,
+        "repeat_itl_max_ms": 25.842352071776986
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 324.90878901444376,
+        "repeat_ttft_ms": 233.6350849363953,
+        "excess_ttft_ms": 91.27370407804847,
+        "first_itl_max_ms": 253.82747792173177,
+        "repeat_itl_max_ms": 28.129796963185072
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 1253.903609002009,
+        "repeat_ttft_ms": 223.90764497686177,
+        "excess_ttft_ms": 1029.9959640251473,
+        "first_itl_max_ms": 268.90666491817683,
+        "repeat_itl_max_ms": 26.05806605424732
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 841.6882279561833,
+        "repeat_ttft_ms": 234.80504099279642,
+        "excess_ttft_ms": 606.8831869633868,
+        "first_itl_max_ms": 392.8950030822307,
+        "repeat_itl_max_ms": 144.91918601561338
+      }
+    },
+    {
+      "prompt_len": 347,
+      "physical_block": 384,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 379.376983968541,
+        "repeat_ttft_ms": 226.50758898817003,
+        "excess_ttft_ms": 152.869394980371,
+        "first_itl_max_ms": 241.37813702691346,
+        "repeat_itl_max_ms": 26.43566601909697
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 365.316521958448,
+        "repeat_ttft_ms": 226.0707539971918,
+        "excess_ttft_ms": 139.2457679612562,
+        "first_itl_max_ms": 238.56059403624386,
+        "repeat_itl_max_ms": 29.17957305908203
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 10977.726400946267,
+        "repeat_ttft_ms": 226.91170300822705,
+        "excess_ttft_ms": 10750.81469793804,
+        "first_itl_max_ms": 251.0625940049067,
+        "repeat_itl_max_ms": 28.839660924859345
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 1355.1121070049703,
+        "repeat_ttft_ms": 224.2296430049464,
+        "excess_ttft_ms": 1130.882464000024,
+        "first_itl_max_ms": 243.9057029550895,
+        "repeat_itl_max_ms": 26.24810498673469
+      }
+    },
+    {
+      "prompt_len": 613,
+      "physical_block": 640,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 498.4717851039022,
+        "repeat_ttft_ms": 335.49452596344054,
+        "excess_ttft_ms": 162.97725914046168,
+        "first_itl_max_ms": 225.4132869420573,
+        "repeat_itl_max_ms": 28.765219962224364
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 433.31192689947784,
+        "repeat_ttft_ms": 310.0189740071073,
+        "excess_ttft_ms": 123.29295289237052,
+        "first_itl_max_ms": 223.56577904429287,
+        "repeat_itl_max_ms": 28.52296899072826
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 11163.5034349747,
+        "repeat_ttft_ms": 303.5687030060217,
+        "excess_ttft_ms": 10859.934731968679,
+        "first_itl_max_ms": 227.93900908436626,
+        "repeat_itl_max_ms": 28.028851025737822
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 8934.720528079197,
+        "repeat_ttft_ms": 297.30414191726595,
+        "excess_ttft_ms": 8637.41638616193,
+        "first_itl_max_ms": 229.4336319901049,
+        "repeat_itl_max_ms": 25.9554460644722
+      }
+    },
+    {
+      "prompt_len": 900,
+      "physical_block": 1024,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 673.0177919380367,
+        "repeat_ttft_ms": 417.6345419837162,
+        "excess_ttft_ms": 255.3832499543205,
+        "first_itl_max_ms": 229.7688330290839,
+        "repeat_itl_max_ms": 37.288703955709934
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 553.5753919975832,
+        "repeat_ttft_ms": 414.20662798918784,
+        "excess_ttft_ms": 139.36876400839537,
+        "first_itl_max_ms": 229.31202501058578,
+        "repeat_itl_max_ms": 30.37356398999691
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 13316.766144009307,
+        "repeat_ttft_ms": 425.7408609846607,
+        "excess_ttft_ms": 12891.025283024646,
+        "first_itl_max_ms": 247.99029808491468,
+        "repeat_itl_max_ms": 26.036333991214633
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 1567.3141210572794,
+        "repeat_ttft_ms": 424.4604189880192,
+        "excess_ttft_ms": 1142.8537020692602,
+        "first_itl_max_ms": 396.78800699766725,
+        "repeat_itl_max_ms": 148.68149103131145
+      }
+    },
+    {
+      "prompt_len": 2000,
+      "physical_block": 2048,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 1107.4185060570017,
+        "repeat_ttft_ms": 814.1263870056719,
+        "excess_ttft_ms": 293.2921190513298,
+        "first_itl_max_ms": 162.5114189228043,
+        "repeat_itl_max_ms": 27.599080000072718
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 964.8337659891695,
+        "repeat_ttft_ms": 814.0928489156067,
+        "excess_ttft_ms": 150.74091707356274,
+        "first_itl_max_ms": 185.7595550827682,
+        "repeat_itl_max_ms": 24.354315013624728
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 15076.749332016334,
+        "repeat_ttft_ms": 814.8991619236767,
+        "excess_ttft_ms": 14261.850170092657,
+        "first_itl_max_ms": 194.32079000398517,
+        "repeat_itl_max_ms": 28.39499106630683
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 1953.5192290786654,
+        "repeat_ttft_ms": 831.2121330527589,
+        "excess_ttft_ms": 1122.3070960259065,
+        "first_itl_max_ms": 382.1785430191085,
+        "repeat_itl_max_ms": 141.03751094080508
+      }
+    },
+    {
+      "prompt_len": 3000,
+      "physical_block": 2048,
+      "aligned_to_128": false,
+      "warm_jit_before": {
+        "first_ttft_ms": 1345.78930598218,
+        "repeat_ttft_ms": 1244.8359369300306,
+        "excess_ttft_ms": 100.95336905214936,
+        "first_itl_max_ms": 205.17169206868857,
+        "repeat_itl_max_ms": 31.079885084182024
+      },
+      "warm_jit_after": {
+        "first_ttft_ms": 1333.3021539729089,
+        "repeat_ttft_ms": 1239.820231916383,
+        "excess_ttft_ms": 93.48192205652595,
+        "first_itl_max_ms": 205.7141240220517,
+        "repeat_itl_max_ms": 28.978690039366484
+      },
+      "cold_jit_before": {
+        "first_ttft_ms": 3487.130882916972,
+        "repeat_ttft_ms": 1240.0962329702452,
+        "excess_ttft_ms": 2247.034649946727,
+        "first_itl_max_ms": 216.4882820798084,
+        "repeat_itl_max_ms": 31.66579210665077
+      },
+      "mixed_config_before_first_ever_build": {
+        "first_ttft_ms": 1624.1140939528123,
+        "repeat_ttft_ms": 1254.0051519172266,
+        "excess_ttft_ms": 370.10894203558564,
+        "first_itl_max_ms": 394.9000290594995,
+        "repeat_itl_max_ms": 143.24784302152693
+      }
+    }
+  ]
+}

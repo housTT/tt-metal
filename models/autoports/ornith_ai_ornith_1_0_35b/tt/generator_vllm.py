@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +68,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.model import (
     resolve_model_path,
 )
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model_config import HF_MODEL_ID
-from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import num_blocks_for_context
+from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import PREFILL_ALIGN, num_blocks_for_context
 
 #: Serving token pool, in tokens, when the deployment does not name one.
 #:
@@ -86,11 +87,25 @@ ENV_MAX_TOKENS = "ORNITH_MAX_TOKENS_ALL_USERS"
 ENV_LAYER_INDICES = "ORNITH_VLLM_LAYER_INDICES"
 ENV_NUM_LAYERS = "ORNITH_VLLM_NUM_LAYERS"
 
+#: Which prefill block lengths the serving warm-up compiles before the decode traces are captured.
+#:
+#: ``all`` (the default) compiles every physical block the prefill path can produce - each multiple
+#: of ``PREFILL_ALIGN`` up to the prefill chunk, 16 of them at the shipped 2048 - so no request ever
+#: compiles a physical prefill program while the decode traces are live. ``min`` restores the old
+#: single-length behaviour for a fast bring-up loop, and an explicit comma-separated list is for
+#: experiments. See ``doc/optimized_vllm/README.md`` section 3.
+ENV_PREFILL_WARMUP = "ORNITH_VLLM_PREFILL_WARMUP"
+
 
 _NOT_THE_TT_PATH = (
     "this is the vLLM structural interface, not the TT execution path: the TT plugin's worker calls "
     "prefill_forward()/decode_forward() and the loader calls initialize_vllm_model()"
 )
+
+
+def _hashable(value):
+    """A comparable key for one formatted sampling-parameter field (scalar, list, or None)."""
+    return tuple(value) if isinstance(value, list) else value
 
 
 def _env_int(name: str) -> int | None:
@@ -192,7 +207,14 @@ class TTQwen3_5MoeForConditionalGeneration:
             "no_refresh_steps": 0,
             "slot_remaps": 0,
             "async_reads": 0,
+            "sampling_state_pushes": 0,
+            "sampling_state_skips": 0,
+            "prefill_warmup_lengths": 0,
+            "prefill_warmup_programs": 0,
         }
+        #: What :meth:`_apply_decode_sampling` last pushed to the device, so an unchanged serving
+        #: batch does not rebuild and re-copy the sampler's parameter tensors every token.
+        self._last_sampling_key: tuple | None = None
 
     def _text_config(self):
         return getattr(self.hf_config, "text_config", self.hf_config)
@@ -452,15 +474,71 @@ class TTQwen3_5MoeForConditionalGeneration:
         return kv_cache
 
     # ------------------------------------------------------------------ warm-up
+    def prefill_warmup_lengths(self) -> list[int]:
+        """The prompt lengths :meth:`warmup_model_prefill` compiles, longest first.
+
+        The prefill path pads every internal block up to a multiple of
+        :data:`~models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder.PREFILL_ALIGN` and
+        never past ``prefill_chunk``, so the whole set of *block shapes* a prefill can produce is
+        those 16 multiples, and one prompt at each compiles all of them.
+
+        That matters because of what a compile costs *after* the decode traces are captured: the new
+        programs' kernel binaries land on addresses the decode trace writes, so the generator must
+        re-capture before the next replay
+        (:meth:`~models.autoports.ornith_ai_ornith_1_0_35b.tt.generator.OrnithGenerator._ensure_traces_replay_safe`).
+        Measured on this mesh with a controlled tt-metal kernel cache
+        (``doc/optimized_vllm/new_length_cost_before_after.json``), a first request at a new block shape
+        cost about 100 program compiles - **10.0 to 14.3 s** of TTFT when those kernels had to be built,
+        0.12 to 0.29 s when they could be loaded from the on-disk cache - plus a ~0.23 s stall on the
+        first decode step. Compiling them here, before the capture, moves all of it into server
+        start-up (``doc/optimized_vllm/README.md`` section 3).
+
+        **What this set does not cover.** These prompts all start at position 0, so they compile only
+        the ``chunk_start_idx == 0`` variants. A prompt longer than one ``prefill_chunk`` presents
+        further chunks at ``start_pos`` 2048, 4096, ... and the page-table slice those chunks take is
+        keyed by the absolute position, so each new chunk index still compiles a few programs and
+        pays one re-capture (measured: ``doc/optimized_vllm/candidates/prefill_chunk_offsets.json``).
+        Covering that class here would mean prefilling up to the advertised context at start-up; it
+        is named follow-up work in ``doc/optimized_vllm/work_log.md`` section 6.
+
+        Longest first so the largest activation footprint is allocated when the heap is least
+        fragmented.
+        """
+        chunk = int(self.model.prefill_chunk)
+        raw = os.environ.get(ENV_PREFILL_WARMUP, "all").strip().lower()
+        if raw == "min":
+            return [64]
+        if raw and raw != "all":
+            lengths = sorted({max(1, min(chunk, int(v))) for v in raw.split(",") if v.strip()}, reverse=True)
+            if not lengths:
+                raise ValueError(f"{ENV_PREFILL_WARMUP}={raw!r} named no usable prompt length")
+            return lengths
+        return list(range(chunk, 0, -PREFILL_ALIGN))
+
     def warmup_model_prefill(self, *, kv_cache=None, can_sample_on_device=False, enable_trace=False, **kwargs):
         """Compile the serving prefill path. Phase 1 (``enable_trace=False``) only.
 
-        This port's prefill is eager by design in every stage - it is chunked, its program set is
-        keyed by the *logical* prompt length, and no stage traces it - so there is nothing to capture
-        in phase 2. What phase 1 buys is that the first real request does not compile the terminal
-        norm, the LM head, the prefill sampling graph and the state merge while the decode traces are
-        live; ``OrnithGenerator._ensure_traces_replay_safe`` would notice and re-capture, but the
-        re-capture would land inside that request's latency.
+        This port's prefill is eager by design in every stage - it is chunked and no stage traces it -
+        so there is nothing to capture in phase 2. What phase 1 buys is that a real request does not
+        compile prefill programs while the decode traces are live, because every such compile forces
+        ``OrnithGenerator._ensure_traces_replay_safe`` to re-capture and that re-capture lands inside
+        the request's latency.
+
+        One prompt at each of :meth:`prefill_warmup_lengths` covers every *physical block shape* the
+        path can produce. Two classes remain, both measured:
+
+        * programs keyed by the **logical** length - ``ttnn.embedding`` on the unpadded token row, the
+          tail pad/trim, the last-token slice, the DeltaNet gate ramp and the conv tail. A request at a
+          length no earlier request used compiles 3 (aligned) to 13 (non-aligned) programs and pays one
+          re-capture (``doc/optimized_vllm/candidates/prefill_program_keys.json`` measures 3 and 7-8 on
+          the reduced target; a real server prices a new non-aligned length at 7 most of the time and up
+          to 13). ``ttnn.slice`` does
+          have a runtime-bounds overload, so this class is an open candidate rather than an op-contract
+          blocker - see ``doc/optimized_vllm/README.md`` section 3.3 A for what it can and cannot
+          express;
+        * programs keyed by the **chunk offset** of a multi-chunk prompt, which these position-0
+          warm-up prompts never reach
+          (``doc/optimized_vllm/candidates/prefill_chunk_offsets.json``).
         """
         del kwargs
         gen = self._require_generator()
@@ -469,30 +547,49 @@ class TTQwen3_5MoeForConditionalGeneration:
         if getattr(self, "already_warmed_up_prefill", False):
             return
         self.already_warmed_up_prefill = True
-        length = 64
-        logger.info(f"warm-up: compiling the serving prefill path at {length} token(s)")
-        tokens = torch.ones(1, length, dtype=torch.int32)
         table = self._warmup_page_table()
-        gen.prefill_requests_into_slots(
-            tokens,
-            [length],
-            [0],
-            page_table=table,
-            kv_cache=kv_cache,
-            sample_on_device=False,
-            ensure_traces=False,
+        lengths = self.prefill_warmup_lengths()
+        logger.info(
+            f"warm-up: compiling the serving prefill path at {len(lengths)} block length(s) "
+            f"{lengths[0]}..{lengths[-1]} ({ENV_PREFILL_WARMUP}={os.environ.get(ENV_PREFILL_WARMUP, 'all')})"
         )
-        if can_sample_on_device:
+        started = time.perf_counter()
+        entries = self.mesh_device.num_program_cache_entries()
+        for length in lengths:
+            tokens = torch.ones(1, length, dtype=torch.int32)
+            before = self.mesh_device.num_program_cache_entries()
             gen.prefill_requests_into_slots(
                 tokens,
                 [length],
                 [0],
                 page_table=table,
                 kv_cache=kv_cache,
+                sample_on_device=False,
+                ensure_traces=False,
+            )
+            logger.info(
+                f"warm-up: prefill {length} token(s) compiled "
+                f"{self.mesh_device.num_program_cache_entries() - before} program(s)"
+            )
+        shortest = lengths[-1]
+        if can_sample_on_device:
+            tokens = torch.ones(1, shortest, dtype=torch.int32)
+            gen.prefill_requests_into_slots(
+                tokens,
+                [shortest],
+                [0],
+                page_table=table,
+                kv_cache=kv_cache,
                 sample_on_device=True,
                 ensure_traces=False,
-                before_sample=lambda user, slot: self._apply_prefill_sampling(None, user, slot, tokens, [length]),
+                before_sample=lambda user, slot: self._apply_prefill_sampling(None, user, slot, tokens, [shortest]),
             )
+        self.serving_counters["prefill_warmup_lengths"] = len(lengths)
+        self.serving_counters["prefill_warmup_programs"] = self.mesh_device.num_program_cache_entries() - entries
+        logger.info(
+            f"warm-up: prefill path ready in {time.perf_counter() - started:.1f} s, "
+            f"{self.serving_counters['prefill_warmup_programs']} program(s) compiled"
+        )
         # The warm-up wrote prompt state into slot 0 and the null block; wipe it so the decode-trace
         # capture that follows is allowed to run (it refuses over a live prompt) and so no request
         # inherits it.
@@ -628,6 +725,7 @@ class TTQwen3_5MoeForConditionalGeneration:
         return torch.zeros(self.max_batch_size, self.page_table_blocks, dtype=torch.int32)
 
     def _reset_serving_state(self) -> None:
+        self._last_sampling_key = None
         self._device_token_rows[:] = False
         self._prefilled_rows[:] = False
         self._last_submit_was_prefill = True
@@ -729,6 +827,9 @@ class TTQwen3_5MoeForConditionalGeneration:
         prompt = tokens[user : user + 1, :length].to(torch.long).repeat(width, 1)
         gen.sampling.apply_prefill_state(sampling_params=params, prompt_tokens=prompt, empty_slots=[slot])
         gen.invalidate_sampling_params_cache()
+        # This wrote the sampler's parameter tensors for the prefilling row, so the decode path's
+        # "nothing changed" key no longer describes the device.
+        self._last_sampling_key = None
 
     # ------------------------------------------------------------------ decode
     def decode_forward(
@@ -857,23 +958,44 @@ class TTQwen3_5MoeForConditionalGeneration:
         return self.process_decode_output_host(out, is_tokens=device_sampling)
 
     def _apply_decode_sampling(self, sampling_params, start_pos, *, reset_batch, prompt_tokens, output_tokens) -> None:
-        """Per-row parameters, penalty state and seeds for one on-device decode step."""
-        from models.common.sampling import format_sampling_params
+        """Per-row parameters, penalty state and seeds for one on-device decode step.
+
+        ``SamplingGenerator.apply_decode_state`` is not free: it rebuilds four host tensors (k, p,
+        temperature and the greedy tie-break column) and copies each to the device. Doing that every
+        token is avoidable work in the steady state, because a serving batch's *parameters* change
+        only when vLLM changes the batch - a request arrives, leaves, or is scheduled with different
+        parameters. The formatted parameter row is therefore compared against what was last pushed
+        and the push is skipped when nothing changed.
+
+        Skipping is safe only for the parameter push. It is not applied when ``reset_batch`` is set
+        (which also re-seeds the penalty prompt/output state), and the key is dropped whenever
+        anything else writes the sampler's device state - a prefill's
+        :meth:`_apply_prefill_sampling`, or a serving reset. Seeds and RNG counters are advanced
+        unconditionally below, exactly as before: they are per-token state, not parameters.
+        """
+        from models.common.sampling import SAMPLING_PARAM_FIELDS, format_sampling_params
 
         gen = self._require_generator()
         sampling = gen.sampling
-        sampling.apply_decode_state(
-            [sampling_params],
-            reset_batch=bool(reset_batch),
-            prompt_tokens=prompt_tokens,
-            output_tokens=output_tokens,
-        )
-        gen.invalidate_sampling_params_cache()
+        formatted = format_sampling_params(sampling_params, sampling.tt_sampling.max_batch_size)
+        key = tuple(_hashable(getattr(formatted, field, None)) for field in SAMPLING_PARAM_FIELDS)
+        if reset_batch or key != self._last_sampling_key:
+            sampling.apply_decode_state(
+                [sampling_params],
+                reset_batch=bool(reset_batch),
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+            )
+            gen.invalidate_sampling_params_cache()
+            self._last_sampling_key = key
+            self.serving_counters["sampling_state_pushes"] += 1
+        else:
+            self.serving_counters["sampling_state_skips"] += 1
         positions = [int(v) for v in torch.as_tensor(start_pos).reshape(-1)]
         slots = sampling.seed_manager.max_batch_size
         active = [i for i, pos in enumerate(positions[:slots]) if pos >= 0]
         if active:
-            seeds = format_sampling_params(sampling_params, sampling.tt_sampling.max_batch_size).seed
+            seeds = formatted.seed
             # Register each request's explicit seed and tie its RNG counter to the absolute decode
             # position, so a request that vLLM moves between slots keeps one reproducible stream.
             sampling.seed_manager.reset_seed_from_slots_if_needed(seeds, active)

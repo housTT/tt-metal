@@ -1,0 +1,129 @@
+{
+  "schema": "ornith-optimized-vllm-recapture-classes/1",
+  "what": "Every decode-trace re-capture each server logged, bucketed by how many programs had been compiled since the capture. The physical-block class (roughly 100-300 programs) is the one the 16-block warm-up removes. The residual buckets decompose into three classes, measured in prefill_program_keys.json, prefill_chunk_offsets.json and slot_program_keys.json: the logical-length class (3 aligned, 7-13 non-aligned per new length; the 56 at max_num_seqs=32 is 8 new lengths x 7), the chunk-offset class of a multi-chunk prompt (6 per new offset; the 19 bucket is 2 new offsets = 12 plus 7 for one new tail length), and the slot-remap class (~2 programs per row index not moved before: 4/4/8 at widths 2/4/8 on an 8-slot probe, 20 at width 10, 64 at a first width-32 remap on both trees, 32 on a server whose earlier widths had already moved half its rows). Prefilling into a slot compiles nothing, so multi-request prefill is not a class. README section 3.3.",
+  "servers": {
+    "before_tree_max_num_seqs_1_first_run": {
+      "tree": "81c01e1360a",
+      "log": "logs/server_before_b1_vllm.log.gz",
+      "re_captures_total": 4,
+      "programs_per_re_capture": {
+        "3": 1,
+        "102": 1,
+        "115": 1,
+        "138": 1
+      },
+      "largest_class": 138,
+      "physical_class_present": true
+    },
+    "before_tree_max_num_seqs_32_first_run": {
+      "tree": "81c01e1360a",
+      "log": "logs/server_before_b32_vllm.log.gz",
+      "re_captures_total": 7,
+      "programs_per_re_capture": {
+        "3": 1,
+        "7": 1,
+        "13": 1,
+        "64": 1,
+        "115": 1,
+        "175": 1,
+        "271": 1
+      },
+      "largest_class": 271,
+      "physical_class_present": true
+    },
+    "before_tree_max_num_seqs_1_rerun": {
+      "tree": "81c01e1360a",
+      "log": "logs/server_beforetree_b1_vllm.log.gz",
+      "re_captures_total": 7,
+      "programs_per_re_capture": {
+        "8": 1,
+        "13": 1,
+        "102": 1,
+        "115": 1,
+        "138": 1,
+        "175": 1,
+        "271": 1
+      },
+      "largest_class": 271,
+      "physical_class_present": true
+    },
+    "before_tree_max_num_seqs_32_rerun": {
+      "tree": "81c01e1360a",
+      "log": "logs/server_beforetree_b32_vllm.log.gz",
+      "re_captures_total": 12,
+      "programs_per_re_capture": {
+        "7": 8,
+        "19": 1,
+        "20": 1,
+        "32": 1,
+        "56": 1
+      },
+      "largest_class": 56,
+      "physical_class_present": false
+    },
+    "before_tree_cold_jit_max_num_seqs_1": {
+      "tree": "81c01e1360a",
+      "log": "logs/server_coldjit_before_b1_vllm.log.gz",
+      "re_captures_total": 7,
+      "programs_per_re_capture": {
+        "8": 1,
+        "13": 1,
+        "102": 1,
+        "115": 1,
+        "138": 1,
+        "175": 1,
+        "271": 1
+      },
+      "largest_class": 271,
+      "physical_class_present": true
+    },
+    "after_max_num_seqs_1_first_run": {
+      "tree": "this stage",
+      "log": "logs/server_after_b1_vllm.log.gz",
+      "re_captures_total": 29,
+      "programs_per_re_capture": {
+        "2": 1,
+        "3": 1,
+        "6": 1,
+        "7": 16,
+        "8": 2,
+        "9": 3,
+        "10": 2,
+        "11": 1,
+        "12": 1,
+        "19": 1
+      },
+      "largest_class": 19,
+      "physical_class_present": false
+    },
+    "after_max_num_seqs_32": {
+      "tree": "this stage",
+      "log": "logs/server_after_b32_vllm.log.gz",
+      "re_captures_total": 24,
+      "programs_per_re_capture": {
+        "3": 2,
+        "6": 1,
+        "7": 14,
+        "9": 2,
+        "10": 1,
+        "11": 1,
+        "19": 1,
+        "56": 1,
+        "64": 1
+      },
+      "largest_class": 64,
+      "physical_class_present": false
+    },
+    "after_max_num_seqs_1_final": {
+      "tree": "this stage",
+      "log": "logs/server_final_b1_vllm.log.gz",
+      "re_captures_total": 12,
+      "programs_per_re_capture": {
+        "7": 11,
+        "11": 1
+      },
+      "largest_class": 11,
+      "physical_class_present": false
+    }
+  }
+}

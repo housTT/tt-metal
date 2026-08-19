@@ -227,8 +227,8 @@ class OrnithGenerator(Generator):
         return torch.as_tensor(page_table).to(torch.int32)
 
     # ------------------------------------------------------------------ trace management
-    def _host_decode_inputs(self, tokens, positions, page_table):
-        return self.model.prepare_decode_inputs_host(tokens, positions, page_table)
+    def _host_decode_inputs(self, tokens, positions, page_table, *, page_table_only=False):
+        return self.model.prepare_decode_inputs_host(tokens, positions, page_table, page_table_only=page_table_only)
 
     def _ensure_decode_trace(self):
         """Warm-compile and capture the model decode trace and the sampling trace, once.
@@ -423,6 +423,7 @@ class OrnithGenerator(Generator):
             torch.zeros(self.max_batch_size, dtype=torch.int32),
             torch.zeros(self.max_batch_size, dtype=torch.int32),
             page_table,
+            page_table_only=True,
         )
         ttnn.copy_host_to_device_tensor(host[3], page_d)
         self._prev_page_table = torch.as_tensor(page_table).to(torch.int32).clone()
