@@ -695,7 +695,7 @@ limit once it had thirteen device cases.
 
 ### 7.10 Tests
 ```
-pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 305 s
+pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py -q   # 22 passed in 320 s
 pytest models/autoports/ornith_ai_ornith_1_0_35b/tests/test_full_model.py -q -m "not long"   # 50 passed, 5 deselected, 2316 s
 ```
 Console logs: the adapter suite's own run on the committed tree is
@@ -1145,7 +1145,8 @@ split into bounded chunks. Recorded because the failure mode looks exactly like 
   guard and its line numbers match the committed adapter exactly.
 * The **final** state is [`logs/final_device_reset_and_mesh_smoke.txt`](logs/final_device_reset_and_mesh_smoke.txt),
   captured after the last device job of the stage: no device-owning process, 8 board lines before and after a
-  `tt-smi -r`, and `MESH_SMOKE_OK`. The file carries **both** test suites' start/end timestamps and results,
+  `tt-smi -r`, and `MESH_SMOKE_OK`. The file lists both test suites in the order they ran, with their own
+  start/end timestamps and results,
   read out of their own console logs, so "after the last device job" is checkable rather than asserted —
   rounds 3 and 8 both caught this record having gone stale behind a later run (round 3: three hours behind the
   last server; round 8: an hour and three quarters behind a re-run of the adapter suite), and round 9's
@@ -1502,11 +1503,17 @@ anyway, because each was a claim that was looser than the evidence:
 | observation | what it turned into |
 |---|---|
 | README §3's "one sampling-trace replay per token" is unconditional, but the shared sampler refuses to trace while a per-request **seed** is active | §3 names the exception (same graph, on device, untraced) and limitation 10 says seeded requests are therefore the configuration with no published TPOT here |
-| the round-10 fix left `_merge_rows`' complement mask with no consumer | the parameter and both call sites' `invert=True` masks are gone; `_slot_mask` documents why its `invert` branch is now caller-only |
-| the new test poked and asserted only the float32 recurrent matrix, leaving the bfloat16 conv window covered by construction | it now asserts finiteness over both, which is also what makes the `ttnn.where` fix cover two dtypes, ranks and mask shapes |
+| the round-10 fix left `_merge_rows`' complement mask with no consumer | the parameter and both call sites' `invert=True` masks are gone, and round 12 finished the job by deleting the `invert` branch itself: an unused mask variant is a post-capture DRAM allocation waiting to happen, which is the hazard `_prebuild_slot_masks` exists to avoid, and the prebuild no longer warms it |
+| the new test poked and asserted only the float32 recurrent matrix, leaving the bfloat16 conv window covered by construction | it now pokes and asserts over both, which is what makes the `ttnn.where` fix cover two dtypes, ranks and mask shapes — and round 12 added the control that keeps it honest: each arm first asserts the poke *landed*, so a containment test that poisons nothing fails instead of passing vacuously |
 | README §1's decode-floor comparison cited a spread that belongs to the sweep's teacher-forcing rows | it now gives both spreads and says which one the conclusion rests on: the baseline's own nine repeats span 0.02 %, serving's three warm runs span 0.12 %, and the serving-vs-floor difference (0.04 % of TPOT) is inside the second |
 | README §1 credited `submit_serving_decode`'s replay-safety check; `decode_forward`'s own call fires first | corrected — both are inside the first decode step, so the timing conclusion is unchanged |
-| "byte for byte" overstated the archived plugin diff | it is identical in content; the repo's whitespace hook stripped the trailing space from three blank context lines, and both places now say so |
+| "byte for byte" overstated the archived plugin diff | it is identical in content; the repo's whitespace hook stripped the trailing space from three blank context lines. README §3 was corrected in the fold-in and `vllm_checkout.txt` in round 12, which caught that only one of the two had been |
+
+**Round 12** re-reviewed the fold-in itself and found three things in it: the `vllm_checkout.txt` half of the
+"byte for byte" correction had been missed, the regression test's own docstring still described the arithmetic
+merge in the present tense, and the retained `invert` mask branch was now an uncovered post-capture allocation
+path. All three are fixed above, with the positive-control assertion added for good measure; the adapter suite
+was re-run on the result.
 
 Three things no review asked for came out of doing all of the above, and all three changed published numbers
 or claims: the async-scheduling default (§7.6), the headline benchmark's overwritten artifact (§7.7), and two

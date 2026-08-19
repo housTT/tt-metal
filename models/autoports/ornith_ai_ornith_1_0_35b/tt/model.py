@@ -1621,18 +1621,19 @@ class OrnithModel(LightweightModule):
         ttnn.where(mask, wide, dst, output_tensor=dst)
         ttnn.deallocate(wide)
 
-    def _slot_mask(self, slot: int, batch: int, *, invert: bool = False):
+    def _slot_mask(self, slot: int, batch: int):
         """A cached 0/1 row selector for ``slot``, in both state-buffer shapes.
 
-        ``invert`` is unused by the model since :meth:`_merge_rows` became a select rather than
-        ``dst * inverse + src * mask`` (see its docstring): nothing multiplies the row it replaces any
-        more, so nothing needs the complement. The parameter stays because the mask cache is keyed on it
-        and a caller that wants "every row but this one" has a correct implementation here rather than an
-        ad-hoc one.
+        Selector only: there used to be an ``invert=True`` complement for :meth:`_merge_rows`'s
+        ``dst * inverse + src * mask`` form, and it went with that form (see `_merge_rows`, and §9.2 of
+        the vLLM-integration work log for why the arithmetic became a select). It is not kept "just in
+        case" on purpose: every mask a caller might want has to be prebuilt before trace capture
+        (:meth:`_prebuild_slot_masks`), so an unused variant is a post-capture allocation waiting to
+        happen.
         """
         import torch
 
-        key = ("mask", slot, batch, invert)
+        key = ("mask", slot, batch)
         cached = getattr(self, "_mask_cache", None)
         if cached is None:
             cached = self._mask_cache = {}
@@ -1640,8 +1641,6 @@ class OrnithModel(LightweightModule):
             return cached[key]
         base = torch.zeros(batch)
         base[slot] = 1.0
-        if invert:
-            base = 1.0 - base
 
         def upload(shape, dtype):
             return ttnn.from_torch(

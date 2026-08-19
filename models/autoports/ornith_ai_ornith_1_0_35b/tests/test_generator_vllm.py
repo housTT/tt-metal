@@ -843,11 +843,13 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
     (`doc/vllm_integration/decode_nondeterminism.json`, `state_after_first_step`), and nothing wipes them
     between requests - vLLM reuses slots, and `reset_state()` runs only at warm-up.
 
-    Both of this stage's per-slot state paths *read* the rows they overwrite: `_merge_rows` computes
-    `dst * inverse + src * mask`, and `inf * 0` is `NaN` under IEEE. So a poisoned idle row could, in
-    principle, poison the request prefilled into it (via the prefill merge) or every row at once (via the
-    batch-condense remap, which broadcasts the source row). This test writes the poison itself and pins
-    that neither happens.
+    Both of this stage's per-slot state paths write rows through `_merge_rows`, and until the fix in
+    `doc/vllm_integration/work_log.md` section 9.2 that primitive *read* the row it was overwriting: it
+    computed `dst * inverse + src * mask`, and `inf * 0` is `NaN` under IEEE. A poisoned idle row therefore
+    poisoned the request prefilled into it - measured, this test failed on that code - and could have
+    poisoned every row at once through the batch-condense remap, which broadcasts the source row.
+    `_merge_rows` now selects with `ttnn.where`; this test writes the poison itself and pins that neither
+    path spreads it.
     """
     adapter = serving_adapter(mesh_device)
     table = serving_page_table(adapter)
@@ -884,8 +886,15 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
                     return False, row
         return True, None
 
+    def idle_row_is_poisoned():
+        """Did the poke actually land? A containment test that poisons nothing passes vacuously."""
+        return all(
+            not torch.isfinite(ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()[idle]).all() for buf in recurrent
+        )
+
     prompt = [9, 99, 999, 9999]
     poison_idle_rows()
+    assert idle_row_is_poisoned(), "the poke did not land: this test would pass without testing anything"
     finite, row = rows_are_finite(skip={idle})
     assert finite, f"the poison itself leaked into row {row} before anything was served"
 
@@ -905,6 +914,7 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
 
     # 2. ...and neither must a request prefilled *into the poisoned slot itself*.
     poison_idle_rows()
+    assert idle_row_is_poisoned()
     logits = adapter.prefill_forward(
         tokens=torch.tensor([prompt], dtype=torch.int64),
         page_table=table[idle : idle + 1],
@@ -920,6 +930,7 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
 
     # 3. a batch condense that *moves* a poisoned row must not spread it either.
     poison_idle_rows()
+    assert idle_row_is_poisoned()
     remap = list(range(batch))
     remap[target], remap[idle] = idle, target
     moved = adapter.generator.remap_serving_slots(torch.tensor(remap, dtype=torch.int32))
