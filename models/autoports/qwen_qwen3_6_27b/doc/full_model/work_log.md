@@ -459,9 +459,8 @@ minus that bound is 2.424686 ms, matching the 2.416293-ms sampler.
 
 - `5c658065f3d` — `Add Qwen3.6-27B TP4 full model`: stage implementation,
   tests, readiness helpers, reports, and sealed evidence package.
-- The immediately following documentation-only commit records this SHA and the
-  independent `clean-pass`; it is intentionally self-referential by position
-  rather than embedding its own unstable hash.
+- `765ce8e58e6` — `Record Qwen3.6 full-model stage completion`: records the
+  implementation SHA and independent `clean-pass` in the stage work log.
 
 No commit was pushed. Unrelated Tracy, UMD, and cluster-descriptor worktree
 changes were excluded.
