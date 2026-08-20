@@ -161,7 +161,9 @@ Stage-owned implementation and evidence commit: `5d436142493e9a1085890b483cb8630
 
 Initial documentation-only handoff commit: `48ae700db537b250ee349fe5856ffe2d13f96627`.
 
-The post-review remediation checkpoint and successor SHA-record commit are reported in the final handoff; neither was pushed.
+Post-review remediation and clean-review checkpoint: `9834573168176944992bb202f4497e533f7191b0`.
+
+The successor documentation-only commit records this SHA; its own SHA is reported in the final handoff. Neither commit was pushed.
 
 ## AutoFix: split-channel depthwise conv1d
 
