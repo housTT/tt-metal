@@ -194,5 +194,8 @@ from the default runtime.
   fresh read-only reviewer was `/root/optimized_mc_context_rereview`; it checked
   the remediation log, final source/tests, context contract, postflight, and
   retained artifact inventory directly.
-- Local stage commit: pending.
+- Local stage checkpoint: repo `tt-metal`, branch
+  `agentic-research/hous/qwen3.8-27b`, commit `0dc44c70024` (`Optimize Qwen
+  multichip decoder`). Unrelated dirty submodules and cluster-descriptor files
+  were excluded.
 - Nothing is pushed.
