@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="256.818" timestamp="2026-08-20T15:36:18.896958-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_full_model" name="test_reduced_full_model_prefill_decode_and_split_trace[blackhole-device_params0-4]" time="255.924"><properties><property name="start_timestamp" value="2026-08-20T15:36:19" /><property name="end_timestamp" value="2026-08-20T15:40:35" /></properties><failure message="assert [151644, 0] == [0]&#10;  &#10;  At index 0 diff: 151644 != 0&#10;  Left contains one more item: 0&#10;  &#10;  Full diff:&#10;    [&#10;  +     151644,&#10;        0,&#10;    ]">mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_reduced_full_model_prefill_decode_and_split_trace(mesh_device):
+        if os.environ.get("QWEN36_RUN_FULL_MODEL_SMOKE") != "1":
+            pytest.skip("set QWEN36_RUN_FULL_MODEL_SMOKE=1")
+        generator = Generator(
+            mesh_device=mesh_device,
+            override_num_layers=4,
+            max_seq_len=256,
+        )
+        prompt = [151644, 872, 198]
+        logits = generator.prefill_forward(
+            torch.tensor([prompt]),
+            page_table=None,
+            kv_cache=None,
+            prompt_lens=[len(prompt)],
+            return_all_logits=True,
+        )
+        assert logits.shape == (1, len(prompt), generator.model.vocab_size)
+        assert torch.isfinite(logits).all()
+        predictions = generator.generate(prompt, 3, enable_trace=True, stop_on_eos=False)
+        assert len(predictions) == 3
+        assert all(0 &lt;= token &lt; generator.model.vocab_size for token in predictions)
+        assert generator._model_trace_id is not None
+        assert generator.model.sampling._trace_states
+        assert generator.model.sampling.tt_sampling.force_argmax_sampling
+        persistent_inputs = (
+            generator._state.token_buffer,
+            generator._state.current_positions,
+            generator._state.rotary_positions,
+        )
+        assert generator._tokens_to_host(generator._state.token_buffer)[0].item() == predictions[-1]
+        positions = generator._tokens_to_host(generator._state.current_positions)
+        assert positions[0].item() == len(prompt) + 2
+        assert torch.all(positions[1:] == -1)
+        assert all(
+            current is original
+            for current, original in zip(
+                (
+                    generator._state.token_buffer,
+                    generator._state.current_positions,
+                    generator._state.rotary_positions,
+                ),
+                persistent_inputs,
+            )
+        )
+    
+        changed_page_table = torch.arange(
+            generator._state.page_table_host.shape[1] - 1, -1, -1, dtype=torch.int32
+        ).unsqueeze(0)
+        generator._refresh_page_table(generator._state, changed_page_table)
+        first_snapshot = generator._previous_page_table
+        stable_page_table = changed_page_table.clone()
+        generator._refresh_page_table(generator._state, stable_page_table)
+        assert generator._previous_page_table is first_snapshot
+        page_table_reads = 0
+        original_page_table_to_host = generator._page_table_to_host
+    
+        def count_page_table_reads(self, value):
+            nonlocal page_table_reads
+            page_table_reads += 1
+            return original_page_table_to_host(value)
+    
+        generator._page_table_to_host = types.MethodType(count_page_table_reads, generator)
+        generator._refresh_page_table(generator._state, stable_page_table)
+        assert page_table_reads == 0
+        generator._refresh_page_table(generator._state, stable_page_table, changed=True)
+        assert page_table_reads == 1
+        page_table_device = generator._tokens_to_host(generator._state.page_table).reshape(
+            generator._state.page_table_host.shape
+        )
+        assert torch.equal(
+            page_table_device[0, : changed_page_table.shape[1]], changed_page_table[0]
+        )
+        generator.reset()
+        assert not generator._state.prompt_lens
+        assert not generator._state.active_slots
+        assert generator._model_trace_id is None
+        assert not generator.model.sampling._trace_states
+    
+        # A second request must recapture rather than replaying tensor bindings or
+        # state from the first request, and repeated reset must be deterministic.
+        second_prompt = [151644, 3838, 374, 220, 19]
+        second = generator.generate(second_prompt, 3, enable_trace=True, stop_on_eos=False)
+        assert generator._model_trace_id is not None
+        generator.reset()
+        second_control = generator.generate(second_prompt, 3, enable_trace=True, stop_on_eos=False)
+        assert second == second_control
+    
+        # Seeded stochastic decode uses the common device sampler's request state:
+        # prompt and token-zero penalty history are installed once, then the
+        # explicit seed advances once per device-decoded token.  Resetting the
+        # request must reproduce the same stream on the proven physical Ring.
+        stochastic = SamplingParams(
+            temperature=0.8,
+            top_k=16,
+            top_p=0.9,
+            presence_penalty=0.1,
+            frequency_penalty=0.05,
+            repetition_penalty=1.05,
+            seed=17,
+        )
+        generator.reset()
+        stochastic_first = generator.generate(
+            second_prompt, 3, enable_trace=True, sampling_params=stochastic, stop_on_eos=False
+        )
+        assert generator.model.sampling.seed_manager.seed_counters[0] == 2
+        print(
+            "stochastic_seeded_first "
+            f"tokens={stochastic_first} seed_counter="
+            f"{generator.model.sampling.seed_manager.seed_counters[0]} "
+            f"topology={generator.model.sampling.tt_sampling._get_sampling_all_gather_config(None, 1)[1]}"
+        )
+        assert generator._device_output_history == stochastic_first
+        assert generator.model.sampling._penalties_active
+        prompt_mask = ttnn.to_torch(
+            generator.model.sampling.tt_penalties.prompt_mask,
+            mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=1),
+        )
+        assert torch.all(prompt_mask[0, second_prompt] == 1)
+        output_counts = generator._tokens_to_host(
+            generator.model.sampling.tt_penalties.output_counts_gathered
+        ).reshape(MAX_BATCH_SIZE, -1)
+        expected_counts = torch.bincount(
+            torch.tensor(stochastic_first), minlength=generator.model.vocab_size
+        )
+        sampled_ids = torch.unique(torch.tensor(stochastic_first))
+        assert torch.equal(output_counts[0, sampled_ids], expected_counts[sampled_ids])
+        assert generator.model.sampling.tt_sampling._get_sampling_all_gather_config(None, 1) == (
+            1,
+            ttnn.Topology.Ring,
+        )
+        generator.reset()
+        stochastic_second = generator.generate(
+            second_prompt, 3, enable_trace=True, sampling_params=stochastic, stop_on_eos=False
+        )
+        assert stochastic_first == stochastic_second
+        print(
+            "stochastic_seeded_replay "
+            f"tokens={stochastic_second} seed_counter="
+            f"{generator.model.sampling.seed_manager.seed_counters[0]} reproducible=true"
+        )
+    
+        # The ordinary unseeded top-k/top-p mode retains the common sampler trace;
+        # three tokens force both capture and replay while Ring remains selected.
+        unseeded = SamplingParams(temperature=0.8, top_k=16, top_p=0.9, seed=None)
+        generator.reset()
+        unseeded_tokens = generator.generate(
+            second_prompt, 3, enable_trace=True, sampling_params=unseeded, stop_on_eos=False
+        )
+        print(f"stochastic_unseeded tokens={unseeded_tokens} trace_capture_replay=true")
+        stochastic_trace = next(
+            slot
+            for key, slot in generator.model.sampling._trace_states.items()
+            if not key.force_argmax
+        )
+        assert stochastic_trace["id"] is not None
+        assert generator._tokens_to_host(generator._state.token_buffer)[0].item() == unseeded_tokens[-1]
+        assert generator._tokens_to_host(generator._state.current_positions)[0].item() == len(second_prompt) + 2
+    
+        # Switching back to force-argmax must preserve valid device feedback and
+        # return to the semantically greedy trace key.
+        generator._configure_greedy_sampling()
+        greedy_out = generator._decode_traced_device(generator._state)
+        greedy_token = generator._tokens_to_host(greedy_out)[0].item()
+        assert 0 &lt;= greedy_token &lt; generator.model.vocab_size
+        generator.teardown()
+        del generator
+        gc.collect()
+    
+        # Public prefill owns non-aligned padding and supports mixed prompt lengths
+        # while keeping inactive decode rows outside the recurrent linear state.
+        mixed = Generator(mesh_device=mesh_device, override_num_layers=4, max_seq_len=512)
+        boundary_prompt = [151644, 872] + [198] * 63
+        mixed_tokens = torch.tensor(
+            [boundary_prompt + [0, 0], boundary_prompt + [220, 19], boundary_prompt + [0, 0]],
+            dtype=torch.long,
+        )
+        mixed_logits = mixed.prefill_forward(
+            mixed_tokens,
+            page_table=None,
+            kv_cache=None,
+            prompt_lens=[65, 67, 65],
+            return_all_logits=True,
+        )
+        assert mixed_logits.shape == (3, 67, mixed.model.vocab_size)
+        assert torch.equal(mixed_logits[0, :65], mixed_logits[2, :65])
+        assert mixed._state.active_slots == (0, 1, 2)
+        for layer_idx, layer in enumerate(mixed.model.layers):
+            if layer.layer_kind == "linear_attention":
+                assert mixed._state.linear_state[layer_idx][0].shape[0] == 3
+        mixed_first_tokens = torch.tensor(
+            [
+                torch.argmax(mixed_logits[user, length - 1]).item()
+                for user, length in enumerate((65, 67, 65))
+            ]
+        )
+        mixed_sampled = mixed.decode_forward(
+            mixed_first_tokens.reshape(3, 1),
+            torch.tensor([65, 67, 65]),
+            page_table=mixed._state.page_table_host[:3],
+            kv_cache=mixed._state,
+            state=mixed._state,
+            enable_trace=True,
+            sampling_mode="device",
+            sampling_params=SamplingParams(temperature=1.0, top_k=1, top_p=0.0, seed=None),
+            sampling_request_start=True,
+            prompt_token_ids=[boundary_prompt[:65], boundary_prompt + [220, 19], boundary_prompt[:65]],
+        )
+        assert mixed_sampled.shape == (3,)
+        assert mixed_sampled[0].item() == mixed_sampled[2].item()
+        mixed_positions = mixed._tokens_to_host(mixed._state.current_positions)
+        assert mixed_positions[:3].tolist() == [66, 68, 66]
+        assert torch.all(mixed_positions[3:] == -1)
+        mixed.teardown()
+        del mixed
+        gc.collect()
+    
+        # Low-level serving can enter decode from externally owned state without
+        # a preceding wrapper prefill; explicit positions are authoritative.
+        direct = Generator(mesh_device=mesh_device, override_num_layers=4, max_seq_len=256)
+        direct_state = direct.model.allocate_state(batch_size=1)
+        direct_device_token = direct.decode_forward(
+            torch.tensor([[151644]]),
+            torch.tensor([17]),
+            page_table=None,
+            kv_cache=direct_state,
+            state=direct_state,
+            enable_trace=False,
+            sampling_mode="device",
+            sampling_params=SamplingParams(temperature=1.0, top_k=1, top_p=0.0, seed=None),
+            sampling_request_start=True,
+            prompt_token_ids=[[151644]],
+            read_from_device=False,
+        )
+        direct_host_token = direct.read_decode_output(direct_device_token, async_read=True)
+        direct_token = direct.process_decode_output_host(direct_host_token, is_tokens=True)
+        assert direct_token.shape == (1,)
+&gt;       assert direct._device_output_history_by_slot[0] == [direct_token.item()]
+E       assert [151644, 0] == [0]
+E         
+E         At index 0 diff: 151644 != 0
+E         Left contains one more item: 0
+E         
+E         Full diff:
+E           [
+E         +     151644,
+E               0,
+E           ]
+
+models/autoports/qwen_qwen3_6_27b/tests/test_full_model.py:777: AssertionError</failure></testcase></testsuite></testsuites>

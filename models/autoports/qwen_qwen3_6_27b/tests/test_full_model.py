@@ -52,6 +52,10 @@ def test_full_model_static_contracts():
     generate = inspect.signature(Generator.generate)
     assert "enable_trace" in generate.parameters
     assert "next_input" in generate.parameters
+    decode = inspect.signature(Generator.decode_forward)
+    assert decode.parameters["read_from_device"].default is True
+    assert callable(Generator.read_decode_output)
+    assert callable(Generator.process_decode_output_host)
     source = inspect.getsource(QwenFullModel.decode_device)
     assert "MultichipDecoder" not in source  # layers were selected at construction
     assert "to_torch" not in source
@@ -729,7 +733,7 @@ def test_reduced_full_model_prefill_decode_and_split_trace(mesh_device):
             for user, length in enumerate((65, 67, 65))
         ]
     )
-    mixed_sampled = mixed.decode_forward(
+    mixed_sampled_device = mixed.decode_forward(
         mixed_first_tokens.reshape(3, 1),
         torch.tensor([65, 67, 65]),
         page_table=mixed._state.page_table_host[:3],
@@ -740,9 +744,15 @@ def test_reduced_full_model_prefill_decode_and_split_trace(mesh_device):
         sampling_params=SamplingParams(temperature=1.0, top_k=1, top_p=0.0, seed=None),
         sampling_request_start=True,
         prompt_token_ids=[boundary_prompt[:65], boundary_prompt + [220, 19], boundary_prompt[:65]],
+        read_from_device=False,
     )
+    mixed_sampled_async = mixed.read_decode_output(mixed_sampled_device, async_read=True)
+    mixed_sampled = mixed.process_decode_output_host(mixed_sampled_async, is_tokens=True)
     assert mixed_sampled.shape == (3,)
     assert mixed_sampled[0].item() == mixed_sampled[2].item()
+    assert len(mixed._device_output_history_by_slot) == 3
+    assert all(len(history) == 2 for history in mixed._device_output_history_by_slot)
+    assert mixed._device_output_history_by_slot[0] == mixed._device_output_history_by_slot[2]
     mixed_positions = mixed._tokens_to_host(mixed._state.current_positions)
     assert mixed_positions[:3].tolist() == [66, 68, 66]
     assert torch.all(mixed_positions[3:] == -1)
@@ -754,7 +764,7 @@ def test_reduced_full_model_prefill_decode_and_split_trace(mesh_device):
     # a preceding wrapper prefill; explicit positions are authoritative.
     direct = Generator(mesh_device=mesh_device, override_num_layers=4, max_seq_len=256)
     direct_state = direct.model.allocate_state(batch_size=1)
-    direct_token = direct.decode_forward(
+    direct_device_token = direct.decode_forward(
         torch.tensor([[151644]]),
         torch.tensor([17]),
         page_table=None,
@@ -765,8 +775,12 @@ def test_reduced_full_model_prefill_decode_and_split_trace(mesh_device):
         sampling_params=SamplingParams(temperature=1.0, top_k=1, top_p=0.0, seed=None),
         sampling_request_start=True,
         prompt_token_ids=[[151644]],
+        read_from_device=False,
     )
+    direct_host_token = direct.read_decode_output(direct_device_token, async_read=True)
+    direct_token = direct.process_decode_output_host(direct_host_token, is_tokens=True)
     assert direct_token.shape == (1,)
+    assert direct._device_output_history_by_slot[0] == [151644, direct_token.item()]
     direct_positions = direct._tokens_to_host(direct_state.current_positions)
     assert direct_positions[0].item() == 18
     assert direct_state.prompt_lens == (17,)
@@ -1082,8 +1096,11 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
     if os.environ.get("QWEN36_RUN_TOKEN_OUT_BENCHMARK") != "1":
         pytest.skip("set QWEN36_RUN_TOKEN_OUT_BENCHMARK=1")
     profiling = os.environ.get("QWEN36_PROFILE_TOKEN_OUT") == "1"
+    profiling_prefill = os.environ.get("QWEN36_PROFILE_PREFILL") == "1"
+    if profiling and profiling_prefill:
+        raise ValueError("profile prefill and token-out in separate hardware runs")
     metrics_json = os.environ.get("QWEN36_TOKEN_OUT_METRICS_JSON")
-    if profiling and metrics_json:
+    if (profiling or profiling_prefill) and metrics_json:
         raise ValueError("QWEN36_TOKEN_OUT_METRICS_JSON requires the non-profiling A/B benchmark path")
     layer_indices_env = os.environ.get("QWEN36_BENCH_LAYER_INDICES")
     layer_indices = (
@@ -1099,6 +1116,26 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
         override_layer_indices=layer_indices,
         max_seq_len=256,
     )
+    if profiling_prefill:
+        representative_prompt = [151644, 872] + [198] * 126
+        # Compile and warm the exact logical/physical prefill shape before
+        # flushing setup rows from the reduced full-model profile.
+        generator.generate(representative_prompt, 1, enable_trace=True, stop_on_eos=False)
+        generator.reset()
+        # Compile emits enough profiled device work to fill the small per-RISC
+        # buffers.  Flush it before the ordinary warm iteration so Tracy can
+        # retain a one-to-one host/device op ledger for post-processing.
+        ttnn.ReadDeviceProfiler(mesh_device)
+        generator.generate(representative_prompt, 1, enable_trace=True, stop_on_eos=False)
+        generator.reset()
+        ttnn.ReadDeviceProfiler(mesh_device)
+        signpost("QWEN36_FULL_MODEL_PREFILL_START")
+        generator.generate(representative_prompt, 1, enable_trace=True, stop_on_eos=False)
+        ttnn.synchronize_device(mesh_device)
+        signpost("QWEN36_FULL_MODEL_PREFILL_END")
+        ttnn.ReadDeviceProfiler(mesh_device)
+        generator.teardown()
+        return
     prompt = [151644, 872, 198]
     generator.generate(prompt, 3, enable_trace=True, stop_on_eos=False)
     state = generator._state
@@ -1134,10 +1171,31 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
 
     token_out_ms = timed(token_out)
     print(
-        f"sampler_mode=split_force_argmax_greedy model_trace_ms={model_ms:.3f} "
+        f"sampler_mode=distributed_local_argmax_ring_greedy model_trace_ms={model_ms:.3f} "
         f"sampler_trace_ms={sampler_ms:.3f} token_out_ms={token_out_ms:.3f} "
         f"token_out_t/s/u={1000.0 / token_out_ms:.3f}"
     )
+    if os.environ.get("QWEN36_BENCH_TEACHER_BOUNDARY") == "1":
+        token_host = torch.zeros((1, 1, 1, MAX_BATCH_SIZE), dtype=torch.int32)
+
+        def forced_boundary(*, synchronize_mesh: bool):
+            token_out()
+            token_host[0, 0, 0, 0] = generator._tokens_to_host(state.token_buffer)[0].item()
+            if synchronize_mesh:
+                ttnn.synchronize_device(mesh_device)
+            generator._copy_replicated(
+                token_host,
+                state.token_buffer,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+
+        unsynchronized_ms = timed(lambda: forced_boundary(synchronize_mesh=False))
+        synchronized_ms = timed(lambda: forced_boundary(synchronize_mesh=True))
+        print(
+            f"teacher_boundary_unsynchronized_ms={unsynchronized_ms:.3f} "
+            f"teacher_boundary_synchronized_ms={synchronized_ms:.3f}"
+        )
     if profiling:
         # Flush compilation/warmup records so the small profiler DRAM buffer
         # contains the one signposted production trace pair, not setup work.
@@ -1228,7 +1286,7 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
                 },
             ),
             "selected": {
-                "sampler_mode": "split_force_argmax_greedy",
+                "sampler_mode": "distributed_local_argmax_ring_greedy",
                 "model_trace_ms": model_ms,
                 "sampler_trace_ms": sampler_ms,
                 "combined_trace_ms": token_out_ms,
@@ -1237,6 +1295,9 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
                 "host_greedy_token": int(host_greedy_token),
                 "all_gather_links": selected_links,
                 "topology": str(selected_topology),
+                "candidate_value_shape": [1, 1, MAX_BATCH_SIZE, TP_SIZE * 32],
+                "candidate_index_shape": [1, 1, TP_SIZE * 32, MAX_BATCH_SIZE],
+                "full_vocab_all_gather": False,
             },
             "alternative": {
                 "sampler_mode": "sampling_1d_greedy",
@@ -1250,10 +1311,48 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
 
     # Representative caller-visible token-out contract: prompt 128, generate
     # 128, and include the sampled-ID readback performed by Generator.generate.
+    # Warm the exact prefill/decode shapes first; the earlier short-prompt A/B
+    # does not compile the seq-128 prefill programs and therefore cannot make
+    # this TTFT measurement warm by itself.
+    representative_prompt = [151644, 872] + [198] * 126
+
+    # Same-process inherited-policy TTFT control.  Warm the exact shape, then
+    # measure the old allocate/concat/copy recurrent-state path before
+    # selecting the persistent-state default below.
+    generator.model.reuse_prefill_state = False
+    generator.reset()
+    warm_tokens = generator.generate(
+        representative_prompt,
+        2,
+        enable_trace=True,
+        stop_on_eos=False,
+    )
+    assert len(warm_tokens) == 2
+    generator.reset()
+    baseline_observed_times = []
+    baseline_start = time.perf_counter()
+    baseline_tokens = generator.generate(
+        representative_prompt,
+        2,
+        enable_trace=True,
+        stop_on_eos=False,
+        token_observer=lambda step, token: baseline_observed_times.append(time.perf_counter()),
+    )
+    assert len(baseline_tokens) == 2 and len(baseline_observed_times) == 2
+    baseline_ttft_ms = (baseline_observed_times[0] - baseline_start) * 1_000
+
+    generator.model.reuse_prefill_state = True
+    generator.reset()
+    warm_tokens = generator.generate(
+        representative_prompt,
+        2,
+        enable_trace=True,
+        stop_on_eos=False,
+    )
+    assert len(warm_tokens) == 2
     # The observer is read-only and therefore does not introduce host token
     # feedback like the teacher-forcing `next_input` callback.
     generator.reset()
-    representative_prompt = [151644, 872] + [198] * 126
     observed_times = []
     observed_tokens = []
 
@@ -1282,18 +1381,20 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
     print(
         "sampler_mode=representative_caller_visible_greedy prompt_tokens=128 "
         f"generated_tokens=128 measured_decode_tokens={representative_decode_tokens} "
+        f"baseline_ttft_ms={baseline_ttft_ms:.3f} "
         f"ttft_ms={representative_ttft_ms:.3f} "
         f"decode_ms_per_token={representative_ms_per_token:.3f} "
         f"token_out_t/s/u={representative_tpsu:.3f}"
     )
     if metrics_report is not None:
         metrics_report["representative_token_out"] = {
-            "sampler_mode": "caller_visible_split_force_argmax_greedy",
+            "sampler_mode": "caller_visible_distributed_local_argmax_ring_greedy",
             "prompt_tokens": len(representative_prompt),
             "generated_tokens": len(representative_tokens),
             "measured_decode_tokens": representative_decode_tokens,
             "includes_sampled_id_readback": True,
             "host_token_feedback": False,
+            "same_run_inherited_ttft_ms": baseline_ttft_ms,
             "ttft_ms": representative_ttft_ms,
             "decode_total_ms": representative_decode_ms,
             "decode_ms_per_token": representative_ms_per_token,
@@ -1304,6 +1405,39 @@ def test_reduced_token_out_latency_breakdown(mesh_device):
     generator.teardown()
     if metrics_report is not None:
         write_metrics_json(Path(metrics_json).expanduser().resolve(), metrics_report)
+
+
+@pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+@pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+def test_distributed_greedy_sampler_trace(mesh_device):
+    """Focused compact-greedy eager/capture/replay and token-feedback gate."""
+    if os.environ.get("QWEN36_RUN_DISTRIBUTED_ARGMAX") != "1":
+        pytest.skip("set QWEN36_RUN_DISTRIBUTED_ARGMAX=1")
+    generator = Generator(mesh_device=mesh_device, override_num_layers=1, max_seq_len=256)
+    tokens = generator.generate([151644, 872, 198], 4, enable_trace=True, stop_on_eos=False)
+    sampling = generator.model.sampling.tt_sampling
+    assert sampling.force_argmax_sampling
+    assert sampling._allow_distributed_force_argmax
+    assert generator._tokens_to_host(generator._state.token_buffer)[0].item() == tokens[-1]
+
+    generator.model.sampling.reset_trace()
+    ttnn.release_trace(mesh_device, generator._model_trace_id)
+    generator._model_trace_id = None
+    host_token = int(torch.argmax(generator._logits_to_host(generator._trace_logits)[0, 0, 0]).item())
+    sampled, _ = generator.model.sampling.sample(
+        generator._trace_logits,
+        enable_trace=False,
+        tt_out_tok=generator._state.token_buffer,
+    )
+    ttnn.synchronize_device(mesh_device)
+    device_token = int(generator._tokens_to_host(sampled)[0].item())
+    assert device_token == host_token
+    print(
+        "distributed_greedy "
+        f"token={device_token} logits_shape={list(generator._trace_logits.shape)} "
+        "candidate_value_shape=[1,1,32,128] candidate_index_shape=[1,1,128,32]"
+    )
+    generator.teardown()
 
 
 @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)

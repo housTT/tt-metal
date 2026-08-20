@@ -192,6 +192,37 @@
     "capability_reduction": null,
     "completion_status": "passed"
   },
+  "optimized_full_model": {
+    "target_hardware": "4x Blackhole P300c",
+    "mesh_shape": [1, 4],
+    "fabric_config": "FABRIC_1D_RING",
+    "tensor_parallel_degree": 4,
+    "maximum_logical_sequence_length": 262144,
+    "maximum_active_batch_size": 32,
+    "capacity_semantics": "262144 remains the total physical KV-token pool shared by the 32 fixed slots; mixed and non-aligned prompts consume ceil(prompt_len / 64) pages and inactive rows stay masked.",
+    "optimized_generator_contract": {
+      "prompt_lengths": "arbitrary positive logical lengths through the public generator; internal chunk, page, and tile padding is not exposed",
+      "state": "explicit fixed-slot cache, replicated changed-only page table, device position/RoPE state, prompt length, active-row mask, sampling seed, and penalty history",
+    "decode_feedback": "split sampler writes tt_out_tok; token, position, RoPE, and unchanged page-table inputs remain persistent across nonblocking model and sampler trace replay",
+    "greedy_sampling": "each TP device computes local max/argmax, exchanges only packed candidate value/index tiles with all-broadcast on the physical Ring, reconstructs the exact global token, and writes persistent tt_out_tok; no full-vocabulary greedy all-gather",
+    "stochastic_sampling": "the preserved traced top-k/top-p/temperature/seed/penalty path remains capable and separate from the greedy-only compact optimization",
+    "host_boundary": "the measured token-out loop has no per-token host synchronization or readback; low-level serving callers may defer the compact sampled-token read with read_from_device=false and read_decode_output(async_read=true)",
+      "prefill_state_reuse": "batch-1 prefill reuses the generator-owned persistent linear-attention state; mixed-prompt batch prefill retains independent per-slot state materialization"
+    },
+    "preserved_decoder_policy": {
+      "inter_layer_residual": "replicated BF16 TILE/DRAM [B,1,S,5120]",
+      "attention_projection_weights": "BFP8",
+      "linear_attention_mlp_weights": "BFP4 gate/up/down",
+      "full_attention_mlp_weights": "BFP4 gate/up and BFP8 down",
+      "kv_cache": "BFP8 paged, KV-head sharded over TP4",
+      "ccl_payload": "BF16 attention and full-attention MLP; BFP8 linear-attention MLP",
+      "compute_fidelity": "selected LoFi decoder projection/MLP groups",
+      "topology": "physical Ring, persistent asynchronous CCL buffers"
+    },
+    "capacity_effect": "No advertised capability reduction and no new maximum-shape allocation. Persistent prefill-state reuse removes transient batch-1 allocation/copy work; deferred output reads use the existing compact replicated token tensor.",
+    "capability_reduction": null,
+    "completion_status": "passed"
+  },
   "functional_decoder": {
     "layer_kinds": [
       "linear_attention",

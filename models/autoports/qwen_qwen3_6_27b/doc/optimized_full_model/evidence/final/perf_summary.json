@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "model_id": "Qwen/Qwen3.6-27B",
+  "hardware": "4x Blackhole P300c",
+  "mesh": "1x4 TP physical Ring",
+  "workload": {
+    "batch": 1,
+    "prompt_tokens": 128,
+    "generated_tokens": 128
+  },
+  "before": {
+    "same_process_inherited_ttft_ms": 679.0588989970274,
+    "model_trace_ms": 42.01643519918434,
+    "sampler_trace_ms": 2.417211700230837,
+    "device_token_out_ms": 44.432408100692555,
+    "device_token_out_t_s_u": 22.506095049671938,
+    "caller_visible_decode_ms_per_token": 49.357465811176446,
+    "caller_visible_t_s_u": 20.260359472782355
+  },
+  "after": {
+    "warmed_ttft_ms": 655.159902991727,
+    "model_trace_ms": 42.01469289837405,
+    "sampler_trace_ms": 1.4784116996452212,
+    "device_token_out_ms": 43.488360597984865,
+    "device_token_out_t_s_u": 22.9946584844667,
+    "caller_visible_decode_ms_per_token": 48.272700748391685,
+    "caller_visible_t_s_u": 20.715642267712095,
+    "ttft_improvement_percent": 3.519413114001198,
+    "device_token_out_throughput_improvement_percent": 2.170832523943928,
+    "caller_visible_throughput_improvement_percent": 2.247154068856757
+  },
+  "bounds": {
+    "decoder_layer_stack_ms": 42.127888,
+    "decoder_layer_formula": "48 * 0.718857 ms + 16 * 0.476422 ms",
+    "terminal_over_stack_ms": 1.360472597984864,
+    "terminal_over_stack_percent": 3.229387585671704,
+    "per_device_full_model_weight_bytes": 12935561216,
+    "blackhole_peak_dram_bytes_per_us": 512000,
+    "weight_read_roofline_ms": 25.264768,
+    "measured_model_trace_to_weight_roofline_percent": 60.13998586515921,
+    "roofline_basis": "Inherited Blackhole required-byte floor convention; one local/replicated per-device weight image divided by 512 GB/s peak DRAM bandwidth. This is a theoretical lower bound, not a predicted runtime."
+  },
+  "sampler": {
+    "selected": "local max/argmax plus compact candidate all-broadcast on physical Ring",
+    "selected_token": 225721,
+    "host_greedy_token": 225721,
+    "full_vocab_all_gather": false,
+    "candidate_value_shape": [1, 1, 32, 128],
+    "candidate_index_shape": [1, 1, 128, 32],
+    "generic_sampling1d_ms": 10.736105404794216,
+    "generic_sampling1d_token": 225721
+  },
+  "teacher_forcing": {
+    "warmup_repeats": 1,
+    "steady_replay_tokens": 98,
+    "steady_replay_t_s_u": 22.55801686113626,
+    "capture_inclusive_tokens": 99,
+    "capture_inclusive_t_s_u": 19.934040996704457,
+    "trace_setup_ms": 622.0253480132669,
+    "top1": 0.97,
+    "top5": 1.0,
+    "top100": 1.0,
+    "note": "Separate forced-input host-boundary path; explicit full-reference warmup excludes first-use kernel compilation, and steady replay starts after reset-owned trace capture."
+  },
+  "provenance": {
+    "baseline": "evidence/baseline/token_out_metrics.json",
+    "final": "evidence/final/token_out_metrics.json",
+    "teacher_forcing": "evidence/final/teacher_forcing_metrics.json",
+    "layer_floor": "models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/README.md",
+    "bandwidth_floor": "models/autoports/qwen_qwen3_6_27b/doc/optimized_decoder/final_selected_v2/blackhole_required_byte_floor.csv"
+  }
+}

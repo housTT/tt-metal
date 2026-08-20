@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import inspect
+import math
 import sys
 
 import torch
@@ -193,6 +194,14 @@ class TTSampling(LightweightModule):
             and self.ag_topology == ttnn.Topology.Ring
             and self.mesh_device.get_num_devices() < 8
         )
+        # Greedy-only distributed argmax is an explicit model opt-in.  It
+        # reduces each vocabulary shard locally and exchanges one candidate
+        # tile per device, while the stochastic path below remains unchanged.
+        self._allow_distributed_force_argmax = sampling_ag_config.get("distributed_force_argmax", False) if (
+            hasattr(args, "model_config") and "SAMPLING_AG_CONFIG" in args.model_config
+        ) else False
+        self._dist_argmax_iota = None
+        self._dist_argmax_fp32_ckc = None
 
         # Set defaults for sampling parameters if not provided
         # Default: k=1 (top-1), p=0 (effectively argmax), temp=1 (no temperature scaling)
@@ -432,6 +441,212 @@ class TTSampling(LightweightModule):
             topology = ttnn.Topology.Linear
         return max(1, num_links), topology
 
+    def _use_distributed_argmax(self, x, tt_out_tok) -> bool:
+        """Return whether the compact greedy path supports this invocation."""
+
+        if not self._allow_distributed_force_argmax or self._sampling_dp != 1:
+            return False
+        if self.mesh_device.get_num_devices() <= 1:
+            return False
+        if tt_out_tok is not None:
+            shape = list(tt_out_tok.shape)
+            if (
+                tt_out_tok.dtype != ttnn.uint32
+                or tt_out_tok.layout != ttnn.ROW_MAJOR_LAYOUT
+                or shape[-1] != self.max_batch_size
+                or math.prod(shape) != self.max_batch_size
+            ):
+                return False
+        width = x.shape[-1]
+        return x.shape[-2] == self.max_batch_size and width % ttnn.TILE_SIZE == 0
+
+    def _distributed_force_argmax(self, x, topology, tt_out_tok=None):
+        """Select greedy tokens after exchanging only shard-local candidates.
+
+        This is adapted from the Blackhole distributed-argmax implementation
+        in upstream commit 3497b22f6ae.  Each TP device computes one maximum
+        value/index pair per row. Two tile-sized Ring all-broadcasts replace
+        the full-vocabulary gather, and exact int32 reconstruction preserves
+        global token IDs through traced feedback.
+        """
+
+        grids = self.sub_core_grids
+        width = x.shape[-1]
+        batch = self.max_batch_size
+        num_devices = self.mesh_device.get_num_devices()
+
+        if self._dist_argmax_iota is None:
+            rows = num_devices * ttnn.TILE_SIZE
+            iota = torch.arange(rows, dtype=torch.float32).reshape(1, 1, rows, 1).expand(1, 1, rows, batch)
+            self._dist_argmax_iota = ttnn.from_torch(
+                iota.contiguous(),
+                dtype=ttnn.float32,
+                layout=ttnn.TILE_LAYOUT,
+                device=self.mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+            )
+            self._dist_argmax_fp32_ckc = ttnn.init_device_compute_kernel_config(
+                self.mesh_device.arch(),
+                math_fidelity=ttnn.MathFidelity.HiFi4,
+                fp32_dest_acc_en=True,
+            )
+
+        def argmax_grid(reduction_width):
+            if grids is None:
+                return None
+            granularity = 64
+            blocks = -(-reduction_width // granularity)
+            max_cores = grids.num_cores()
+            units_per_core = -(-blocks // max_cores) * granularity
+            num_cores = -(-reduction_width // units_per_core)
+            if num_cores >= max_cores:
+                return grids
+            return ttnn.num_cores_to_corerangeset_in_subcoregrids(
+                self.start_core, num_cores, grids, row_wise=True
+            )
+
+        def exchange_candidates(tensor, dim):
+            broadcast_parts = ttnn.all_broadcast(
+                tensor,
+                num_links=1,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                topology=topology,
+            )
+            gathered = ttnn.concat(broadcast_parts, dim=dim)
+            for part in broadcast_parts:
+                part.deallocate()
+            return gathered
+
+        x_bf16 = ttnn.typecast(x, ttnn.bfloat16, sub_core_grids=grids) if x.dtype != ttnn.bfloat16 else x
+        x_untilized = ttnn.untilize(x_bf16, use_multicore=True, sub_core_grids=grids)
+        local_idx = ttnn.argmax(
+            x_untilized,
+            dim=-1,
+            keepdim=False,
+            sub_core_grids=argmax_grid(width),
+        )
+        local_idx = ttnn.reshape(local_idx, [1, 1, 1, batch], sub_core_grids=grids)
+        x_untilized.deallocate()
+        local_max = ttnn.max(
+            x_bf16,
+            dim=3,
+            keepdim=True,
+            sub_core_grids=grids,
+            compute_kernel_config=self._dist_argmax_fp32_ckc,
+        )
+        if x_bf16 is not x:
+            x_bf16.deallocate()
+
+        local_max_rm = ttnn.untilize(local_max, use_multicore=True, sub_core_grids=grids)
+        local_max.deallocate()
+        values_rm = ttnn.pad(
+            local_max_rm,
+            [(0, 0), (0, 0), (0, 0), (0, ttnn.TILE_SIZE - 1)],
+            value=-3.38e38,
+            sub_core_grids=grids,
+        )
+        local_max_rm.deallocate()
+        values_tile = ttnn.tilize(values_rm, sub_core_grids=grids)
+        values_rm.deallocate()
+        gathered_values = exchange_candidates(values_tile, dim=3)
+        values_tile.deallocate()
+
+        indices_padded = ttnn.pad(
+            local_idx,
+            [(0, 0), (0, 0), (0, ttnn.TILE_SIZE - 1), (0, 0)],
+            value=0,
+            sub_core_grids=grids,
+        )
+        local_idx.deallocate()
+        indices_tile = ttnn.tilize(indices_padded, sub_core_grids=grids)
+        indices_padded.deallocate()
+        indices_i32 = ttnn.typecast(indices_tile, ttnn.int32, sub_core_grids=grids)
+        indices_tile.deallocate()
+        gathered_indices = exchange_candidates(indices_i32, dim=2)
+        indices_i32.deallocate()
+
+        gathered_values_rm = ttnn.untilize(gathered_values, use_multicore=True, sub_core_grids=grids)
+        gathered_values.deallocate()
+        winner_pos = ttnn.argmax(
+            gathered_values_rm,
+            dim=-1,
+            keepdim=False,
+            sub_core_grids=argmax_grid(gathered_values_rm.shape[-1]),
+        )
+        gathered_values_rm.deallocate()
+        winner_pos = ttnn.reshape(winner_pos, [1, 1, 1, batch], sub_core_grids=grids)
+        winner_pos_tile = ttnn.tilize_with_val_padding(
+            winner_pos,
+            [1, 1, ttnn.TILE_SIZE, batch],
+            0,
+            sub_core_grids=grids,
+        )
+        winner_pos.deallocate()
+        winner_pos_f32 = ttnn.typecast(winner_pos_tile, ttnn.float32, sub_core_grids=grids)
+        winner_pos_tile.deallocate()
+
+        one_hot = ttnn.eq(self._dist_argmax_iota, winner_pos_f32, sub_core_grids=grids)
+        index_hi_i32 = ttnn.bitwise_right_shift(gathered_indices, 8, sub_core_grids=grids)
+        index_lo_i32 = ttnn.bitwise_and(gathered_indices, 255, sub_core_grids=grids)
+        gathered_indices.deallocate()
+        index_hi_f32 = ttnn.typecast(index_hi_i32, ttnn.float32, sub_core_grids=grids)
+        index_lo_f32 = ttnn.typecast(index_lo_i32, ttnn.float32, sub_core_grids=grids)
+        index_hi_i32.deallocate()
+        index_lo_i32.deallocate()
+        picked_hi = ttnn.multiply(one_hot, index_hi_f32, sub_core_grids=grids)
+        picked_lo = ttnn.multiply(one_hot, index_lo_f32, sub_core_grids=grids)
+        one_hot.deallocate()
+        index_hi_f32.deallocate()
+        index_lo_f32.deallocate()
+        selected_hi = ttnn.sum(
+            picked_hi,
+            dim=2,
+            keepdim=True,
+            compute_kernel_config=self._dist_argmax_fp32_ckc,
+            sub_core_grids=grids,
+        )
+        selected_lo = ttnn.sum(
+            picked_lo,
+            dim=2,
+            keepdim=True,
+            compute_kernel_config=self._dist_argmax_fp32_ckc,
+            sub_core_grids=grids,
+        )
+        picked_hi.deallocate()
+        picked_lo.deallocate()
+        column_term = ttnn.multiply(winner_pos_f32, float(width // ttnn.TILE_SIZE), sub_core_grids=grids)
+        winner_pos_f32.deallocate()
+        selected_hi_i32 = ttnn.typecast(selected_hi, ttnn.int32, sub_core_grids=grids)
+        selected_lo_i32 = ttnn.typecast(selected_lo, ttnn.int32, sub_core_grids=grids)
+        column_i32 = ttnn.typecast(column_term, ttnn.int32, sub_core_grids=grids)
+        selected_hi.deallocate()
+        selected_lo.deallocate()
+        column_term.deallocate()
+        shifted_hi = ttnn.bitwise_left_shift(selected_hi_i32, 8, sub_core_grids=grids)
+        selected_hi_i32.deallocate()
+        local_part = ttnn.add(shifted_hi, selected_lo_i32, sub_core_grids=grids)
+        shifted_hi.deallocate()
+        selected_lo_i32.deallocate()
+        final_i32 = ttnn.add(local_part, column_i32, sub_core_grids=grids)
+        local_part.deallocate()
+        column_i32.deallocate()
+        final_u32 = ttnn.typecast(final_i32, ttnn.uint32, sub_core_grids=grids)
+        final_i32.deallocate()
+        token = ttnn.untilize(final_u32, use_multicore=True, sub_core_grids=grids)
+        final_u32.deallocate()
+        if tt_out_tok is None:
+            return ttnn.reshape(token, [1, 1, batch], sub_core_grids=grids)
+        token = ttnn.reshape(token, list(tt_out_tok.shape), sub_core_grids=grids)
+        # Qwen's sampler and model run on the same worker domain, so the
+        # established RM copy is ordered correctly and preserves buffer
+        # identity.  The upstream bitwise-or workaround is only needed for
+        # Galaxy's split senders/worker sub-device manager and is unsupported
+        # with a preallocated RM output on this runtime.
+        ttnn.copy(token, tt_out_tok)
+        token.deallocate()
+        return tt_out_tok
+
     def reset_params(
         self,
         k,
@@ -529,6 +744,14 @@ class TTSampling(LightweightModule):
             if num_devices > 1:
                 cluster_axis = self._get_sampling_cluster_axis()
                 num_links, topology = self._get_force_argmax_all_gather_config(cluster_axis)
+                if self._use_distributed_argmax(x, tt_out_tok):
+                    tt_out_tok = self._distributed_force_argmax(
+                        x,
+                        topology,
+                        tt_out_tok=tt_out_tok,
+                    )
+                    self.tt_log_probs = None
+                    return tt_out_tok, self.tt_log_probs
                 logger.debug(
                     f"Force argmax sampling all-gather: cluster_axis={cluster_axis}, "
                     f"num_links={num_links}, topology={topology}"

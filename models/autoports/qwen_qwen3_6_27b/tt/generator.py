@@ -65,6 +65,7 @@ class Generator(ReadinessGenerator):
         self._device_output_history: List[int] = []
         self._device_output_history_by_slot: List[List[int]] = []
         self._device_sampling_request_active = False
+        self._last_decode_batch_size = MAX_BATCH_SIZE
         self._configure_greedy_sampling()
 
     @staticmethod
@@ -542,6 +543,7 @@ class Generator(ReadinessGenerator):
         prompt_token_ids: Sequence[int] | Sequence[Sequence[int]] | torch.Tensor | None = None,
         output_token_history: Sequence[int] | Sequence[Sequence[int]] | torch.Tensor | None = None,
         page_table_changed: bool | None = None,
+        read_from_device: bool = True,
         **kwargs: Any,
     ) -> torch.Tensor:
         del kwargs
@@ -584,9 +586,38 @@ class Generator(ReadinessGenerator):
         sampled = self.model.sampling.sample(
             logits, enable_trace=enable_trace, tt_out_tok=resolved.token_buffer
         )
+        self._last_decode_batch_size = tokens.shape[0]
+        if not read_from_device:
+            return sampled
         sampled_host = self._tokens_to_host(sampled)[: tokens.shape[0]]
         self._record_device_sampled_tokens(sampled_host)
         return sampled_host
+
+    def read_decode_output(self, tt_out, async_read: bool = False):
+        """Move a device token result to host storage, optionally nonblocking.
+
+        This is the deferred half of the serving-ready low-level generator
+        contract.  Sampling output is replicated, so one device tensor is the
+        authoritative compact token result; no logits gather or host argmax is
+        introduced here.
+        """
+
+        if isinstance(tt_out, tuple):
+            tt_out = tt_out[0]
+        return self._first_device_tensor(tt_out).cpu(blocking=not async_read)
+
+    def process_decode_output_host(self, tt_out, is_tokens: bool = True) -> torch.Tensor:
+        """Format a deferred compact-token read without submitting device work."""
+
+        del is_tokens
+        batch = getattr(self, "_last_decode_batch_size", MAX_BATCH_SIZE)
+        tokens = ttnn.to_torch(tt_out).reshape(-1).to(torch.long)[:batch]
+        if self._device_sampling_request_active:
+            # The captured sampler already advanced its device-resident penalty
+            # state.  Keep the host mirror coherent only when the scheduler
+            # elects to consume the deferred compact-token read.
+            self._record_device_sampled_tokens(tokens)
+        return tokens
 
     def generate(
         self,

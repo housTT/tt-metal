@@ -91,6 +91,7 @@ def _run_one_entry(
     timing: Dict[str, Any] = {
         "start_s": None,
         "first_token_s": None,
+        "first_decode_token_s": None,
         "last_decode_token_s": None,
         "callback_count": 0,
     }
@@ -99,6 +100,9 @@ def _run_one_entry(
         now = time.perf_counter()
         if timing["first_token_s"] is None:
             timing["first_token_s"] = now
+        elif timing["first_decode_token_s"] is None:
+            timing["first_decode_token_s"] = now
+            timing["last_decode_token_s"] = now
         else:
             timing["last_decode_token_s"] = now
         timing["callback_count"] += 1
@@ -178,10 +182,25 @@ def _compute_perf_stats(*, timing: Dict[str, Any], end_s: float, token_count: in
     ttft_s = max(first_token_s - start_s, 0.0)
     perf["ttft_ms"] = ttft_s * 1000.0
 
-    decode_tokens = max(token_count - 1, 0)
-    if decode_tokens > 0:
+    first_decode_token_s = timing["first_decode_token_s"]
+    if first_decode_token_s is not None:
         decode_end_s = timing["last_decode_token_s"] if timing["last_decode_token_s"] is not None else end_s
-        decode_elapsed_s = max(decode_end_s - first_token_s, 0.0)
+        capture_inclusive_tokens = max(token_count - 1, 0)
+        capture_inclusive_elapsed_s = max(decode_end_s - first_token_s, 0.0)
+        perf["decode_setup_ms"] = max(first_decode_token_s - first_token_s, 0.0) * 1000.0
+        perf["decode_with_capture_tokens"] = float(capture_inclusive_tokens)
+        perf["decode_with_capture_elapsed_s"] = capture_inclusive_elapsed_s
+        perf["decode_with_capture_t/s/u"] = (
+            capture_inclusive_tokens / capture_inclusive_elapsed_s
+            if capture_inclusive_elapsed_s > 0
+            else 0.0
+        )
+
+        # The first decode callback follows model/sampler trace capture. Start
+        # the warmed replay interval there so reset-safe request setup remains
+        # visible but is not mislabeled as steady traced throughput.
+        decode_tokens = max(token_count - 2, 0)
+        decode_elapsed_s = max(decode_end_s - first_decode_token_s, 0.0)
         perf["decode_tokens"] = float(decode_tokens)
         perf["decode_elapsed_s"] = decode_elapsed_s
         perf["decode_t/s/u"] = (decode_tokens / decode_elapsed_s) if decode_elapsed_s > 0 else 0.0
@@ -199,8 +218,12 @@ def _format_row(label: str, stats: Dict[str, Any]) -> str:
     perf_parts = []
     if stats.get("ttft_ms") is not None:
         perf_parts.append(f"TTFT={stats['ttft_ms']:.2f}ms")
+    if stats.get("decode_setup_ms") is not None:
+        perf_parts.append(f"trace_setup={stats['decode_setup_ms']:.2f}ms")
+    if stats.get("decode_with_capture_t/s/u") is not None:
+        perf_parts.append(f"decode+capture={stats['decode_with_capture_t/s/u']:.2f} t/s/u")
     if stats.get("decode_t/s/u") is not None:
-        perf_parts.append(f"decode={stats['decode_t/s/u']:.2f} t/s/u")
+        perf_parts.append(f"steady_decode={stats['decode_t/s/u']:.2f} t/s/u")
     if stats.get("e2e_t/s/u") is not None:
         perf_parts.append(f"e2e={stats['e2e_t/s/u']:.2f} t/s/u")
     if perf_parts:
@@ -216,6 +239,7 @@ def run_teacher_forcing(
     build_kwargs: Dict[str, Any] | None = None,
     output_json_path: Path | None = None,
     runtime: Dict[str, Any] | None = None,
+    warmup_repeats: int = 0,
 ) -> List[Dict[str, Any]]:
     """
     Programmatic entry point. Builds the generator, runs teacher forcing
@@ -227,9 +251,19 @@ def run_teacher_forcing(
     build_generator = _import_build_generator(model_dir)
     generator: Generator = build_generator(model_dir=model_dir, mesh_device=mesh_device, **build_kwargs)
 
-    acc = TokenAccuracy(reference_path)
     per_entry: List[Dict[str, Any]] = []
     try:
+        if warmup_repeats < 0:
+            raise ValueError("warmup_repeats must be non-negative")
+        for _ in range(warmup_repeats):
+            warmup_acc = TokenAccuracy(reference_path)
+            for entry_idx in range(warmup_acc.num_entries):
+                if entry_idx > 0:
+                    generator.reset()
+                _run_one_entry(generator=generator, acc=warmup_acc, entry_idx=entry_idx)
+            generator.reset()
+
+        acc = TokenAccuracy(reference_path)
         for entry_idx in range(acc.num_entries):
             if entry_idx > 0:
                 generator.reset()
@@ -250,8 +284,11 @@ def run_teacher_forcing(
         total = agg["total"]
         total_elapsed_s = sum(s.get("elapsed_s", 0.0) for s in per_entry)
         ttft_values = [s["ttft_ms"] for s in per_entry if s.get("ttft_ms") is not None]
+        decode_setup_values = [s["decode_setup_ms"] for s in per_entry if s.get("decode_setup_ms") is not None]
         decode_tokens = sum(s.get("decode_tokens", 0.0) for s in per_entry)
         decode_elapsed_s = sum(s.get("decode_elapsed_s", 0.0) for s in per_entry)
+        decode_with_capture_tokens = sum(s.get("decode_with_capture_tokens", 0.0) for s in per_entry)
+        decode_with_capture_elapsed_s = sum(s.get("decode_with_capture_elapsed_s", 0.0) for s in per_entry)
         agg.update(
             {
                 "elapsed_s": total_elapsed_s,
@@ -260,10 +297,16 @@ def run_teacher_forcing(
         )
         if ttft_values:
             agg["ttft_ms"] = sum(ttft_values) / len(ttft_values)
+        if decode_setup_values:
+            agg["decode_setup_ms"] = sum(decode_setup_values) / len(decode_setup_values)
         if decode_elapsed_s > 0:
             agg["decode_tokens"] = decode_tokens
             agg["decode_elapsed_s"] = decode_elapsed_s
             agg["decode_t/s/u"] = decode_tokens / decode_elapsed_s
+        if decode_with_capture_elapsed_s > 0:
+            agg["decode_with_capture_tokens"] = decode_with_capture_tokens
+            agg["decode_with_capture_elapsed_s"] = decode_with_capture_elapsed_s
+            agg["decode_with_capture_t/s/u"] = decode_with_capture_tokens / decode_with_capture_elapsed_s
         print(_format_row("AGGREGATE", agg))
 
     if output_json_path is not None:
@@ -275,6 +318,7 @@ def run_teacher_forcing(
                 "model_dir": str(model_dir.resolve()),
                 "reference_path": str(reference_path.resolve()),
                 "runtime": runtime_metadata(mesh_device, cli=runtime),
+                "warmup_repeats": warmup_repeats,
                 "entries": per_entry,
                 "aggregate": agg,
             },
@@ -288,6 +332,12 @@ def _main() -> None:
     parser.add_argument("--model-dir", type=Path, required=True, help="Path to the model directory.")
     parser.add_argument("--reference", type=Path, required=True, help="Path to the .refpt reference file.")
     parser.add_argument("--output-json", type=Path, help="Optional path for machine-readable metrics evidence.")
+    parser.add_argument(
+        "--warmup-repeats",
+        type=int,
+        default=0,
+        help="Run the complete reference this many times before the measured accuracy pass.",
+    )
     add_mesh_device_args(parser)
     args = parser.parse_args()
 
@@ -306,6 +356,7 @@ def _main() -> None:
                 "trace_region_size": args.trace_region_size,
                 "decode_trace_enabled": True,
             },
+            warmup_repeats=args.warmup_repeats,
         )
     finally:
         close_readiness_mesh_device(mesh_device, args.fabric_config)

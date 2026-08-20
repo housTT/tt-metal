@@ -275,6 +275,9 @@ class QwenFullModel:
         self.hidden_size = self.config.hidden_size
         self.page_block_size = PAGE_BLOCK_SIZE
         self.max_batch_size = MAX_BATCH_SIZE
+        # Kept as a model-local A/B switch for the optimized-full-model
+        # benchmark.  Production always uses persistent state reuse.
+        self.reuse_prefill_state = True
 
         checkpoint = LazySafetensorState(self.checkpoint_path)
         embedding = checkpoint.tensor("model.language_model.embed_tokens.weight")
@@ -341,6 +344,7 @@ class QwenFullModel:
                     # logical slice of an eight-device topology.
                     "allow_small_ring": True,
                     "allow_small_ring_sampling": True,
+                    "distributed_force_argmax": True,
                     "num_links": 1,
                     "chunks_per_sync": 10,
                     "topology": ttnn.Topology.Ring,
@@ -507,7 +511,21 @@ class QwenFullModel:
                         kv_cache=state.kv_cache[layer_idx],
                     )
                 else:
-                    user_state = layer.allocate_linear_state(batch_size=1)
+                    # Batch-1 is the primary latency path.  Its recurrent
+                    # state already has exactly the shape consumed by one
+                    # linear-attention prefill, so reuse the persistent
+                    # allocation directly.  Reallocating, concatenating a
+                    # one-element list, and copying it back once per each of
+                    # 48 linear layers was pure TTFT overhead after reset.
+                    user_state = (
+                        state.linear_state[layer_idx]
+                        if (
+                            self.reuse_prefill_state
+                            and batch == 1
+                            and state.linear_state[layer_idx] is not None
+                        )
+                        else layer.allocate_linear_state(batch_size=1)
+                    )
                     output = layer.prefill_forward(
                         hidden, logical_seq_len=logical_len, linear_state=user_state
                     )
@@ -515,13 +533,16 @@ class QwenFullModel:
                 outputs.append(output)
             hidden_by_user = outputs
             if layer.layer_kind == "linear_attention":
-                packed_state = (
-                    ttnn.concat([item[0] for item in user_linear_states], dim=0),
-                    ttnn.concat([item[1] for item in user_linear_states], dim=0),
-                )
+                if batch == 1:
+                    packed_state = user_linear_states[0]
+                else:
+                    packed_state = (
+                        ttnn.concat([item[0] for item in user_linear_states], dim=0),
+                        ttnn.concat([item[1] for item in user_linear_states], dim=0),
+                    )
                 if state.linear_state[layer_idx] is None:
                     state.linear_state[layer_idx] = packed_state
-                else:
+                elif state.linear_state[layer_idx] is not packed_state:
                     ttnn.copy(packed_state[0], state.linear_state[layer_idx][0])
                     ttnn.copy(packed_state[1], state.linear_state[layer_idx][1])
 
