@@ -454,3 +454,14 @@ Ring all-gather (0.883663 ms), and no top-k. Artifacts use the
 independent lower bound `48*0.718857 + 16*0.476422 = 42.127888 ms`; the measured
 42.140081-ms model trace is only 0.012193 ms (0.029%) above it. Combined latency
 minus that bound is 2.424686 ms, matching the 2.416293-ms sampler.
+
+## Local commits
+
+- `5c658065f3d` — `Add Qwen3.6-27B TP4 full model`: stage implementation,
+  tests, readiness helpers, reports, and sealed evidence package.
+- The immediately following documentation-only commit records this SHA and the
+  independent `clean-pass`; it is intentionally self-referential by position
+  rather than embedding its own unstable hash.
+
+No commit was pushed. Unrelated Tracy, UMD, and cluster-descriptor worktree
+changes were excluded.
