@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="11" time="277.909" timestamp="2026-08-19T23:54:28.172025-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_runtime_has_no_host_or_layout_fallbacks" time="0.145"><properties><property name="start_timestamp" value="2026-08-19T23:54:29" /><property name="end_timestamp" value="2026-08-19T23:54:29" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_linear_attention_non_aligned_prefill_decode[blackhole-device_params0-1]" time="45.689"><properties><property name="start_timestamp" value="2026-08-19T23:54:29" /><property name="end_timestamp" value="2026-08-19T23:55:15" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_non_aligned_prefill_decode[blackhole-device_params0-1]" time="19.776"><properties><property name="start_timestamp" value="2026-08-19T23:55:15" /><property name="end_timestamp" value="2026-08-19T23:55:34" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_paged_decode_trace[blackhole-device_params0-1]" time="10.435"><properties><property name="start_timestamp" value="2026-08-19T23:55:34" /><property name="end_timestamp" value="2026-08-19T23:55:45" /></properties><failure message="AssertionError: np.float64(0.9949874327355789)&#10;assert np.False_">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7b06adbaeff0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    def test_optimized_full_attention_paged_decode_trace(monkeypatch, mesh_device):
+        _select_optimized_path(monkeypatch)
+&gt;       functional_tests.test_full_attention_real_weight_paged_decode_trace(mesh_device)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py:68: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:286: in test_full_attention_real_weight_paged_decode_trace
+    _pcc(reference[0, 0], actual)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([ 0.0156,  0.2422,  0.2812,  ..., -0.1943, -1.2734,  0.0381],
+       dtype=torch.bfloat16)
+actual = tensor([-0.0254,  0.3027,  0.3066,  ..., -0.2490, -1.2578,  0.0469],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+&gt;       assert passed, message
+E       AssertionError: np.float64(0.9949874327355789)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_forced_chunked_prefill[blackhole-device_params0-1]" time="13.726"><properties><property name="start_timestamp" value="2026-08-19T23:55:45" /><property name="end_timestamp" value="2026-08-19T23:55:59" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_real_weight_batch32_prefill_decode[blackhole-device_params0-1-linear_attention]" time="14.279"><properties><property name="start_timestamp" value="2026-08-19T23:55:59" /><property name="end_timestamp" value="2026-08-19T23:56:13" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_native_context_decode[blackhole-device_params0-1]" time="11.965"><properties><property name="start_timestamp" value="2026-08-19T23:56:13" /><property name="end_timestamp" value="2026-08-19T23:56:25" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_advertised_context_prefill[blackhole-device_params0-1-non_aligned_long]" time="18.892"><properties><property name="start_timestamp" value="2026-08-19T23:56:25" /><property name="end_timestamp" value="2026-08-19T23:56:44" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_linear_attention_native_context[blackhole-device_params0-1]" time="74.371"><properties><property name="start_timestamp" value="2026-08-19T23:56:44" /><property name="end_timestamp" value="2026-08-19T23:57:58" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_real_weight_batch32_prefill_decode[blackhole-device_params0-1-full_attention]" time="8.937"><properties><property name="start_timestamp" value="2026-08-19T23:57:58" /><property name="end_timestamp" value="2026-08-19T23:58:07" /></properties><failure message="RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:1639: tt::exception&#10;info:&#10;Statically allocated circular buffers in program 18590 clash with L1 buffers on core range [0-0 - 10-9]. L1 buffer allocated at 1325056 and static circular buffer region ends at 1333760&#10;backtrace:&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x902775) [0x7b06c3702775]&#10; --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)&#10; --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)&#10; --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&amp;, tt::tt_metal::distributed::MeshWorkload&amp;, bool)&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x332) [0x7b06c59c8462]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29handle_mesh_adapter_cache_hitITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xb6) [0x7b06c59c7b76]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x166) [0x7b06c59c66d6]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x4ea) [0x7b06c59c561a]&#10; --- ttnn::prim::matmul(tt::tt_metal::Tensor const&amp;, tt::tt_metal::Tensor const&amp;, std::optional&lt;tt::tt_metal::Tensor&gt; const&amp;, std::optional&lt;tt::tt_metal::Tensor&gt; const&amp;, ttnn::prim::MatmulParams const&amp;)&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x1757117) [0x7b06c5957117]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKN2tt8tt_metal6TensorES6_RKSt8optionalIS5_EbbRKS7_IKNS3_12MemoryConfigEES7_IKNS3_8DataTypeEERKS7_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS7_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES7_IKNS_19ComputeKernelConfigEES7_IKNS_5types8CoreGridEERKS7_IKNS3_4TileEES7_IS4_ERKS7_IKNS3_12experimental20GlobalCircularBufferEERKS7_IN4ttsl10StrongTypeIhNS3_14SubDeviceIdTagEEEE+0x342) [0x7b06c5958972]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x5143e5) [0x7b06c65143e5]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x51403f) [0x7b06c651403f]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x7b06c633b045]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(PyEval_EvalCode+0x15b) [0x5d544b]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6085a2]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6b5033]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_SimpleFileObject+0x1aa) [0x6b4d9a]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_AnyFileObject+0x4f) [0x6b4bcf]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_RunMain+0x3b5) [0x6bcc35]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_BytesMain+0x2d) [0x6bc71d]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7b070c42a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7b070c42a28b]&#10; --- /home/ttuser/.tenstorrent-venv/bin/python3(_start+0x25) [0x657bc5]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7b06adbacfb0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    def test_optimized_real_weight_batch32_prefill_decode(monkeypatch, mesh_device, layer_idx):
+        _select_optimized_path(monkeypatch)
+&gt;       functional_tests.test_real_weight_batch32_prefill_and_decode(mesh_device, layer_idx)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py:85: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:746: in test_real_weight_batch32_prefill_and_decode
+    decoder.prefill_forward(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/functional_decoder.py:1025: in prefill_forward
+    return self._prefill_users_independently(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/functional_decoder.py:921: in _prefill_users_independently
+    outputs.append(self._finish_layer(residual_user, mixed_user))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:554: in _finish_layer
+    return ttnn.add(hidden_states, self._mlp(mlp_input), memory_config=residual_memory)
+                                   ^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:507: in _mlp
+    return ttnn.linear(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.linear', function=&lt;ttnn._ttnn.operations.matmul.linear_t object at 0x7...&lt;function default_postprocess_golden_function_outputs at 0x7b06c2044b80&gt;, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 1.6699e-01,  7.5684e-02,  ..., -4.9973e-04,  3.1982e-02],
+               [ 3.6865e-02,  1.2402e-01, ...916e-02,  ...,  3.4180e-03, -7.5684e-03]], shape=Shape([17408, 5120]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'compute_kernel_config': &lt;ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b06ada9bc60&gt;, 'dtype': ...ultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=17,per_core_M=1,per_core_N=5,fused_activation=std::nullopt)}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:1639: tt::exception
+E               info:
+E               Statically allocated circular buffers in program 18590 clash with L1 buffers on core range [0-0 - 10-9]. L1 buffer allocated at 1325056 and static circular buffer region ends at 1333760
+E               backtrace:
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x902775) [0x7b06c3702775]
+E                --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)
+E                --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)
+E                --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&amp;, tt::tt_metal::distributed::MeshWorkload&amp;, bool)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x332) [0x7b06c59c8462]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29handle_mesh_adapter_cache_hitITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xb6) [0x7b06c59c7b76]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x166) [0x7b06c59c66d6]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x4ea) [0x7b06c59c561a]
+E                --- ttnn::prim::matmul(tt::tt_metal::Tensor const&amp;, tt::tt_metal::Tensor const&amp;, std::optional&lt;tt::tt_metal::Tensor&gt; const&amp;, std::optional&lt;tt::tt_metal::Tensor&gt; const&amp;, ttnn::prim::MatmulParams const&amp;)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x1757117) [0x7b06c5957117]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKN2tt8tt_metal6TensorES6_RKSt8optionalIS5_EbbRKS7_IKNS3_12MemoryConfigEES7_IKNS3_8DataTypeEERKS7_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS7_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES7_IKNS_19ComputeKernelConfigEES7_IKNS_5types8CoreGridEERKS7_IKNS3_4TileEES7_IS4_ERKS7_IKNS3_12experimental20GlobalCircularBufferEERKS7_IN4ttsl10StrongTypeIhNS3_14SubDeviceIdTagEEEE+0x342) [0x7b06c5958972]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x5143e5) [0x7b06c65143e5]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x51403f) [0x7b06c651403f]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x7b06c633b045]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyEval_EvalCode+0x15b) [0x5d544b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6085a2]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6b5033]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_SimpleFileObject+0x1aa) [0x6b4d9a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_AnyFileObject+0x4f) [0x6b4bcf]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_RunMain+0x3b5) [0x6bcc35]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_BytesMain+0x2d) [0x6bc71d]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7b070c42a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7b070c42a28b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_start+0x25) [0x657bc5]
+
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: RuntimeError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_advertised_context_prefill[blackhole-device_params0-1-native_max]" time="58.185"><properties><property name="start_timestamp" value="2026-08-19T23:58:07" /><property name="end_timestamp" value="2026-08-19T23:59:06" /></properties></testcase></testsuite></testsuites>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="37.956" timestamp="2026-08-19T23:43:50.475766-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_linear_attention_non_aligned_prefill_decode[blackhole-device_params0-1]" time="36.793"><properties><property name="start_timestamp" value="2026-08-19T23:43:51" /><property name="end_timestamp" value="2026-08-19T23:44:28" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x75adf811ccb0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    def test_optimized_linear_attention_non_aligned_prefill_decode(monkeypatch, mesh_device):
+        _select_optimized_path(monkeypatch)
+&gt;       functional_tests.test_linear_attention_real_weight_prefill_and_decode(mesh_device, 65)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py:52: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:337: in test_linear_attention_real_weight_prefill_and_decode
+    prefill_output = decoder.prefill_forward(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/functional_decoder.py:1082: in prefill_forward
+    return self._finish_layer_chunked(residual, mixed, logical_seq_len=logical_seq_len)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/functional_decoder.py:287: in _finish_layer_chunked
+    outputs.append(self._finish_layer(residual_chunk, mixed_chunk))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/functional_decoder.py:270: in _finish_layer
+    return ttnn.add(hidden_states, self._mlp(mlp_input))
+                                   ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder.OptimizedDecoder object at 0x75ade6447f50&gt;
+hidden_states = ttnn.Tensor([[[[-1.1641e+00,  5.0000e-01,  ..., -3.6133e-01, -1.1016e+00],
+               [-2.0605e-01,  3.0664e-01,  ...e-01,  ..., -9.8828e-01, -6.6406e-02]]]], shape=Shape([1, 1, 64, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _mlp(self, hidden_states):
+        """Run the dominant expert MLP with the selected real-weight policy."""
+        self._record_optimization("low_precision_mlp")
+&gt;       m = math.prod(hidden_states.shape[:-1])
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E       
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:440: TypeError</failure></testcase></testsuite></testsuites>

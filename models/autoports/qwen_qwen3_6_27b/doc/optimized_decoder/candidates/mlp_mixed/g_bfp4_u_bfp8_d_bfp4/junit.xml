@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="7.319" timestamp="2026-08-19T23:24:46.245909-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_optimized_decoder" name="test_optimized_full_attention_non_aligned_prefill_decode[blackhole-device_params0-1]" time="6.181"><properties><property name="start_timestamp" value="2026-08-19T23:24:47" /><property name="end_timestamp" value="2026-08-19T23:24:53" /></properties><failure message="AssertionError: np.float64(0.9921853447097307)&#10;assert np.False_">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x78d4d797e540&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    def test_optimized_full_attention_non_aligned_prefill_decode(monkeypatch, mesh_device):
+        _select_optimized_path(monkeypatch)
+&gt;       functional_tests.test_full_attention_real_weight_paged_prefill(mesh_device, 33)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:191: in test_full_attention_real_weight_paged_prefill
+    _pcc(reference_decode[0, 0], actual_decode)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([-1.2344,  0.6719,  1.4609,  ...,  2.5625,  0.2852,  0.5625],
+       dtype=torch.bfloat16)
+actual = tensor([-1.0938,  0.4746,  1.3750,  ...,  2.1875,  0.2969,  0.5742],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+&gt;       assert passed, message
+E       AssertionError: np.float64(0.9921853447097307)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError</failure></testcase></testsuite></testsuites>

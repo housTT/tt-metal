@@ -8,6 +8,35 @@
     "field": "text_config.max_position_embeddings",
     "local_config": "/home/ttuser/.cache/huggingface/hub/models--Qwen--Qwen3.6-27B/snapshots/6a9e13bd6fc8f0983b9b99948120bc37f49c13e9/config.json"
   },
+  "optimized_decoder": {
+    "layer_kinds": [
+      "linear_attention",
+      "full_attention"
+    ],
+    "maximum_active_batch_size_tested": 32,
+    "full_attention_kv_cache": {
+      "dtype": "BFLOAT8_B",
+      "layout": "TILE/DRAM paged",
+      "shape_per_tensor": "[num_blocks, 4, 64, 256]",
+      "fill_contract": "BF16 projected K/V are device-typecast to BFLOAT8_B before paged_fill_cache; decode updates remain device-side",
+      "capacity_effect": "lower payload than the inherited BF16 cache; advertised context is preserved, not reduced"
+    },
+    "decode_tail_memory": {
+      "internal_layout": "32-core WIDTH_SHARDED L1 residual/RMSNorm/MLP with DRAM-width-sharded decode weights",
+      "public_output_layout": "TILE/DRAM interleaved",
+      "capacity_effect": "decode-only duplicate weights add bounded model storage; final advertised-context and batch-32 gates pass without reducing cache capacity"
+    },
+    "tested_context": {
+      "maximum_logical_sequence_length": 262144,
+      "maximum_current_position": 262143,
+      "prefill_status": "passed",
+      "decode_status": "passed",
+      "decode_execution": "ttnn trace capture and replay",
+      "evidence": "optimized_decoder/final_selected_v5/correctness/junit.xml"
+    },
+    "capability_reduction": null,
+    "completion_status": "passed"
+  },
   "functional_decoder": {
     "layer_kinds": [
       "linear_attention",
