@@ -1,0 +1,9 @@
+Pattern: dedicated partial decode RoPE by mapping batch lanes to the sequence axis.
+Base source SHA256: 2347a7e6f399f8b667902771cee94f744a3d6200083e0baf9c0736bd18b9e31e
+Candidate source/SHA256: source_snapshot.txt / 5b54d28a15a8b7cfc15521c7b728b860fd9cde4b3727746bd365d9bbe700baee
+Correctness command: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE -k 'full_attention_non_aligned_prefill_decode or full_attention_paged_decode_trace' -s
+Correctness evidence: correctness.log; prefill 0.998800717, decode 0.997824526, trace 0.998387110; 2 passed.
+Profiler command: work_log.md template, QWEN36_PERF_PHASE=decode, full_attention profiler node.
+Profiler evidence: perf/{ops_perf_results.csv,report.csv}; 2346.213 us/39 ops.
+Control: primitive partial decode RoPE on the identical dedicated-QKV base was 2339.680 us/45 ops.
+Verdict: rejected; 6.533 us slower despite six fewer operations.

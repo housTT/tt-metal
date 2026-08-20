@@ -1,0 +1,11 @@
+Pattern: shared-LHS gate/up MLP packing.
+Base source SHA256: 2347a7e6f399f8b667902771cee94f744a3d6200083e0baf9c0736bd18b9e31e
+Candidate source: source_snapshot.txt
+Candidate SHA256: 373d2a11d72d39151ce164e91bd8f01b6c58b3afb74b3428141dd7816f7735fe
+Acceptance: PCC >= 0.995 for both real layer kinds.
+Correctness command: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE -k 'full_attention_non_aligned_prefill_decode or linear_attention_non_aligned_prefill_decode' -s
+Correctness evidence: correctness.log (2 passed; exact PCC values retained).
+Profiler command: work_log.md profiler template, phases prefill/decode, nodes test_fused_decoder_perf[blackhole-device_params0-1-{linear_attention,full_attention}].
+Profiler evidence: perf/{linear_attention,full_attention}_{prefill,decode}/{ops_perf_results.csv,report.csv}.
+Totals: linear prefill 5638.167 us/162; linear decode 2745.046 us/74; full prefill 2371.560 us/30; full decode 2350.690 us/46.
+Verdict: rejected; slower than the matching unpacked-MLP graph in all four phases.

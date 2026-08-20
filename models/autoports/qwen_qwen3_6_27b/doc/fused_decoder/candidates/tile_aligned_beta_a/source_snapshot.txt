@@ -1,0 +1,601 @@
+# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Graph-fused single-device decoder layer for Qwen/Qwen3.6-27B.
+
+This stage deliberately reuses the functional decoder's weight loading, cache
+allocation, public validation, and long-context control flow.  The methods
+below are the measured runtime overrides: they replace primitive subgraphs with
+TTNN fused operations while preserving the functional decoder's public tensor
+and caller-owned state contracts.
+"""
+
+from __future__ import annotations
+
+import math
+
+import torch
+
+import ttnn
+from models.autoports.qwen_qwen3_6_27b.tt.functional_decoder import (
+    FunctionalDecoder,
+    _as_weight,
+    _rotate_half_partial,
+    _slice_last,
+    _state_key,
+)
+
+
+class FusedDecoder(FunctionalDecoder):
+    """Functional-equivalent decoder whose measured graph uses fused TTNN ops."""
+
+    FUSION_MANIFEST = (
+        "mlp_silu_multiply",
+        "partial_rope",
+        "attention_sigmoid_multiply",
+        "shared_lhs_full_qkv",
+        "dedicated_full_qkv_heads",
+        "shared_lhs_linear_projections",
+        "linear_silu_multiply",
+        "matmul_transpose_flags",
+        "l2_rms_norm",
+        "decode_beta_sigmoid_multiply",
+        "repeat_interleave_qk_heads",
+    )
+    TOTAL_FUSION_COUNTS = {name: 0 for name in FUSION_MANIFEST}
+
+    @classmethod
+    def reset_fusion_counts(cls):
+        cls.TOTAL_FUSION_COUNTS = {name: 0 for name in cls.FUSION_MANIFEST}
+
+    @classmethod
+    def from_state_dict(cls, state_dict, **kwargs):
+        functional = super().from_state_dict(state_dict, **kwargs)
+        functional.__class__ = cls
+        functional.fusion_counters = {name: 0 for name in cls.FUSION_MANIFEST}
+        layer_idx = functional.layer_idx
+        mesh_device = functional.mesh_device
+        if functional.layer_kind == "full_attention":
+            q_and_gate = state_dict[_state_key(state_dict, layer_idx, "self_attn.q_proj.weight")]
+            q_and_gate = q_and_gate.reshape(
+                functional.num_heads,
+                functional.head_dim * 2,
+                functional.hidden_size,
+            )
+            query_weight = q_and_gate[:, : functional.head_dim].reshape(
+                functional.num_heads * functional.head_dim,
+                functional.hidden_size,
+            )
+            gate_weight = q_and_gate[:, functional.head_dim :].reshape(
+                functional.num_heads * functional.head_dim,
+                functional.hidden_size,
+            )
+            functional.full_qkv = _as_weight(
+                torch.cat(
+                    [
+                        query_weight,
+                        state_dict[_state_key(state_dict, layer_idx, "self_attn.k_proj.weight")],
+                        state_dict[_state_key(state_dict, layer_idx, "self_attn.v_proj.weight")],
+                        gate_weight,
+                    ],
+                    dim=0,
+                ),
+                mesh_device,
+                transpose=True,
+            )
+            # The packed shared-LHS projection is the only runtime consumer.
+            # Release the functional-stage copies so fusion does not reduce
+            # the advertised cache/context capacity through duplicate weights.
+            for name in ("q_proj", "k_proj", "v_proj"):
+                ttnn.deallocate(getattr(functional, name), force=True)
+                setattr(functional, name, None)
+        else:
+            beta_weight = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
+            a_weight = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_a.weight")]
+            projection_padding = (-beta_weight.shape[0]) % 32
+            beta_weight = torch.nn.functional.pad(beta_weight, [0, 0, 0, projection_padding])
+            a_weight = torch.nn.functional.pad(a_weight, [0, 0, 0, projection_padding])
+            functional.linear_projections = _as_weight(
+                torch.cat(
+                    [
+                        state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_qkv.weight")],
+                        state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_z.weight")],
+                        beta_weight,
+                        a_weight,
+                    ],
+                    dim=0,
+                ),
+                mesh_device,
+                transpose=True,
+            )
+            for name in ("in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a"):
+                ttnn.deallocate(getattr(functional, name), force=True)
+                setattr(functional, name, None)
+        return functional
+
+    def _record_fusion(self, name: str):
+        self.fusion_counters[name] += 1
+        type(self).TOTAL_FUSION_COUNTS[name] += 1
+
+    def _mlp(self, hidden_states):
+        gate = ttnn.linear(hidden_states, self.mlp_gate, dtype=ttnn.bfloat16)
+        up = ttnn.linear(hidden_states, self.mlp_up, dtype=ttnn.bfloat16)
+        self._record_fusion("mlp_silu_multiply")
+        activated = ttnn.multiply(
+            gate,
+            up,
+            input_tensor_a_activations=[ttnn.UnaryOpType.SILU],
+        )
+        return ttnn.linear(activated, self.mlp_down, dtype=ttnn.bfloat16)
+
+    def _partial_rope(self, tensor, cos, sin):
+        rotary = _slice_last(tensor, 0, self.rotary_dim)
+        passthrough = _slice_last(tensor, self.rotary_dim, tensor.shape[-1])
+        self._record_fusion("partial_rope")
+        rotary = ttnn.experimental.rotary_embedding(rotary, cos, sin)
+        return ttnn.concat([rotary, passthrough], dim=-1)
+
+    def _full_qkv_prefill(self, hidden_states, cos, sin):
+        batch, _, seq_len, _ = hidden_states.shape
+        self._record_fusion("shared_lhs_full_qkv")
+        packed = ttnn.linear(hidden_states, self.full_qkv, dtype=ttnn.bfloat16)
+        qkv_width = (self.num_heads + 2 * self.num_kv_heads) * self.head_dim
+        qkv = _slice_last(packed, 0, qkv_width)
+        gate = _slice_last(packed, qkv_width, packed.shape[-1])
+        qkv = ttnn.reshape(qkv, [batch, seq_len, qkv_width])
+        self._record_fusion("dedicated_full_qkv_heads")
+        query, key, value = ttnn.transformer.split_query_key_value_and_split_heads(
+            qkv,
+            num_heads=self.num_heads,
+            num_kv_heads=self.num_kv_heads,
+            transpose_key=False,
+        )
+        query = ttnn.rms_norm(query, epsilon=self.rms_norm_eps, weight=self.q_norm)
+        key = ttnn.rms_norm(key, epsilon=self.rms_norm_eps, weight=self.k_norm)
+        return self._partial_rope(query, cos, sin), self._partial_rope(key, cos, sin), value, gate
+
+    def _full_qkv_decode(self, hidden_states, cos, sin):
+        _, _, padded_batch, _ = hidden_states.shape
+        self._record_fusion("shared_lhs_full_qkv")
+        packed = ttnn.linear(hidden_states, self.full_qkv, dtype=ttnn.bfloat16)
+        qkv_width = (self.num_heads + 2 * self.num_kv_heads) * self.head_dim
+        qkv = _slice_last(packed, 0, qkv_width)
+        gate = _slice_last(packed, qkv_width, packed.shape[-1])
+        qkv = ttnn.to_memory_config(qkv, ttnn.L1_MEMORY_CONFIG)
+        batch_grid = ttnn.num_cores_to_corerangeset(padded_batch, ttnn.CoreCoord(8, 8), row_wise=True)
+        decode_head_memcfg = ttnn.create_sharded_memory_config(
+            shape=(32, self.head_dim),
+            core_grid=batch_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        self._record_fusion("dedicated_full_qkv_heads")
+        query, key, value = ttnn.experimental.nlp_create_qkv_heads_decode(
+            qkv,
+            num_heads=self.num_heads,
+            num_kv_heads=self.num_kv_heads,
+            overlap_qk_coregrid=True,
+            memory_config=decode_head_memcfg,
+        )
+        query = ttnn.to_memory_config(query, ttnn.L1_MEMORY_CONFIG)
+        key = ttnn.to_memory_config(key, ttnn.L1_MEMORY_CONFIG)
+        query = ttnn.rms_norm(query, epsilon=self.rms_norm_eps, weight=self.q_norm)
+        key = ttnn.rms_norm(key, epsilon=self.rms_norm_eps, weight=self.k_norm)
+        query = _rotate_half_partial(query, cos, sin, self.rotary_dim)
+        key = _rotate_half_partial(key, cos, sin, self.rotary_dim)
+        return query, key, value, gate
+
+    def _gated_attention(self, attention, gate):
+        self._record_fusion("attention_sigmoid_multiply")
+        return ttnn.multiply(
+            attention,
+            gate,
+            input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID],
+        )
+
+    def _full_prefill(self, hidden_states, **kwargs):
+        # Keep the cache semantics from the functional implementation, but use
+        # the fused QKV/RoPE methods above and replace its final topology below.
+        query, key, value, gate = self._full_qkv_prefill(hidden_states, kwargs["cos"], kwargs["sin"])
+        key_cache, value_cache = kwargs["kv_cache"]
+        batch = hidden_states.shape[0]
+        cache_batch_idx = kwargs.get("cache_batch_idx", 0)
+        for batch_idx in range(batch):
+            key_user = ttnn.slice(key, [batch_idx, 0, 0, 0], [batch_idx + 1, key.shape[1], key.shape[2], key.shape[3]])
+            value_user = ttnn.slice(
+                value,
+                [batch_idx, 0, 0, 0],
+                [batch_idx + 1, value.shape[1], value.shape[2], value.shape[3]],
+            )
+            ttnn.experimental.paged_fill_cache(
+                key_cache, key_user, kwargs["page_table"], batch_idx=cache_batch_idx + batch_idx
+            )
+            ttnn.experimental.paged_fill_cache(
+                value_cache, value_user, kwargs["page_table"], batch_idx=cache_batch_idx + batch_idx
+            )
+
+        attention = ttnn.transformer.scaled_dot_product_attention(
+            query, key, value, is_causal=True, scale=self.attention_scale
+        )
+        attention = ttnn.permute(attention, [0, 2, 1, 3])
+        attention = ttnn.reshape(attention, [batch, 1, hidden_states.shape[2], self.num_heads * self.head_dim])
+        attention = self._gated_attention(attention, gate)
+        output = ttnn.linear(attention, self.o_proj, dtype=ttnn.bfloat16)
+        logical_seq_len = kwargs["logical_seq_len"]
+        if logical_seq_len != hidden_states.shape[2]:
+            output = ttnn.slice(output, [0, 0, 0, 0], [batch, 1, logical_seq_len, self.hidden_size])
+        return output
+
+    def _full_prefill_chunked_layer(self, hidden_states, *, cos, sin, page_table, kv_cache, logical_seq_len: int):
+        """Preserve the functional long-context path with fused chunk tails."""
+        batch = hidden_states.shape[0]
+        physical_seq_len = hidden_states.shape[2]
+        key_cache, value_cache = kv_cache
+        program_config = ttnn.SDPAProgramConfig(
+            compute_with_storage_grid_size=ttnn.CoreCoord(8, 8),
+            q_chunk_size=self.full_prefill_q_chunk_size,
+            k_chunk_size=self.full_prefill_q_chunk_size,
+            exp_approx_mode=False,
+        )
+        outputs = []
+        for chunk_start in range(0, physical_seq_len, self.full_prefill_chunk_size):
+            chunk_end = min(chunk_start + self.full_prefill_chunk_size, physical_seq_len)
+            chunk_len = chunk_end - chunk_start
+            logical_chunk_len = min(chunk_len, max(0, logical_seq_len - chunk_start))
+            residual = ttnn.slice(
+                hidden_states,
+                [0, 0, chunk_start, 0],
+                [batch, 1, chunk_end, self.hidden_size],
+            )
+            normalized = ttnn.rms_norm(residual, epsilon=self.rms_norm_eps, weight=self.input_norm)
+            cos_chunk = ttnn.slice(cos, [0, 0, chunk_start, 0], [cos.shape[0], cos.shape[1], chunk_end, cos.shape[3]])
+            sin_chunk = ttnn.slice(sin, [0, 0, chunk_start, 0], [sin.shape[0], sin.shape[1], chunk_end, sin.shape[3]])
+            query, key, value, gate = self._full_qkv_prefill(normalized, cos_chunk, sin_chunk)
+
+            first_page = chunk_start // self.page_block_size
+            chunk_pages = (chunk_len + self.page_block_size - 1) // self.page_block_size
+            fill_page_table = ttnn.slice(
+                page_table,
+                [0, first_page],
+                [page_table.shape[0], first_page + chunk_pages],
+            )
+            for batch_idx in range(batch):
+                key_user = ttnn.slice(
+                    key,
+                    [batch_idx, 0, 0, 0],
+                    [batch_idx + 1, key.shape[1], key.shape[2], key.shape[3]],
+                )
+                value_user = ttnn.slice(
+                    value,
+                    [batch_idx, 0, 0, 0],
+                    [batch_idx + 1, value.shape[1], value.shape[2], value.shape[3]],
+                )
+                ttnn.experimental.paged_fill_cache(key_cache, key_user, fill_page_table, batch_idx=batch_idx)
+                ttnn.experimental.paged_fill_cache(value_cache, value_user, fill_page_table, batch_idx=batch_idx)
+                ttnn.deallocate(key_user)
+                ttnn.deallocate(value_user)
+            for tensor in (fill_page_table, key, value, normalized, cos_chunk, sin_chunk):
+                ttnn.deallocate(tensor)
+
+            query_pad = (-chunk_len) % self.full_prefill_q_chunk_size
+            if query_pad:
+                query_unpadded = query
+                query = ttnn.pad(
+                    query_unpadded,
+                    padding=[(0, 0), (0, 0), (0, query_pad), (0, 0)],
+                    value=0.0,
+                )
+                ttnn.deallocate(query_unpadded)
+            attention = ttnn.transformer.chunked_scaled_dot_product_attention(
+                input_tensor_q=query,
+                input_tensor_k=key_cache,
+                input_tensor_v=value_cache,
+                page_table_tensor=page_table,
+                chunk_start_idx=chunk_start,
+                scale=self.attention_scale,
+                program_config=program_config,
+            )
+            ttnn.deallocate(query)
+            if query_pad:
+                padded_attention = attention
+                attention = ttnn.slice(
+                    padded_attention,
+                    [0, 0, 0, 0],
+                    [batch, self.num_heads, chunk_len, self.head_dim],
+                )
+                ttnn.deallocate(padded_attention)
+
+            attention = ttnn.permute(attention, [0, 2, 1, 3])
+            attention = ttnn.reshape(attention, [batch, 1, chunk_len, self.num_heads * self.head_dim])
+            gated_attention = self._gated_attention(attention, gate)
+            mixed = ttnn.linear(gated_attention, self.o_proj, dtype=ttnn.bfloat16)
+            for tensor in (attention, gated_attention, gate):
+                ttnn.deallocate(tensor)
+
+            if logical_chunk_len:
+                if logical_chunk_len != chunk_len:
+                    logical_residual = ttnn.slice(
+                        residual, [0, 0, 0, 0], [batch, 1, logical_chunk_len, self.hidden_size]
+                    )
+                    logical_mixed = ttnn.slice(mixed, [0, 0, 0, 0], [batch, 1, logical_chunk_len, self.hidden_size])
+                    ttnn.deallocate(residual)
+                    ttnn.deallocate(mixed)
+                    residual, mixed = logical_residual, logical_mixed
+                output = self._finish_layer(residual, mixed)
+                ttnn.deallocate(residual)
+                ttnn.deallocate(mixed)
+                outputs.append(output)
+            else:
+                ttnn.deallocate(residual)
+                ttnn.deallocate(mixed)
+
+        if len(outputs) == 1:
+            return outputs[0]
+        result = ttnn.concat(outputs, dim=2)
+        for output in outputs:
+            ttnn.deallocate(output)
+        return result
+
+    def _full_decode(self, hidden_states, **kwargs):
+        # The paged update/decode operation contracts stay identical.  Only the
+        # projection-side partial RoPE and the post-SDPA gate are fused.
+        padded_batch = hidden_states.shape[2]
+        query, key, value, gate = self._full_qkv_decode(hidden_states, kwargs["cos"], kwargs["sin"])
+        batch_grid = ttnn.num_cores_to_corerangeset(padded_batch, ttnn.CoreCoord(8, 8), row_wise=True)
+        decode_head_memcfg = ttnn.create_sharded_memory_config(
+            shape=(32, self.head_dim),
+            core_grid=batch_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        query = ttnn.to_memory_config(query, decode_head_memcfg)
+        key = ttnn.to_memory_config(key, decode_head_memcfg)
+        value = ttnn.to_memory_config(value, decode_head_memcfg)
+        key_cache, value_cache = kwargs["kv_cache"]
+        ttnn.experimental.paged_update_cache(
+            key_cache,
+            key,
+            update_idxs_tensor=kwargs["current_positions"],
+            page_table=kwargs["page_table"],
+        )
+        ttnn.experimental.paged_update_cache(
+            value_cache,
+            value,
+            update_idxs_tensor=kwargs["current_positions"],
+            page_table=kwargs["page_table"],
+        )
+        attention = ttnn.transformer.paged_scaled_dot_product_attention_decode(
+            query,
+            key_cache,
+            value_cache,
+            cur_pos_tensor=kwargs["current_positions"],
+            page_table_tensor=kwargs["page_table"],
+            scale=self.attention_scale,
+            program_config=ttnn.SDPAProgramConfig(
+                compute_with_storage_grid_size=(8, 8),
+                exp_approx_mode=False,
+                q_chunk_size=0,
+                k_chunk_size=0,
+            ),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        attention = ttnn.reshape(attention, [1, 1, padded_batch, self.num_heads * self.head_dim])
+        attention = self._gated_attention(attention, gate)
+        return ttnn.linear(attention, self.o_proj, dtype=ttnn.bfloat16)
+
+    def _linear_input_projections(self, hidden_states, *, activate_beta: bool = True):
+        self._record_fusion("shared_lhs_linear_projections")
+        packed = ttnn.linear(hidden_states, self.linear_projections, dtype=ttnn.bfloat16)
+        qkv_end = self.conv_dim
+        z_end = qkv_end + self.linear_num_value_heads * self.linear_value_head_dim
+        beta_end = z_end + self.linear_num_value_heads
+        beta_padded_end = z_end + math.ceil(self.linear_num_value_heads / 32) * 32
+        mixed_qkv = _slice_last(packed, 0, qkv_end)
+        z = _slice_last(packed, qkv_end, z_end)
+        beta = _slice_last(packed, z_end, beta_end)
+        if activate_beta:
+            beta = ttnn.sigmoid(beta)
+        a = _slice_last(packed, beta_padded_end, beta_padded_end + self.linear_num_value_heads)
+        return mixed_qkv, z, beta, a
+
+    def _linear_l2_norm(self, tensor):
+        """Express exact L2 normalization through the dedicated RMSNorm op."""
+        self._record_fusion("l2_rms_norm")
+        tensor = ttnn.rms_norm(
+            tensor,
+            epsilon=1e-6 / self.linear_key_head_dim,
+        )
+        return ttnn.multiply(tensor, 1.0 / math.sqrt(self.linear_key_head_dim))
+
+    def _repeat_linear_qk(self, tensor):
+        self._record_fusion("repeat_interleave_qk_heads")
+        return ttnn.repeat_interleave(tensor, repeats=3, dim=1)
+
+    def _repeat_linear_qk_chunk(self, tensor, *, sequence_length: int):
+        del sequence_length
+        self._record_fusion("repeat_interleave_qk_heads")
+        tensor = ttnn.permute(tensor, [0, 2, 1, 3])
+        return ttnn.repeat_interleave(tensor, repeats=3, dim=1)
+
+    def _linear_chunk(self, hidden_states, *, conv_state, recurrent_state, valid_tokens: int):
+        batch = hidden_states.shape[0]
+        mixed_qkv, z, beta, a = self._linear_input_projections(hidden_states)
+        a = ttnn.typecast(a, ttnn.float32)
+
+        convolved = self._linear_causal_conv_chunk(mixed_qkv, conv_state=conv_state, valid_tokens=valid_tokens)
+        key_width = self.linear_num_key_heads * self.linear_key_head_dim
+        query = _slice_last(convolved, 0, key_width)
+        key = _slice_last(convolved, key_width, key_width * 2)
+        value = _slice_last(convolved, key_width * 2, self.conv_dim)
+
+        query = ttnn.reshape(query, [batch, valid_tokens, self.linear_num_key_heads, self.linear_key_head_dim])
+        key = ttnn.reshape(key, [batch, valid_tokens, self.linear_num_key_heads, self.linear_key_head_dim])
+        query = self._repeat_linear_qk_chunk(query, sequence_length=valid_tokens)
+        key = self._repeat_linear_qk_chunk(key, sequence_length=valid_tokens)
+        value = ttnn.permute(
+            ttnn.reshape(
+                value,
+                [batch, valid_tokens, self.linear_num_value_heads, self.linear_value_head_dim],
+            ),
+            [0, 2, 1, 3],
+        )
+
+        query = self._linear_l2_norm(query)
+        key = self._linear_l2_norm(key)
+        query = self._pad_linear_chunk(query, valid_tokens=valid_tokens, sequence_dim=2)
+        key = self._pad_linear_chunk(key, valid_tokens=valid_tokens, sequence_dim=2)
+        value = self._pad_linear_chunk(value, valid_tokens=valid_tokens, sequence_dim=2)
+
+        beta = ttnn.permute(
+            ttnn.reshape(beta, [batch, valid_tokens, self.linear_num_value_heads, 1]),
+            [0, 2, 1, 3],
+        )
+        a = ttnn.permute(
+            ttnn.reshape(a, [batch, valid_tokens, self.linear_num_value_heads, 1]),
+            [0, 2, 1, 3],
+        )
+        g = ttnn.multiply(self.a_decay, ttnn.softplus(ttnn.add(a, self.dt_bias)))
+        beta = self._pad_linear_chunk(beta, valid_tokens=valid_tokens, sequence_dim=2)
+        g = self._pad_linear_chunk(g, valid_tokens=valid_tokens, sequence_dim=2)
+        core = self._linear_gated_delta_chunk(query, key, value, beta, g, recurrent_state=recurrent_state)
+
+        core = ttnn.permute(core, [0, 2, 1, 3])
+        core = ttnn.reshape(
+            core,
+            [batch, 1, self.linear_chunk_size, self.linear_num_value_heads, self.linear_value_head_dim],
+        )
+        z = self._pad_linear_chunk(z, valid_tokens=valid_tokens, sequence_dim=2)
+        z = ttnn.reshape(
+            z,
+            [batch, 1, self.linear_chunk_size, self.linear_num_value_heads, self.linear_value_head_dim],
+        )
+        self._record_fusion("linear_silu_multiply")
+        norm = ttnn.rsqrt(
+            ttnn.add(
+                ttnn.mean(ttnn.multiply(core, core), dim=-1, keepdim=True),
+                self.rms_norm_eps,
+            )
+        )
+        core = ttnn.multiply(ttnn.multiply(core, norm), self.linear_norm)
+        core = ttnn.multiply(core, z, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
+        core = ttnn.reshape(
+            core,
+            [batch, 1, self.linear_chunk_size, self.linear_num_value_heads * self.linear_value_head_dim],
+        )
+        output = ttnn.linear(core, self.linear_out_proj, dtype=ttnn.bfloat16)
+        if valid_tokens != self.linear_chunk_size:
+            output = ttnn.slice(output, [0, 0, 0, 0], [batch, 1, valid_tokens, self.hidden_size])
+        return output
+
+    def _linear_gated_delta_chunk(self, query, key, value, beta, g, *, recurrent_state):
+        """Delta rule with matrix transposes folded into consuming matmuls."""
+        query = ttnn.typecast(query, ttnn.float32)
+        key = ttnn.typecast(key, ttnn.float32)
+        value = ttnn.typecast(value, ttnn.float32)
+        beta = ttnn.typecast(beta, ttnn.float32)
+        g = ttnn.typecast(g, ttnn.float32)
+
+        query = ttnn.multiply(query, 1.0 / math.sqrt(self.linear_key_head_dim))
+        cumulative_g = ttnn.cumsum(g, dim=2, dtype=ttnn.float32)
+        decay_exponent = ttnn.subtract(cumulative_g, ttnn.transpose(cumulative_g, -2, -1))
+        decay_exponent = ttnn.multiply(decay_exponent, self.linear_chunk_lower)
+        decay = ttnn.exp(decay_exponent)
+        decay = ttnn.multiply(decay, self.linear_chunk_lower)
+
+        value_beta = ttnn.multiply(value, beta)
+        key_beta = ttnn.multiply(key, beta)
+        self._record_fusion("matmul_transpose_flags")
+        base_attention = ttnn.matmul(key_beta, key, transpose_b=True, dtype=ttnn.float32)
+        base_attention = ttnn.multiply(ttnn.neg(base_attention), decay)
+        base_attention = ttnn.multiply(base_attention, self.linear_chunk_strict_lower)
+        inverse_attention = self._linear_chunk_inverse(base_attention)
+
+        transformed_value = ttnn.matmul(inverse_attention, value_beta, dtype=ttnn.float32)
+        cumulative_exp = ttnn.exp(cumulative_g)
+        cumulative_key = ttnn.matmul(
+            inverse_attention,
+            ttnn.multiply(key_beta, cumulative_exp),
+            dtype=ttnn.float32,
+        )
+        state_projection = ttnn.matmul(cumulative_key, recurrent_state, dtype=ttnn.float32)
+        adjusted_value = ttnn.subtract(transformed_value, state_projection)
+
+        within_chunk = ttnn.matmul(query, key, transpose_b=True, dtype=ttnn.float32)
+        within_chunk = ttnn.multiply(ttnn.multiply(within_chunk, decay), self.linear_chunk_lower)
+        from_initial_state = ttnn.matmul(ttnn.multiply(query, cumulative_exp), recurrent_state, dtype=ttnn.float32)
+        core = ttnn.add(
+            from_initial_state,
+            ttnn.matmul(within_chunk, adjusted_value, dtype=ttnn.float32),
+        )
+
+        final_g = ttnn.slice(
+            cumulative_g,
+            [0, 0, self.linear_chunk_size - 1, 0],
+            [cumulative_g.shape[0], cumulative_g.shape[1], self.linear_chunk_size, 1],
+        )
+        state_key = ttnn.multiply(key, ttnn.exp(ttnn.subtract(final_g, cumulative_g)))
+        state_update = ttnn.matmul(state_key, adjusted_value, transpose_a=True, dtype=ttnn.float32)
+        new_recurrent_state = ttnn.add(ttnn.multiply(recurrent_state, ttnn.exp(final_g)), state_update)
+        ttnn.copy(new_recurrent_state, recurrent_state)
+        return ttnn.typecast(core, ttnn.bfloat16)
+
+    def _linear_token(self, hidden_states, *, conv_state, recurrent_state):
+        batch = hidden_states.shape[0]
+        mixed_qkv, z, beta, a = self._linear_input_projections(hidden_states, activate_beta=False)
+
+        old_tail = ttnn.slice(
+            conv_state,
+            [0, 0, 1, 0],
+            [batch, 1, self.conv_kernel_size, self.conv_dim],
+        )
+        mixed_row = ttnn.reshape(mixed_qkv, [batch, 1, 1, self.conv_dim])
+        new_conv_state = ttnn.concat([old_tail, mixed_row], dim=2)
+        ttnn.copy(new_conv_state, conv_state)
+        convolved = ttnn.sum(ttnn.multiply(new_conv_state, self.conv_weight), dim=2, keepdim=True)
+        convolved = ttnn.silu(convolved)
+
+        key_start = self.linear_num_key_heads * self.linear_key_head_dim
+        query = _slice_last(convolved, 0, key_start)
+        key = _slice_last(convolved, key_start, key_start * 2)
+        value = _slice_last(convolved, key_start * 2, self.conv_dim)
+        query = self._repeat_linear_qk(
+            ttnn.reshape(query, [batch, self.linear_num_key_heads, 1, self.linear_key_head_dim])
+        )
+        key = self._repeat_linear_qk(ttnn.reshape(key, [batch, self.linear_num_key_heads, 1, self.linear_key_head_dim]))
+        value = ttnn.reshape(value, [batch, self.linear_num_value_heads, 1, self.linear_value_head_dim])
+
+        query = ttnn.multiply(self._linear_l2_norm(query), 1.0 / math.sqrt(self.linear_key_head_dim))
+        key = self._linear_l2_norm(key)
+        beta = ttnn.reshape(beta, [batch, self.linear_num_value_heads, 1, 1])
+        a = ttnn.reshape(a, [batch, self.linear_num_value_heads, 1, 1])
+        a = ttnn.typecast(a, ttnn.float32)
+        decay = ttnn.exp(ttnn.multiply(self.a_decay, ttnn.softplus(ttnn.add(a, self.dt_bias))))
+        decayed_state = ttnn.multiply(recurrent_state, decay)
+        recalled = ttnn.matmul(key, decayed_state, dtype=ttnn.float32)
+        self._record_fusion("decode_beta_sigmoid_multiply")
+        delta = ttnn.multiply(
+            ttnn.subtract(value, recalled),
+            beta,
+            input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID],
+        )
+        self._record_fusion("matmul_transpose_flags")
+        update = ttnn.matmul(key, delta, transpose_a=True, dtype=ttnn.float32)
+        new_recurrent_state = ttnn.add(decayed_state, update)
+        ttnn.copy(new_recurrent_state, recurrent_state)
+        core = ttnn.matmul(query, new_recurrent_state, dtype=ttnn.bfloat16)
+
+        core = ttnn.reshape(core, [batch, 1, 1, self.linear_num_value_heads, self.linear_value_head_dim])
+        z = ttnn.reshape(z, [batch, 1, 1, self.linear_num_value_heads, self.linear_value_head_dim])
+        norm = ttnn.rsqrt(
+            ttnn.add(
+                ttnn.mean(ttnn.multiply(core, core), dim=-1, keepdim=True),
+                self.rms_norm_eps,
+            )
+        )
+        core = ttnn.multiply(ttnn.multiply(core, norm), self.linear_norm)
+        self._record_fusion("linear_silu_multiply")
+        core = ttnn.multiply(core, z, input_tensor_b_activations=[ttnn.UnaryOpType.SILU])
+        core = ttnn.reshape(core, [batch, 1, 1, self.linear_num_value_heads * self.linear_value_head_dim])
+        return ttnn.linear(core, self.linear_out_proj, dtype=ttnn.bfloat16)

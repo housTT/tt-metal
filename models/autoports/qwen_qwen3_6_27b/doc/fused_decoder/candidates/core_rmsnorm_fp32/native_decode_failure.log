@@ -1,0 +1,175 @@
+2026-08-19 20:05:08.331 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 1 item
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1] 2026-08-19 20:05:10.242 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-19 20:05:10.242 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-19 20:05:10.242 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-19 20:05:10.242 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-19 20:05:10.255 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-19 20:05:10.255 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-19 20:05:10.333 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-19 20:05:10.333 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-19 20:05:10.333 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-19 20:05:10.333 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-19 20:05:10.334 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-19 20:05:10.465 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-19 20:05:10.587 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-19 20:05:10.587 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:05:10.587 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-19 20:05:10.587 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-19 20:05:10.598 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:05:10.599 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:05:10.600 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:05:10.600 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:05:10.633 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 20:05:10.683 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-19 20:05:11.260 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349989 GHz, device_time_at_sync=5349956484904 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-19 20:05:11.270 | DEBUG    | conftest:mesh_device:599 - multidevice with 1 devices is created
+FAILED2026-08-19 20:05:39.291 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+_ test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75eaf2962f00>
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    def test_fused_linear_attention_advertised_context_decode(monkeypatch, mesh_device):
+        """Build the native prefix and trace fused DeltaNet decode at its final position."""
+        _select_fused_path(monkeypatch)
+>       functional_tests.test_linear_attention_advertised_context_decode(mesh_device)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py:170:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+
+    @pytest.mark.parametrize("mesh_device", [1], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+    def test_linear_attention_advertised_context_decode(mesh_device):
+        """Build 262,143 DeltaNet states and trace decode at the final native position."""
+        config = _config()
+        decoder = FunctionalDecoder.from_state_dict(
+            _load_layer_state(0), hf_config=config, layer_idx=0, mesh_device=mesh_device
+        )
+        last_position = config.max_position_embeddings - 1
+        prefix_length = int(os.environ.get("QWEN36_LINEAR_DECODE_PREFIX_LENGTH", last_position))
+        assert 1 <= prefix_length <= last_position
+        state = decoder.allocate_linear_state(batch_size=1)
+        prefix = ttnn.full(
+            [1, 1, prefix_length, config.hidden_size],
+            fill_value=0.01,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        decoder.prefill_forward(prefix, logical_seq_len=prefix_length, linear_state=state)
+        decode = ttnn.full(
+            [1, 1, 1, config.hidden_size],
+            fill_value=0.02,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        positions = _to_tt(
+            torch.tensor([prefix_length], dtype=torch.int32),
+            mesh_device,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        decoder.decode_forward(decode, current_positions=positions, linear_state=state)
+        ttnn.synchronize_device(mesh_device)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(
+            decode, current_positions=positions, linear_state=state
+        )
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        traced_host = ttnn.to_torch(
+            traced_output, mesh_composer=ttnn.ConcatMeshToTensor(mesh_device, dim=0)
+        )
+        ttnn.release_trace(mesh_device, trace_id)
+>       assert torch.isfinite(traced_host).all()
+E       assert tensor(False)
+E        +  where tensor(False) = <built-in method all of Tensor object at 0x75eae09de940>()
+E        +    where <built-in method all of Tensor object at 0x75eae09de940> = tensor([[[[True, True, True,  ..., True, True, True]]]]).all
+E        +      where tensor([[[[True, True, True,  ..., True, True, True]]]]) = <built-in method isfinite of type object at 0x75eb1268de40>(tensor([[[[ 5.6824e+37,  3.8548e+37,  1.4223e+38,  ..., -4.9846e+37,\n           -1.8443e+37, -1.0302e+38]]]], dtype=torch.bfloat16))
+E        +        where <built-in method isfinite of type object at 0x75eb1268de40> = torch.isfinite
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:1163: AssertionError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+27.87s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1]
+1.17s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1]
+=========================== short test summary info ============================
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1]
+======================== 1 failed, 3 warnings in 30.31s ========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x75eaf5339188 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x75eaf5396448 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 34 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - ... skipped remainder
+nanobind: leaked 305 functions!
+ - leaked function ""
+ - leaked function "__init__"
+ - leaked function "to_json"
+ - leaked function "config"
+ - leaked function "is_asynchronous_slow_dispatch_enabled"
+ - leaked function ""
+ - leaked function "reshape"
+ - leaked function "storage_type"
+ - leaked function "mesh_size"
+ - leaked function "__repr__"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-19 20:05:40.876 | info     |    BuildKernels | JIT cache stats: 523/523 hits (100.0%) [523 cached, 8422 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-19 20:05:40.876 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-19 20:05:40.903 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-19 20:05:40.903 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-19 20:05:41.346 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-19 20:05:41.346 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-19 20:05:41.346 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

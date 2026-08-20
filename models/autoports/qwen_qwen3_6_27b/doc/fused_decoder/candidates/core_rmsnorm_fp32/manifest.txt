@@ -1,0 +1,6 @@
+Pattern: dedicated linear core RMSNorm with HiFi4, exact math, FP32 destination accumulation, and L1 accumulation.
+Base source SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14
+Candidate source/SHA256: source_snapshot.txt / 44b90d67ca2a942900ce7169c4cc6687d8951446407b0c76ad0255492910addb
+Commands: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE::{test_fused_linear_attention_non_aligned_prefill_decode,test_fused_linear_attention_advertised_context_prefill,test_fused_linear_attention_advertised_context_decode} -s
+Evidence: short_correctness.log passes at PCC 0.998424700/0.999428406/0.999653897. native_prefill_failure.log and native_decode_failure.log each fail torch.isfinite after the 262144-token recurrent prefix.
+Verdict: rejected for native-context correctness; FP32 destination accumulation does not fix the range failure.

@@ -1,0 +1,6 @@
+Pattern: emit sharded paged-SDPA decode output directly into nlp_concat_heads_decode.
+Base source SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14
+Candidate source/SHA256: source_snapshot.txt / 6e0cf250e5ad3c38d0818bf7bef00cd22c5364f46e251fc7f01e07fbdd670a3b
+Command: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE::test_fused_full_attention_paged_decode_trace -s
+Evidence: contract_failure.log contains TT_FATAL 'Sharded output not supported for GQA' and the complete traceback; 1 failed in 3.98 seconds.
+Verdict: rejected by the current paged-SDPA GQA output contract; profiling cannot proceed.

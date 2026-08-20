@@ -1,0 +1,9 @@
+Pattern: tile-align the 48-wide beta/a tails of the packed linear projection.
+Base source SHA256: 2347a7e6f399f8b667902771cee94f744a3d6200083e0baf9c0736bd18b9e31e
+Candidate source/SHA256: source_snapshot.txt / 57c00dd71e69bb671e87beffedf167043097f82bcd62c191cb49df4ec6496d1b
+Correctness command: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE -k 'linear_attention_non_aligned_prefill_decode or linear_attention_advertised_context_prefill' -s
+Correctness evidence: correctness.log; PCC 0.998477649/0.999461964/0.999649418 and native 262144 prefill pass.
+Profiler command: work_log.md template, phases prefill/decode, linear_attention profiler node.
+Profiler evidence: perf/{prefill,decode}/{ops_perf_results.csv,report.csv}.
+Totals: prefill 5604.199 us/159; decode 2723.857 us/71.
+Verdict: selected; faster than the unpadded stable-normalization base and removes two operations in each phase.

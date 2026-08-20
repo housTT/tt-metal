@@ -1,0 +1,9 @@
+Pattern: dedicated prefill concatenate-heads.
+Base source SHA256: 2347a7e6f399f8b667902771cee94f744a3d6200083e0baf9c0736bd18b9e31e
+Candidate source/SHA256: source_snapshot.txt / c94db5274a0796b03515c3c4aa02d7c0478a212307f9c9345766af72b421cc88
+Correctness command: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE::test_fused_full_attention_non_aligned_prefill_decode -s
+Correctness evidence: correctness.log; PCC 0.998800717 prefill and 0.997618106 decode.
+Profiler command: work_log.md template, QWEN36_PERF_PHASE=prefill, full_attention profiler node.
+Profiler evidence: perf/{ops_perf_results.csv,report.csv}; 2366.470 us/28 ops.
+Control: primitive permute/reshape on the identical base was 2356.778 us/29 ops.
+Verdict: rejected; 9.692 us slower despite one fewer operation.

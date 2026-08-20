@@ -1,0 +1,6 @@
+Pattern: replace spelled linear core normalization with dedicated RMSNorm.
+Base source SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14
+Candidate source/SHA256: source_snapshot.txt / 7766b8640020b7ab4fc33abd841483d5d70fefa6957ba6ec31464249d76387ba
+Commands: PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE::{test_fused_linear_attention_non_aligned_prefill_decode,test_fused_linear_attention_advertised_context_prefill,test_fused_linear_attention_advertised_context_decode} -s
+Evidence: short_correctness.log passes at PCC 0.998082254/0.999443994/0.999653486. native_prefill_failure.log and native_decode_failure.log each fail torch.isfinite after the 262144-token recurrent prefix.
+Verdict: rejected for native-context correctness; no performance profile is admissible.
