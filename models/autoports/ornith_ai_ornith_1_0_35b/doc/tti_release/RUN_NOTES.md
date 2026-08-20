@@ -182,14 +182,14 @@ Projected from this stage's own measured wall-clock (`ifeval` 28 samples in 19.6
 | task | full set | per-sample extrapolation | batch-aware extrapolation |
 |---|---|---|---|
 | `ifeval` | 541 | ~6.3 h | ~6.3 h (28 ran as ~1 batch at `num_concurrent=32`, so ~19 batches x 19.6 min) |
-| `r1_gpqa_diamond` | 198 | ~26.1 h | **~9 h** (10 ran as one concurrent batch in 79 min, so ~20 batches) |
+| `r1_gpqa_diamond` | 198 | ~26.1 h | **~9 h** (the 10 ran as one concurrent batch in 79 min; 198 at `num_concurrent=32` is ~7 batches, and a full 32-wide batch is slower than a 10-wide one) |
 | **total** | | ~32 h | **~15 h** |
 
 The per-sample column is the naive extrapolation and overstates GPQA, because those 10 samples ran
 concurrently rather than serially. The batch-aware column is the honest one: **~15 h**. Both are far
 past this stage's window, so the conclusion is unchanged, but the number quoted should be ~15 h.
 
-~32 h of evals alone is prohibitive for this stage's window, so `--limit-samples-mode ci-nightly` was
+~15 h of evals alone is prohibitive for this stage's window, so `--limit-samples-mode ci-nightly` was
 used. It reduces **eval sampling only**: nothing else was reduced — the context stayed at 262144, the
 full 20-point benchmark sweep ran to ISL 131072, and no request was shortened. Effective limits:
 `--limit 0.05` for both tasks → 28/541 and 10/198 samples. Verified in the written eval command, not
@@ -323,16 +323,17 @@ and was followed by a `1x4` mesh open/close smoke.
 | stage start | routine pre-flight | `tt-smi -ls / -r / -ls` + mesh smoke | all exit 0, 4x `p300c`, `MESH_SMOKE_OK` (`logs/device_reset_stage11.txt`, `logs/mesh_smoke_stage11.txt`) |
 | after the §6 hang | host-side deadlock, devices idle | tt-triage captured **before** killing; stale `run_vllm_server`/`EngineCore` killed; `tt-smi -ls / -r / -ls` + mesh smoke | all exit 0, `MESH_SMOKE_OK` (`logs/device_reset_after_hang.txt`, `logs/mesh_smoke_after_hang.txt`) |
 | 20:05:47Z | server died during device init: `TT_THROW: Device 0: Timed out while waiting for active ethernet core 29-25 to become active again` (`llrt.cpp:594`) — an **ERISC/infrastructure fault**, not a model fault | stale processes killed, `tt-smi -ls / -r / -ls` + mesh smoke | all exit 0, all four boards present, `MESH_SMOKE_OK` (`logs/device_reset_erisc_recovery.txt`, `logs/mesh_smoke_after_erisc.txt`); server relaunched cleanly at 20:13:15Z |
-
 | 00:39:03Z | the **same** ERISC fault on a later server start, while gathering the §12 round-2 controls | same recovery | all exit 0, `MESH_SMOKE_OK` (`logs/device_reset_erisc_recovery2.txt`, `logs/mesh_smoke_after_erisc2.txt`); server up at 00:45:13Z |
+
 
 The ERISC fault appeared **both** times a server was started without an intervening `tt-smi -r` after a
 previous server had exited, and did not appear on any start that followed a reset. Treat a reset as a
 required step between server launches on this host rather than as recovery-only.
 
 One reset was enough each time; no second reset, no lock clearing, and no host reboot was required.
-No ARC or remote-Ethernet fault other than the one above. `$autofix` was used for the model/serving hang
-(§6) and **not** for the ERISC fault, which was handled as infrastructure recovery.
+The two ERISC faults recorded above are the only ARC/Ethernet faults this stage saw. `$autofix` was used
+for the model/serving hang (§6) and **not** for either ERISC fault, which were handled as infrastructure
+recovery.
 
 ## 10. Report, artifacts and repo state
 
@@ -350,8 +351,9 @@ No ARC or remote-Ethernet fault other than the one above. `$autofix` was used fo
 * `report/serving_capability_stage11_b32.json` and `report/serving_capability_stage11_b32_warmup.json` —
   the serving-capability records this stage's server
   wrote (`max_num_seqs 32`, `num_blocks 4128`, `max_model_len 262144`). The tracked
-  `readiness_vllm/vllm_serving_capability.json` and `..._final.json` are optimized-vLLM's own
-  `max_num_seqs 1` / `num_blocks 4097` records and were **restored** to the earlier stage's contents,
+  `readiness_vllm/vllm_serving_capability.json` and `..._final.json` are the optimized-vLLM stage's own
+  final b1 records (`max_num_seqs 1`, `num_blocks 4097`; `doc/vllm_integration/README.md` cites the same
+  file for its 4097-block figure) and were **restored** to that stage's contents,
   because the shared runner rewrites both paths on every server launch and they are that stage's
   evidence, not this one's. Commit `0e8198d3513` (an earlier session of this stage) had committed the
   b32 version of `vllm_serving_capability.json` over it, which contradicted
@@ -359,7 +361,7 @@ No ARC or remote-Ethernet fault other than the one above. `$autofix` was used fo
   server's warm-up-time report"); that is undone here.
 
 Nothing copied contains `.env`, tokens, weights, the HF cache, Docker layers, persistent TT caches,
-profiler CSV bulk, or raw eval sample dumps. Total copy-back: **433 KB**.
+profiler CSV bulk, or raw eval sample dumps. Total copy-back: **under 600 KiB** (`du -sh` on this directory; it was ~550 KiB when these notes were finalised, and the exact figure moves with edits to this file, so treat the bound as the claim).
 
 `report_data_*.json` and `runtime_model_spec_*.json` each appear twice, once at the root of
 `doc/tti_release/` and once under `report/`. That is deliberate: the runner-side gate
@@ -398,12 +400,9 @@ the §12 control outputs.
 | `ifeval` (CI subset, 28/541) | 82.08 | **no-reference (N/A)** — see §5; not a failure, not a pass |
 | `r1_gpqa_diamond` (CI subset, 10/198) | 50.00 | **no-reference (N/A)** — see §5; 10 samples, stderr 16.7 |
 | `meta_ifeval`, `meta_gpqa_cot` | not run | **not applicable** — Meta-Llama-only datasets, structurally impossible for this checkpoint (§5). Not a waived failure. |
-| Spec Tests | `NA` (no blocks) | **no coverage in the shipped configuration** — the suite was run
-  separately and 15/22 failed; 13 are proven harness incompatibility, 2 trace to the Class C defect.
-  **Disclosed, not waived** (§12). |
+| Spec Tests | `NA` (no blocks) | **no coverage in the shipped configuration** — the suite was run separately and 15/22 failed; 13 are proven harness incompatibility, 2 trace to the Class C defect. **Disclosed, not waived** (§12) |
 | §6 async-resume deadlock | was blocking | **fixed** and re-verified end to end |
-| Class C — long generations not byte-reproducible | pre-existing, confirmed here | **readiness gap,
-  carried forward** from the vLLM-integration stage (§12) |
+| Class C — long generations not byte-reproducible | pre-existing, confirmed here | **readiness gap, carried forward** from the vLLM-integration stage (§12) |
 
 No row in the shipped release report is a `readiness-fail`. Outside it, the stage records one
 carried-forward readiness gap (Class C) and one uncovered area (API conformance).
@@ -451,6 +450,10 @@ budget correctly returns `content: null` with the text in `reasoning`. Controls:
 | penalties baseline, `max_tokens 1024` | `finish_reason length`, 1024 tokens, `content=None`, 4163 reasoning chars | proper repetitive story, 225 tokens |
 | `stop: ["Stop"]`, `max_tokens 1024` | stop fired inside the think block at 31 tokens, `content=None` | `content = "1, 2, 3, 4, 5\n"`, `"Stop"` correctly absent — **the `stop` parameter works** |
 | `test_non_uniform_seeding`, `seed 0`, `max_tokens 64` | 64 tokens, `content=None` on all three repeats | joke returned, 22 tokens, **byte-identical on all three repeats** |
+
+`test_non_uniform_seeding` asserts two things: that `seed 0` repeats agree, and that different seeds
+differ. Only the first is replayed above, because that is the assertion the `content=None` crash happens
+in; the second is trivially satisfied given Class C.
 
 The coherence guard's actual property — "the model must echo an exact sentence verbatim" — **passes**;
 it also passes with thinking left on and a 4096-token budget. No forward-pass or decode-trace corruption
