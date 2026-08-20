@@ -1,0 +1,13 @@
+Pattern: dedicated prefill concatenate_heads versus primitive permute/reshape at both full-prefill merge sites.
+Frozen base SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14.
+Candidate SHA256: c602227580bdc855813aa4bb81cf7b20c466e654009b6af07c293ab7fb1e7e7b.
+Source evidence: base_source_snapshot.txt, candidate_source_snapshot.patch, source_hashes.csv.
+Correctness command: env PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE::test_fused_full_attention_non_aligned_prefill_decode[blackhole-device_params0-1] -s
+Correctness result: 1 passed; PCC prefill 0.998800717 and decode 0.997618106; correctness.log.
+Profiler policy: exact work_log.md Tracy template; QWEN36_PERF_PHASE=prefill; one replay policy; fixed cache /tmp/qwen36_missing_controls_tracy_cache; full_attention profiler node; FULL_ATTENTION_PREFILL_START/END; A1/B/A2 without clearing cache.
+tt-perf-report command: tt-perf-report raw_ops.csv --start-signpost FULL_ATTENTION_PREFILL_START --end-signpost FULL_ATTENTION_PREFILL_END --arch blackhole --no-color --no-advice --csv report.csv --summary-file report_summary
+A1: 2358.497 us / 29 ops; a1_prefill/{raw_ops.csv,report.csv,report_summary.csv}.
+B: 2365.869 us / 28 ops; b_prefill/{raw_ops.csv,report.csv,report_summary.csv}.
+A2: 2356.430 us / 29 ops; a2_prefill/{raw_ops.csv,report.csv,report_summary.csv}.
+Median base: 2357.464 us; B delta +8.406 us / +0.357%, despite one fewer op.
+Verdict: rejected. Dedicated concatenate_heads is correct but slower on the identical frozen base.

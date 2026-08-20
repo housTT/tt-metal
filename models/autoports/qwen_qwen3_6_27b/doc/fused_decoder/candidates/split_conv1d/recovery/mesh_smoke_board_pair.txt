@@ -1,0 +1,25 @@
+Command:
+  cd /tmp
+  timeout 120 env \
+    TT_VISIBLE_DEVICES=0000:01:00.0,0000:02:00.0 \
+    TT_METAL_HOME=/home/ttuser/.local/lib/model-bringup/tt-metal \
+    TT_METAL_RUNTIME_ROOT=/home/ttuser/.local/lib/model-bringup/tt-metal \
+    PYTHONPATH=/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn \
+    python - <<'PY'
+  import ttnn
+  print('VISIBLE_PCIE_IDS', list(ttnn.get_pcie_device_ids()))
+  print('VISIBLE_DEVICE_COUNT', ttnn.get_num_devices())
+  mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, l1_small_size=16384)
+  print('MESH_SHAPE', mesh.shape)
+  ttnn.close_mesh_device(mesh)
+  print('MESH_SMOKE_OK 1')
+  PY
+
+Exit status: 0
+Concise semantic output (`mesh_smoke_board_pair_full.log` retains full stdout/stderr and exit status):
+VISIBLE_PCIE_IDS [0, 1]
+VISIBLE_DEVICE_COUNT 2
+MESH_SHAPE MeshShape([1, 1])
+MESH_SMOKE_OK 1
+
+The runtime close log confirms devices and UMD cluster closed successfully.

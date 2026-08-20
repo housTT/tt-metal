@@ -1,0 +1,58 @@
+Candidate: split-channel depthwise ttnn.conv1d
+Base source SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14
+Retained FP32-accumulating candidate snapshot SHA256: ac0e10bc6e1bf7b0f7bb796a551761e801db195ce175df9d96cfd0da1db03eb4
+Initial integrated candidate source SHA256: 5eced00b76962b2fa0f523af55a82b59a39c80bcd73505f89742b3f7bc59f0d1
+Passing standalone-SiLU patch SHA256: dbe94bd3a526d624c57833a06b6f3b7e82ca3fe60d632bf3d3dcb54297159361
+Reconstructed passing standalone-SiLU implementation SHA256: f69011093d5d28c1c3a8ca102aebf156cda1024a4a044eaef3f1661ae236a38d
+Disposition: rejected_both_profiled_phases_slower
+
+Focused commands:
+
+  timeout 300 env PYTHONPATH=$PWD pytest -q tests/test_fused_decoder.py::test_split_depthwise_conv1d_probe -s
+  timeout 300 env QWEN36_CONV_PROBE_SPLIT_WIDTH=1280 PYTHONPATH=$PWD pytest -q tests/test_fused_decoder.py::test_split_depthwise_conv1d_decode_only_probe -s
+  timeout 300 env QWEN36_CONV_PROBE_SPLIT_WIDTH=2560 QWEN36_CONV_PROBE_FLATTEN_BATCH=1 PYTHONPATH=$PWD pytest -q tests/test_fused_decoder.py::test_split_depthwise_conv1d_decode_only_probe -s
+  timeout 180 env PYTHONPATH=$PWD pytest -q 'tests/test_fused_decoder.py::test_fused_linear_attention_non_aligned_prefill_decode[blackhole-device_params0-1]' -s
+  timeout 900 env TT_METAL_RUNTIME_ROOT=/home/ttuser/.local/lib/model-bringup/tt-metal PYTHONPATH=$PWD pytest -q 'tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_prefill[blackhole-device_params0-1]' -s
+  timeout 900 env TT_METAL_RUNTIME_ROOT=/home/ttuser/.local/lib/model-bringup/tt-metal PYTHONPATH=$PWD pytest -q 'tests/test_fused_decoder.py::test_fused_linear_attention_advertised_context_decode[blackhole-device_params0-1]' -s
+  QWEN36_PERF_PHASE={prefill|decode} QWEN36_DECODE_REPLAYS=1 TT_METAL_HOME=/home/ttuser/.local/lib/model-bringup/tt-metal-profiler TT_METAL_RUNTIME_ROOT=/home/ttuser/.local/lib/model-bringup/tt-metal-profiler TT_METAL_CACHE=/tmp/qwen36_split_conv1d_tracy_cache PYTHONPATH=/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/ttnn:/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/tools:$PWD python -m tracy -p -r -v --check-exit-code --no-runtime-analysis --tracy-tools-folder=/home/ttuser/.local/lib/model-bringup/tt-metal-profiler/build/tools/profiler/bin -o ARTIFACT_DIR -m pytest -q 'tests/test_fused_decoder.py::test_fused_decoder_perf[blackhole-device_params0-1-linear_attention]' -s
+  tt-perf-report ops_perf_results.csv --start-signpost LINEAR_ATTENTION_{PREFILL|DECODE_TRACE}_START --end-signpost LINEAR_ATTENTION_{PREFILL|DECODE_TRACE}_END --arch blackhole --no-color --no-advice --csv report.csv --summary-file report_summary
+
+Results:
+
+- Split-4 B=1/L=67, BF16 HiFi4 with fused SiLU: Torch PCC 0.999771533448292; current spelled TTNN expression PCC 0.999769934209639; finite.
+- Direct DRAM-interleaved convolution output equals explicit sharded-to-interleaved output at PCC 1.0.
+- Physical B=32/L=4 fails for split-4 and split-8, NHWC and NLC, with `Reader indices buffer page size 132 exceeds worst-case CB size 64`.
+- Exact flattened logical-B32 adaptation (physical B=1/L=128 and outputs 0,4,...,124) passes at PCC 0.9997603085001467; prepared-weight reuse and trace determinism are PCC 1.0.
+- Integrated default device contract fails because conv1d requires nonzero L1_SMALL metadata storage.
+- `config_tensors_in_dram=True` avoids that allocation but the real 65-token test stalls the device; retained triage records zero ARC heartbeat and all NoCs hung on device 3. Reset/list and explicit-runtime 1x1 mesh smoke recovered successfully.
+- Standard 16 KiB L1_SMALL completes but real decoder prefill PCC is 0.9575315732886901, below 0.995.
+- HiFi4 exact math with FP32 destination accumulation and L1 accumulation is worse at PCC 0.9564177132706132.
+- Removing conv1d's fused activation and applying standalone `ttnn.silu` passes the real 65-token decoder test at PCC 0.9978466372080389; later checks are 0.9994128027425493, 0.9996440458669663, and 1.0.
+- The standalone-SiLU variant passes full 262,144-token prefill and native-prefix traced decode.
+- Historical exploratory warmed linear prefill was 5,737.134 us / 159 ops and traced decode was 2,983.133 us / 94 ops. Those rows used an unretained 16-KiB profiler-fixture mutation and are not the authoritative comparison.
+- The retained like-for-like 16-KiB A1/B/A2 remediation is under `l1_16k_ab/`: prefill 5,505.526 / 5,635.236 / 5,500.267 us (159/159/159 ops), so B is 132.3395 us / 2.405% slower than the 5,502.8965-us median base; decode 2,625.831 / 2,873.108 / 2,625.095 us (71/94/71 ops), so B is 247.645 us / 9.432% slower and adds 23 ops.
+
+Evidence:
+
+- `probe_split4_l1small.log`: split-4 prefill geometry, weight lifecycle, output layouts, and PCC.
+- `probe_split4_decode_only.log`, `probe_split8_decode_only.log`, `probe_split8_decode_nlc.log`: physical decode contract failures.
+- `probe_split4_decode_flattened.log`: passing logical-B32 adaptation, prepared reuse, and trace replay.
+- `short_linear_correctness_dram_config.log` and `triage/`: device-stall evidence.
+- `short_linear_correctness_l1small.log`: BF16 HiFi4 real decoder failure.
+- `short_linear_correctness_l1small_fp32acc.log`: FP32-accumulating real decoder failure.
+- `short_linear_correctness_standalone_silu.log`: passing standalone-SiLU real decoder control.
+- `native_prefill_standalone_silu.log.gz` and `native_decode_standalone_silu.log.gz`: losslessly compressed passing advertised-context gates.
+- `perf/{prefill,decode}/`: historical exploratory profiler evidence only; not the final disposition control.
+- `l1_16k_ab/`: authoritative like-for-like A1/B/A2 source/test identities, correctness, compact signpost raw CSVs, `tt-perf-report` outputs, arithmetic, and evidence manifest.
+- `source_snapshot.txt` and `source_diff.patch`: exact retained final precision-control candidate.
+- `source_diff_standalone_silu.patch`: exact passing standalone-SiLU candidate and temporary L1_SMALL test-fixture change.
+
+Final implementation and tests were reverted byte-for-byte to the frozen base. Watcher was skipped because the correctness-valid candidate loses both required measured phases.
+
+Postflight:
+
+- `tt-smi -ls --local` listed all four Blackhole p300c boards.
+- Explicit installed-runtime 1x1 mesh open/close printed `MESH_SMOKE_OK 1`.
+- Python `tt-umd` is 0.9.6, the version pinned by the triage requirements used for the bounded hang capture.
+- `recovery/`: fresh bounded pre-remediation board-pair list/reset/list/mesh-smoke ledger. The exact historical recovery terminal transcript and original candidate PID were not retained, and no details are invented.
+- Large Tracy databases, device logs, traces, and compile logs were removed after compact signpost-filtered raw CSVs and reports were retained; those removed generated intermediates are reproducible by the commands above and in `l1_16k_ab/manifest.txt`.

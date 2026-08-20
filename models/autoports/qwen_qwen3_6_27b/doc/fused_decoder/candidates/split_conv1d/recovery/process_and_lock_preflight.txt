@@ -1,0 +1,17 @@
+Command:
+  date --iso-8601=seconds
+  ps -eo pid=,ppid=,etimes=,stat=,args= | rg -i '(^|/)(pytest|python|tracy|tt-smi|EngineCore)( |$)|vllm\.entrypoints|run_vllm_server|device.?profiler' | rg -v 'rg -i|exec_command' || true
+  for f in /dev/shm/TT_UMD_LOCK.CHIP_IN_USE_*_PCIe; do owner=$(fuser "$f" 2>/dev/null || true); printf '%s owner_pids=%s\n' "$f" "${owner:-none}"; done
+
+Output:
+2026-08-19T21:32:11-04:00
+ 512455  512429  100355 Ssl  /home/ttuser/dev/laguna/tt-metal/models/autoports/poolside_laguna_xs_2_1/.venv/bin/python /home/ttuser/dev/laguna/tt-metal/models/autoports/poolside_laguna_xs_2_1/.venv/bin/vllm serve /home/ttuser/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1/snapshots/e9df9a59996d790b94b70f3fef343fe1d9e34bdf --trust-remote-code --max-model-len 131072 --max-num-seqs 8 --block-size 64 --port 8000
+ 512581  512455  100340 S    /home/ttuser/dev/laguna/tt-metal/models/autoports/poolside_laguna_xs_2_1/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(36)
+ 692796       1   14250 Ssl  /home/ttuser/.tenstorrent-venv/bin/python /home/ttuser/.local/lib/model-bringup/tt-metal-profiler/tools/tracy/serve_wasm.py --port 8080
+/dev/shm/TT_UMD_LOCK.CHIP_IN_USE_0_PCIe owner_pids=none
+/dev/shm/TT_UMD_LOCK.CHIP_IN_USE_1_PCIe owner_pids=none
+/dev/shm/TT_UMD_LOCK.CHIP_IN_USE_2_PCIe owner_pids=none
+/dev/shm/TT_UMD_LOCK.CHIP_IN_USE_3_PCIe owner_pids=none
+
+Exit status: 0
+Decision: no process from this Qwen remediation owned a board; kill none and clear no lock. Preserve and exclude the unrelated Laguna service.

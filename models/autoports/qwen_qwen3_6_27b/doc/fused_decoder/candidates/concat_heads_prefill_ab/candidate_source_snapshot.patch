@@ -1,0 +1,10 @@
+--- base/tt/fused_decoder.py
++++ concatenate_heads/tt/fused_decoder.py
+@@
+-        attention = ttnn.permute(attention, [0, 2, 1, 3])
+-        attention = ttnn.reshape(attention, [batch, 1, hidden_states.shape[2], self.num_heads * self.head_dim])
++        attention = ttnn.transformer.concatenate_heads(attention)
+@@
+-            attention = ttnn.permute(attention, [0, 2, 1, 3])
+-            attention = ttnn.reshape(attention, [batch, 1, chunk_len, self.num_heads * self.head_dim])
++            attention = ttnn.transformer.concatenate_heads(attention)

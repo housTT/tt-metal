@@ -1,0 +1,16 @@
+List timestamp: 2026-08-19T21:50:29-04:00 (`postflight_list_full.log`).
+Final process/lock timestamp: 2026-08-19T21:51:29-04:00.
+Command: timeout 60 tt-smi -ls --local
+Exit status: 0
+Output: all four UMD chips 0..3 visible and resettable; BDFs 0000:01:00.0 through 0000:04:00.0; Blackhole p300c.
+
+Process command:
+  ps -eo pid=,ppid=,etimes=,stat=,args= | rg -i '(^|/)(pytest|tracy-capture|EngineCore)( |$)|python -m tracy|device.?profiler' | rg -v 'rg -i|exec_command' || true
+Output: empty.
+
+Selected-board lock check:
+  /dev/shm/TT_UMD_LOCK.CHIP_IN_USE_0_PCIe owner_pids=none
+  /dev/shm/TT_UMD_LOCK.CHIP_IN_USE_1_PCIe owner_pids=none
+Exit status: 0
+
+Conclusion: no Qwen pytest, Tracy capture, EngineCore, or device-profiler hardware process remained, and no selected-board chip lock had an owner.

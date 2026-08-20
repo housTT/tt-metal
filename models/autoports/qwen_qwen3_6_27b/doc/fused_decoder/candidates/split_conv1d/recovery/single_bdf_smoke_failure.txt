@@ -1,0 +1,17 @@
+Command:
+  timeout 120 env TT_VISIBLE_DEVICES=0000:01:00.0 TT_METAL_RUNTIME_ROOT=/home/ttuser/.local/lib/model-bringup/tt-metal PYTHONPATH=/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn python - <<'PY'
+  import ttnn
+  print('VISIBLE_PCIE_IDS', list(ttnn.get_pcie_device_ids()))
+  print('VISIBLE_DEVICE_COUNT', ttnn.get_num_devices())
+  mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, l1_small_size=16384)
+  ttnn.close_mesh_device(mesh)
+  print('MESH_SMOKE_OK 1')
+  PY
+
+Exit status: 1
+Key output:
+  Board 0x4613192404c has 1 chips, but expected 2 chips for board type p300.
+  Using CUSTOM cluster type for P300 board with 1 chips
+  TT_FATAL: Custom fabric mesh graph descriptor path must be specified for CUSTOM cluster type
+
+Interpretation: BDF 0000:01:00.0 is one half of P300 board ID 000004613192404c; BDF 0000:02:00.0 is its other half. This visibility filter was rejected before any A/B/A run. The topology-complete pair is used below.

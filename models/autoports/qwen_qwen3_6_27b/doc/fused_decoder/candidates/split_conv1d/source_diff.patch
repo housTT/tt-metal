@@ -1,0 +1,130 @@
+--- models/autoports/qwen_qwen3_6_27b/tt/fused_decoder.py	2026-08-19 20:51:35.377981610 -0400
++++ models/autoports/qwen_qwen3_6_27b/doc/fused_decoder/candidates/split_conv1d/source_snapshot.txt	2026-08-19 20:52:35.788090969 -0400
+@@ -42,6 +42,7 @@
+         "l2_rms_norm",
+         "decode_beta_sigmoid_multiply",
+         "repeat_interleave_qk_heads",
++        "split_depthwise_conv1d",
+     )
+     TOTAL_FUSION_COUNTS = {name: 0 for name in FUSION_MANIFEST}
+ 
+@@ -91,6 +92,32 @@
+                 ttnn.deallocate(getattr(functional, name), force=True)
+                 setattr(functional, name, None)
+         else:
++            conv_weight = state_dict[_state_key(state_dict, layer_idx, "linear_attn.conv1d.weight")]
++            functional.linear_conv1d_host_weights = [
++                ttnn.from_torch(
++                    conv_weight[start : start + 2560],
++                    dtype=ttnn.bfloat16,
++                    layout=ttnn.ROW_MAJOR_LAYOUT,
++                )
++                for start in range(0, functional.conv_dim, 2560)
++            ]
++            functional.linear_conv1d_prepared_weights = {}
++            functional.linear_conv1d_config = ttnn.Conv1dConfig(
++                weights_dtype=ttnn.bfloat16,
++                activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.SILU),
++                shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
++                output_layout=ttnn.TILE_LAYOUT,
++                deallocate_activation=False,
++            )
++            functional.linear_conv1d_compute_config = ttnn.init_device_compute_kernel_config(
++                mesh_device.arch(),
++                math_fidelity=ttnn.MathFidelity.HiFi4,
++                math_approx_mode=False,
++                fp32_dest_acc_en=True,
++                packer_l1_acc=True,
++            )
++            ttnn.deallocate(functional.conv_weight, force=True)
++            functional.conv_weight = None
+             beta_weight = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
+             a_weight = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_a.weight")]
+             projection_padding = (-beta_weight.shape[0]) % 32
+@@ -421,6 +448,76 @@
+         tensor = ttnn.permute(tensor, [0, 2, 1, 3])
+         return ttnn.repeat_interleave(tensor, repeats=3, dim=1)
+ 
++    def _linear_split_conv1d(self, tensor, *, input_length: int):
++        """Run the Qwen causal depthwise convolution as four BF16 conv1d ops."""
++        self._record_fusion("split_depthwise_conv1d")
++        tensor = ttnn.to_layout(tensor, ttnn.ROW_MAJOR_LAYOUT)
++        geometry = (tensor.shape[0], input_length)
++        prepare = geometry not in self.linear_conv1d_prepared_weights
++        weights = (
++            self.linear_conv1d_host_weights
++            if prepare
++            else self.linear_conv1d_prepared_weights[geometry]
++        )
++        outputs = []
++        prepared_weights = []
++        split_width = 2560
++        for index, start in enumerate(range(0, self.conv_dim, split_width)):
++            split = ttnn.slice(
++                tensor,
++                [0, 0, 0, start],
++                [tensor.shape[0], 1, input_length, start + split_width],
++            )
++            result = ttnn.conv1d(
++                input_tensor=split,
++                weight_tensor=weights[index],
++                in_channels=split_width,
++                out_channels=split_width,
++                device=self.mesh_device,
++                kernel_size=self.conv_kernel_size,
++                stride=1,
++                padding=0,
++                batch_size=tensor.shape[0],
++                input_length=input_length,
++                conv_config=self.linear_conv1d_config,
++                compute_config=self.linear_conv1d_compute_config,
++                groups=split_width,
++                dtype=ttnn.bfloat16,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++                return_output_dim=True,
++                return_weights_and_bias=prepare,
++            )
++            if prepare:
++                output, out_length, (prepared_weight, _) = result
++                prepared_weights.append(prepared_weight)
++            else:
++                output, out_length = result
++            if out_length != input_length - self.conv_kernel_size + 1:
++                raise RuntimeError(f"unexpected conv1d output length {out_length}")
++            outputs.append(output)
++        if prepare:
++            self.linear_conv1d_prepared_weights[geometry] = prepared_weights
++        return ttnn.concat(outputs, dim=3, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++
++    def _linear_causal_conv_chunk(self, mixed_qkv, *, conv_state, valid_tokens: int):
++        batch = mixed_qkv.shape[0]
++        context = ttnn.concat([conv_state, mixed_qkv], dim=2)
++        new_conv_state = ttnn.slice(
++            context,
++            [0, 0, valid_tokens, 0],
++            [batch, 1, valid_tokens + self.conv_kernel_size, self.conv_dim],
++        )
++        conv_input = ttnn.slice(
++            context,
++            [0, 0, 1, 0],
++            [batch, 1, valid_tokens + self.conv_kernel_size, self.conv_dim],
++        )
++        convolved = self._linear_split_conv1d(
++            conv_input, input_length=valid_tokens + self.conv_kernel_size - 1
++        )
++        ttnn.copy(new_conv_state, conv_state)
++        return convolved
++
+     def _linear_chunk(self, hidden_states, *, conv_state, recurrent_state, valid_tokens: int):
+         batch = hidden_states.shape[0]
+         mixed_qkv, z, beta, a = self._linear_input_projections(hidden_states)
+@@ -555,8 +652,7 @@
+         mixed_row = ttnn.reshape(mixed_qkv, [batch, 1, 1, self.conv_dim])
+         new_conv_state = ttnn.concat([old_tail, mixed_row], dim=2)
+         ttnn.copy(new_conv_state, conv_state)
+-        convolved = ttnn.sum(ttnn.multiply(new_conv_state, self.conv_weight), dim=2, keepdim=True)
+-        convolved = ttnn.silu(convolved)
++        convolved = self._linear_split_conv1d(new_conv_state, input_length=self.conv_kernel_size)
+ 
+         key_start = self.linear_num_key_heads * self.linear_key_head_dim
+         query = _slice_last(convolved, 0, key_start)

@@ -1,0 +1,374 @@
+2026-08-19 20:40:55.173 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 1 item
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_split_depthwise_conv1d_probe[device_params0] 2026-08-19 20:40:57.057 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-19 20:40:57.057 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-19 20:40:57.057 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-19 20:40:57.057 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-19 20:40:57.070 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-19 20:40:57.070 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-19 20:40:57.151 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-19 20:40:57.151 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-19 20:40:57.151 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-19 20:40:57.151 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-19 20:40:57.152 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-19 20:40:57.317 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-19 20:40:57.438 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-19 20:40:57.438 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.438 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-19 20:40:57.439 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-19 20:40:57.439 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-19 20:40:57.441 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:40:57.442 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:40:57.442 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:40:57.443 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-19 20:40:57.476 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using CreateDevices API. (device_manager.cpp:261)
+2026-08-19 20:40:57.525 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory' (shm_resource_tracker.cpp:282)
+2026-08-19 20:40:58.102 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349993 GHz, device_time_at_sync=5558193893839 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-19 20:40:58.135 | warning  |              Op | Conv2D DRAM doesn't support specifying memory config, as the output will always be DRAM Interleaved (conv2d.cpp:806)
+2026-08-19 20:40:58.135 | warning  |              Op | Conv2D DRAM doesn't support specifying memory config, as the output will always be DRAM Interleaved (conv2d.cpp:806)
+2026-08-19 20:40:58.135 | warning  |              Op | Conv2D DRAM doesn't support specifying memory config, as the output will always be DRAM Interleaved (conv2d.cpp:806)
+2026-08-19 20:40:58.135 | warning  |              Op | Conv2D DRAM doesn't support specifying memory config, as the output will always be DRAM Interleaved (conv2d.cpp:806)
+2026-08-19 20:40:58.196 | warning  |              Op | Conv2D DRAM doesn't support specifying memory config, as the output will always be DRAM Interleaved (conv2d.cpp:806)
+2026-08-19 20:40:58.199 | critical |          Always | TT_FATAL: Reader indices buffer page size 132 exceeds worst-case CB size 64 (config tensor layout changed?) (assert.hpp:104)
+input_B1_L67: logical=[1, 1, 67, 10240] padded=[1, 1, 67, 10240] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+weight_0_before: logical=[2560, 1, 4] padded=[2560, 1, 4] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.HOST memory=host
+weight_1_before: logical=[2560, 1, 4] padded=[2560, 1, 4] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.HOST memory=host
+weight_2_before: logical=[2560, 1, 4] padded=[2560, 1, 4] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.HOST memory=host
+weight_3_before: logical=[2560, 1, 4] padded=[2560, 1, 4] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.HOST memory=host
+input_split_0: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_0: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_1: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_1: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_2: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_2: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_3: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_3: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+weight_0_after: logical=[1, 1, 128, 2560] padded=[1, 1, 128, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+weight_1_after: logical=[1, 1, 128, 2560] padded=[1, 1, 128, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+weight_2_after: logical=[1, 1, 128, 2560] padded=[1, 1, 128, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+weight_3_after: logical=[1, 1, 128, 2560] padded=[1, 1, 128, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_0: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_0: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_1: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_1: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_2: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_2: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_3: logical=[1, 1, 67, 2560] padded=[1, 1, 67, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+output_split_3: logical=[1, 1, 64, 2560] padded=[1, 1, 64, 2560] layout=Layout.TILE dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+prefill_torch_vs_explicit_interleaved: 0.999771533448292; finite=True
+prefill_torch_vs_direct_dram: 0.999771533448292; finite=True
+prefill_explicit_vs_direct: 1.0; finite=True
+current_ttnn_expression_vs_conv1d: 0.999769934209639; finite=True
+input_B32_L4: logical=[32, 1, 4, 10240] padded=[32, 1, 4, 10240] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+input_split_0: logical=[32, 1, 4, 2560] padded=[32, 1, 4, 2560] layout=Layout.ROW_MAJOR dtype=DataType.BFLOAT16 storage=StorageType.DEVICE memory=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0)
+FAILED2026-08-19 20:40:58.350 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0}
+
+
+=================================== FAILURES ===================================
+______________ test_split_depthwise_conv1d_probe[device_params0] _______________
+
+device = MeshDevice(1x1 grid, 1 devices)
+
+    @pytest.mark.parametrize(
+        "device_params", [{"trace_region_size": 16 << 20, "l1_small_size": 16384}], indirect=True
+    )
+    def test_split_depthwise_conv1d_probe(device):
+        """Focused split-4 geometry, prepared-weight reuse, and trace probe."""
+        torch.manual_seed(20260819)
+        state = functional_tests._load_layer_state(0)
+        weight = next(value for key, value in state.items() if key.endswith("linear_attn.conv1d.weight"))
+        assert tuple(weight.shape) == (10240, 1, 4)
+        split_width = 2560
+        host_weights = [
+            ttnn.from_torch(weight[start : start + split_width], dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+            for start in range(0, weight.shape[0], split_width)
+        ]
+        compute_config = ttnn.init_device_compute_kernel_config(
+            device.arch(), math_fidelity=ttnn.MathFidelity.HiFi4
+        )
+        conv_config = ttnn.Conv1dConfig(
+            weights_dtype=ttnn.bfloat16,
+            activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.SILU),
+            shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+            output_layout=ttnn.TILE_LAYOUT,
+            deallocate_activation=False,
+        )
+
+        def describe(label, tensor):
+            memory = tensor.memory_config() if ttnn.is_tensor_storage_on_device(tensor) else "host"
+            print(
+                f"{label}: logical={list(tensor.shape)} padded={list(tensor.padded_shape)} "
+                f"layout={tensor.layout} dtype={tensor.dtype} storage={tensor.storage_type()} memory={memory}"
+            )
+
+        def upload(batch, input_length):
+            host = (torch.randn(batch, 1, input_length, 10240, dtype=torch.bfloat16) * 0.1).contiguous()
+            device_tensor = ttnn.from_torch(
+                host,
+                dtype=ttnn.bfloat16,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                device=device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            describe(f"input_B{batch}_L{input_length}", device_tensor)
+            return host, device_tensor
+
+        def invoke(input_tensor, weights, batch, input_length, *, prepare, direct_dram):
+            pieces = []
+            returned_weights = []
+            for index, start in enumerate(range(0, 10240, split_width)):
+                split = ttnn.slice(
+                    input_tensor,
+                    [0, 0, 0, start],
+                    [batch, 1, input_length, start + split_width],
+                )
+                describe(f"input_split_{index}", split)
+                kwargs = dict(
+                    input_tensor=split,
+                    weight_tensor=weights[index],
+                    in_channels=split_width,
+                    out_channels=split_width,
+                    device=device,
+                    kernel_size=4,
+                    stride=1,
+                    padding=0,
+                    batch_size=batch,
+                    input_length=input_length,
+                    conv_config=conv_config,
+                    compute_config=compute_config,
+                    groups=split_width,
+                    dtype=ttnn.bfloat16,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG if direct_dram else None,
+                    return_output_dim=True,
+                    return_weights_and_bias=prepare,
+                )
+                result = ttnn.conv1d(**kwargs)
+                if prepare:
+                    output, out_length, (prepared, _) = result
+                    returned_weights.append(prepared)
+                else:
+                    output, out_length = result
+                assert out_length == input_length - 3
+                describe(f"output_split_{index}", output)
+                if not direct_dram:
+                    output = ttnn.sharded_to_interleaved(output, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                pieces.append(output)
+            output = ttnn.concat(pieces, dim=3, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            return output, returned_weights
+
+        prefill_host, prefill_input = upload(1, 67)
+        for index, tensor in enumerate(host_weights):
+            describe(f"weight_{index}_before", tensor)
+        prefill_explicit, prepared_weights = invoke(
+            prefill_input, host_weights, 1, 67, prepare=True, direct_dram=False
+        )
+        for index, tensor in enumerate(prepared_weights):
+            describe(f"weight_{index}_after", tensor)
+            assert ttnn.is_tensor_storage_on_device(tensor)
+        prefill_direct, no_new_weights = invoke(
+            prefill_input, prepared_weights, 1, 67, prepare=False, direct_dram=True
+        )
+        assert no_new_weights == []
+
+        golden_prefill = torch.nn.functional.silu(
+            torch.nn.functional.conv1d(
+                prefill_host[:, 0].transpose(1, 2).float(), weight.float(), groups=10240
+            )
+        ).transpose(1, 2)
+        explicit_host = ttnn.to_torch(prefill_explicit).reshape(1, 64, 10240)
+        direct_host = ttnn.to_torch(prefill_direct).reshape(1, 64, 10240)
+        _split_conv_probe_pcc(golden_prefill, explicit_host, "prefill_torch_vs_explicit_interleaved")
+        _split_conv_probe_pcc(golden_prefill, direct_host, "prefill_torch_vs_direct_dram")
+        _split_conv_probe_pcc(explicit_host, direct_host, "prefill_explicit_vs_direct")
+
+        spelled_input = ttnn.to_layout(prefill_input, ttnn.TILE_LAYOUT)
+        spelled_weight = ttnn.from_torch(
+            weight[:, 0, :].transpose(0, 1).reshape(1, 1, 4, 10240),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        terms = []
+        for kernel_index in range(4):
+            window = ttnn.slice(spelled_input, [0, 0, kernel_index, 0], [1, 1, kernel_index + 64, 10240])
+            kernel = ttnn.slice(spelled_weight, [0, 0, kernel_index, 0], [1, 1, kernel_index + 1, 10240])
+            terms.append(ttnn.multiply(window, kernel))
+        spelled = terms[0]
+        for term in terms[1:]:
+            spelled = ttnn.add(spelled, term)
+        spelled = ttnn.silu(spelled)
+        spelled_host = ttnn.to_torch(spelled).reshape(1, 64, 10240)
+        _split_conv_probe_pcc(spelled_host, direct_host, "current_ttnn_expression_vs_conv1d")
+
+        decode_host, decode_input = upload(32, 4)
+>       decode_output, decode_weights = invoke(
+            decode_input, host_weights, 32, 4, prepare=True, direct_dram=True
+        )
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py:162:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py:102: in invoke
+    result = ttnn.conv1d(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.conv1d', function=<ttnn._ttnn.operations.conv.conv1d_t object at 0x711...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = ()
+function_kwargs = {'batch_size': 32, 'compute_config': <ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x711503a1d6e0>...opt,override_output_sharding_config=0,padding_mode=PaddingMode::Zeros), 'device': MeshDevice(1x1 grid, 1 devices), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_op_program_factory_common.cpp:323: reader_indices_actual_page_size.value() <= reader_indices_worst_case_page_size
+E               info:
+E               Reader indices buffer page size 132 exceeds worst-case CB size 64 (config tensor layout changed?)
+E               backtrace:
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x413271) [0x71151c213271]
+E                --- ttnn::prim::get_cb_info(ttnn::ComputeKernelConfig const&, ttnn::prim::Conv2dBlockConfig const&, ttnn::prim::Conv2dParallelizationConfig const&, tt::tt_metal::Shape const&, std::array<unsigned int, 2ul>, std::array<unsigned int, 2ul>, std::array<unsigned int, 2ul>, ttnn::prim::Conv2dConfig const&, tt::tt_metal::DataType, tt::tt_metal::DataType, std::array<unsigned int, 2ul>, unsigned int, bool, bool, bool, unsigned int, std::optional<unsigned int>)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xa695d7) [0x71151aa695d7]
+E                --- ttnn::prim::Conv2dShardedProgramFactory::create_workload_descriptor(ttnn::prim::Conv2dParams const&, ttnn::prim::Conv2dInputs const&, tt::tt_metal::Tensor&, tt::tt_metal::distributed::MeshCoordinateRangeSet const&)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xa93f2b) [0x71151aa93f2b]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xa936c9) [0x71151aa936c9]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21Conv2dDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1ed) [0x71151aa9070d]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21Conv2dDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x2ad) [0x71151aa825ad]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn4prim6conv2dERKN2tt8tt_metal6TensorES5_RKSt8optionalIS4_ERKNS_10operations14sliding_window19SlidingWindowConfigEjjbRKS6_INSA_5unary19BasicUnaryWithParamIJfEEEERKNS0_27Conv2dParallelizationConfigERKNS0_17Conv2dBlockConfigERKNS2_12MemoryConfigENS2_8DataTypeESt5arrayIjLm4EERKNS_19ComputeKernelConfigEbbbbbS6_IbE+0x3bf) [0x71151aa5a61f]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations4conv6conv2d9conv2d_L1ERKN2tt8tt_metal6TensorES7_PNS4_11distributed10MeshDeviceEjjjjjSt5arrayIjLm2EESC_St7variantIJSC_SB_IjLm4EEEESC_jRKSt8optionalIKNS4_8DataTypeEERKSG_IS6_ERKSG_IKNS_4prim12Conv2dConfigEERKSG_IKNS_19ComputeKernelConfigEERKSG_IKNS4_12MemoryConfigEE+0x1e9b) [0x71151aa5638b]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xa87dfa) [0x71151aa87dfa]
+E                --- ttnn::operations::op_slicing::run_sliced_op(tt::tt_metal::Tensor const&, std::vector<std::reference_wrapper<tt::tt_metal::Tensor>, std::allocator<std::reference_wrapper<tt::tt_metal::Tensor> > >&, ttnn::operations::op_slicing::OpSliceAttr*, std::optional<ttnn::operations::op_slicing::Op2DSliceConfig>)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn10operations4conv6conv2d11conv2d_DRAMERKN2tt8tt_metal6TensorES7_PNS4_11distributed10MeshDeviceEjjjjjSt5arrayIjLm2EESC_St7variantIJSC_SB_IjLm4EEEESC_jRKSt8optionalIKNS4_8DataTypeEERKSG_IS6_ERKSG_IKNS_4prim12Conv2dConfigEERKSG_IKNS_19ComputeKernelConfigEERKSG_IKNS4_12MemoryConfigEERKSG_IKNS0_10op_slicing15Op2DSliceConfigEE+0x1189) [0x71151aa5c4e9]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn6conv2dERKN2tt8tt_metal6TensorES4_PNS1_11distributed10MeshDeviceEjjjjjSt5arrayIjLm2EES9_St7variantIJS9_S8_IjLm4EEEES9_jRKSt8optionalIKNS1_8DataTypeEERKSD_IS3_ERKSD_IKNS_4prim12Conv2dConfigEERKSD_IKNS_19ComputeKernelConfigEERKSD_IKNS1_12MemoryConfigEERKSD_IKNS_10operations10op_slicing15Op2DSliceConfigEEbb+0x13d) [0x71151aa5d02d]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn6conv1dERKN2tt8tt_metal6TensorES4_PNS1_11distributed10MeshDeviceEjjjjjjSt7variantIJSt5arrayIjLm2EEjEEjjRKSt8optionalIKNS1_8DataTypeEERKSC_IS3_ERKSC_IKNS_4prim12Conv2dConfigEERKSC_IKNS_19ComputeKernelConfigEERKSC_IKNS1_12MemoryConfigEERKSC_IKNS_10operations10op_slicing15Op2DSliceConfigEEbb+0x598) [0x71151aa29cc8]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x85a21a) [0x71151c65a21a]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x71151c13b045]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyEval_EvalCode+0x15b) [0x5d544b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6085a2]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6b5033]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_SimpleFileObject+0x1aa) [0x6b4d9a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_AnyFileObject+0x4f) [0x6b4bcf]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_RunMain+0x3b5) [0x6bcc35]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_BytesMain+0x2d) [0x6bc71d]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x71156222a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x71156222a28b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_start+0x25) [0x657bc5]
+
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: RuntimeError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+1.20s setup    models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_split_depthwise_conv1d_probe[device_params0]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_split_depthwise_conv1d_probe[device_params0]
+0.09s call     models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_split_depthwise_conv1d_probe[device_params0]
+=========================== short test summary info ============================
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_fused_decoder.py::test_split_depthwise_conv1d_probe[device_params0]
+======================== 1 failed, 3 warnings in 2.55s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7115183923e8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x711518339188 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 247 functions!
+ - leaked function ""
+ - leaked function "get_device_ids"
+ - leaked function "volume"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "pad_to_tile"
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function "experimental_set_per_core_allocation"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-19 20:40:59.534 | info     |    BuildKernels | JIT cache stats: 91/91 hits (100.0%) [91 cached, 25 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-19 20:40:59.534 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-19 20:40:59.548 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-19 20:40:59.548 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-19 20:40:59.996 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-19 20:40:59.996 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-19 20:40:59.996 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

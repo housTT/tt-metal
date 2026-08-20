@@ -1,0 +1,19 @@
+Pattern: direct repeat_interleave versus FunctionalDecoder reshape/concat head replication.
+Frozen base SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14.
+Candidate SHA256: bed81f43e55ffd032f716b319dffd00d45b4af3ac76a691af69a36526beb33c8.
+Source evidence: base_source_snapshot.txt, candidate_source_snapshot.patch, source_hashes.csv.
+Correctness command: env PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE::test_fused_linear_attention_non_aligned_prefill_decode[blackhole-device_params0-1] -s
+Correctness result: 1 passed; PCC prefill 0.998477649, first decode 0.999461964, traced decode 0.999649418, trace determinism 1.0; correctness.log.
+Profiler policy: exact work_log.md Tracy template; profiler checkout /home/ttuser/.local/lib/model-bringup/tt-metal-profiler; one warmed replay; fixed cache /tmp/qwen36_missing_controls_tracy_cache; A1/B/A2 without clearing cache.
+Prefill command variables: QWEN36_PERF_PHASE=prefill; linear_attention profiler node; LINEAR_ATTENTION_PREFILL_START/END.
+Decode command variables: QWEN36_PERF_PHASE=decode; QWEN36_DECODE_REPLAYS=1; linear_attention profiler node; LINEAR_ATTENTION_DECODE_TRACE_START/END.
+tt-perf-report command: tt-perf-report raw_ops.csv --start-signpost START --end-signpost END --arch blackhole --no-color --no-advice --csv report.csv --summary-file report_summary
+Prefill A1: 5604.755 us / 159 ops; a1_prefill/{raw_ops.csv,report.csv,report_summary.csv}.
+Prefill B: 5863.601 us / 167 ops; b_prefill/{raw_ops.csv,report.csv,report_summary.csv}.
+Prefill A2: 5609.836 us / 159 ops; a2_prefill/{raw_ops.csv,report.csv,report_summary.csv}.
+Prefill median base: 5607.296 us; B delta +256.306 us / +4.571% and +8 ops.
+Decode A1: 2729.836 us / 71 ops; a1_decode/{raw_ops.csv,report.csv,report_summary.csv}.
+Decode B: 2742.536 us / 77 ops; b_decode/{raw_ops.csv,report.csv,report_summary.csv}.
+Decode A2: 2724.027 us / 71 ops; a2_decode/{raw_ops.csv,report.csv,report_summary.csv}.
+Decode median base: 2726.932 us; B delta +15.605 us / +0.572% and +6 ops.
+Verdict: rejected. Functional reshape/concat is correct but slower in both end-to-end phases; direct repeat_interleave remains selected.

@@ -1,0 +1,13 @@
+Pattern: dedicated partial decode RoPE using lane-as-sequence versus current primitive partial decode RoPE.
+Frozen base SHA256: f0778a63a47a844621cffa3a251345333e563105cabf708e5abe0af0dbce3a14.
+Candidate SHA256: 4fcfb4d23d1b12d2702df6e6d7e9743b4fde02b5518a68348ef57e7131f99017.
+Source evidence: base_source_snapshot.txt, candidate_source_snapshot.patch, source_hashes.csv.
+Correctness command: env PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal pytest -q TEST_FILE -k 'full_attention_non_aligned_prefill_decode or full_attention_paged_decode_trace' -s
+Correctness result: 2 passed; PCC prefill 0.998800717, decode 0.997824526, paged trace 0.998387110, trace determinism 1.0; correctness.log.
+Profiler policy: exact work_log.md Tracy template; QWEN36_PERF_PHASE=decode; QWEN36_DECODE_REPLAYS=1; fixed cache /tmp/qwen36_missing_controls_tracy_cache; full_attention profiler node; FULL_ATTENTION_DECODE_TRACE_START/END; A1/B/A2 without clearing cache.
+tt-perf-report command: tt-perf-report raw_ops.csv --start-signpost FULL_ATTENTION_DECODE_TRACE_START --end-signpost FULL_ATTENTION_DECODE_TRACE_END --arch blackhole --no-color --no-advice --csv report.csv --summary-file report_summary
+A1: 2339.681 us / 45 ops; a1_decode/{raw_ops.csv,report.csv,report_summary.csv}.
+B: 2346.163 us / 39 ops; b_decode/{raw_ops.csv,report.csv,report_summary.csv}.
+A2: 2336.314 us / 45 ops; a2_decode/{raw_ops.csv,report.csv,report_summary.csv}.
+Median base: 2337.998 us; B delta +8.166 us / +0.349%, despite six fewer ops.
+Verdict: rejected. Lane-axis dedicated RoPE is correct but slower on the identical frozen base.

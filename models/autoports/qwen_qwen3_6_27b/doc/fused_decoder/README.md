@@ -63,7 +63,7 @@ The final full prefill graph has no layout conversions. Full decode has two requ
 
 - padding beta/a to tile boundaries: selected at 5,605.562 us / 159 prefill ops and 2,728.252 us / 71 decode ops after native-context validation;
 - replacing direct Q/K repetition with reshape/concat: slower measured graph; rejected;
-- grouped `conv1d`: repository tests mark groups above 5,120 as OOM, while this graph requires 10,240 BF16 groups;
+- split-4 grouped `conv1d`: standalone-SiLU integration is correct through native context. A like-for-like 16-KiB A1/B/A2 is 5,505.526/5,635.236/5,500.267 us prefill and 2,625.831/2,873.108/2,625.095 us traced decode; the candidate is 2.405% and 9.432% slower than the respective median bases, so it is rejected. The older 5,737.134/2,983.133-us rows are historical exploration only;
 - alternate final-row reduction: requires a larger broadcast/reduction graph than the retained slice;
 - sharded SDPA into `nlp_concat_heads_decode`: hardware fatal, `Sharded output not supported for GQA`.
 
@@ -78,9 +78,9 @@ No explicit `ReshardDeviceOperation` occurs in any of the four final signpost wi
 | RMSNorm | Full norms retained. Linear L2 norm fused. Linear core dedicated RMSNorm rejected at native context, including FP32 accumulation. |
 | Distributed RMSNorm | Not applicable to the single-device stage. |
 | Split/create QKV heads | Retained after host-reordering Q/gate rows into tile-aligned `[Q,K,V,gate]`; dedicated prefill and decode head creation produces a major latency win. |
-| Concat heads prefill | Correct at the final PCC but 2,366.470 us versus 2,356.778 us on its identical base; permute/reshape retained. |
+| Concat heads prefill | Correct at the final PCC. Frozen-base A/B/A is 2,358.497 / 2,365.869 / 2,356.430 us; dedicated concat is 8.406 us slower than the median base, so permute/reshape is retained. |
 | Concat heads decode | Tried with sharded SDPA; GQA sharded output is unsupported on this path. |
-| RoPE | Dedicated partial prefill RoPE retained. Per-lane decode-axis formulation was correct (decode PCC 0.997824526) but slower at 2,346.213 us versus 2,339.680 us on its identical base. |
+| RoPE | Dedicated partial prefill RoPE retained. Per-lane decode-axis formulation was correct (decode PCC 0.997824526); frozen-base A/B/A is 2,339.681 / 2,346.163 / 2,336.314 us, so it is 8.166 us slower than the median base. |
 | TopK | Not present. |
 | RepVGG / spatial mean | No matching convolution branch or spatial reduction. |
 | Shared-LHS matmul | Packed full Q/K/V/gate and all four linear inputs retained; packed MLP is PCC-correct but slower in all four phases. |
@@ -102,3 +102,4 @@ No remaining compatible dedicated operation, structural simplification, shared-i
 The separate Watcher run passed six representative final fused-path tests in 22.31 seconds: non-aligned full/linear paths, paged full trace replay, forced chunked full prefill, and batch-32 coverage for both layer kinds. Scanning `watcher/final/generated/watcher/watcher.log` found no Watcher error/assert/hang/timeout, NoC error/timeout, kernel assert, or device hang. Watcher and Tracy were never enabled together; the complete 12-test non-Watcher suite supplies native-capacity and stress coverage.
 
 Exact commands, native-context failure isolation, artifact paths, and commit/review records are in `work_log.md`.
+The review-closing split-conv A1/B/A2 and fresh bounded hardware-safety ledger are under `candidates/split_conv1d/{l1_16k_ab,recovery}/`; `review_remediation.md` maps them directly to the P1/P2 findings. Exact historical recovery terminal details that were not retained are explicitly marked unavailable.
