@@ -1543,7 +1543,9 @@ class OrnithModel(LightweightModule):
             for key in ("recurrent_state",):
                 self._merge_rows(src[key], dst[key], mask["r"], batch)
             for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
-                self._merge_rows(src_buf, dst_buf, mask["c"], batch)
+                # The slot axis is read off the *destination*: the batch-1 source has extent 1 on
+                # every candidate axis, so it cannot name the axis itself.
+                self._merge_rows(src_buf, dst_buf, mask["c"], batch, self._slot_axis(dst_buf, batch))
         del torch
 
     def remap_state_slots(self, remap) -> int:
@@ -1591,19 +1593,45 @@ class OrnithModel(LightweightModule):
     def _remap_rows(self, buf, moves, batch: int, kind: str):
         """Gather rows of one per-slot state buffer in place: row ``i`` takes row ``src``."""
         shape = [int(d) for d in buf.shape]
+        axis = self._slot_axis(buf, batch)
         sources = {}
         for _, src in moves:
             if src in sources:
                 continue
-            sources[src] = ttnn.slice(buf, [src] + [0] * (len(shape) - 1), [src + 1] + shape[1:])
+            begins, ends = [0] * len(shape), list(shape)
+            begins[axis], ends[axis] = src, src + 1
+            sources[src] = ttnn.slice(buf, begins, ends)
         for row, src in moves:
             mask = self._slot_mask(row, batch)[kind]
-            self._merge_rows(sources[src], buf, mask, batch)
+            self._merge_rows(sources[src], buf, mask, batch, axis)
         for tensor in sources.values():
             ttnn.deallocate(tensor)
 
     @staticmethod
-    def _merge_rows(src, dst, mask, batch: int):
+    def _slot_axis(buf, batch: int) -> int:
+        """Which axis of a per-slot DeltaNet state buffer indexes the serving slot.
+
+        The recurrent matrix is ``[batch, heads, dk, dv]`` and its slot axis is dim 0. The conv
+        history is ``[1, 1, batch, conv_dim]`` when the decoder folds its decode residual
+        (``optimized_decoder.DECODE_COMPACT_ROWS``, which makes the whole decode mixer run on one
+        tile row) and ``[batch, 1, conv_dim]`` when it does not, so its slot axis is dim -2 or dim 0.
+
+        Derived from the buffer rather than assumed, and it raises rather than guessing: every caller
+        here writes *one* slot and leaves the others untouched, so picking the wrong axis would hand
+        one request another request's DeltaNet history with no shape error anywhere to catch it. Both
+        callers run at ``batch >= 2`` (a permutation of one row moves nothing and the batch-1 merge
+        returns early), which is what makes ``dims[0] == batch`` unambiguous for the recurrent
+        matrix — at batch 1 the two conventions are the same buffer anyway.
+        """
+        dims = [int(d) for d in buf.shape]
+        if dims[0] == batch:
+            return 0
+        if len(dims) >= 2 and dims[-2] == batch:
+            return len(dims) - 2
+        raise ValueError(f"state buffer {dims} has no axis of extent {batch} to index serving slots on")
+
+    @staticmethod
+    def _merge_rows(src, dst, mask, batch: int, axis: int = 0):
         """Write ``src``'s single row into ``dst``'s masked row, leaving every other row untouched.
 
         A **select**, not arithmetic, and that distinction is a correctness fix rather than a style
@@ -1617,7 +1645,9 @@ class OrnithModel(LightweightModule):
         is the regression pin. ``ttnn.where`` reads the same tensors but *selects* from them, so a
         non-finite value in a branch that is not taken cannot propagate.
         """
-        wide = ttnn.repeat(src, ttnn.Shape([batch] + [1] * (len(src.shape) - 1)))
+        repeats = [1] * len(src.shape)
+        repeats[axis] = batch
+        wide = ttnn.repeat(src, ttnn.Shape(repeats))
         ttnn.where(mask, wide, dst, output_tensor=dst)
         ttnn.deallocate(wide)
 
@@ -1652,8 +1682,26 @@ class OrnithModel(LightweightModule):
                 mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
             )
 
-        cached[key] = {"r": upload((batch, 1, 1, 1), ttnn.float32), "c": upload((batch, 1, 1), ttnn.bfloat16)}
+        cached[key] = {
+            "r": upload((batch, 1, 1, 1), ttnn.float32),
+            "c": upload(self._conv_mask_shape(batch), ttnn.bfloat16),
+        }
         return cached[key]
+
+    def _conv_mask_shape(self, batch: int):
+        """Shape of the conv-history slot selector, in the convention the layers allocated.
+
+        Read off a buffer rather than off the knob, so the mask cannot disagree with the tensor it
+        selects rows of: the folded history is ``[1, 1, batch, conv_dim]`` and needs a
+        ``[1, 1, batch, 1]`` selector, the unfolded one is ``[batch, 1, conv_dim]`` and needs
+        ``[batch, 1, 1]``. Both broadcast on the last dim only, which is the same broadcast
+        ``ttnn.where`` did before the fold. Every mask is still built at setup by
+        :meth:`_prebuild_slot_masks`, which runs after the layers have allocated their state.
+        """
+        for layer in self.layers:
+            if getattr(layer, "conv_state", None):
+                return (1, 1, batch, 1) if len(layer.conv_state[0].shape) == 4 else (batch, 1, 1)
+        return (batch, 1, 1)
 
     # ------------------------------------------------------------------ decode
     def prepare_decode_inputs_host(self, tokens, current_pos, page_table=None, *, page_table_only=False):

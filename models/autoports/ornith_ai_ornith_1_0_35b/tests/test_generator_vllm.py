@@ -450,6 +450,25 @@ def serving_adapter(mesh_device, batch=TEST_BATCH):
     return adapter
 
 
+def _slot_major(host, batch: int):
+    """A view of one per-slot DeltaNet state buffer with the serving-slot axis first.
+
+    The recurrent matrix is ``[batch, heads, dk, dv]`` and is already slot-major. The conv history is
+    ``[1, 1, batch, conv_dim]`` when the decoder folds its decode residual
+    (``optimized_decoder.DECODE_COMPACT_ROWS``) and ``[batch, 1, conv_dim]`` when it does not, so its
+    slot axis is dim -2 or dim 0 — the same rule ``OrnithModel._slot_axis`` applies on device.
+    ``movedim`` returns a *view*, so a write through it lands in ``host``.
+
+    Asserted rather than guessed: a silent mis-index would make the per-slot tests below read one
+    tensor and claim another, which is exactly the class of bug they exist to catch.
+    """
+    if int(host.shape[0]) == batch:
+        return host
+    if host.dim() >= 2 and int(host.shape[-2]) == batch:
+        return host.movedim(-2, 0)
+    raise AssertionError(f"state buffer {list(host.shape)} has no axis of extent {batch} to index slots on")
+
+
 def serving_page_table(adapter):
     """A vLLM-shaped block table: slot ``u`` owns its own run of real blocks, 0 (the null block) elsewhere."""
     batch = adapter.max_batch_size
@@ -767,7 +786,7 @@ def test_a_slot_remap_moves_the_recurrent_state_bit_for_bit(mesh_device, expect_
             ]
             for name, buf in buffers:
                 for shard, tensor in enumerate(ttnn.get_device_tensors(buf)):
-                    host = ttnn.to_torch(tensor)
+                    host = _slot_major(ttnn.to_torch(tensor), adapter.max_batch_size)
                     for row in range(adapter.max_batch_size):
                         captured[(index, name, shard, row)] = host[row].clone()
         return captured
@@ -1020,7 +1039,8 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
         for buf in recurrent:
             shape = [int(d) for d in buf.shape]
             host = ttnn.to_torch(ttnn.get_device_tensors(buf)[0]).float()
-            host[idle] = float("inf")
+            # A view with the slot axis first, so the write lands in `host` itself.
+            _slot_major(host, batch)[idle] = float("inf")
             ttnn.copy_host_to_device_tensor(
                 ttnn.from_torch(
                     host.reshape(shape),
@@ -1032,8 +1052,8 @@ def test_a_nonfinite_idle_row_cannot_reach_a_served_request(mesh_device):
             )
 
     def every_shard(buf):
-        """Each device's copy of one replicated state buffer, on host."""
-        return (ttnn.to_torch(shard).float() for shard in ttnn.get_device_tensors(buf))
+        """Each device's copy of one replicated state buffer, on host, slot axis first."""
+        return (_slot_major(ttnn.to_torch(shard).float(), batch) for shard in ttnn.get_device_tensors(buf))
 
     def rows_are_finite(*, skip):
         """Is every row except ``skip`` finite, in every per-slot buffer, on every device?"""

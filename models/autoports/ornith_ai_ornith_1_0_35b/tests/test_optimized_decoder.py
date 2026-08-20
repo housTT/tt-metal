@@ -90,10 +90,16 @@ LAYER_IDS = {LINEAR_LAYER: "linear_attention", FULL_LAYER: "full_attention"}
 #: this many cores, because flash-decode assigns one per batch row.
 LARGEST_SUPPORTED_DECODE_BATCH = 56
 
-#: The ``(K, N)`` of the three decode matmuls that run on the MoE's padded-token rows rather than on
-#: ``[batch, 1, dim]``: the shared expert's packed gate/up, its down projection, and the router. Their
-#: ``per_core_M`` is one tile at every supported batch, which is the distinction
-#: ``test_decode_runs_the_tuned_program_configs`` asserts against the four token-mixer roles.
+#: The ``(K, N)`` of the three decode matmuls that run on the MoE's padded-token rows: the shared
+#: expert's packed gate/up, its down projection, and the router.
+#:
+#: They used to be the *only* three whose ``per_core_M`` was one tile at every supported batch, which
+#: is what ``test_decode_runs_the_tuned_program_configs`` asserted them against the four token-mixer
+#: roles on. Since ``optimized_decoder.DECODE_COMPACT_ROWS`` the token-mixer roles run on the folded
+#: ``[1, 1, batch, dim]`` too, so all seven agree and that test now asserts one tile row for every
+#: dense decode matmul — which is what makes it the regression pin for the fold reaching the
+#: projections at all. The set is kept because it still names *why* each row is one tile: these three
+#: are padded token rows, the other four are a folded batch.
 MOE_DECODE_SHAPES = {(2048, 1056), (512, 2048), (2048, 256)}
 
 
@@ -904,13 +910,16 @@ def test_decode_pcc(mesh_device, layer_idx, prefill_len):
 # batch > 1
 # --------------------------------------------------------------------------------------
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
-#: 5 and 8 are not extra copies of 4: the four token-mixer roles are called on ``[batch, 1, dim]``, so
-#: ``per_core_M == batch`` and **every** batch from 1 to 8 builds a distinct tuned decode config. 5 is where
-#: `o_proj`'s ``in0_block_w`` drops from 16 to 8 (``DECODE_MATMUL_IN0_TILE_BUDGET // 5 == 12``), and 8 is the
-#: top of the band before `_ProjectionConfigs.get` returns None. Review round 10 declined this coverage on the
-#: claim that ``per_core_M`` is ``ceil(batch / 32)`` - true only of the three MoE roles, whose activation is
-#: reshaped to ``[1, 1, padded_tokens, dim]`` - and round 11 caught that, so batches 5 and 8 were shipped
-#: config classes that nothing had ever built.
+#: 4, 5, 8 and 32 were four *distinct config classes* before ``optimized_decoder.DECODE_COMPACT_ROWS``: the four
+#: token-mixer roles were called on ``[batch, 1, dim]``, so ``per_core_M == batch``, 5 was where `o_proj`'s
+#: ``in0_block_w`` dropped from 16 to 8 (``DECODE_MATMUL_IN0_TILE_BUDGET // 5 == 12``) and 8 was the top of the
+#: band before `_ProjectionConfigs.get` returned None. Review round 10 declined this coverage on the claim that
+#: ``per_core_M`` is ``ceil(batch / 32)`` - true then only of the three MoE roles - and round 11 caught that.
+#:
+#: Folded they are one config class, and the four batches are kept for what they now cover instead: the fold
+#: itself at four batches (4 and 5 non-aligned, 8 the serving target, 32 the top of the supported band and the
+#: last batch that still folds to a single tile row), and with it the norm-shard path that batches above 4 could
+#: not reach unfolded. The PCC bar is what says the fold is a pure reshape at each of them.
 @pytest.mark.parametrize("batch", [4, 5, 8, 32])
 def test_batched_prefill_decode_pcc(mesh_device, layer_idx, batch):
     """Batched prefill + batched decode with per-user current positions."""
@@ -1096,9 +1105,16 @@ def test_documented_batch_thresholds(mesh_device, layer_idx):
     roles stop at 9 and the MoE roles never stop), after round 10 had already declined test coverage on a
     related mis-derivation. Asserting them against the built layer is the cheap mechanical closure.
 
-    The two activation conventions are the substance: the four token-mixer roles are called on
-    ``[batch, 1, dim]``, so ``per_core_M == batch`` and the tuned config stops one past the 8-tile cap; the
-    three MoE roles are called on ``[1, 1, align_up(tokens, 32), dim]``, so they stay tuned at every batch.
+    The two activation conventions are the substance: a role called on ``[batch, 1, dim]`` has
+    ``per_core_M == batch`` and its tuned config stops one past the 8-tile cap; a role called on
+    ``[1, 1, align_up(tokens, 32), dim]`` is one tile row and stays tuned at every batch.
+
+    This test asserts the **rule**, at explicit ``rows``, not which convention a call site uses — which is
+    why it is unchanged by ``optimized_decoder.DECODE_COMPACT_ROWS`` while its consequence for the layer is
+    not: folded, the token-mixer roles are called on the second convention too, so no servable batch reaches
+    the fallback any more. The threshold below is still exactly where the fallback begins for a caller that
+    hands these configs ``batch`` tile rows, and ``test_decode_runs_the_tuned_program_configs`` is what pins
+    which convention the layer actually runs. README §9 item 5 describes the pre-fold call sites.
     """
     source = default_weight_source()
     decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
@@ -2212,10 +2228,13 @@ def test_decode_norm_shard_reaches_the_in_projection(mesh_device, layer_idx, mon
     assert shard_w_tiles % int(cfg.in0_block_w) == 0
 
 
-#: The tuned dense decode configs are keyed on ``per_core_M``, which equals the batch for the four token-mixer
-#: roles, so batch 1 alone asserts one of the eight shipped classes. 5 is the class where `o_proj`'s inner block
-#: narrows; both are checked here, and the assertions below are written against the rule rather than against
-#: batch-1 literals. Added in review round 11, which found batches 5-8 built by no test and no probe.
+#: Batch 1 and batch 5, and since ``optimized_decoder.DECODE_COMPACT_ROWS`` they must build the **same** tuned
+#: configs: the four token-mixer roles run on the folded ``[1, 1, batch, dim]``, so ``per_core_M`` is one tile at
+#: both and `o_proj`'s ``in0_block_w`` no longer narrows from 16 to 8 at batch 5
+#: (``DECODE_MATMUL_IN0_TILE_BUDGET // 1`` is not binding). That agreement is the point of keeping batch 5:
+#: unfolded it built `per_core_M == 5`, so this arm fails if the fold stops happening. Added in review round 11,
+#: which found batches 5-8 built by no test and no probe; the assertions below are written against the rule
+#: rather than against literals, so they follow the fold instead of being rewritten by it.
 @pytest.mark.parametrize("decode_batch", [1, 5])
 @pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
 def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_batch, monkeypatch):
@@ -2268,19 +2287,24 @@ def test_decode_runs_the_tuned_program_configs(mesh_device, layer_idx, decode_ba
         assert cfg is not None, f"dense decode matmul {k}x{n} ran on ttnn's heuristic, not a tuned config"
         assert isinstance(cfg, ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig), f"{k}x{n}: {type(cfg)}"
         assert cfg.in0_block_w >= 2, f"dense decode matmul {k}x{n} has in0_block_w={cfg.in0_block_w}"
-        # Batch-dependent, and asserted rather than logged: `per_core_M` IS the batch for these roles, and the
-        # in0 budget is divided by the tile rows, so the inner block narrows as the batch grows. Review round 13
-        # pointed out this test's comment claimed to check that while only checking `>= 2` — which batch 5 would
-        # have passed with any value. The rule is mirrored from `_ProjectionConfigs.get`.
-        # BOTH conventions are asserted, because the difference between them is what review rounds 10-13 kept
-        # getting wrong: the token-mixer roles are called on `[batch, 1, dim]`, so `per_core_M == batch` and the
-        # in0 budget is divided by the batch; the MoE roles are called on `[1, 1, align_up(tokens, 32), dim]`, so
-        # `per_core_M` is one tile regardless. A test that asserted only `in0_block_w >= 2` (as this one did until
-        # round 13) passes at every batch without ever checking either.
-        rows = 1 if (k, n) in MOE_DECODE_SHAPES else decode_batch
+        # ONE tile row for every dense decode matmul, at every batch, and asserted rather than logged.
+        #
+        # Re-itemised for `optimized_decoder.DECODE_COMPACT_ROWS`. Before the fold the two activation
+        # conventions disagreed: the token-mixer roles were called on `[batch, 1, dim]`, so
+        # `per_core_M == batch` and `DECODE_MATMUL_IN0_TILE_BUDGET` was divided by the batch, while the MoE
+        # roles were called on `[1, 1, align_up(tokens, 32), dim]` and were one tile regardless. Review rounds
+        # 10-13 kept getting that difference wrong (round 13 found this comment claiming to check the rule
+        # while only checking `in0_block_w >= 2`, which batch 5 passes at any value). The fold removes the
+        # disagreement: every dense decode matmul now runs on one tile row up to batch 32.
+        #
+        # That makes this the tightest available pin on the fold itself. At `decode_batch` 5 the unfolded
+        # graph builds `per_core_M == 5`, so a regression that stops folding the residual fails HERE, on the
+        # config the projection actually ran, rather than only showing up as a latency number.
+        rows = 1
+        why = "padded token rows" if (k, n) in MOE_DECODE_SHAPES else "a batch folded by DECODE_COMPACT_ROWS"
         assert cfg.per_core_M == rows, (
             f"dense decode matmul {k}x{n} has per_core_M={cfg.per_core_M} at batch {decode_batch}, expected "
-            f"{rows}: the token-mixer roles run on [batch, 1, dim] and the MoE roles on padded token rows"
+            f"{rows}: this role runs on {why}, which is one tile row at every batch up to 32"
         )
         # The realised geometry, not just the inner block. README §5.4 said these were asserted while only
         # `in0_block_w` and `per_core_M` were, which is how review round 17 could change a core-count entry on a

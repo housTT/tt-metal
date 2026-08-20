@@ -117,6 +117,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     _conv_compute_config,
     _decode_1d_matmul_config,
     _drop_prepared,
+    _free_unless_aliased,
     _pad_dim,
     _physical_rows,
     _prefill_2d_matmul_config,
@@ -354,6 +355,17 @@ SPARSE_SCALE_CORES_BY_TP = True
 #: count already equals ``align_up(b * t, 32)`` and the guard is false at every prefill shape. Round
 #: 8's correctness audit found an earlier comment claiming a batched non-aligned prefill reached it. ``doc/multichip_decoder/logs/probe_decode_batch.txt`` records both the
 #: measured shapes at each call site and the traced-decode A/B at batch 1/4/13/32.
+#:
+#: **Superseded on the shipped path, and kept as its own fallback.** With
+#: ``optimized_decoder.DECODE_COMPACT_ROWS`` on, ``_block`` folds the residual before the mixer runs,
+#: so both operands reach :meth:`MultichipDecoder._all_reduce` already rank-4 and this guard is false
+#: at every call in a decode forward — the collectives move the same rows they moved with the fold
+#: here, and the fold/view-back pair it used to dispatch on the mixer operand is gone (the MoE
+#: operand was already rank-4, so this guard never fired on it). This flag is what keeps the
+#: collective's payload compact when that outer fold is switched off, and it still covers any rank-3
+#: caller from outside ``_block``. The measured value of the fold *as a collective-only fold* is
+#: unchanged and still recorded in ``probe_decode_batch.txt``; it is now the floor of what the outer
+#: fold is worth, not the whole of it.
 CCL_COMPACT_ROWS = True
 
 #: How the globally-routed dense score vector is narrowed to this device's expert block.
@@ -618,32 +630,9 @@ def _replicate_mapper(mesh_device):
     return ttnn.replicate_tensor_to_mesh_mapper(mesh_device)
 
 
-def _free_unless_aliased(tensor, keep) -> None:
-    """``ttnn.deallocate(tensor)``, unless it shares a device buffer with ``keep``.
-
-    ``ttnn.reshape`` returns a *new* tensor when the request needs a relayout and may return a view
-    over the same buffer when it does not. Freeing the input of such a view would free the survivor's
-    storage. Every fold :meth:`MultichipDecoder._all_reduce` performs changes the physical row count,
-    so a relayout is dispatched and the two are distinct — but review round 3 pointed out that the
-    object-identity check that used to guard this would not notice if that ever stopped being true,
-    and an aliased free is a use-after-free, not a leak. Buffer addresses are what ``deallocate``
-    operates on, so they are what is compared.
-    """
-    if tensor is keep:
-        return
-    # `buffer_address` raises for three different reasons (`pytensor.cpp`): not a device tensor, not
-    # allocated, and **per-core allocated** ("do not have a single address"). Only the first two mean
-    # "nothing to alias". On the third the addresses simply cannot be compared, and falling through to
-    # the free is the use-after-free this helper exists to prevent — so that case returns instead.
-    # Nothing here allocates per-core today; the helper is written for the case where something does.
-    if any(t.is_per_core_allocated() for t in (tensor, keep)):
-        return
-    try:
-        if tensor.buffer_address() == keep.buffer_address():
-            return
-    except RuntimeError:  # host or unallocated tensor: no device buffer to alias
-        pass
-    ttnn.deallocate(tensor)
+# `_free_unless_aliased` now lives in `optimized_decoder` and is imported above: the decode-residual
+# fold this module's `_all_reduce` introduced was extended to the whole decode mixer path there
+# (`DECODE_COMPACT_ROWS`), and both call sites need the same aliasing guard.
 
 
 # --------------------------------------------------------------------------------------
@@ -1119,7 +1108,12 @@ class MultichipDecoder(OptimizedDecoder):
         data. :data:`CCL_COMPACT_ROWS` folds the batch into the row axis as ``[1, 1, b * t, dim]``
         first, which is exactly the layout the MoE call site already uses (``_block`` reshapes to
         ``[1, 1, tokens, dim]`` before the FF norm), so at batch 32 the two collectives in one
-        forward stop differing by 32x in the rows they move. Measured in
+        forward stop differing by 32x in the rows they move.
+
+        On the shipped path that fold now happens **upstream**: ``optimized_decoder``'s
+        ``DECODE_COMPACT_ROWS`` folds the residual before the mixer runs, so the mixer operand arrives
+        rank-4 like the MoE one always did and the guard below is false for both — same payload, two
+        reshapes fewer per layer. Measured in
         ``doc/multichip_decoder/logs/probe_decode_batch.txt``, which also records the shapes each
         call site is handed rather than inferring them from this docstring.
         """
@@ -1242,11 +1236,21 @@ class MultichipDecoder(OptimizedDecoder):
         :meth:`_all_reduce` calls. They sit **before** each residual add, so the residual stream
         that the next norm reads is the full-width replicated one and both RMSNorms stay local and
         exact. Placing them after the add instead would reduce the residual four times over.
+
+        The inherited decode-residual fold (``DECODE_COMPACT_ROWS``) applies here too, and it
+        *subsumes* :data:`CCL_COMPACT_ROWS`: the mixer's operand is now already rank-4, like the MoE's
+        always was, so the fold-and-view-back pair inside :meth:`_all_reduce` fires for neither and the
+        two collectives move the same 32 rows they moved before, two reshapes fewer.
+        :data:`CCL_COMPACT_ROWS` is kept because it is what makes that true when the outer fold is
+        switched off, and because a rank-3 operand from any other caller still needs it.
         """
         self._decode_phase = mode == "decode"
-        b, t = x.shape[0], x.shape[1]
+        b, t = int(x.shape[0]), int(x.shape[1])
+        tokens = b * t
+        residual = self._fold_decode_rows(x, tokens)
+        folded = residual is not x
         attn_in = self._norm(
-            x,
+            residual,
             self.w["attn_norm"],
             keep_sharded_for=("attn_in" if self.is_full_attention else "gdn_in") if mode == "decode" else None,
         )
@@ -1265,14 +1269,16 @@ class MultichipDecoder(OptimizedDecoder):
         # Row-parallel `o_proj` / `gdn_out` produce a partial sum over this device's heads.
         mixed = self._all_reduce(mixed)
         # `DECODE_RESIDUAL_MEMORY` only at decode: a prefill chunk's residual is 2048 x 2048 x 2 B and
-        # belongs in DRAM, while a decode step's is one tile row per batch entry.
+        # belongs in DRAM, while a decode step's is one tile row for the whole batch once folded.
         residual_mem = DECODE_RESIDUAL_MEMORY if mode == "decode" else None
-        h = ttnn.add(x, mixed, memory_config=residual_mem, dtype=self.policy.residual_dtype)
+        h = ttnn.add(residual, mixed, memory_config=residual_mem, dtype=self.policy.residual_dtype)
         ttnn.deallocate(mixed)
+        # Frees the fold, no-ops on `x` itself and on the batch-1 view of it.
+        _free_unless_aliased(residual, x)
 
-        tokens = b * t
         padded_tokens = _align_up(tokens, TILE)
-        ff_in = ttnn.reshape(self._norm(h, self.w["ff_norm"]), [1, 1, tokens, self.cfg.dim])
+        ff_norm = self._norm(h, self.w["ff_norm"])
+        ff_in = ff_norm if folded else ttnn.reshape(ff_norm, [1, 1, tokens, self.cfg.dim])
         if padded_tokens != tokens:
             ff_in = _pad_dim(ff_in, 2, padded_tokens - tokens)
         ff_out = self.moe.forward(
@@ -1286,10 +1292,16 @@ class MultichipDecoder(OptimizedDecoder):
             trimmed = ttnn.slice(ff_out, [0, 0, 0, 0], [1, 1, tokens, self.cfg.dim])
             ttnn.deallocate(ff_out)
             ff_out = trimmed
-        ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
+        if not folded:
+            ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
         out = ttnn.add(h, ff_out, memory_config=residual_mem, dtype=self.policy.residual_dtype)
         ttnn.deallocate(h)
         ttnn.deallocate(ff_out)
+        if folded:
+            # Back to the layer's public `[b, t, dim]` contract; see `OptimizedDecoder._block`.
+            unfolded = ttnn.reshape(out, [b, t, self.cfg.dim])
+            _free_unless_aliased(out, unfolded)
+            out = unfolded
         return out
 
     # ------------------------------------------------------------------ gated deltanet
@@ -1436,7 +1448,7 @@ class MultichipDecoder(OptimizedDecoder):
         )
         self.conv_state = [
             ttnn.zeros(
-                [batch_size, 1, self.cfg.conv_dim],
+                self._conv_state_shape(batch_size),
                 dtype=ttnn.bfloat16,
                 layout=ttnn.TILE_LAYOUT,
                 device=self.device,

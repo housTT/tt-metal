@@ -50,6 +50,11 @@ cumulative table, one row per step)
   :meth:`OptimizedMoE._active_expert_mask`.
 * **Width-sharded decode RMSNorms.** ``ttnn.rms_norm`` parallelises over rows and a decode
   activation is one tile of rows, so the interleaved form ran the whole 2048-wide norm on one core.
+* **The decode token mixer runs on the folded residual** ``[1, 1, batch, dim]`` rather than
+  ``[batch, 1, dim]`` — see :data:`DECODE_COMPACT_ROWS`. A tile row is 32 rows whatever the batch,
+  so the unfolded form moved ``32 * batch`` physical rows through every mixer op to carry ``batch``
+  of them; folded it is one tile row up to batch 32. Nothing about the public contract changes, the
+  block's reshape count does not change, and at batch 1 the graph is unchanged op for op.
 
 Prefill / decode contract
 -------------------------
@@ -1045,6 +1050,17 @@ DECODE_MATMUL_MAX_M_TILES = 8
 #: allocated circular buffers ... clash with L1 buffers".
 DECODE_MATMUL_IN0_TILE_BUDGET = 64
 
+#: Float32 ``[batch, num_v_heads, 1, head_dim]`` vectors :meth:`OptimizedDecoder._delta_rule_step`
+#: holds in L1 at its peak: ``q_row``, ``k_row``, ``v_row``, ``v_read``, the ``v_row - v_read``
+#: temporary and ``delta``. Each is ``batch * num_v_heads`` **tile rows** — the token axis is 1 and
+#: pads to a whole tile per (batch, head) — so the step's L1 working set scales with the batch even
+#: though :data:`DECODE_COMPACT_ROWS` makes the residual and the projections one tile row at every
+#: batch. :meth:`OptimizedDecoder._gdn_decode` sizes the *bf16* head-major relayout's placement
+#: against this working set and :attr:`OptimizedDecoder._l1_budget`, because that is what shares the
+#: L1 with it. At 32 value heads, a 128 head dim and the shipped 51.4 MiB budget the head tensors
+#: stay in L1 through batch 17 and go to DRAM above it, which is where they were before the fold.
+_STATE_STEP_L1_VECTORS = 6
+
 #: Cap on ``in0_block_w * per_core_N`` for the 2D prefill program configs — the ``in1`` circular
 #: buffer, in tiles. ``in0_block_w`` 16 is the best value for the narrow-output prefill roles but
 #: fails to build for the wide ones (``attn_in`` at ``per_core_N`` 27, ``gdn_in`` at 36) with
@@ -1101,6 +1117,90 @@ def _physical_rows(shape) -> int:
     for dim in dims[:-2]:
         rows *= dim
     return rows
+
+
+#: Fold the batch axis of a **decode** activation into the tile row axis for the whole token-mixer
+#: path: the residual stream, the four dense projections (``attn_in``, ``o_proj``, ``gdn_in``,
+#: ``gdn_out``), their slices, the conv taps, the persistent conv history and the two residual
+#: RMSNorms all run on ``[1, 1, batch, dim]`` instead of ``[batch, 1, dim]``.
+#:
+#: A tile's row axis is the *sequence* axis, so ``[batch, 1, dim]`` occupies ``batch`` whole tile
+#: rows — ``batch * 32`` physical rows — of which ``batch`` carry data. At batch 8 that is 256
+#: physical rows for 8 useful ones, and every elementwise op, norm and matmul in the mixer pays for
+#: all of them; folded it is one tile row at every batch up to 32. This is the layout the MoE call
+#: site has always used (:meth:`OptimizedDecoder._block` reshapes to ``[1, 1, tokens, dim]`` before
+#: the FF norm) and the layout ``MultichipDecoder._all_reduce``'s ``CCL_COMPACT_ROWS`` produced
+#: around the collective *only*; this extends the same fold to the whole decode mixer.
+#:
+#: The fold is a pure logical reshape — ``[batch, 1, dim]`` and ``[1, 1, batch, dim]`` enumerate the
+#: same elements in the same row-major order — so no arithmetic changes and no PCC should move. At
+#: batch 1 the two shapes describe the same tile, ``ttnn.reshape`` returns a view, and the fold
+#: costs nothing; that is why extending it past the collective was worth nothing until this stage
+#: measured a batch above 1, and it is also why the batch-1 graph is unchanged op for op.
+#:
+#: It does **not** add to the block's reshape count, it subtracts: the fold at the top of the block
+#: replaces the ``ff_in`` reshape the MoE needed and the unfold at the bottom replaces the ``ff_out``
+#: one, one for one, and on top of that a ``full_attention`` decode step loses the 9216-wide ``fused``
+#: reshape and the gate reshape inside :meth:`OptimizedDecoder._attention_decode`, and a multichip
+#: layer of either kind loses ``CCL_COMPACT_ROWS``' fold/view-back **pair** on the mixer collective
+#: (the MoE collective's operand was already rank-4, so that guard never fired there). Net per decode
+#: layer at batch > 1: 2 reshapes fewer on a single-chip ``full_attention`` layer, 4 on a multichip
+#: one, 2 on a multichip ``linear_attention`` layer, 0 on a single-chip ``linear_attention`` layer.
+#:
+#: Two knock-on effects, both intended, both from rules that already existed:
+#:
+#: * :attr:`OptimizedDecoder.NORM_SHARD_MAX_M_TILES` (4 tile rows) admits the two residual norms at
+#:   *every* servable batch, where unfolded they fell out above batch 4. No call site changes —
+#:   :meth:`OptimizedDecoder._norm` keys the decision on ``_physical_rows`` — and the shard carry
+#:   into the in-projection keeps working because ``per_core_M`` is then 1, which is exactly the
+#:   condition :meth:`OptimizedDecoder._shard_feeds_projection` checks.
+#: * :data:`DECODE_MATMUL_MAX_M_TILES` (8) selects the ``per_core_M`` 1 config for the four
+#:   token-mixer roles at every batch instead of one config class per batch, so ``o_proj``'s
+#:   ``in0_block_w`` stops narrowing with the batch (:data:`DECODE_MATMUL_IN0_TILE_BUDGET` is
+#:   divided by the M tiles) and batches 9..32 stop falling back to ttnn's heuristic entirely.
+#:
+#: One limitation, and it is about *dtype* rather than shape. The fold moves rows across tile
+#: boundaries, so with the shipped ``residual_dtype=bfloat16`` it is bit-exact (bfloat16 carries no
+#: shared exponent, so a relayout is a copy) but with a **block-float** residual - the bfloat8_b
+#: candidate ``doc/datatype_sweep`` rejected on cost - a batch above 1 would re-tile BFP8 data and
+#: could re-derive its shared exponents. At batch 1 the fold is a view, so that arm is unaffected
+#: where it is actually exercised (``test_the_residual_and_logits_dtypes_reach_the_ops`` runs it at
+#: batch 1). A block-float residual at batch > 1 is neither shipped nor measured; it would need this
+#: fold assessed before it could be.
+#:
+#: Read through the module global at call time, never captured at import, so a probe can flip it the
+#: way ``doc/multichip_decoder/logs/probe_decode_batch.py`` flips ``CCL_COMPACT_ROWS``. With it off
+#: the layer runs the pre-fold graph exactly, including the unfolded conv history.
+DECODE_COMPACT_ROWS = True
+
+
+def _free_unless_aliased(tensor, keep) -> None:
+    """``ttnn.deallocate(tensor)``, unless it shares a device buffer with ``keep``.
+
+    ``ttnn.reshape`` returns a *new* tensor when the request needs a relayout and may return a view
+    over the same buffer when it does not. Freeing one side of such a view frees the survivor's
+    storage, which is a use-after-free rather than a leak, and the two cases are exactly the two
+    batches :data:`DECODE_COMPACT_ROWS` folds: at batch > 1 the fold changes the physical row count
+    and a relayout is dispatched, at batch 1 it does not and the view is the caller's own tensor.
+    Buffer addresses are what ``deallocate`` operates on, so they are what is compared — an
+    object-identity check would not notice the aliasing case (review round 3 of the multichip
+    stage, where this helper started life as ``MultichipDecoder._all_reduce``'s guard).
+    """
+    if tensor is keep:
+        return
+    # `buffer_address` raises for three different reasons (`pytensor.cpp`): not a device tensor, not
+    # allocated, and **per-core allocated** ("do not have a single address"). Only the first two mean
+    # "nothing to alias". On the third the addresses simply cannot be compared, and falling through to
+    # the free is the use-after-free this helper exists to prevent — so that case returns instead.
+    # Nothing here allocates per-core today; the helper is written for the case where something does.
+    if any(t.is_per_core_allocated() for t in (tensor, keep)):
+        return
+    try:
+        if tensor.buffer_address() == keep.buffer_address():
+            return
+    except RuntimeError:  # host or unallocated tensor: no device buffer to alias
+        pass
+    ttnn.deallocate(tensor)
 
 
 class _ProjectionConfigs:
@@ -1976,7 +2076,9 @@ class OptimizedDecoder(LightweightModule):
         self.k_cache = None
         self.v_cache = None
         self.recurrent_state = None
-        self.conv_state = None  # list of ``conv_kernel_dim - 1`` buffers, each [B, 1, conv_dim]
+        # list of ``conv_kernel_dim - 1`` buffers, each `_conv_state_shape(B)`: [1, 1, B, conv_dim]
+        # folded (DECODE_COMPACT_ROWS) or [B, 1, conv_dim] unfolded
+        self.conv_state = None
         self.conv1d_lengths = []  # prefill block lengths ttnn.conv1d accepted at the allocated batch
         self.batch_size = None
         self.batch_idxs = None  # [batch] int32 device tensor for the batched paged_fill_cache
@@ -2303,7 +2405,7 @@ class OptimizedDecoder(LightweightModule):
         )
         self.conv_state = [
             ttnn.zeros(
-                [batch_size, 1, self.cfg.conv_dim],
+                self._conv_state_shape(batch_size),
                 dtype=ttnn.bfloat16,
                 layout=ttnn.TILE_LAYOUT,
                 device=self.device,
@@ -2320,6 +2422,47 @@ class OptimizedDecoder(LightweightModule):
             ttnn.multiply(buf, 0.0, output_tensor=buf)
 
     # ------------------------------------------------------------------ small helpers
+    def _decode_rows(self, x):
+        """``(batch, folded)`` for a decode activation in either residual convention.
+
+        The folded convention is ``[1, 1, batch, dim]`` (:data:`DECODE_COMPACT_ROWS`) and the
+        unfolded one is ``[batch, 1, dim]``, so the batch is dim -2 or dim 0 and the rank tells the
+        two apart: only :meth:`_block`'s fold produces a rank-4 activation at decode. Every decode
+        helper that needs the user count reads it here rather than from ``x.shape[0]``, which is 1
+        for a folded step.
+        """
+        dims = [int(d) for d in x.shape]
+        return (dims[-2], True) if len(dims) == 4 else (dims[0], False)
+
+    def _fold_decode_rows(self, x, tokens: int):
+        """``x`` folded to ``[1, 1, tokens, dim]`` at decode, or ``x`` unchanged.
+
+        The single reader of :data:`DECODE_COMPACT_ROWS` on the forward path, and it reads the module
+        global at call time rather than a captured import, so flipping the knob flips both this class
+        and :class:`~models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder.MultichipDecoder`
+        — whose ``_block`` calls this method for exactly that reason.
+
+        The result may be a *view* of ``x`` (at batch 1 the two shapes describe the same tile), so
+        the caller frees it through :func:`_free_unless_aliased` rather than unconditionally.
+        """
+        if not (self._decode_phase and DECODE_COMPACT_ROWS):
+            return x
+        return ttnn.reshape(x, [1, 1, int(tokens), self.cfg.dim])
+
+    def _conv_state_shape(self, batch_size: int):
+        """Shape of one persistent conv-history buffer.
+
+        Folded to ``[1, 1, batch, conv_dim]`` under :data:`DECODE_COMPACT_ROWS`, because the decode
+        step's four tap ops and three history copies all run on these buffers and unfolded they are
+        ``batch`` tile rows of which ``batch`` carry data. The slot axis moves from dim 0 to dim -2
+        with the fold, which is why :meth:`OrnithModel._slot_axis` derives it from the buffer's shape
+        instead of assuming dim 0 — a per-slot write on the wrong axis would hand one request another
+        request's DeltaNet history with no shape error to catch it.
+        """
+        if DECODE_COMPACT_ROWS:
+            return [1, 1, int(batch_size), self.cfg.conv_dim]
+        return [int(batch_size), 1, self.cfg.conv_dim]
+
     def _shard_feeds_projection(self, role, shape, norm_cfg) -> bool:
         """Can ``role``'s tuned decode config consume this norm's width-sharded output directly?
 
@@ -2448,6 +2591,13 @@ class OptimizedDecoder(LightweightModule):
 
     #: Largest activation height, in *tile rows*, that takes the sharded norm path. Above it the
     #: interleaved form already spreads over enough cores by row and the shard would be large.
+    #:
+    #: What reaches it changed with :data:`DECODE_COMPACT_ROWS` and the *bound* deliberately did not.
+    #: Folded, the two residual norms are one tile row at every batch up to 32 and two up to 64, so
+    #: they now take this path at every servable batch instead of falling out above batch 4 — that is
+    #: the fold widening the reach of a rule that was already measured, not a new claim about 4. The
+    #: narrow Q/K head-dim norms are unaffected: they are head-shaped (``[1, batch, heads, dim]``),
+    #: not residual-shaped, so they still leave this path above batch 4.
     NORM_SHARD_MAX_M_TILES = 4
 
     def _norm_shard(self, rows: int, width: int):
@@ -2458,6 +2608,11 @@ class OptimizedDecoder(LightweightModule):
         so a batch-4 step is 128 physical rows, not 4. Getting that wrong builds a shard spec whose
         height covers a quarter of the tensor and the op rejects it with
         ``!shard_grid_fit_error.has_value()``.
+
+        That physical count is also why :data:`DECODE_COMPACT_ROWS` widens this path's reach without
+        touching it: the folded residual ``[1, 1, batch, dim]`` is 32 rows at every batch up to 32,
+        so the two residual norms clear :attr:`NORM_SHARD_MAX_M_TILES` at every servable batch where
+        unfolded they fell out above batch 4.
 
         Only decode-shaped activations take this path. A prefill activation already has enough rows
         to fill the grid the ordinary way, and width-sharding thousands of rows would need a
@@ -2879,22 +3034,29 @@ class OptimizedDecoder(LightweightModule):
         if page_table is None:
             raise ValueError("full_attention decode requires a page_table")
         cfg = self.cfg
-        b = x.shape[0]
+        b, folded = self._decode_rows(x)
         n_heads, n_kv, head_dim = cfg.n_heads, cfg.n_kv_heads, cfg.head_dim
         q_width = n_heads * head_dim
         kv_width = 2 * n_kv * head_dim
 
         fused = self._proj_linear(x, self.w["attn_in"], "attn_in")
         width = int(fused.shape[-1])
-        # [b, 1, width] -> [1, 1, b, width]. Not a metadata view — ttnn.reshape only returns one when
-        # the last dim matches and the second-to-last dims are equal or both tile multiples, and 1 is
-        # neither — so this dispatches a tiled reshape that moves b from the batch axis into the tile
-        # height. It is one op either way, and the alternative (per-row slicing) is more.
-        fused = ttnn.reshape(fused, [1, 1, b, width])
+        if not folded:
+            # [b, 1, width] -> [1, 1, b, width], the layout `nlp_create_qkv_heads_decode` wants. Not a
+            # metadata view — ttnn.reshape only returns one when the last dim matches and the
+            # second-to-last dims are equal or both tile multiples, and 1 is neither — so this
+            # dispatches a tiled reshape of the 9216-wide projection output that moves b from the
+            # batch axis into the tile height. Under :data:`DECODE_COMPACT_ROWS` the activation was
+            # folded before the projection ran, so the projection itself is 32 rows instead of
+            # `32 * b` and this reshape does not exist at all.
+            fused = ttnn.reshape(fused, [1, 1, b, width])
         qkv = _slice_last(fused, 0, q_width + kv_width)
         gate = _slice_last(fused, q_width + kv_width, width)
         ttnn.deallocate(fused)
-        gate = ttnn.reshape(gate, [b, 1, q_width])
+        if not folded:
+            # The gate is the output projection's other operand, so it has to match whichever
+            # convention `_attention_output` will be handed `attn` in.
+            gate = ttnn.reshape(gate, [b, 1, q_width])
 
         q, k, v = self._decode_qkv_heads(qkv, b)
         ttnn.deallocate(qkv)
@@ -2949,8 +3111,10 @@ class OptimizedDecoder(LightweightModule):
             # used and what every PCC number in this stage is measured with.
         )
         ttnn.deallocate(q)
-        # [1, B, n_heads, D] -> [B, 1, n_heads*D]: memory order is already (B, head, dim).
-        attn = ttnn.reshape(attn, [b, 1, n_heads * head_dim])
+        # [1, B, n_heads, D] -> [B, 1, n_heads*D], or the folded [1, 1, B, n_heads*D]: memory order is
+        # already (B, head, dim), so both are the same logical flatten of the last two axes and the
+        # folded one lands on 32 physical rows instead of `32 * B`.
+        attn = ttnn.reshape(attn, [1, 1, b, n_heads * head_dim] if folded else [b, 1, n_heads * head_dim])
         return self._attention_output(attn, gate)
 
     # ------------------------------------------------------------------ gated deltanet
@@ -3090,7 +3254,19 @@ class OptimizedDecoder(LightweightModule):
         # untilize -> concat -> tilize, and that tilize of the whole 8192-wide stream would be thrown
         # away immediately by the shifted-window slicing below.
         rm = ttnn.DRAM_MEMORY_CONFIG
-        pieces = [ttnn.to_layout(buf, ttnn.ROW_MAJOR_LAYOUT, memory_config=rm) for buf in self.conv_state]
+        pieces = []
+        for buf in self.conv_state:
+            piece = ttnn.to_layout(buf, ttnn.ROW_MAJOR_LAYOUT, memory_config=rm)
+            if len(piece.shape) == 4:
+                # The history is stored folded (`[1, 1, batch, conv_dim]`,
+                # :data:`DECODE_COMPACT_ROWS`); the concat below is on the *token* axis of
+                # `[batch, t, conv_dim]`, so it is unfolded back here. ROW_MAJOR with the last dim
+                # unchanged, so this is a view rather than a relayout — prefill pays nothing for the
+                # decode step's fold.
+                unfolded = ttnn.reshape(piece, [int(piece.shape[-2]), 1, int(piece.shape[-1])])
+                _free_unless_aliased(piece, unfolded)
+                piece = unfolded
+            pieces.append(piece)
         qkv_rm = ttnn.to_layout(qkv, ttnn.ROW_MAJOR_LAYOUT, memory_config=rm)
         padded_rm = ttnn.concat(pieces + [qkv_rm], dim=1)
         for piece in pieces:
@@ -3187,11 +3363,19 @@ class OptimizedDecoder(LightweightModule):
         """Copy the new conv history into the persistent buffers, preserving addresses.
 
         ``tail_rm`` is ROW_MAJOR ``[batch, kernel-1, conv_dim]``; each row is tilized on its own.
+
+        The buffers may be folded (``[1, 1, batch, conv_dim]``, :data:`DECODE_COMPACT_ROWS`), in
+        which case each row is folded *before* it is tilized. That reshape is ROW_MAJOR with the last
+        dim unchanged, so ttnn hands back a view and no op is dispatched — the same `to_layout` count
+        this method always had, which is what ``test_no_layout_churn_in_measured_forward`` budgets.
         """
         for idx, buf in enumerate(self.conv_state):
-            row = ttnn.to_layout(tail_rm[:, idx : idx + 1, :], ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-            ttnn.copy(row, buf)
-            ttnn.deallocate(row)
+            row = tail_rm[:, idx : idx + 1, :]
+            if len(buf.shape) == 4:
+                row = ttnn.reshape(row, [1, 1, int(row.shape[0]), int(row.shape[-1])])
+            tiled = ttnn.to_layout(row, ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            ttnn.copy(tiled, buf)
+            ttnn.deallocate(tiled)
 
     def _chunk_delta_rule(self, q, k, v, g, beta):
         """Chunk-parallel gated delta rule over a whole block, sub-batched if needed.
@@ -3283,10 +3467,17 @@ class OptimizedDecoder(LightweightModule):
         normed = ttnn.rms_norm(core_head_major, weight=self.w["gdn_norm"], epsilon=cfg.norm_eps)
         ttnn.deallocate(core_head_major)
         normed = ttnn.reshape(normed, [batch, nv, seq, dv])
+        # The head->token relayout lands in `z`'s convention, because `z` is the gate's other
+        # operand: `[batch, seq, nv * dv]` in prefill and in an unfolded decode step, and the folded
+        # `[1, 1, batch, nv * dv]` under :data:`DECODE_COMPACT_ROWS`. Both are the same logical
+        # flatten of the permuted tensor's last two axes, and taking the shape from `z` rather than
+        # from a flag keeps the two operands of that multiply impossible to mismatch.
+        # ttnn.Shape indexes by int only - it has no slice overload - so walk it by rank.
+        merged_shape = [*(int(z.shape[i]) for i in range(len(z.shape) - 1)), nv * dv]
         if seq > 1:
             merged = ttnn.experimental.nlp_concat_heads(normed)
             ttnn.deallocate(normed)
-            merged = ttnn.reshape(merged, [batch, seq, nv * dv])
+            merged = ttnn.reshape(merged, merged_shape)
         else:
             # All three spellings of this head->token relayout were measured from a captured trace
             # (doc/fused_decoder/logs/probe_decode_micro.txt). nlp_concat_heads wins by more than an
@@ -3297,7 +3488,7 @@ class OptimizedDecoder(LightweightModule):
             # transpose head<->token), which the same probe records.
             swapped = ttnn.permute(normed, (0, 2, 1, 3))
             ttnn.deallocate(normed)
-            merged = ttnn.reshape(swapped, [batch, seq, nv * dv])
+            merged = ttnn.reshape(swapped, merged_shape)
             ttnn.deallocate(swapped)
         # Deliberately unfused, and the reason is the DTYPES, not the magnitudes.
         # `models/demos/blackhole/qwen36/tt/gdn/tp.py:31-34` reports that folding the SiLU here
@@ -3347,9 +3538,17 @@ class OptimizedDecoder(LightweightModule):
         return self._gdn_out(core, z, b, t)
 
     def _gdn_decode(self, x):
-        """One recurrent gated-delta-rule step, updating conv + recurrent state in place."""
+        """One recurrent gated-delta-rule step, updating conv + recurrent state in place.
+
+        ``x`` follows :meth:`_block`'s residual convention, and so does everything derived from it:
+        the packed projection, the four tap ops below and the persistent conv history are all
+        ``[1, 1, batch, ...]`` under :data:`DECODE_COMPACT_ROWS` and ``[batch, 1, ...]`` without it.
+        :meth:`allocate_state` allocates the history in the same convention, which is what keeps
+        ``ttnn.copy`` and ``ttnn.addcmul`` operand-shaped here; a caller that reached this method
+        with the other convention would meet a shape error at the first tap, not a wrong answer.
+        """
         cfg = self.cfg
-        b = x.shape[0]
+        b, _ = self._decode_rows(x)  # every shape below follows `x`'s own convention
         nk, nv = cfg.linear_num_key_heads, cfg.linear_num_value_heads
         dk, dv = cfg.linear_key_head_dim, cfg.linear_value_head_dim
         kernel = cfg.linear_conv_kernel_dim
@@ -3380,28 +3579,57 @@ class OptimizedDecoder(LightweightModule):
                 f"the decode head split folds Q/K/V into one {2 * nk + nv}-head relayout, which "
                 f"assumes linear_key_head_dim == linear_value_head_dim; got {dk} != {dv}"
             )
+        # Where the head-major tensors live is *decided* here, not inherited, and that is not a
+        # style preference. The permute below moves the head axis to dim 1, which leaves a token
+        # axis of 1 that pads to a whole tile per (batch, head): `heads` is `batch * heads` tile
+        # rows — 16 MiB at batch 32 — out of a `rows` tensor that is 512 KiB, and q/k/v are half
+        # that each. Under :data:`DECODE_COMPACT_ROWS` the conv output they come from is one tile
+        # row at every batch, so `_proj_linear` gives it an L1 memory config at every batch and all
+        # of this inherited L1; unfolded the same inheritance reached DRAM above
+        # :data:`DECODE_MATMUL_MAX_M_TILES` because the projection's own row count fell out of
+        # `_ProjectionConfigs`' band. Nothing about the arithmetic changes either way and no PCC bar
+        # can see it, but ~28 MiB of extra L1 held live across the recurrent step at batch 32 leaves
+        # ttnn too little free worker L1 to *build* a legal program config for `_state_matmul`'s
+        # `core_grid` fallback: `create_simple_matmul_program_config` sizes `per_core_M` from
+        # `get_max_l1_space()`, lands on 2, and then its own `per_core_M % out_subblock_h` check
+        # rejects the pair it built (`matmul_program_config.cpp:1291` hardcodes `out_subblock_h = 4`
+        # and only resets it when `out_subblock_w != per_core_N`). So size-gate the relayout the way
+        # :meth:`_delta_rule_step` already size-gates the delta outer product, against the float32
+        # working set it will be sharing that L1 with (:data:`_STATE_STEP_L1_VECTORS`).
+        step_l1_bytes = _STATE_STEP_L1_VECTORS * b * nv * TILE * dk * 4
+        head_mem = ttnn.L1_MEMORY_CONFIG if step_l1_bytes <= self._l1_budget else ttnn.DRAM_MEMORY_CONFIG
+        # Unchanged by the fold: `[batch, 1, conv_dim]` and `[1, 1, batch, conv_dim]` enumerate the
+        # same elements in the same order, so this is the same logical reshape either way. No
+        # `memory_config` on the reshape: the head axis is still dim -2 here, so `rows` is two tile
+        # rows per batch entry rather than 32, and forcing a placement on it could cost a copy where
+        # ttnn would otherwise hand back a view.
         rows = ttnn.reshape(activated, [b, 1, 2 * nk + nv, dk])
         ttnn.deallocate(activated)
-        heads = ttnn.permute(rows, (0, 2, 1, 3))
+        heads = ttnn.permute(rows, (0, 2, 1, 3), memory_config=head_mem)
         ttnn.deallocate(rows)
-        v = ttnn.slice(heads, [0, 2 * nk, 0, 0], [b, 2 * nk + nv, 1, dv])
+        v = ttnn.slice(heads, [0, 2 * nk, 0, 0], [b, 2 * nk + nv, 1, dv], memory_config=head_mem)
 
         # Q and K are adjacent on the head axis, so one repeat_interleave over the pair does both
         # GQA expansions: [q0..q15, k0..k15] -> [q0,q0,...,q15,q15, k0,k0,...,k15,k15]. That halves
         # the untilize/concat/tilize this op lowers to.
         repeats = nv // nk
-        qk = ttnn.slice(heads, [0, 0, 0, 0], [b, 2 * nk, 1, dk])
+        qk = ttnn.slice(heads, [0, 0, 0, 0], [b, 2 * nk, 1, dk], memory_config=head_mem)
         ttnn.deallocate(heads)
         if repeats > 1:
-            # L1, not the op's default: `repeat_interleave` lowers to untilize -> concat -> tilize, and
-            # the profiler shows the op-to-op stall in the traced replay before that tilize as the single
-            # largest gap in the linear decode window. README §7's generated itemisation carries its size
-            # for the shipped L1 path; the DRAM intermediate this replaced was worse.
-            expanded = ttnn.repeat_interleave(qk, repeats, dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
+            # L1 wherever the relayout is in L1, not the op's default: `repeat_interleave` lowers to
+            # untilize -> concat -> tilize, and the profiler shows the op-to-op stall in the traced replay
+            # before that tilize as the single largest gap in the linear decode window. README §7's
+            # generated itemisation carries its size for the shipped L1 path; the DRAM intermediate this
+            # replaced was worse. It is `head_mem` rather than a flat `L1_MEMORY_CONFIG` because after the
+            # GQA expansion this tensor is `2 * num_v_heads` heads wide - as wide as `heads` itself, 16 MiB
+            # at batch 32 - so exempting it from the gate above would largely defeat the gate. The batches
+            # that give the L1 spelling up are the ones the gate has already found do not fit, and they are
+            # the supported-but-untuned band README §9 item 5 records.
+            expanded = ttnn.repeat_interleave(qk, repeats, dim=1, memory_config=head_mem)
             ttnn.deallocate(qk)
             qk = expanded
-        q = ttnn.slice(qk, [0, 0, 0, 0], [b, nv, 1, dk])
-        k = ttnn.slice(qk, [0, nv, 0, 0], [b, 2 * nv, 1, dk])
+        q = ttnn.slice(qk, [0, 0, 0, 0], [b, nv, 1, dk], memory_config=head_mem)
+        k = ttnn.slice(qk, [0, nv, 0, 0], [b, 2 * nv, 1, dk], memory_config=head_mem)
         ttnn.deallocate(qk)
 
         beta, g = self._gdn_gates(a, b_raw, 1, 1)
@@ -3457,7 +3685,19 @@ class OptimizedDecoder(LightweightModule):
         return self._state_cfg_cache[key]
 
     def _state_matmul(self, a, b, role: str, batch: int, *, transpose_a: bool = False, memory_config=None):
-        """One recurrent-state matmul under its tuned program config, or the ``core_grid`` fallback."""
+        """One recurrent-state matmul under its tuned program config, or the ``core_grid`` fallback.
+
+        The fallback is not shape-determined: ttnn sizes it from the worker L1 that happens to be
+        *free* when the op is built (``get_max_l1_space()`` -> ``get_per_core_factor()``), and one of
+        the values it can land on — ``per_core_M`` 2 — makes it reject its own program config with
+        "per_core_M must be divisible by out_subblock_h"
+        (``matmul_program_config.cpp:1291`` hardcodes ``out_subblock_h = 4`` and only resets it when
+        ``out_subblock_w != per_core_N``). So how much L1 the decode step is holding when it gets
+        here is part of this call's contract, which is what :meth:`_gdn_decode`'s ``head_mem`` gate
+        exists to bound. Nothing here can repair it locally: the tuned config is dropped because the
+        op's ``batch * M-blocks * N-blocks`` no longer fits the worker grid, not because the operands
+        changed shape.
+        """
         program_config = self._state_matmul_config(role, batch)
         return ttnn.matmul(
             a,
@@ -3542,12 +3782,21 @@ class OptimizedDecoder(LightweightModule):
     def _block(self, x, *, mode, logical_len=None, page_table=None, chunk_start_idx=0, current_pos=None, rot_idxs=None):
         """One decoder block: norm → mixer → residual → norm → MoE → residual."""
         self._decode_phase = mode == "decode"
-        b, t = x.shape[0], x.shape[1]
+        b, t = int(x.shape[0]), int(x.shape[1])
+        tokens = b * t
+        # The whole decode mixer runs on the folded residual (:data:`DECODE_COMPACT_ROWS`). The fold
+        # is here rather than at each call site so that exactly one shape convention reaches the
+        # norms, the projections, the slices and the state: `[1, 1, tokens, dim]`, which is what the
+        # MoE half of this block has always used. `x` belongs to the caller, so the folded copy is
+        # freed below through `_free_unless_aliased` — at batch 1 the reshape is a view of `x` itself
+        # and freeing it would be a use-after-free.
+        residual = self._fold_decode_rows(x, tokens)
+        folded = residual is not x
         # The token-mixer norm hands its shard straight to the in-projection when that projection's
         # tuned config can take it (§4.21). The MoE norm below cannot: its consumer is `shared_in`,
         # whose `in0_block_w` is wider than the norm's per-core shard.
         attn_in = self._norm(
-            x,
+            residual,
             self.w["attn_norm"],
             keep_sharded_for=("attn_in" if self.is_full_attention else "gdn_in") if mode == "decode" else None,
         )
@@ -3563,12 +3812,16 @@ class OptimizedDecoder(LightweightModule):
                 mixed = self._gdn_decode(attn_in)
         ttnn.deallocate(attn_in)
 
-        h = ttnn.add(x, mixed, dtype=self.policy.residual_dtype)
+        h = ttnn.add(residual, mixed, dtype=self.policy.residual_dtype)
         ttnn.deallocate(mixed)
+        # Frees the fold, no-ops on `x` itself and on the batch-1 view of it.
+        _free_unless_aliased(residual, x)
 
-        tokens = b * t
         padded_tokens = _align_up(tokens, TILE)
-        ff_in = ttnn.reshape(self._norm(h, self.w["ff_norm"]), [1, 1, tokens, self.cfg.dim])
+        ff_norm = self._norm(h, self.w["ff_norm"])
+        # Already `[1, 1, tokens, dim]` when the mixer ran folded, so the reshape the MoE used to
+        # need is the fold at the top of this method instead of an extra op.
+        ff_in = ff_norm if folded else ttnn.reshape(ff_norm, [1, 1, tokens, self.cfg.dim])
         if padded_tokens != tokens:
             # Do not free the pre-pad tensor: ttnn.pad may alias it.
             ff_in = _pad_dim(ff_in, 2, padded_tokens - tokens)
@@ -3580,10 +3833,19 @@ class OptimizedDecoder(LightweightModule):
             trimmed = ttnn.slice(ff_out, [0, 0, 0, 0], [1, 1, tokens, self.cfg.dim])
             ttnn.deallocate(ff_out)
             ff_out = trimmed
-        ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
+        if not folded:
+            ff_out = ttnn.reshape(ff_out, [b, t, self.cfg.dim])
         out = ttnn.add(h, ff_out, dtype=self.policy.residual_dtype)
         ttnn.deallocate(h)
         ttnn.deallocate(ff_out)
+        if folded:
+            # Back to the layer's public `[b, t, dim]` contract. This is the same op the unfolded
+            # spelling spent on `ff_out` above, moved one add later, so the block's reshape count is
+            # unchanged; a caller that wanted the folded residual carried between layers would save
+            # this one and the fold at the top.
+            unfolded = ttnn.reshape(out, [b, t, self.cfg.dim])
+            _free_unless_aliased(out, unfolded)
+            out = unfolded
         return out
 
     def prefill_forward(self, x, *, start_pos: int = 0, page_table=None, chunk_size: int | None = None):
