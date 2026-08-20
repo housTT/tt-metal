@@ -246,3 +246,11 @@ AIME artifact, a second fresh-context `$stage-review` returned `clean-pass`
 with no required work; its complete verdict is `stage_review.md`.
 
 Local checkpoint commits are recorded below. Nothing is pushed.
+
+- Repository: `/home/ttuser/dev/qwen-perf/tt-metal`
+- Branch: `agentic-research/hous/qwen3.8-27b`
+- Stage implementation/evidence checkpoint: `acae6c2370a`
+- Commit-ledger follow-up: recorded by the next local commit
+- Excluded as unrelated user state: `tt_metal/third_party/tracy`,
+  `tt_metal/third_party/umd`, and
+  `tt_metal/third_party/tt-cluster-descriptors/`
