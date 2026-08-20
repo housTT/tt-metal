@@ -464,3 +464,50 @@ minus that bound is 2.424686 ms, matching the 2.416293-ms sampler.
 
 No commit was pushed. Unrelated Tracy, UMD, and cluster-descriptor worktree
 changes were excluded.
+
+## 2026-08-20: runner-side context-contract gate repair
+
+The independent post-completion runner gate
+`.agents/prompts/model_bringup_multigoal/06-full-model.check.sh` exited 2 after
+the autoregressive degeneracy check passed. The reproduced critical diagnostic
+was:
+
+```text
+models/autoports/qwen_qwen3_6_27b/doc/context_contract.json does not record the current supported context.
+```
+
+The capacity result itself was present and unchanged under
+`full_model.maximum_logical_sequence_length=262144`, together with the
+20,975,165,440-byte/device full-model plan and 13,384,572,928 bytes/device of
+unreserved DRAM. The bug was that the stage document did not also expose the
+runner schema's canonical top-level fields. Added
+`hf_advertised_context=262144` and `current_supported_context=262144`; this is
+a schema repair only, with no capability reduction or runtime-policy change.
+
+Reverification command:
+
+```bash
+MODEL_DIR=models/autoports/qwen_qwen3_6_27b \
+HF_MODEL=Qwen/Qwen3.6-27B \
+.agents/prompts/model_bringup_multigoal/06-full-model.check.sh
+```
+
+Final result: exit 0. The autoregressive artifact remained non-degenerate
+(`num_tokens=63`, adjacent duplication `0.0`, trigram-loop fraction `0.0476`),
+and the context checker reported:
+
+```text
+Context contract OK for models/autoports/qwen_qwen3_6_27b: target=262144, supported=262144 (full HF context).
+```
+
+The context checker also exits 0 when invoked with only `--model-dir` and when
+invoked with only `--hf-model`, proving that the repaired top-level contract is
+self-describing rather than relying on the locally cached HF configuration.
+
+Fresh independent `$stage-review` task `/root/full_model_gate_review` returned
+`clean-pass` with no required work, other concerns, or hard-check gaps. The
+reviewer independently inspected the original goal and failure log, checker,
+model/generator context bounds, capacity evidence, generated outputs, and
+sealed artifact manifest; it reran the full runner and all three context-check
+argument modes successfully. Its anomaly ledger classified the failure as an
+evidence-schema compatibility bug, fixed by the canonical top-level fields.
