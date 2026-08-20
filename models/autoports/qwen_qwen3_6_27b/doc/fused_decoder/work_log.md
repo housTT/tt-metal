@@ -151,4 +151,6 @@ Initial stage review: `more-work-needed`; all findings above were addressed.
 
 Final stage review: `clean-pass`; no required work or hard-check gaps.
 
-Stage-owned commit: pending.
+Stage-owned implementation and evidence commit: `5d436142493e9a1085890b483cb86307877d9133`.
+
+The successor documentation-only commit records this SHA; its SHA is reported in the final handoff.
