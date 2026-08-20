@@ -9,6 +9,19 @@ blockers**, and every required sampled row passed or is recorded below with its 
 Because the evals ran under `--limit-samples-mode ci-nightly`, **every accuracy number in this stage is
 a CI-subset result, not full-set accuracy**, and is not comparable to a full-set release threshold.
 
+Three qualifiers belong with that headline, not buried below:
+
+1. **Every gradable row in the report is `NA`.** 20/20 benchmark rows are ungraded (no `perf_reference`
+   for this model) and 2/2 eval rows have no reference score to compare against, and `EXPERIMENTAL`
+   status disables eval and benchmark enforcement anyway. The PASS proves the workflow ran end to end
+   and nothing errored; it is not a quality gate (§11).
+2. **The shipped configuration has no API-conformance coverage.** `Spec Tests` is `NA`. The suite was
+   run separately and 15 of 22 rows failed; 13 are proven harness incompatibility with a
+   reasoning-parser server, 2 trace to a real pre-existing model defect. They are **disclosed, not
+   waived** (§12).
+3. **One carried-forward readiness gap was confirmed here:** repeated identical long generations are not
+   byte-reproducible on this server (§12, Class C). Pre-existing, from the vLLM-integration stage.
+
 ---
 
 ## 1. Topology and server mode
@@ -19,7 +32,7 @@ a CI-subset result, not full-set accuracy**, and is not comparable to a full-set
 | host / context | `tt-quietbox-part-2`, the reservation context that owns the tt-metal checkout. There is no separate physical loudbox host in this topology; Docker was never needed, so the Docker fallback was not used. |
 | device | 4x Blackhole `p300c` chips, `1x4` mesh under `FABRIC_1D_RING`. TTI device name **`p300x2`** (`DeviceTypes.P300X2` = "BH QuietBox 2", 2x P300 cards = 4 chips, `MESH_DEVICE` `(1, 4)`), which is the TTI label for exactly this hardware. |
 | inference server | the autoport's own vLLM server, started from the tt-metal checkout by `models.common.readiness_check.run_vllm_server`, on port **8100**. TTI ran purely as an HTTP client against it. |
-| tt-metal commit | `278e0ba` (`278e0ba8a50`) |
+| tt-metal commit | `278e0ba` (`278e0ba8a50`) — the checkout HEAD when the TTI spec was written. Note: branch history was later rewritten, so `278e0ba` is no longer an ancestor of this branch and the `code_link` in the report does not resolve from it. The autoport implementation at `278e0ba` is identical to the delivered tree apart from the two regression tests added by §6. |
 | vLLM checkout | `/home/ttuser/dev/ornith/vllm` at `5380fd4`, **plus this stage's uncommitted plugin fix** (§6) |
 
 ## 2. tt-inference-server version
@@ -154,19 +167,27 @@ Establishing a GPU reference for these two tasks is the follow-up that would tur
 
 Sanity on the absolute values: 82.08 IFEval and 50.0 GPQA-Diamond are in the expected band for a 35B
 Qwen3.5-derived reasoning model, so neither looks like a broken forward pass. The `r1_gpqa_diamond`
-subset is 10 samples with a 16.7-point standard error — an earlier run of the same 10-sample subset on
-the same code scored 60.0. **Do not read a 10-sample CI-subset GPQA number as an accuracy measurement.**
+subset is 10 samples with a 16.7-point standard error. An earlier release attempt on the same code and
+the same 10-sample subset scored **60.0** — committed as `evals/prior_run_same_subset/` so the spread is
+checkable, not just asserted. That run was abandoned mid-benchmark by the §6 hang, so it is not the
+shipped result; its eval half had already completed and is kept only as this variance evidence (its
+`ifeval` on the same 28 samples was 77.97 against the shipped 82.08).
+**Do not read a 10-sample CI-subset GPQA number as an accuracy measurement.**
 
 ### Why ci-nightly, and the projected unrestricted runtime
 
 Projected from this stage's own measured wall-clock (`ifeval` 28 samples in 19.6 min → 0.70 min/sample;
 `r1_gpqa_diamond` 10 samples in 79.1 min → 7.91 min/sample):
 
-| task | full set | projected unrestricted runtime |
-|---|---|---|
-| `ifeval` | 541 | ~6.3 h |
-| `r1_gpqa_diamond` | 198 | ~26.1 h |
-| **total** | | **~32 h (lower bound)** |
+| task | full set | per-sample extrapolation | batch-aware extrapolation |
+|---|---|---|---|
+| `ifeval` | 541 | ~6.3 h | ~6.3 h (28 ran as ~1 batch at `num_concurrent=32`, so ~19 batches x 19.6 min) |
+| `r1_gpqa_diamond` | 198 | ~26.1 h | **~9 h** (10 ran as one concurrent batch in 79 min, so ~20 batches) |
+| **total** | | ~32 h | **~15 h** |
+
+The per-sample column is the naive extrapolation and overstates GPQA, because those 10 samples ran
+concurrently rather than serially. The batch-aware column is the honest one: **~15 h**. Both are far
+past this stage's window, so the conclusion is unchanged, but the number quoted should be ~15 h.
 
 ~32 h of evals alone is prohibitive for this stage's window, so `--limit-samples-mode ci-nightly` was
 used. It reduces **eval sampling only**: nothing else was reduced — the context stayed at 262144, the
@@ -219,6 +240,11 @@ resumed requests carrying their already-accepted output tokens, not oddly-sized 
 `req_state.output_token_ids` against `CachedRequestData.num_output_tokens`, mirroring upstream
 `gpu_model_runner._update_states`. Two regression tests were added to
 `models/autoports/ornith_ai_ornith_1_0_35b/tests/test_generator_vllm.py`.
+
+Two residual risks that `AUTOFIX.md` records and this fix does **not** close: `num_output_tokens == 0`
+at resume is still unreconciled (shared with upstream `gpu_model_runner`; it cannot deadlock unless
+`max_tokens <= 1`, but it costs one corrupted output token), and no test asserts output *correctness*
+across a preemption — only that the request completes. See §11.
 
 Note what was **not** done: the request length was not aligned or rounded, the benchmark was not
 shortened, concurrency was not lowered, and the context was not capped. Per the stage contract, a valid
@@ -298,6 +324,12 @@ and was followed by a `1x4` mesh open/close smoke.
 | after the §6 hang | host-side deadlock, devices idle | tt-triage captured **before** killing; stale `run_vllm_server`/`EngineCore` killed; `tt-smi -ls / -r / -ls` + mesh smoke | all exit 0, `MESH_SMOKE_OK` (`logs/device_reset_after_hang.txt`, `logs/mesh_smoke_after_hang.txt`) |
 | 20:05:47Z | server died during device init: `TT_THROW: Device 0: Timed out while waiting for active ethernet core 29-25 to become active again` (`llrt.cpp:594`) — an **ERISC/infrastructure fault**, not a model fault | stale processes killed, `tt-smi -ls / -r / -ls` + mesh smoke | all exit 0, all four boards present, `MESH_SMOKE_OK` (`logs/device_reset_erisc_recovery.txt`, `logs/mesh_smoke_after_erisc.txt`); server relaunched cleanly at 20:13:15Z |
 
+| 00:39:03Z | the **same** ERISC fault on a later server start, while gathering the §12 round-2 controls | same recovery | all exit 0, `MESH_SMOKE_OK` (`logs/device_reset_erisc_recovery2.txt`, `logs/mesh_smoke_after_erisc2.txt`); server up at 00:45:13Z |
+
+The ERISC fault appeared **both** times a server was started without an intervening `tt-smi -r` after a
+previous server had exited, and did not appear on any start that followed a reset. Treat a reset as a
+required step between server launches on this host rather than as recovery-only.
+
 One reset was enough each time; no second reset, no lock clearing, and no host reboot was required.
 No ARC or remote-Ethernet fault other than the one above. `$autofix` was used for the model/serving hang
 (§6) and **not** for the ERISC fault, which was handled as infrastructure recovery.
@@ -313,14 +345,27 @@ No ARC or remote-Ethernet fault other than the one above. `$autofix` was used fo
 * hang evidence: `hang/`, `triage/`; fix report and repro: `AUTOFIX.md`, `repro/`
 * fix verification: `fixverify/`; spec-test probe and controls: `spec_tests_probe/`
 * TTI checkout diff: `tti_local_registration.diff`
-* `report/serving_capability_stage11_b32.json` — the serving-capability record this stage's server
+* `report/READ_THIS_FIRST.md` — how to read the copied release report (CI-subset labels, what the
+  ungraded PASS means, what `Spec Tests: NA` means)
+* `report/serving_capability_stage11_b32.json` and `report/serving_capability_stage11_b32_warmup.json` —
+  the serving-capability records this stage's server
   wrote (`max_num_seqs 32`, `num_blocks 4128`, `max_model_len 262144`). The tracked
-  `readiness_vllm/vllm_serving_capability_final.json` is optimized-vLLM's own `max_num_seqs 1`
-  record and was restored to its committed contents, because the shared runner overwrites that path
-  on every server launch and that file is the earlier stage's evidence, not this one's.
+  `readiness_vllm/vllm_serving_capability.json` and `..._final.json` are optimized-vLLM's own
+  `max_num_seqs 1` / `num_blocks 4097` records and were **restored** to the earlier stage's contents,
+  because the shared runner rewrites both paths on every server launch and they are that stage's
+  evidence, not this one's. Commit `0e8198d3513` (an earlier session of this stage) had committed the
+  b32 version of `vllm_serving_capability.json` over it, which contradicted
+  `doc/vllm_integration/README.md` ("4097 blocks") and `doc/optimized_vllm/README.md` ("the final b1
+  server's warm-up-time report"); that is undone here.
 
 Nothing copied contains `.env`, tokens, weights, the HF cache, Docker layers, persistent TT caches,
-profiler CSV bulk, or raw eval sample dumps. Total copy-back: ~1.2 MB.
+profiler CSV bulk, or raw eval sample dumps. Total copy-back: **433 KB**.
+
+`report_data_*.json` and `runtime_model_spec_*.json` each appear twice, once at the root of
+`doc/tti_release/` and once under `report/`. That is deliberate: the runner-side gate
+(`.agents/prompts/model_bringup_multigoal/11-tti-release.check.sh`) globs
+`<release_dir>/*model*spec*.json` and `<release_dir>/*report*data*.json` non-recursively, so the
+implementation-path proof has to sit at the top level. The copies are byte-identical.
 
 ### Commits (local only — nothing was pushed)
 
@@ -334,74 +379,175 @@ carried forward with the model; `AUTOFIX.md` holds the full analysis. Neither co
 
 ## 11. Row-by-row classification
 
+**Read the Acceptance PASS narrowly.** The spec this stage wrote sets `status: EXPERIMENTAL`, which is
+the honest status for a first bring-up and matches what `Qwen3.6-27B` carries. But in
+`workflows/workflow_types.py`, `ModelStatusTypes.EXPERIMENTAL.required_target_tiers == []` and
+`evals_enforced == False`, so at this status an eval FAIL and every benchmark-tier failure would also
+have been demoted to non-blocking. Combined with the fact that **every gradable row in the report is
+`NA`** — 20/20 benchmark rows (no `perf_reference` for this model, so `llm_module/target_checks.py`
+renders them ungraded precisely so "no targets" cannot read as "passed") and 2/2 eval rows (no reference
+score) — the `Acceptance Criteria: PASS, 0 blockers` headline proves that **the workflow ran end to end
+and nothing errored**. It is not a quality gate. The substantive quality signals in this stage are
+IFEval 82.08 on the CI subset, 907/907 benchmark requests completing across the full context sweep, and
+the §12 control outputs.
+
 | row | result | classification |
 |---|---|---|
-| Acceptance Criteria | PASS, 0 blockers | pass |
+| Acceptance Criteria | PASS, 0 blockers | pass — but see the paragraph above: it is ungraded |
 | Benchmarks — all 20 sweep points, ISL 128 → 131072 | ran, 907 requests, **0 failed** | pass (ungraded: no perf targets configured, `EXPERIMENTAL`) |
 | `ifeval` (CI subset, 28/541) | 82.08 | **no-reference (N/A)** — see §5; not a failure, not a pass |
 | `r1_gpqa_diamond` (CI subset, 10/198) | 50.00 | **no-reference (N/A)** — see §5; 10 samples, stderr 16.7 |
 | `meta_ifeval`, `meta_gpqa_cot` | not run | **not applicable** — Meta-Llama-only datasets, structurally impossible for this checkpoint (§5). Not a waived failure. |
-| Spec Tests | `NA` (no blocks) | **out of scope for this configuration** — see §12 |
+| Spec Tests | `NA` (no blocks) | **no coverage in the shipped configuration** — the suite was run
+  separately and 15/22 failed; 13 are proven harness incompatibility, 2 trace to the Class C defect.
+  **Disclosed, not waived** (§12). |
 | §6 async-resume deadlock | was blocking | **fixed** and re-verified end to end |
+| Class C — long generations not byte-reproducible | pre-existing, confirmed here | **readiness gap,
+  carried forward** from the vLLM-integration stage (§12) |
 
-No row is a `readiness-fail`.
+No row in the shipped release report is a `readiness-fail`. Outside it, the stage records one
+carried-forward readiness gap (Class C) and one uncovered area (API conformance).
 
-## 12. Spec tests: why the report shows N/A, and what was measured anyway
+### Residual risks carried into handoff
+
+* **Class C** — repeated identical long generations differ (§12). Pre-existing; not fixed here.
+* **`num_output_tokens == 0` at resume is still not reconciled** by the §6 fix (`AUTOFIX.md` residual
+  risk 1, shared with upstream `gpu_model_runner`). It cannot deadlock unless `max_tokens <= 1`, but for
+  larger `max_tokens` it costs one wasted step and one corrupted output token.
+* **No test asserts output *correctness* across a preemption** (`AUTOFIX.md` residual risk 3). The §6
+  verification proves the request *completes*; the release sweep now routinely enters that regime at
+  `isl=16384 concurrency=16`.
+* **No graded quality row exists for this model.** Establishing a GPU reference for `ifeval` and
+  `r1_gpqa_diamond`, and a `model_performance_reference.json` entry for the benchmark tiers, is what
+  would turn this from a completed workflow into a real gate.
+
+## 12. Spec tests: why the report shows N/A, what was measured anyway, and what it found
 
 The shipped release configuration produced `Spec Tests: NA (no blocks present)` because
 `test_module/dispatch.py` found no spec-test suite matching `model='Ornith-1.0-35B' device='p300x2'`.
 Rather than accept that silently, the model was temporarily registered into TTI's
-`VLLMParamConformanceTest` matrix and the suite was **run in full** (46 min, 22 test cases,
-`logs/tti_spectests_probe.log.gz`). It failed 13 of 22. Every failure was then replayed against the same
-server with the suite's own payloads plus a paired control (`spec_tests_probe/controls.py`,
-`controls.json`). The result:
+`VLLMParamConformanceTest` matrix and the suite was **run in full** (46 min,
+`logs/tti_spectests_probe.log.gz`). Result: **15 of 22 parametrisations failed, 7 passed**
+(`test_n[2]`, `test_n[3]`, `test_max_tokens[5]`, `test_max_tokens[10]`, `test_logprobs`,
+`test_determinism_parameters[top_k-1]`, `test_determinism_parameters[top_p-0.01]`).
 
-**Class A — `content is None` (9x `test_penalties`, `test_coherence_verbatim_echo`, `test_stop[stop_seq0]`,
-`test_non_uniform_seeding`).** This is the reasoning parser, not the model. The suite asserts on
-`message["content"]` as a string; for a thinking model served with `--reasoning-parser qwen3`, a
-generation that never leaves the `<think>` block within the requested budget correctly returns
-`content: null` with the text in `reasoning`. Controls:
+Every failure was replayed against the same server with the suite's own payloads plus paired
+controls — first round in `spec_tests_probe/controls.json`, then a **second, stronger round** in
+`spec_tests_probe/controls_v2.json` that compares the **whole generation** (reasoning trace + content,
+SHA-256) across three repeats instead of only the short final answer, and adds the one row the first
+round missed. The second round changed two of the first round's conclusions; what follows is the
+corrected account.
+
+### Class A — `content is None` (12 rows): the reasoning parser, confirmed
+
+`test_penalties` (9), `test_coherence_verbatim_echo`, `test_stop[stop_seq0]`, `test_non_uniform_seeding`.
+The suite asserts on `message["content"]` as a string. For a thinking model served with
+`--reasoning-parser qwen3`, a generation that never leaves the `<think>` block within the requested
+budget correctly returns `content: null` with the text in `reasoning`. Controls:
 
 | suite payload | as the suite sends it | same payload, `enable_thinking=false` |
 |---|---|---|
 | verbatim echo, `max_tokens 32` | `finish_reason length`, 32 tokens, `content=None`, 123 reasoning chars | `content = "The quick brown fox jumps over the lazy dog."` — **exact verbatim echo** |
 | penalties baseline, `max_tokens 1024` | `finish_reason length`, 1024 tokens, `content=None`, 4163 reasoning chars | proper repetitive story, 225 tokens |
 | `stop: ["Stop"]`, `max_tokens 1024` | stop fired inside the think block at 31 tokens, `content=None` | `content = "1, 2, 3, 4, 5\n"`, `"Stop"` correctly absent — **the `stop` parameter works** |
+| `test_non_uniform_seeding`, `seed 0`, `max_tokens 64` | 64 tokens, `content=None` on all three repeats | joke returned, 22 tokens, **byte-identical on all three repeats** |
 
 The coherence guard's actual property — "the model must echo an exact sentence verbatim" — **passes**;
-it also passes with thinking left on and a 4096-token budget. So no forward-pass or decode-trace
-corruption is being masked.
+it also passes with thinking left on and a 4096-token budget. No forward-pass or decode-trace corruption
+is being masked.
 
-**Class B — `requests.exceptions.ReadTimeout (read timeout=30)` (`test_determinism_parameters[temperature-0.0]`,
-`test_seed_reproducibility`, `test_stop[stop_seq1]`).** The suite's default 30 s client read timeout is
-too tight for this device: this autoport decodes at ~7 tok/s/user on a `max_num_seqs=32` server (the
-padded 32-row decode step, a known and documented `doc/optimized_vllm` limitation), and a thinking model
-emits 120–170 tokens of reasoning before a two-word answer. Measured with an adequate timeout, the
-underlying properties **pass**:
+### Class B — `ReadTimeout (read timeout=30)` (3 rows): reachable, and the reason is Class C
 
-| control | run 1 | run 2 | verdict |
+`test_determinism_parameters[temperature-0.0]`, `test_seed_reproducibility`, `test_stop[stop_seq1]`.
+The suite's default 30 s client read timeout is genuinely reachable on this device: this autoport
+decodes at ~7 tok/s/user on a `max_num_seqs=32` server (the padded 32-row decode step, a known
+`doc/optimized_vllm` limitation), and a thinking model emits a variable-length reasoning block before a
+two-word answer. Measured over three repeats each (`controls_v2.json`):
+
+| control | completion tokens across 3 repeats | max elapsed | exceeds the suite's 30 s? |
 |---|---|---|---|
-| greedy determinism (`temperature 0.0`) | 22.6 s, `"\n\nParis."` | 21.6 s, `"\n\nParis."` | **identical** |
-| seed reproducibility (`seed 42, temperature 0.5`) | 17.2 s, `"\n\nParis."` | 23.4 s, `"\n\nParis."` | **identical** |
+| greedy, `temperature 0.0` | 149 / 155 / 182 | 25.5 s | no |
+| `seed 42, temperature 0.5` | 111 / 226 / 257 | **35.7 s** | **yes** |
+| `test_stop[stop_seq1]` (stop strings the model never emits, runs to `max_tokens 1024`) | — | ~142 s | yes |
 
-(`test_stop[stop_seq1]` uses stop strings the model never emits, so it runs to `max_tokens=1024` ≈ 142 s
-— a clean timeout.) Caveat recorded honestly: these two controls ran at concurrency 1. The open
-integration-stage defect "identical greedy requests are not bit-reproducible above padded decode batch
-4" is **not** contradicted or cleared by them.
+So the timeout is not a fixed property of the payload — it is driven by how long the reasoning block
+happens to be on a given run, which is Class C below.
 
-**Why the suite is not in the shipped configuration.** This is not a convenience choice. In
-`tt-inference-server` v0.20.0 the `VLLMParamConformanceTest` matrix contains `qwen3_32b`,
-`llama_3_1_8b`, `llama_70b_family` and `gpt_oss_20b` — and **every one of them is served with
-`reasoning_parser = None`**. The only model in the entire v0.20.0 catalog that sets a reasoning parser
-is `Qwen/Qwen3.6-27B` (`reasoning_parser: qwen3`, the same parser, on the same `P300X2` device), and it
-is **not** in the spec-test matrix. Upstream therefore does not apply this suite to reasoning-parser
-models, and the nightly-equivalent configuration for this model is the one without it. The temporary
-registration was reverted (`tti_local_registration.diff` contains only the three §3 edits), and the full
-probe output plus controls are published here rather than dropped.
+### Class C — long generations are not reproducible: a real, carried-forward model defect
 
-Follow-up worth filing upstream: `llm_module/test_vllm_chat_completions.py` assumes
-`choices[0].message.content` is always a string and defaults to a 30 s read timeout; both assumptions
-break for any reasoning-parser model, which is why the suite currently excludes them all.
+This is the correction to the first round of controls, which compared only `message.content` — for these
+prompts a literal `"\n\nParis."` — and on that basis wrongly reported the model as
+"greedy- and seed-reproducible". Comparing the **full generation** shows the opposite:
+
+| repeated identical request | full generation identical across 3 runs? | final content identical? |
+|---|---|---|
+| greedy `temperature 0.0`, thinking on (149–182 tokens) | **NO** | yes |
+| `seed 42, temperature 0.5`, thinking on (111–257 tokens) | **NO** | yes |
+| `seed 0, temperature 0.7`, thinking on, `max_tokens 64` | **NO** | yes (both `None`) |
+| `seed 0, temperature 0.7`, thinking **off** (22 tokens) | **YES** | yes |
+| greedy `temperature 0.0`, thinking **off** (2 tokens) | **YES** | yes |
+
+Short generations are byte-reproducible; long ones diverge. This is the vLLM-integration stage's open
+defect — *identical greedy requests are not bit-reproducible above padded decode batch 4*
+(`doc/vllm_integration/README.md`, carried forward in `doc/optimized_vllm/README.md`) — visible at
+request concurrency 1, because the shipped `max_num_seqs=32` server always executes the padded 32-row
+decode step regardless of how many requests are in flight. It is **not** introduced by this stage and
+**not** caused by the §6 fix; it is the pre-existing defect showing up in a new place.
+
+Anomaly record, per the review standard:
+
+```text
+Observed anomaly:      repeated identical requests produce different generations at concurrency 1
+Evidence:              spec_tests_probe/controls_v2.json — 149/155/182 and 111/226/257 completion
+                       tokens over three repeats of one payload; SHA-256 of the full generation differs
+Affected path:         padded 32-row decode step + on-device sampling
+Control or comparison: the same payloads with thinking off (2 and 22 tokens) are byte-identical over
+                       three repeats, so short generations do reproduce; prior-stage records show
+                       bit-reproducibility at padded batch <= 4 and loss at >= 8
+Likely subsystem:      decode batch padding / on-device sampling (pre-existing, vllm_integration stage)
+Investigation:         replayed three times per payload with full-generation hashing, with and without
+                       thinking, at concurrency 1
+Resolution:            readiness gap, carried forward — not fixed in this stage, not masked either.
+                       It does not change any accuracy number here (both evals ran once), but a
+                       reproducibility claim must not be made for this model until it is fixed.
+```
+
+### Why the suite is not in the shipped configuration — corrected
+
+An earlier draft of these notes claimed "the only model in the entire v0.20.0 catalog that sets a
+reasoning parser is `Qwen/Qwen3.6-27B`". That is wrong as written and is corrected here.
+`metadata.reasoning_parser_name` is set for many models (`gpt-oss-20b`/`120b`, `Qwen3-8B`, `Qwen3-32B`,
+`QwQ-32B`, all `DeepSeek-R1*`, `gemma-4-31B-it`). The precise, load-bearing statement is about the field
+that actually puts `--reasoning-parser` on the server command line:
+
+> In `release_model_spec.json` (v0.20.0), **`device_model_spec.vllm_args.reasoning_parser` is set for
+> exactly one model: `Qwen/Qwen3.6-27B`** (P300X2 and P150X8). It is `None` for all four models in the
+> `VLLMParamConformanceTest` matrix — `qwen3_32b`, `llama_3_1_8b`, `llama_70b_family`, `gpt_oss_20b` —
+> so upstream runs that suite only against servers launched **without** a reasoning parser, which is
+> what decides whether `message.content` can be `None`. `Qwen3.6-27B`, the one model actually served
+> with the parser, is not in the matrix.
+
+Upstream does have a reasoning-aware conformance suite —
+`VLLMQwen3StreamingParamConformanceTest` (`llm_module/test_vllm_qwen3_streaming.py`), which accumulates
+`delta["reasoning_content"]` and sends `chat_template_kwargs {"thinking": true, "enable_thinking": true}`
+— but it is a Qwen3-32B-specific streaming regression suite, not a general conformance suite, and it is
+matrixed only for `qwen3_32b`. There is no general reasoning-aware conformance suite in v0.20.0.
+
+**Status of these rows, stated without softening.** The temporary registration was reverted, so
+`tti_local_registration.diff` contains only the three §3 edits and the shipped release report has **no
+Spec Tests block at all**. That means the shipped configuration carries **zero API-conformance
+coverage**, and the 15 failures above are **disclosed, not waived** — no upstream issue was filed, so
+none of them meets this skill's bar for `issue-waived`. Concretely:
+
+* 12 Class A rows and `test_stop[stop_seq1]`: **harness incompatibility**, mechanism proven by control.
+  A reasoning-parser server cannot satisfy a suite that requires `content` to be a string.
+* `test_determinism_parameters[temperature-0.0]` and `test_seed_reproducibility`: **timeouts caused by
+  Class C**, i.e. by a real model defect, not by a harness assumption alone.
+* Class C itself: a **carried-forward readiness gap**, recorded above.
+
+Two follow-ups this stage did not do and is not claiming to have done: file the upstream issue for the
+reasoning-parser conformance gap (`llm_module/test_vllm_chat_completions.py` assumes
+`choices[0].message.content` is a string and defaults to a 30 s read timeout), and fix Class C.
 
 ## 13. Cleanup
 
