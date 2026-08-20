@@ -190,3 +190,10 @@ Additional exact commands after the common environment:
 
 `DOC` is
 `/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/multichip_decoder`.
+
+## Local checkpoints
+
+- Stage implementation, tests, documentation, and evidence:
+  `65ac60e460fa3c9db18c58c879af1fc3b39f1843`.
+- Independent post-remediation `$stage-review`: `clean-pass` before the
+  implementation checkpoint. No commit was pushed.
