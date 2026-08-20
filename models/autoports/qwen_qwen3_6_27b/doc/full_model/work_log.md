@@ -511,3 +511,7 @@ model/generator context bounds, capacity evidence, generated outputs, and
 sealed artifact manifest; it reran the full runner and all three context-check
 argument modes successfully. Its anomaly ledger classified the failure as an
 evidence-schema compatibility bug, fixed by the canonical top-level fields.
+
+Local repair commit: `8a742b6219f` (`Fix Qwen3.6 full-model context contract
+gate`). No commit was pushed; unrelated Tracy, UMD, and cluster-descriptor
+worktree changes remain excluded.
