@@ -377,7 +377,12 @@ implementation-path proof has to sit at the top level. The copies are byte-ident
 | `/home/ttuser/dev/ornith/vllm` | `dev` | `52f5bcd6c9f7c472a55237beff8245af3874518b` | the §6 plugin fix (`vllm_tt_plugin/input_batch.py`, `model_runner.py`) |
 
 The plugin fix lives in a separate checkout outside this repo, so it is committed there and must be
-carried forward with the model; `AUTOFIX.md` holds the full analysis. Neither commit was pushed.
+carried forward with the model; `AUTOFIX.md` holds the full analysis. Nothing was pushed.
+
+The tt-metal row names the commit that carries the artifacts. Two later commits amend these notes after
+the two `$stage-review` rounds, so the stage's full commit series on this branch is
+`git log --oneline 0e8198d3513..HEAD` — currently four `[autoports] … tti-release` commits, of which
+this file's own final revision is the last.
 
 ## 11. Row-by-row classification
 
