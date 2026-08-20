@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="49.890" timestamp="2026-08-20T10:57:44.432103-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_6_27b.tests.test_full_model" name="test_reduced_full_model_max_context_decode[blackhole-device_params0-4]" time="48.656"><properties><property name="start_timestamp" value="2026-08-20T10:57:45" /><property name="end_timestamp" value="2026-08-20T10:58:34" /></properties><failure message="assert [262143, 262143] == [262143]&#10;  &#10;  Left contains one more item: 262143&#10;  &#10;  Full diff:&#10;    [&#10;        262143,&#10;  +     262143,&#10;    ]">mesh_device = MeshDevice(1x4 grid, 4 devices)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7183ed240b00&gt;
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_reduced_full_model_max_context_decode(mesh_device, monkeypatch):
+        """Exercise full-wrapper state/page/RoPE geometry at the advertised final position."""
+        if os.environ.get("QWEN36_RUN_CONTEXT_WRAPPER") != "1":
+            pytest.skip("set QWEN36_RUN_CONTEXT_WRAPPER=1")
+        generator = Generator(
+            mesh_device=mesh_device,
+            override_num_layers=4,
+            max_seq_len=262_144,
+        )
+        state = generator.model.allocate_state(batch_size=1)
+        assert state.num_blocks == 4096
+        assert state.page_table_host.shape == (MAX_BATCH_SIZE, 4096)
+        capture_positions = []
+        original_begin_trace = ttnn.begin_trace_capture
+    
+        def checked_begin_trace(mesh, *args, **kwargs):
+            current = generator._tokens_to_host(state.current_positions)[0].item()
+            capture_positions.append(current)
+            assert current == 262_143, "trace setup advanced beyond the supported context"
+            return original_begin_trace(mesh, *args, **kwargs)
+    
+        monkeypatch.setattr(ttnn, "begin_trace_capture", checked_begin_trace)
+        sampled = generator.decode_forward(
+            torch.tensor([[151644]]),
+            torch.tensor([262_143]),
+            page_table=state.page_table_host[:1],
+            kv_cache=state,
+            state=state,
+            enable_trace=True,
+            sampling_mode="device",
+        )
+        assert sampled.shape == (1,)
+&gt;       assert capture_positions == [262_143]
+E       assert [262143, 262143] == [262143]
+E         
+E         Left contains one more item: 262143
+E         
+E         Full diff:
+E           [
+E               262143,
+E         +     262143,
+E           ]
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_full_model.py:326: AssertionError</failure></testcase></testsuite></testsuites>

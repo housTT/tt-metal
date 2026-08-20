@@ -95,9 +95,11 @@ def _hf_generate_greedy(
         pad_id = eos[0] if isinstance(eos, (list, tuple)) else eos
 
     input_ids = torch.tensor([prompt_token_ids], dtype=torch.long, device=device)
+    attention_mask = torch.ones_like(input_ids)
     with torch.no_grad():
         out = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=max_new_tokens,
             do_sample=False,
             num_beams=1,
@@ -129,8 +131,10 @@ def run_autoregressive(
     """
     build_kwargs = build_kwargs or {}
 
-    prompt_text = prompt_file.read_text(encoding="utf-8").strip()
-    if not prompt_text:
+    # Preserve serialized chat-template whitespace.  In particular, Qwen's
+    # assistant prefix ends in a newline whose token is part of the prompt.
+    prompt_text = prompt_file.read_text(encoding="utf-8")
+    if not prompt_text.strip():
         raise ValueError(f"Prompt file {prompt_file} is empty")
 
     tokenizer = AutoTokenizer.from_pretrained(hf_model_id, trust_remote_code=True)
@@ -230,7 +234,9 @@ def _main() -> None:
 
     output_dir = args.output_dir or (args.model_dir / "readiness_autoregressive")
 
-    mesh_device = open_readiness_mesh_device(args.mesh_device, args.fabric_config)
+    mesh_device = open_readiness_mesh_device(
+        args.mesh_device, args.fabric_config, args.trace_region_size
+    )
     try:
         run_autoregressive(
             model_dir=args.model_dir.resolve(),

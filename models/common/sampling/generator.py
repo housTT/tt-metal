@@ -103,6 +103,10 @@ class SamplingGenerator:
         self.cq_id = cq_id
         self.args = args
         self._sampling_debug_enabled = is_llama33_70b_model(args)
+        # Model-scoped opt-in for implementations that update a persistent
+        # seed tensor before replay and have validated seeded sampler tracing.
+        # Other models retain direct seeded execution.
+        self.trace_seeded_sampling = getattr(args, "trace_seeded_sampling", False)
         self.sub_core_grids = getattr(args, "sub_core_grids", None)
         self.tt_sampling = TTSampling(mesh_device=mesh_device, tt_ccl=tt_ccl, args=args)
         self.tt_penalties = TTPenalties(mesh_device=mesh_device, args=args)
@@ -302,10 +306,17 @@ class SamplingGenerator:
         *,
         penalties_on: bool,
         tt_out_tok: Optional[ttnn.Tensor],
+        update_penalty_history: bool = True,
     ):
         if penalties_on:
             logits = self.tt_penalties.apply(logits)
         tt_tokens, tt_log_probs = self.tt_sampling(logits, tt_out_tok=tt_out_tok)
+        if update_penalty_history and penalties_on and tt_tokens is not None:
+            # Keep output-history maintenance in the same eager/captured op
+            # sequence as sampling.  Dispatching it from Python after trace
+            # replay allocates scatter/count temporaries while traces are
+            # resident, which violates Metal's trace allocator contract.
+            self.tt_penalties.update_output_tokens(tt_tokens)
         return tt_tokens, tt_log_probs
 
     def capture_trace(
@@ -332,6 +343,7 @@ class SamplingGenerator:
                 logits,
                 penalties_on=penalties_on,
                 tt_out_tok=tt_out_tok,
+                update_penalty_history=False,
             )
 
         trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=self.cq_id)
@@ -384,9 +396,12 @@ class SamplingGenerator:
         penalties_on = self._penalties_active
         log_probs_on = getattr(self, "_log_probs_active", False)
         force_argmax = self.tt_sampling.force_argmax_sampling
-        # Explicit request seeds update a persistent seed tensor every token;
-        # run them directly so trace replay cannot observe stale seed state.
-        use_internal_trace = enable_trace and not self.seed_manager.has_active_request_seed()
+        # Explicit request seeds normally execute directly.  A model may opt
+        # into replay when it copies each new seed into the persistent tensor
+        # before sample(), making the captured program observe fresh state.
+        use_internal_trace = enable_trace and (
+            self.trace_seeded_sampling or not self.seed_manager.has_active_request_seed()
+        )
         _log_sampling_debug(
             self._sampling_debug_enabled,
             "SamplingGenerator sample",
@@ -417,11 +432,6 @@ class SamplingGenerator:
             self._validate_trace_inputs(slot, logits, tt_out_tok)
             tt_out = self._execute_trace(key)
 
-        if penalties_on and tt_out is not None:
-            if isinstance(tt_out, tuple):
-                self.tt_penalties.update_output_tokens(tt_out[0])
-            else:
-                self.tt_penalties.update_output_tokens(tt_out)
         return tt_out
 
 
@@ -644,6 +654,23 @@ class SeedManager:
 
     def _next_unseeded_rng_seed(self) -> int:
         return secrets.randbits(64)
+
+    def reset_request_state(self) -> None:
+        """Clear all request-owned seed state without touching device buffers.
+
+        Generators with persistent batch slots must call this at a full request
+        boundary.  Clearing every slot is intentional: a later, smaller batch
+        must not inherit an explicit seed (and its per-token host update path)
+        from an inactive row of the preceding request.
+        """
+        for slot, rng in enumerate(self.rngs):
+            self.seeds[slot] = None
+            self.seed_counters[slot] = 0
+            rng.seed(self._next_unseeded_rng_seed())
+        self._seed_active = False
+        self._reseted = False
+        self._needs_skip = False
+        self._active_request_seed = False
 
     def _next_unseeded_device_seed(self) -> int:
         return secrets.randbelow(DEVICE_SEED_MAX) + 1

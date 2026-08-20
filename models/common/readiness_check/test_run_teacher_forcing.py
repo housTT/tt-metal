@@ -4,6 +4,8 @@
 import pytest
 import torch
 
+import models.common.readiness_check.run_teacher_forcing as runner
+
 from models.common.readiness_check.run_teacher_forcing import _run_one_entry
 from models.common.readiness_check.schema import Reference, ReferenceEntry
 from models.common.readiness_check.teacher_forcing import TokenAccuracy
@@ -70,3 +72,45 @@ def test_run_one_entry_fails_when_generate_stops_before_reference_length():
 def test_run_one_entry_fails_when_generate_never_calls_next_input():
     with pytest.raises(RuntimeError, match="produced 0/3 predictions"):
         _run_one_entry(generator=_NoCallbackGenerator(), acc=_make_accuracy(), entry_idx=0)
+
+
+def test_cli_forwards_machine_readable_output_and_runtime_metadata(monkeypatch, tmp_path):
+    captured = {}
+    mesh = object()
+    monkeypatch.setattr(runner, "open_readiness_mesh_device", lambda *args: mesh)
+    monkeypatch.setattr(runner, "close_readiness_mesh_device", lambda *args: None)
+
+    def fake_run_teacher_forcing(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(runner, "run_teacher_forcing", fake_run_teacher_forcing)
+    output = tmp_path / "teacher.json"
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_teacher_forcing",
+            "--model-dir",
+            str(tmp_path),
+            "--reference",
+            str(tmp_path / "reference.refpt"),
+            "--mesh-device",
+            "P300",
+            "--fabric-config",
+            "FABRIC_1D_RING",
+            "--trace-region-size",
+            "1500000000",
+            "--output-json",
+            str(output),
+        ],
+    )
+    runner._main()
+
+    assert captured["output_json_path"] == output.resolve()
+    assert captured["runtime"] == {
+        "mesh_device": "P300",
+        "fabric_config": "FABRIC_1D_RING",
+        "trace_region_size": 1_500_000_000,
+        "decode_trace_enabled": True,
+    }

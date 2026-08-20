@@ -14,6 +14,7 @@ from typing import Any
 MESH_SHAPES: dict[str, tuple[int, int]] = {
     "N150": (1, 1),
     "N300": (1, 2),
+    "P300": (1, 4),
     "T3K": (1, 8),
     "TG": (8, 4),
 }
@@ -31,6 +32,12 @@ def add_mesh_device_args(parser: argparse.ArgumentParser) -> None:
         help="Mesh device label. Mapped to a ttnn.MeshShape internally.",
     )
     parser.add_argument(
+        "--trace-region-size",
+        type=int,
+        default=None,
+        help="Optional per-device trace-region bytes (large full-model traces may require this).",
+    )
+    parser.add_argument(
         "--fabric-config",
         default=None,
         choices=FABRIC_CONFIG_CHOICES,
@@ -41,7 +48,11 @@ def add_mesh_device_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def open_readiness_mesh_device(mesh_device_label: str, fabric_config: str | None = None) -> Any:
+def open_readiness_mesh_device(
+    mesh_device_label: str,
+    fabric_config: str | None = None,
+    trace_region_size: int | None = None,
+) -> Any:
     """Open a mesh device, optionally enabling fabric first."""
     import ttnn  # noqa: WPS433 — lazy
 
@@ -60,7 +71,10 @@ def open_readiness_mesh_device(mesh_device_label: str, fabric_config: str | None
         }[fabric_config]
         ttnn.set_fabric_config(fabric)
 
-    return ttnn.open_mesh_device(mesh_shape=ttnn.MeshShape(*shape))
+    open_kwargs = {"mesh_shape": ttnn.MeshShape(*shape)}
+    if trace_region_size is not None:
+        open_kwargs["trace_region_size"] = trace_region_size
+    return ttnn.open_mesh_device(**open_kwargs)
 
 
 def close_readiness_mesh_device(mesh_device: Any, fabric_config: str | None = None) -> None:

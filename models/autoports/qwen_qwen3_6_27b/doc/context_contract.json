@@ -146,6 +146,50 @@
     "capability_reduction": null,
     "completion_status": "passed"
   },
+  "full_model": {
+    "target_hardware": "4x Blackhole P300c",
+    "mesh_shape": [1, 4],
+    "fabric_config": "FABRIC_1D_RING",
+    "tensor_parallel_degree": 4,
+    "maximum_logical_sequence_length": 262144,
+    "maximum_active_batch_size": 32,
+    "capacity_semantics": "262144 is the total physical KV-token pool. Mixed prompts consume ceil(prompt_len / 64) blocks from that shared pool; it is not 262144 tokens per each of 32 slots.",
+    "memory_capacity_plan": {
+      "device_dram_bytes": 34359738368,
+      "decoder_stack_weight_bytes_per_device": 10035920896,
+      "replicated_embedding_bf16_bytes_per_device": 2542796800,
+      "replicated_final_norm_bf16_bytes_per_device": 327680,
+      "vocabulary_parallel_lm_head_bfp8_bytes_per_device": 356515840,
+      "full_model_weight_bytes_per_device": 12935561216,
+      "full_attention_kv_cache_bfp8_bytes_per_device": 2281701376,
+      "batch32_linear_state_bytes_per_device": 1459617792,
+      "persistent_ccl_pool_bytes_per_device": 3317760,
+      "reserved_trace_activation_fragmentation_bytes_per_device": 4294967296,
+      "reserve_components_per_device": {
+        "configured_trace_region_bytes": 1500000000,
+        "replicated_rope_decode_and_prefill_caches_bytes": 134217728,
+        "maximum_replicated_page_table_bytes": 524288,
+        "common_sampler_persistent_index_lower_bound_bytes": 33570816,
+        "force_argmax_global_logits_transient_bytes": 16777216,
+        "remaining_activation_program_allocator_fragmentation_bytes": 2609877248,
+        "accounting_note": "The 4 GiB reserve is a containing budget, so these terms are not added again to planned_total. RoPE is four BF16 [262144,64] caches (decode/prefill cos/sin); the page table is int32 [32,4096]. The TP4 physical-Ring sampler replaces the local uint32 [1,1,32,65536] index with four replicated global-index chunks of that shape (33,554,432 bytes total) plus [1,1,32,128] offsets; force argmax and stochastic sampling transiently gather BF16 [1,1,32,262144]."
+      },
+      "planned_total_bytes_per_device": 20975165440,
+      "planned_total_gib_per_device": 19.534645080566406,
+      "unreserved_dram_bytes_per_device": 13384572928,
+      "calculation_basis": "All sizes include TT tile-format storage (1088 bytes per BFP8 tile). Full model weights add the BF16 replicated 248320x5120 embedding, BF16 replicated final norm, and TP4 BFP8 padded-262144 vocabulary head to the selected decoder stack. Cache and recurrent-state terms retain the selected paged-cache dtype split and batch-32 policy."
+    },
+    "context_evidence": {
+      "decoder_stack_max_context": "optimized_multichip_decoder context gates at logical length 262144 and decode position 262143",
+      "full_model_allocation": "capacity arithmetic leaves 12.48 GiB/device beyond weights, maximum cache/state, persistent CCL buffers, and the 4 GiB trace/activation reserve",
+      "public_padding_contract": "generator accepts non-aligned logical lengths, owns 32-row internal padding/masking, and slices public logits back to caller storage width",
+      "max_context_trace_capture": "safe-Watcher full-model gate observes current position 262143 at both model and sampler capture boundaries after warmup-state restoration",
+      "max_context_trace_evidence": "full_model/evidence/max_context_watcher_ring_sampler.junit.xml",
+      "sampler_topology": "common force-argmax and stochastic sampling use the physical 1x4 Ring with one link and Ring completion semantics. Stochastic sampling gathers logits once, runs four local 65536-wide top-k operations, and concatenates 128 global candidates without candidate collectives; generic small logical submeshes retain the common Linear default"
+    },
+    "capability_reduction": null,
+    "completion_status": "passed"
+  },
   "functional_decoder": {
     "layer_kinds": [
       "linear_attention",

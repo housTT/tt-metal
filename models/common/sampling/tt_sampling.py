@@ -177,12 +177,22 @@ class TTSampling(LightweightModule):
             self.argmax_chunks_per_sync = sampling_ag_config.get("chunks_per_sync", 10)
             self.argmax_num_workers_per_link = 1
             self.ag_topology = sampling_ag_config["topology"]
+            self.allow_small_ring_argmax = sampling_ag_config.get("allow_small_ring", False)
+            self.allow_small_ring_sampling = sampling_ag_config.get("allow_small_ring_sampling", False)
         else:
             self._allow_force_argmax_sampling = False
             self.num_argmax_gather_links = self.num_gather_links
             self.argmax_chunks_per_sync = 10
             self.argmax_num_workers_per_link = 1
             self.ag_topology = ttnn.Topology.Linear
+            self.allow_small_ring_argmax = False
+            self.allow_small_ring_sampling = False
+
+        self.use_full_logits_ring_sampling = (
+            self.allow_small_ring_sampling
+            and self.ag_topology == ttnn.Topology.Ring
+            and self.mesh_device.get_num_devices() < 8
+        )
 
         # Set defaults for sampling parameters if not provided
         # Default: k=1 (top-1), p=0 (effectively argmax), temp=1 (no temperature scaling)
@@ -290,30 +300,54 @@ class TTSampling(LightweightModule):
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
 
-        # Create local indices tensor for top-k operations (must match logit width)
-        indices_tensor_torch = torch.zeros(1, 1, self.max_batch_size, padded_per_device, dtype=torch.int32)
-        for i in range(padded_per_device):
-            indices_tensor_torch[:, :, :, i] = i
-
-        # pad to power of 2 if needed
-        if self.pad_to_power_of_2 and not is_power_of_2(indices_tensor_torch.shape[-1]):
-            padded_value = upper_power_of_2(indices_tensor_torch.shape[-1])
-            indices_tensor_torch = torch.nn.functional.pad(
+        if self.use_full_logits_ring_sampling:
+            self.tt_indices_tensor = None
+            # The physical TP4 Ring gathers logits before top-k, so indices are
+            # global.  Keep four original-TP-width index chunks: a single
+            # 262144-wide top-k does not complete on this hardware, while the
+            # established 65536-wide top-k kernel does.
+            self.tt_full_indices_tensor_chunks = []
+            for chunk_id in range(num_devices_in_mesh):
+                start = chunk_id * padded_per_device
+                chunk_indices = torch.arange(start, start + padded_per_device, dtype=torch.int32)
+                chunk_indices = chunk_indices.reshape(1, 1, 1, -1)
+                chunk_indices = chunk_indices.expand(1, 1, self.max_batch_size, -1).contiguous()
+                self.tt_full_indices_tensor_chunks.append(
+                    ttnn.from_torch(
+                        chunk_indices,
+                        dtype=ttnn.uint32,
+                        layout=ttnn.Layout.TILE,
+                        device=self.mesh_device,
+                        mesh_mapper=ttnn.ShardTensor2dMesh(
+                            self.mesh_device, dims=(None, None), mesh_shape=self.cluster_shape
+                        ),
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
+                )
+        else:
+            self.tt_full_indices_tensor_chunks = None
+            # Create local indices tensor for top-k operations (must match logit width).
+            indices_tensor_torch = torch.arange(padded_per_device, dtype=torch.int32).reshape(1, 1, 1, -1)
+            indices_tensor_torch = indices_tensor_torch.expand(1, 1, self.max_batch_size, -1).contiguous()
+            if self.pad_to_power_of_2 and not is_power_of_2(indices_tensor_torch.shape[-1]):
+                padded_value = upper_power_of_2(indices_tensor_torch.shape[-1])
+                indices_tensor_torch = torch.nn.functional.pad(
+                    indices_tensor_torch,
+                    (0, padded_value - indices_tensor_torch.shape[-1]),
+                    mode="constant",
+                    value=-1,
+                )
+            indices_dtype = self._select_topk_indices_dtype(padded_per_device, self.multi_step_reduction)
+            self.tt_indices_tensor = ttnn.from_torch(
                 indices_tensor_torch,
-                (0, padded_value - indices_tensor_torch.shape[-1]),  # pad only last dim
-                mode="constant",
-                value=-1,  # invalid index to ensure that the padding values are not used
+                dtype=indices_dtype,
+                layout=ttnn.Layout.TILE,
+                device=self.mesh_device,
+                mesh_mapper=ttnn.ShardTensor2dMesh(
+                    self.mesh_device, dims=(None, None), mesh_shape=self.cluster_shape
+                ),
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
-
-        indices_dtype = self._select_topk_indices_dtype(padded_per_device, self.multi_step_reduction)
-        self.tt_indices_tensor = ttnn.from_torch(
-            indices_tensor_torch,
-            dtype=indices_dtype,
-            layout=ttnn.Layout.TILE,
-            device=self.mesh_device,
-            mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, dims=(None, None), mesh_shape=self.cluster_shape),
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
 
     def _perform_all_gather(self, tensor, dim, cluster_axis, memory_config, num_links, buffer_key=None, dtype=None):
         """
@@ -345,6 +379,22 @@ class TTSampling(LightweightModule):
             topology=ttnn.Topology.Linear,
         )
 
+    def _perform_proven_ring_all_gather(self, tensor, *, dim, cluster_axis, memory_config, num_links):
+        """Run the logits-sized async Ring protocol proven by force-argmax."""
+        return ttnn.experimental.all_gather_async(
+            tensor,
+            persistent_output_buffer=None,
+            dim=dim,
+            multi_device_global_semaphore=self.tt_ccl.get_and_cycle_ag_semaphore_handles(cluster_axis),
+            num_links=num_links,
+            memory_config=memory_config,
+            cluster_axis=cluster_axis,
+            topology=ttnn.Topology.Ring,
+            chunks_per_sync=self.argmax_chunks_per_sync,
+            num_workers_per_link=self.argmax_num_workers_per_link,
+            num_buffers_per_channel=2,
+        )
+
     def _get_sampling_cluster_axis(self):
         if self.mesh_device.get_num_devices() <= 1:
             return None
@@ -361,11 +411,25 @@ class TTSampling(LightweightModule):
             num_links = min(num_links, self.tt_ccl.get_num_links(cluster_axis))
 
         topology = self.ag_topology
-        # Ring is available for T3K-like 8-device groups; smaller DP groups need
-        # linear routing to avoid wraparound routes such as D0 -> D12.
-        if self.mesh_device.get_num_devices() < 8:
+        # Default smaller logical DP groups to Linear so they do not inherit
+        # wraparound routes such as D0 -> D12.  A model targeting a proven
+        # physical small ring may opt in explicitly.
+        if self.mesh_device.get_num_devices() < 8 and not self.allow_small_ring_argmax:
             topology = ttnn.Topology.Linear
 
+        return max(1, num_links), topology
+
+    def _get_sampling_all_gather_config(self, cluster_axis, num_links):
+        """Resolve topology for the common top-k/top-p gather.
+
+        Small logical submeshes remain Linear by default.  Models running on a
+        physically verified small ring must opt in independently of argmax.
+        """
+        if hasattr(self.tt_ccl, "get_num_links"):
+            num_links = min(num_links, self.tt_ccl.get_num_links(cluster_axis))
+        topology = self.ag_topology
+        if self.mesh_device.get_num_devices() < 8 and not self.allow_small_ring_sampling:
+            topology = ttnn.Topology.Linear
         return max(1, num_links), topology
 
     def reset_params(
@@ -469,20 +533,31 @@ class TTSampling(LightweightModule):
                     f"Force argmax sampling all-gather: cluster_axis={cluster_axis}, "
                     f"num_links={num_links}, topology={topology}"
                 )
-                x = ttnn.experimental.all_gather_async(
-                    x,
-                    persistent_output_buffer=None,
-                    dim=3,
-                    multi_device_global_semaphore=self.tt_ccl.get_and_cycle_ag_semaphore_handles(cluster_axis),
-                    num_links=num_links,
-                    memory_config=x.memory_config(),
-                    cluster_axis=cluster_axis,
-                    topology=topology,
-                    barrier_semaphore=self.tt_ccl.get_and_cycle_barrier_semaphore_handle(cluster_axis),
-                    chunks_per_sync=self.argmax_chunks_per_sync,
-                    num_workers_per_link=self.argmax_num_workers_per_link,
-                    num_buffers_per_channel=2,
-                )
+                gather_kwargs = {
+                    "persistent_output_buffer": None,
+                    "dim": 3,
+                    "multi_device_global_semaphore": self.tt_ccl.get_and_cycle_ag_semaphore_handles(cluster_axis),
+                    "num_links": num_links,
+                    "memory_config": x.memory_config(),
+                    "cluster_axis": cluster_axis,
+                    "topology": topology,
+                    "chunks_per_sync": self.argmax_chunks_per_sync,
+                    "num_workers_per_link": self.argmax_num_workers_per_link,
+                    "num_buffers_per_channel": 2,
+                }
+                if topology == ttnn.Topology.Ring:
+                    x = self._perform_proven_ring_all_gather(
+                        x,
+                        dim=3,
+                        cluster_axis=cluster_axis,
+                        memory_config=x.memory_config(),
+                        num_links=num_links,
+                    )
+                else:
+                    gather_kwargs["barrier_semaphore"] = self.tt_ccl.get_and_cycle_barrier_semaphore_handle(
+                        cluster_axis
+                    )
+                    x = ttnn.experimental.all_gather_async(x, **gather_kwargs)
             x_untilized = ttnn.untilize(x, use_multicore=True)
             tt_out_tok = ttnn.argmax(
                 x_untilized,
@@ -495,10 +570,49 @@ class TTSampling(LightweightModule):
             self.tt_log_probs = None
             return tt_out_tok, self.tt_log_probs
 
+        logits_for_log_probs = x
+        if self.use_full_logits_ring_sampling:
+            cluster_axis = self._get_sampling_cluster_axis()
+            num_links, topology = self._get_sampling_all_gather_config(cluster_axis, self.num_gather_links)
+            assert topology == ttnn.Topology.Ring
+            x = self._perform_proven_ring_all_gather(
+                x,
+                dim=3,
+                cluster_axis=cluster_axis,
+                memory_config=x.memory_config(),
+                num_links=num_links,
+            )
+
         # Convert to bfloat16 for top-k operations (typecast is no-op if already bfloat16)
         x_bf16 = ttnn.typecast(x, dtype=ttnn.bfloat16, sub_core_grids=self.sub_core_grids)
 
-        if self.multi_step_reduction:
+        if self.use_full_logits_ring_sampling:
+            chunk_width = self.padded_vocab_size // self.mesh_device.get_num_devices()
+            logits_chunks = ttnn.split(x_bf16, chunk_width, dim=3)
+            topk_values_chunks = []
+            topk_indices_chunks = []
+            for logits_chunk, global_indices_chunk in zip(
+                logits_chunks, self.tt_full_indices_tensor_chunks, strict=True
+            ):
+                chunk_values, chunk_indices = ttnn.topk(
+                    logits_chunk,
+                    k=self.max_top_k,
+                    dim=-1,
+                    sub_core_grids=self.sub_core_grid_topk,
+                    indices_tensor=global_indices_chunk,
+                )
+                topk_values_chunks.append(chunk_values)
+                topk_indices_chunks.append(chunk_indices)
+                logits_chunk.deallocate()
+            # Four 32-candidate sets recreate the usual 128-candidate sampling
+            # input without any candidate CCL or device-offset correction.
+            topk_values_gathered_bf16_interleaved = ttnn.concat(topk_values_chunks, dim=3)
+            topk_indices_gathered = ttnn.concat(topk_indices_chunks, dim=3)
+            for chunk_values, chunk_indices in zip(topk_values_chunks, topk_indices_chunks, strict=True):
+                chunk_values.deallocate()
+                chunk_indices.deallocate()
+
+        elif self.multi_step_reduction:
             x_bf16_list = ttnn.split(x_bf16, x_bf16.shape[-1] // 2, dim=3)
             indices_tensor_list = ttnn.split(self.tt_indices_tensor, self.tt_indices_tensor.shape[-1] // 2, dim=3)
             topk_values_list = []
@@ -601,13 +715,20 @@ class TTSampling(LightweightModule):
         else:
             topk_indices_gathered_int32_sharded = topk_indices_gathered_int32
 
-        # Add device offsets to get global vocabulary indices
-        topk_global_indices = ttnn.add(
-            self.tt_indices_device_offsets,
-            topk_indices_gathered_int32_sharded,
-            dtype=ttnn.uint32,
-            memory_config=self.sampling_memory_config,
-        )
+        if self.use_full_logits_ring_sampling:
+            topk_global_indices = ttnn.typecast(
+                topk_indices_gathered_int32_sharded,
+                dtype=ttnn.uint32,
+                sub_core_grids=self.sub_core_grids,
+            )
+        else:
+            # Add device offsets to get global vocabulary indices.
+            topk_global_indices = ttnn.add(
+                self.tt_indices_device_offsets,
+                topk_indices_gathered_int32_sharded,
+                dtype=ttnn.uint32,
+                memory_config=self.sampling_memory_config,
+            )
 
         ttnn.deallocate(topk_indices_gathered_int32_sharded)
 
@@ -637,14 +758,14 @@ class TTSampling(LightweightModule):
         if self.log_probs_calculator.enable_log_probs and self.log_probs_calculator._use_topk_logprobs:
             # New path: top-K logprobs for gpt-oss-120b
             self.tt_log_probs = self.log_probs_calculator.calculate_topk_log_probs(
-                logits_tensor=x,
+                logits_tensor=logits_for_log_probs,
                 topk_values=topk_values_gathered_bf16_interleaved,
                 topk_global_indices=topk_global_indices_interleaved,
                 sub_core_grid_topk=self.sub_core_grid_topk,
             )
         elif self.log_probs_calculator.enable_log_probs:
             # Old path: single sampled-token logprob
-            self.tt_log_probs = self.log_probs_calculator.calculate_log_probs(x, tt_out_tok)
+            self.tt_log_probs = self.log_probs_calculator.calculate_log_probs(logits_for_log_probs, tt_out_tok)
         else:
             self.tt_log_probs = None
 

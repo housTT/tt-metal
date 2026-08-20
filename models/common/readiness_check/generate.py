@@ -127,6 +127,12 @@ def _chat_or_plain_prompt_tokens(tokenizer, prompt_text: str, *, chat_template: 
             add_generation_prompt=True,
             tokenize=True,
         )
+        # Transformers 5 tokenizers may return a BatchEncoding even when
+        # return_tensors was not requested (Qwen3.5 is one such tokenizer).
+        if hasattr(prompt_tokens, "get") and prompt_tokens.get("input_ids") is not None:
+            prompt_tokens = prompt_tokens["input_ids"]
+        if hasattr(prompt_tokens, "reshape"):
+            prompt_tokens = prompt_tokens.reshape(-1).tolist()
     else:
         prompt_tokens = tokenizer.encode(prompt_text, add_special_tokens=True)
 

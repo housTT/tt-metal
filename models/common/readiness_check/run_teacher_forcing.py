@@ -45,6 +45,7 @@ from models.common.readiness_check.mesh_device import (
     close_readiness_mesh_device,
     open_readiness_mesh_device,
 )
+from models.common.readiness_check.metrics_json import aggregate_accuracy, runtime_metadata, write_metrics_json
 from models.common.readiness_check.teacher_forcing import TokenAccuracy
 
 
@@ -213,6 +214,8 @@ def run_teacher_forcing(
     reference_path: Path,
     mesh_device,
     build_kwargs: Dict[str, Any] | None = None,
+    output_json_path: Path | None = None,
+    runtime: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     """
     Programmatic entry point. Builds the generator, runs teacher forcing
@@ -242,24 +245,19 @@ def run_teacher_forcing(
         if callable(teardown):
             teardown()
 
-    total = sum(s["total"] for s in per_entry)
-    if total:
+    agg = aggregate_accuracy(per_entry)
+    if agg is not None:
+        total = agg["total"]
         total_elapsed_s = sum(s.get("elapsed_s", 0.0) for s in per_entry)
         ttft_values = [s["ttft_ms"] for s in per_entry if s.get("ttft_ms") is not None]
         decode_tokens = sum(s.get("decode_tokens", 0.0) for s in per_entry)
         decode_elapsed_s = sum(s.get("decode_elapsed_s", 0.0) for s in per_entry)
-        agg = {
-            "top1": sum(s["matches_top1"] for s in per_entry) / total,
-            "top5": sum(s["matches_top5"] for s in per_entry) / total,
-            "top100": sum(s["matches_top100"] for s in per_entry) / total,
-            "matches_top1": sum(s["matches_top1"] for s in per_entry),
-            "matches_top5": sum(s["matches_top5"] for s in per_entry),
-            "matches_top100": sum(s["matches_top100"] for s in per_entry),
-            "total": total,
-            "k": per_entry[0]["k"],
-            "elapsed_s": total_elapsed_s,
-            "e2e_t/s/u": (total / total_elapsed_s) if total_elapsed_s > 0 else 0.0,
-        }
+        agg.update(
+            {
+                "elapsed_s": total_elapsed_s,
+                "e2e_t/s/u": (total / total_elapsed_s) if total_elapsed_s > 0 else 0.0,
+            }
+        )
         if ttft_values:
             agg["ttft_ms"] = sum(ttft_values) / len(ttft_values)
         if decode_elapsed_s > 0:
@@ -268,6 +266,20 @@ def run_teacher_forcing(
             agg["decode_t/s/u"] = decode_tokens / decode_elapsed_s
         print(_format_row("AGGREGATE", agg))
 
+    if output_json_path is not None:
+        write_metrics_json(
+            output_json_path,
+            {
+                "schema_version": 1,
+                "check": "teacher_forcing",
+                "model_dir": str(model_dir.resolve()),
+                "reference_path": str(reference_path.resolve()),
+                "runtime": runtime_metadata(mesh_device, cli=runtime),
+                "entries": per_entry,
+                "aggregate": agg,
+            },
+        )
+
     return per_entry
 
 
@@ -275,15 +287,25 @@ def _main() -> None:
     parser = argparse.ArgumentParser(description="Run the teacher-forcing readiness check against a reference file.")
     parser.add_argument("--model-dir", type=Path, required=True, help="Path to the model directory.")
     parser.add_argument("--reference", type=Path, required=True, help="Path to the .refpt reference file.")
+    parser.add_argument("--output-json", type=Path, help="Optional path for machine-readable metrics evidence.")
     add_mesh_device_args(parser)
     args = parser.parse_args()
 
-    mesh_device = open_readiness_mesh_device(args.mesh_device, args.fabric_config)
+    mesh_device = open_readiness_mesh_device(
+        args.mesh_device, args.fabric_config, args.trace_region_size
+    )
     try:
         run_teacher_forcing(
             model_dir=args.model_dir.resolve(),
             reference_path=args.reference.resolve(),
             mesh_device=mesh_device,
+            output_json_path=args.output_json.resolve() if args.output_json is not None else None,
+            runtime={
+                "mesh_device": args.mesh_device,
+                "fabric_config": args.fabric_config,
+                "trace_region_size": args.trace_region_size,
+                "decode_trace_enabled": True,
+            },
         )
     finally:
         close_readiness_mesh_device(mesh_device, args.fabric_config)

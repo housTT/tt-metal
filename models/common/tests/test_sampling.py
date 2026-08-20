@@ -90,6 +90,24 @@ def test_seed_counter_position_alignment_skips_out_of_bounds_slots():
     assert seed_manager.seed_counters == [6, 0, 0, 0]
 
 
+def test_seed_manager_request_reset_clears_every_slot_and_transition_flag():
+    seed_manager = _make_host_only_seed_manager()
+    seed_manager.reset_seed([101, 202], [0, 1])
+    seed_manager.seed_counters[:2] = [3, 4]
+    seed_manager._reseted = True
+    seed_manager._needs_skip = True
+    seed_manager._active_request_seed = True
+
+    seed_manager.reset_request_state()
+
+    assert seed_manager.seeds == [None] * 4
+    assert seed_manager.seed_counters == [0] * 4
+    assert not seed_manager._seed_active
+    assert not seed_manager._reseted
+    assert not seed_manager._needs_skip
+    assert not seed_manager._active_request_seed
+
+
 def test_broadcast_sampling_params_preserves_none_list_fields():
     params = SamplingParams(temperature=[1.0, 1.0], top_k=[1, 1], top_p=[1.0, 1.0], seed=[None, 42])
 

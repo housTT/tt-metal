@@ -1259,16 +1259,102 @@ class OptimizedDecoder(FusedDecoder):
         return ttnn.typecast(core, ttnn.bfloat16)
 
     def _linear_chunk_inverse(self, base_attention):
-        """Evaluate the exact triangular inverse with configured FP32 matmuls."""
-        power = base_attention
-        inverse = ttnn.add(self.linear_chunk_identity, power)
-        for _ in range(1, int(math.log2(self.linear_chunk_size))):
-            power = self._gdn_prefill_matmul(power, power)
-            inverse = self._gdn_prefill_matmul(
-                inverse,
-                ttnn.add(self.linear_chunk_identity, power),
+        """Evaluate the exact 64-token triangular inverse stably.
+
+        A direct 64-wide matrix-squaring factorization is exact in real
+        arithmetic, but its late products are ill-conditioned at the scale of
+        real Qwen embeddings.  Keep the selected 64-token outer chunk and the
+        same ten matmuls, while solving four diagonal 16-token blocks in one
+        batched operation and combining them hierarchically.  The 16-token
+        factors avoid the unstable high powers; the block formula is exact for
+        ``(I - base_attention) ** -1``.
+        """
+        if self.linear_chunk_size != 64:
+            return super()._linear_chunk_inverse(base_attention)
+
+        batch, heads = base_attention.shape[0], base_attention.shape[1]
+
+        def block(row_start, row_end, col_start, col_end):
+            return ttnn.slice(
+                base_attention,
+                [0, 0, row_start, col_start],
+                [batch, heads, row_end, col_end],
             )
-        return inverse
+
+        diagonal = ttnn.concat(
+            [block(start, start + 16, start, start + 16) for start in range(0, 64, 16)],
+            dim=1,
+        )
+        identity16 = ttnn.slice(
+            self.linear_chunk_identity, [0, 0, 0, 0], [1, 1, 16, 16]
+        )
+        power = diagonal
+        diagonal_inverse = ttnn.add(identity16, power)
+        for _ in range(1, 4):
+            power = self._gdn_prefill_matmul(power, power)
+            diagonal_inverse = self._gdn_prefill_matmul(
+                diagonal_inverse,
+                ttnn.add(identity16, power),
+            )
+
+        diagonal_blocks = [
+            ttnn.slice(
+                diagonal_inverse,
+                [0, index * heads, 0, 0],
+                [batch, (index + 1) * heads, 16, 16],
+            )
+            for index in range(4)
+        ]
+
+        # Invert the two 32-token diagonal quadrants together.  For
+        # L=[[A,0],[-B,D]], inv(L)'s lower-left block is D^-1 B A^-1.
+        pair_left = ttnn.concat([diagonal_blocks[1], diagonal_blocks[3]], dim=1)
+        pair_base = ttnn.concat([block(16, 32, 0, 16), block(48, 64, 32, 48)], dim=1)
+        pair_right = ttnn.concat([diagonal_blocks[0], diagonal_blocks[2]], dim=1)
+        pair_lower = self._gdn_prefill_matmul(
+            self._gdn_prefill_matmul(pair_left, pair_base),
+            pair_right,
+        )
+        pair_lower_blocks = [
+            ttnn.slice(
+                pair_lower,
+                [0, index * heads, 0, 0],
+                [batch, (index + 1) * heads, 16, 16],
+            )
+            for index in range(2)
+        ]
+        pair_inverses = []
+        for pair_index in range(2):
+            top = diagonal_blocks[pair_index * 2]
+            bottom = diagonal_blocks[pair_index * 2 + 1]
+            upper_zero = block(
+                pair_index * 32,
+                pair_index * 32 + 16,
+                pair_index * 32 + 16,
+                pair_index * 32 + 32,
+            )
+            pair_inverses.append(
+                ttnn.concat(
+                    [
+                        ttnn.concat([top, upper_zero], dim=-1),
+                        ttnn.concat([pair_lower_blocks[pair_index], bottom], dim=-1),
+                    ],
+                    dim=-2,
+                )
+            )
+
+        full_lower = self._gdn_prefill_matmul(
+            self._gdn_prefill_matmul(pair_inverses[1], block(32, 64, 0, 32)),
+            pair_inverses[0],
+        )
+        upper_zero = block(0, 32, 32, 64)
+        return ttnn.concat(
+            [
+                ttnn.concat([pair_inverses[0], upper_zero], dim=-1),
+                ttnn.concat([full_lower, pair_inverses[1]], dim=-1),
+            ],
+            dim=-2,
+        )
 
     def _gdn_update_program_config(self):
         geometry = self.gdn_decode_update_geometry
