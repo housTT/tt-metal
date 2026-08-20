@@ -1,0 +1,883 @@
+2026-08-20 05:19:39.851 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 10 items / 2 deselected / 8 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-separate-device_params0-4] 2026-08-20 05:19:40.567 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-20 05:19:40.567 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-20 05:19:40.567 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-20 05:19:40.567 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-20 05:19:40.580 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-20 05:19:40.580 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-20 05:19:40.658 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-20 05:19:40.658 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-20 05:19:40.658 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-20 05:19:40.658 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-20 05:19:40.659 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-20 05:19:40.863 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-20 05:19:40.984 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:40.984 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:40.984 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:40.984 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:40.987 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:40.988 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:40.989 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:40.990 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:41.029 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:41.052 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:41.058 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:41.059 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:41.060 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:41.060 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:41.060 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:41.109 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:19:41.109 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:19:41.109 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:19:41.109 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:19:41.688 | info     |           Metal | [Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349988 GHz, device_time_at_sync=13171697820071 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:19:41.689 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349984 GHz, device_time_at_sync=13139506878785 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:19:41.690 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349983 GHz, device_time_at_sync=3603451139270 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:19:41.691 | info     |           Metal | [Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349983 GHz, device_time_at_sync=3594271940904 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:19:41.702 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:41.709 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:72 - Creating persistent buffers
+2026-08-20 05:19:41.710 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:101 - Done creating persistent buffers
+2026-08-20 05:19:42.049 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:155 - Reduce scatter shape: [1, 1, 32, 5120]
+2026-08-20 05:19:42.049 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:156 - Reduce scatter dim: 3
+FAILED2026-08-20 05:19:42.530 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4] 2026-08-20 05:19:42.625 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:42.625 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:42.625 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:42.625 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:42.625 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:42.639 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:42.639 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:42.640 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:42.641 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:42.679 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:42.689 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:42.690 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:42.691 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:42.691 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:42.691 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:42.691 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:42.744 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:42.746 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear:379 - Running test_linear with M=32, K=5120, N=3584
+2026-08-20 05:19:43.194 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:84 - Creating persistent buffers
+2026-08-20 05:19:44.937 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:277 - Waiting for op
+2026-08-20 05:19:44.937 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:279 - Done op
+2026-08-20 05:19:44.937 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:281 - Done iteration 0
+2026-08-20 05:19:44.949 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: -0.0017013, Relative RMSE: inf
+2026-08-20 05:19:44.949 | ERROR    | models.common.utility_functions:comp_pcc:500 - One tensor is all nan, the other is not.
+iteration 0:
+FAILED2026-08-20 05:19:45.106 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-fused-device_params0-4] 2026-08-20 05:19:45.205 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:45.205 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:45.205 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:45.205 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:45.205 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:45.219 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:45.220 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:45.220 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:45.221 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:45.258 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:45.269 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:45.270 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:45.271 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:45.271 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:45.271 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:45.271 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:45.322 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:45.325 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:72 - Creating persistent buffers
+2026-08-20 05:19:45.325 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:101 - Done creating persistent buffers
+2026-08-20 05:19:45.661 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:155 - Reduce scatter shape: [1, 1, 32, 5120]
+2026-08-20 05:19:45.661 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:156 - Reduce scatter dim: 3
+2026-08-20 05:19:45.666 | warning  |              Op | matmul_multi_core_reuse_mcast_2d_optimized_helper: program_config.allowed_worker_cores not populated; auto-populating from compute_with_storage_grid_size. Callers that bypass ttnn::prim::matmul() (e.g. CCL fused ops) should invoke ttnn::operations::matmul::normalize_program_config() on the program config first. This will become a hard error in a future release. (matmul_multicore_reuse_mcast_2d_program_factory.cpp:3060)
+2026-08-20 05:19:45.667 | warning  |              Op | matmul_multi_core_reuse_mcast_2d_optimized_helper: program_config.allowed_worker_cores not populated; auto-populating from compute_with_storage_grid_size. Callers that bypass ttnn::prim::matmul() (e.g. CCL fused ops) should invoke ttnn::operations::matmul::normalize_program_config() on the program config first. This will become a hard error in a future release. (matmul_multicore_reuse_mcast_2d_program_factory.cpp:3060)
+2026-08-20 05:19:45.667 | warning  |              Op | matmul_multi_core_reuse_mcast_2d_optimized_helper: program_config.allowed_worker_cores not populated; auto-populating from compute_with_storage_grid_size. Callers that bypass ttnn::prim::matmul() (e.g. CCL fused ops) should invoke ttnn::operations::matmul::normalize_program_config() on the program config first. This will become a hard error in a future release. (matmul_multicore_reuse_mcast_2d_program_factory.cpp:3060)
+2026-08-20 05:19:45.667 | warning  |              Op | matmul_multi_core_reuse_mcast_2d_optimized_helper: program_config.allowed_worker_cores not populated; auto-populating from compute_with_storage_grid_size. Callers that bypass ttnn::prim::matmul() (e.g. CCL fused ops) should invoke ttnn::operations::matmul::normalize_program_config() on the program config first. This will become a hard error in a future release. (matmul_multicore_reuse_mcast_2d_program_factory.cpp:3060)
+2026-08-20 05:19:46.046 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:269 - Waiting for op
+2026-08-20 05:19:46.062 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:271 - Done op
+2026-08-20 05:19:46.062 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:273 - Done iteration 0
+2026-08-20 05:19:46.073 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:283 - Max ATOL Delta: 2.0, Max RTOL Delta: 1216.0, PCC: 0.9999627618781306, iteration 0
+2026-08-20 05:19:46.077 | INFO     | tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter:run_reduce_scatter_impl:293 - Max ATOL Delta: 2.0, Max RTOL Delta: 1240.0, PCC: 0.9999621451263585, iteration 0
+FUSED_RS_EXACT path=fused wall_us=756751.937
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4] 2026-08-20 05:19:46.307 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:46.307 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:46.307 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.307 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:46.308 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:46.308 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:46.320 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:46.321 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:46.322 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:46.323 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:46.358 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:46.369 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:46.369 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:46.370 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:46.371 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:46.371 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:46.371 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:46.421 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:46.421 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear:379 - Running test_linear with M=32, K=5120, N=4352
+2026-08-20 05:19:46.655 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:84 - Creating persistent buffers
+2026-08-20 05:19:47.149 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:277 - Waiting for op
+2026-08-20 05:19:47.150 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:279 - Done op
+2026-08-20 05:19:47.150 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:281 - Done iteration 0
+2026-08-20 05:19:47.159 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: -0.0060403, Relative RMSE: inf
+2026-08-20 05:19:47.159 | ERROR    | models.common.utility_functions:comp_pcc:500 - One tensor is all nan, the other is not.
+iteration 0:
+FAILED2026-08-20 05:19:47.315 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4] 2026-08-20 05:19:47.418 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:47.418 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:47.418 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:47.418 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:47.418 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:47.431 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:47.432 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:47.433 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:47.434 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:47.469 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:47.479 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:47.480 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:47.481 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:47.482 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:47.482 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:47.482 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:47.532 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:47.533 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear:379 - Running test_linear with M=32, K=5120, N=4608
+2026-08-20 05:19:47.777 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:84 - Creating persistent buffers
+2026-08-20 05:19:48.208 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:277 - Waiting for op
+2026-08-20 05:19:48.208 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:279 - Done op
+2026-08-20 05:19:48.208 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:281 - Done iteration 0
+2026-08-20 05:19:48.217 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: -0.0036273, Relative RMSE: inf
+2026-08-20 05:19:48.217 | ERROR    | models.common.utility_functions:comp_pcc:500 - One tensor is all nan, the other is not.
+iteration 0:
+FAILED2026-08-20 05:19:48.376 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-3584-device_params0-4] 2026-08-20 05:19:48.479 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:48.479 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:48.479 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:48.479 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:48.479 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:48.493 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:48.493 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:48.494 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:48.495 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:48.530 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:48.541 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:48.542 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:48.542 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:48.543 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:48.543 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:48.543 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:48.595 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:48.595 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear:379 - Running test_linear with M=32, K=5120, N=3584
+2026-08-20 05:19:49.040 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:84 - Creating persistent buffers
+2026-08-20 05:19:51.295 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:277 - Waiting for op
+2026-08-20 05:19:51.295 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:279 - Done op
+2026-08-20 05:19:51.295 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:281 - Done iteration 0
+2026-08-20 05:19:51.301 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998496, Relative RMSE: 0.0220
+2026-08-20 05:19:51.302 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998488, Relative RMSE: 0.0220
+2026-08-20 05:19:51.303 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998491, Relative RMSE: 0.0219
+2026-08-20 05:19:51.304 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998493, Relative RMSE: 0.0220
+iteration 0:
+FUSED_AGMM_EXACT local_n=3584 path=fused wall_us=2713548.409
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4352-device_params0-4] 2026-08-20 05:19:51.545 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:51.545 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:51.545 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:51.545 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:51.545 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:51.559 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:51.560 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:51.561 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:51.561 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:51.596 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:51.607 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:51.608 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:51.609 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:51.610 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:51.610 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:51.610 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:51.660 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:51.661 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear:379 - Running test_linear with M=32, K=5120, N=4352
+2026-08-20 05:19:51.894 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:84 - Creating persistent buffers
+2026-08-20 05:19:53.985 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:277 - Waiting for op
+2026-08-20 05:19:53.985 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:279 - Done op
+2026-08-20 05:19:53.985 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:281 - Done iteration 0
+2026-08-20 05:19:53.991 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998498, Relative RMSE: 0.0219
+2026-08-20 05:19:53.992 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998498, Relative RMSE: 0.0219
+2026-08-20 05:19:53.994 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998494, Relative RMSE: 0.0219
+2026-08-20 05:19:53.995 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998495, Relative RMSE: 0.0220
+iteration 0:
+FUSED_AGMM_EXACT local_n=4352 path=fused wall_us=2337572.978
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4608-device_params0-4] 2026-08-20 05:19:54.228 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:19:54.228 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:19:54.228 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:19:54.228 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:19:54.228 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:19:54.241 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:54.243 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:54.243 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:54.244 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:19:54.279 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:19:54.290 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:19:54.291 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:19:54.292 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:19:54.292 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:19:54.292 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:19:54.292 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:19:54.343 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:19:54.343 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear:379 - Running test_linear with M=32, K=5120, N=4608
+2026-08-20 05:19:54.589 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:84 - Creating persistent buffers
+2026-08-20 05:19:56.344 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:277 - Waiting for op
+2026-08-20 05:19:56.345 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:279 - Done op
+2026-08-20 05:19:56.345 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:run_test_linear_impl:281 - Done iteration 0
+2026-08-20 05:19:56.351 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998498, Relative RMSE: 0.0219
+2026-08-20 05:19:56.353 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998496, Relative RMSE: 0.0219
+2026-08-20 05:19:56.354 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998492, Relative RMSE: 0.0220
+2026-08-20 05:19:56.356 | INFO     | models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async:assert_quality:29 - PCC: 0.9998497, Relative RMSE: 0.0219
+iteration 0:
+FUSED_AGMM_EXACT local_n=4608 path=fused wall_us=2017439.289
+PASSED
+
+=================================== FAILURES ===================================
+_ test_decoder_shape_matmul_reduce_scatter[blackhole-separate-device_params0-4] _
+
+self = FastOperation(python_fully_qualified_name='ttnn.experimental.reduce_scatter_minimal_async', function=<ttnn._ttnn.opera...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 3, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 2.9125e+01, -1.5312e+01,  ..., -2.1719e+00,  1.4188e+01],
+     ...00,  ..., -8.0625e+00, -2.9500e+01]]]], shape=Shape([1, 1, 32, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE),)
+function_kwargs = {'dim': 3, 'memory_config': MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,sh...ject at 0x72152a011530>, <ttnn._ttnn.global_semaphore.global_semaphore object at 0x72152a0114d0>], 'num_links': 2, ...}
+cq_id = None, recording = False
+enhanced_msg = '\nttnn.experimental.reduce_scatter_minimal_async(): incompatible function arguments.\n\nCalled with:\n  reduce_scatte...um_buffers_per_channel: int | None = None, compute_kernel_config: ttnn.core.WormholeComputeKernelConfig | None = None)'
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               TypeError: __call__(): incompatible function arguments. The following argument types are supported:
+E                   1. __call__(self, input_tensor: ttnn._ttnn.tensor.Tensor, persistent_output_buffers: collections.abc.Sequence[ttnn._ttnn.tensor.Tensor] | None = None, dim: int, multi_device_global_semaphore: collections.abc.Sequence[ttnn._ttnn.global_semaphore.global_semaphore], *, barrier_semaphore: ttnn._ttnn.global_semaphore.global_semaphore | None = None, num_links: int | None = None, memory_config: ttnn._ttnn.tensor.MemoryConfig | None = None, intermediate_memory_config: ttnn._ttnn.tensor.MemoryConfig | None = None, topology: ttnn._ttnn.operations.ccl.Topology = Topology.Ring, subdevice_id: ttnn._ttnn.device.SubDeviceId | None = None, cluster_axis: int | None = None, chunks_per_sync: int | None = None, num_workers_per_link: int | None = None, num_buffers_per_channel: int | None = None, compute_kernel_config: ttnn._ttnn.operations.core.WormholeComputeKernelConfig | None = None) -> ttnn._ttnn.tensor.Tensor
+E               
+E               Invoked with types: ttnn._ttnn.operations.experimental.ccl_experimental.reduce_scatter_minimal_async_t, ttnn._ttnn.tensor.Tensor, kwargs = { persistent_intermediate_buffer: ttnn._ttnn.tensor.Tensor, persistent_output_buffer: ttnn._ttnn.tensor.Tensor, dim: int, multi_device_global_semaphore: list, num_links: int, memory_config: ttnn._ttnn.tensor.MemoryConfig, topology: ttnn._ttnn.operations.ccl.Topology, subdevice_id: ttnn._ttnn.device.SubDeviceId }
+
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: TypeError
+
+The above exception was the direct cause of the following exception:
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), use_non_fused = True
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    @pytest.mark.parametrize("use_non_fused", [True, False], ids=["separate", "fused"])
+    def test_decoder_shape_matmul_reduce_scatter(mesh_device, use_non_fused):
+        """Attention output projection: local [32,1536] @ [1536,5120]."""
+        if os.environ.get("QWEN36_RUN_FUSED_CCL_PROBE") != "1":
+            pytest.skip("set QWEN36_RUN_FUSED_CCL_PROBE=1")
+        from tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter import (
+            run_reduce_scatter_impl,
+        )
+    
+        dram = ttnn.MemoryConfig(ttnn.TensorMemoryLayout.INTERLEAVED, ttnn.BufferType.DRAM)
+        start = time.perf_counter()
+>       run_reduce_scatter_impl(
+            mesh_device,
+            4,
+            [1, 1, 32, 5120],
+            2,
+            3,
+            2,
+            [1, 1, 1536 * 4, 5120],
+            ttnn.bfloat16,
+            ttnn.TILE_LAYOUT,
+            ttnn.bfloat8_b,
+            6,
+            False,
+            dram,
+            dram,
+            dram,
+            ttnn.Topology.Ring,
+            use_non_fused=use_non_fused,
+            num_iters=1,
+            enable_trace=False,
+        )
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py:151: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/tests/ttnn/unit_tests/operations/ccl/test_new_matmul_reduce_scatter.py:265: in run_reduce_scatter_impl
+    tt_matmul_out_tensor, tt_reduce_scatter_output_tensor = run_op(i)
+                                                            ^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/tests/ttnn/unit_tests/operations/ccl/test_new_matmul_reduce_scatter.py:210: in run_op
+    tt_reduce_scatter_output_tensor = ttnn.experimental.reduce_scatter_minimal_async(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.experimental.reduce_scatter_minimal_async', function=<ttnn._ttnn.opera...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 3, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 2.9125e+01, -1.5312e+01,  ..., -2.1719e+00,  1.4188e+01],
+     ...00,  ..., -8.0625e+00, -2.9500e+01]]]], shape=Shape([1, 1, 32, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE),)
+function_kwargs = {'dim': 3, 'memory_config': MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,sh...ject at 0x72152a011530>, <ttnn._ttnn.global_semaphore.global_semaphore object at 0x72152a0114d0>], 'num_links': 2, ...}
+cq_id = None, recording = False
+enhanced_msg = '\nttnn.experimental.reduce_scatter_minimal_async(): incompatible function arguments.\n\nCalled with:\n  reduce_scatte...um_buffers_per_channel: int | None = None, compute_kernel_config: ttnn.core.WormholeComputeKernelConfig | None = None)'
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+                result = self.function(*function_args, **function_kwargs)
+            else:
+                with command_queue(cq_id):
+                    result = self.function(*function_args, **function_kwargs)
+        except TypeError as e:
+            enhanced_msg = self._enhance_type_error_message(str(e), function_args, function_kwargs)
+            if enhanced_msg:
+>               raise TypeError(enhanced_msg) from e
+E               TypeError: 
+E               ttnn.experimental.reduce_scatter_minimal_async(): incompatible function arguments.
+E               
+E               Called with:
+E                 reduce_scatter_minimal_async(ttnn.Tensor, persistent_intermediate_buffer=device_id: 3, MeshCoordinate([0, 0])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+E               device_id: 2, MeshCoordinate([0, 1])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+E               device_id: 1, MeshCoordinate([0, 2])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+E               device_id: 0, MeshCoordinate([0, 3])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 5120]), dtype=DataType::BFLOAT16, layout=Layout::TILE), persistent_output_buffer=device_id: 3, MeshCoordinate([0, 0])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 1280]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+E               device_id: 2, MeshCoordinate([0, 1])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 1280]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+E               device_id: 1, MeshCoordinate([0, 2])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 1280]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+E               device_id: 0, MeshCoordinate([0, 3])
+E               ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              ...,
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+E                              [ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 32, 1280]), dtype=DataType::BFLOAT16, layout=Layout::TILE), dim=3, multi_device_global_semaphore=[<ttnn._ttnn.global_semaphore.global_semaphore object at 0x72152a011590>, <ttnn._ttnn.global_semaphore.global_semaphore object at 0x72152a011530>, <ttnn._ttnn.global_semaphore.global_semaphore object at 0x72152a0114d0>], num_links=2, memory_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0), topology=Topology.Ring, subdevice_id=SubDeviceId(0))
+E               
+E               Available signatures:
+E                 reduce_scatter_minimal_async(input_tensor: ttnn.Tensor, persistent_output_buffers: collections.abc.Sequence[ttnn.Tensor] | None = None, dim: int, multi_device_global_semaphore: collections.abc.Sequence[ttnn._ttnn.global_semaphore.global_semaphore], *, barrier_semaphore: ttnn._ttnn.global_semaphore.global_semaphore | None = None, num_links: int | None = None, memory_config: ttnn.MemoryConfig | None = None, intermediate_memory_config: ttnn.MemoryConfig | None = None, topology: ttnn.ccl.Topology = Topology.Ring, subdevice_id: ttnn._ttnn.device.SubDeviceId | None = None, cluster_axis: int | None = None, chunks_per_sync: int | None = None, num_workers_per_link: int | None = None, num_buffers_per_channel: int | None = None, compute_kernel_config: ttnn.core.WormholeComputeKernelConfig | None = None)
+
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:657: TypeError
+_ test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4] _
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), local_n = 3584
+use_non_fused = True
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    @pytest.mark.parametrize("local_n", [3584, 4352, 4608])
+    @pytest.mark.parametrize("use_non_fused", [True, False], ids=["separate", "fused"])
+    def test_decoder_shape_all_gather_matmul(mesh_device, local_n, use_non_fused):
+        """Fractured [32,1280] gather feeding one local QKV/MLP column matmul."""
+        if os.environ.get("QWEN36_RUN_FUSED_CCL_PROBE") != "1":
+            pytest.skip("set QWEN36_RUN_FUSED_CCL_PROBE=1")
+        from models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async import (
+            run_test_linear,
+        )
+    
+        start = time.perf_counter()
+>       results = run_test_linear(
+            mesh_device,
+            32,
+            5120,
+            local_n,
+            1,
+            8,
+            4,
+            1,
+            2,
+            ttnn.Topology.Ring,
+            core_grid=ttnn.CoreCoord(8, 8),
+            num_workers_per_link=4,
+            num_links=2,
+            use_bias=False,
+            use_non_fused=use_non_fused,
+            force_transpose=True,
+            sp_axis=0,
+            tp_axis=1,
+            num_iters=1,
+            enable_trace=False,
+            cluster_axis=1,
+            dtype=ttnn.bfloat16,
+            weight_dtype=ttnn.bfloat8_b,
+            math_fidelity=ttnn.MathFidelity.LoFi,
+            fp32_acc=False,
+        )
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:436: in run_test_linear
+    return run_test_linear_impl(
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:322: in run_test_linear_impl
+    assert_quality(
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:28: in assert_quality
+    relative_rmse_val = torch.nn.functional.mse_loss(torch_output, tt_output).sqrt().item() / torch_output.std().item()
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/nn/functional.py:3931: in mse_loss
+    expanded_input, expanded_target = torch.broadcast_tensors(input, target)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tensors = (tensor([[[[-132.0840,  -18.2616,   50.1018,  ...,   64.9843,  -12.9517,
+             62.0515],
+          [ -36.5743, ... -18.8969,  ...,   75.5521,  -70.0449,
+             -7.1857]]]]), tensor([], size=(1, 1, 32, 0), dtype=torch.bfloat16))
+
+    def broadcast_tensors(*tensors):
+        r"""broadcast_tensors(*tensors) -> List of Tensors
+    
+        Broadcasts the given tensors according to :ref:`broadcasting-semantics`.
+    
+        Args:
+            *tensors: any number of tensors of the same type
+    
+        .. warning::
+    
+            More than one element of a broadcasted tensor may refer to a single
+            memory location. As a result, in-place operations (especially ones that
+            are vectorized) may result in incorrect behavior. If you need to write
+            to the tensors, please clone them first.
+    
+        Example::
+    
+            >>> x = torch.arange(3).view(1, 3)
+            >>> y = torch.arange(2).view(2, 1)
+            >>> a, b = torch.broadcast_tensors(x, y)
+            >>> a.size()
+            torch.Size([2, 3])
+            >>> a
+            tensor([[0, 1, 2],
+                    [0, 1, 2]])
+        """
+        # This wrapper exists to support variadic args.
+        if has_torch_function(tensors):
+            return handle_torch_function(broadcast_tensors, tensors, *tensors)
+>       return _VF.broadcast_tensors(tensors)  # type: ignore[attr-defined]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       RuntimeError: The size of tensor a (3584) must match the size of tensor b (0) at non-singleton dimension 3
+
+/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/functional.py:77: RuntimeError
+_ test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4] _
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), local_n = 4352
+use_non_fused = True
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    @pytest.mark.parametrize("local_n", [3584, 4352, 4608])
+    @pytest.mark.parametrize("use_non_fused", [True, False], ids=["separate", "fused"])
+    def test_decoder_shape_all_gather_matmul(mesh_device, local_n, use_non_fused):
+        """Fractured [32,1280] gather feeding one local QKV/MLP column matmul."""
+        if os.environ.get("QWEN36_RUN_FUSED_CCL_PROBE") != "1":
+            pytest.skip("set QWEN36_RUN_FUSED_CCL_PROBE=1")
+        from models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async import (
+            run_test_linear,
+        )
+    
+        start = time.perf_counter()
+>       results = run_test_linear(
+            mesh_device,
+            32,
+            5120,
+            local_n,
+            1,
+            8,
+            4,
+            1,
+            2,
+            ttnn.Topology.Ring,
+            core_grid=ttnn.CoreCoord(8, 8),
+            num_workers_per_link=4,
+            num_links=2,
+            use_bias=False,
+            use_non_fused=use_non_fused,
+            force_transpose=True,
+            sp_axis=0,
+            tp_axis=1,
+            num_iters=1,
+            enable_trace=False,
+            cluster_axis=1,
+            dtype=ttnn.bfloat16,
+            weight_dtype=ttnn.bfloat8_b,
+            math_fidelity=ttnn.MathFidelity.LoFi,
+            fp32_acc=False,
+        )
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:436: in run_test_linear
+    return run_test_linear_impl(
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:322: in run_test_linear_impl
+    assert_quality(
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:28: in assert_quality
+    relative_rmse_val = torch.nn.functional.mse_loss(torch_output, tt_output).sqrt().item() / torch_output.std().item()
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/nn/functional.py:3931: in mse_loss
+    expanded_input, expanded_target = torch.broadcast_tensors(input, target)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tensors = (tensor([[[[ 118.7799,  -86.0308,   60.9473,  ...,  -44.6408, -105.9608,
+            -18.4913],
+          [  89.8621, ... -61.0939,  ...,   55.0136,    3.4406,
+            117.1241]]]]), tensor([], size=(1, 1, 32, 0), dtype=torch.bfloat16))
+
+    def broadcast_tensors(*tensors):
+        r"""broadcast_tensors(*tensors) -> List of Tensors
+    
+        Broadcasts the given tensors according to :ref:`broadcasting-semantics`.
+    
+        Args:
+            *tensors: any number of tensors of the same type
+    
+        .. warning::
+    
+            More than one element of a broadcasted tensor may refer to a single
+            memory location. As a result, in-place operations (especially ones that
+            are vectorized) may result in incorrect behavior. If you need to write
+            to the tensors, please clone them first.
+    
+        Example::
+    
+            >>> x = torch.arange(3).view(1, 3)
+            >>> y = torch.arange(2).view(2, 1)
+            >>> a, b = torch.broadcast_tensors(x, y)
+            >>> a.size()
+            torch.Size([2, 3])
+            >>> a
+            tensor([[0, 1, 2],
+                    [0, 1, 2]])
+        """
+        # This wrapper exists to support variadic args.
+        if has_torch_function(tensors):
+            return handle_torch_function(broadcast_tensors, tensors, *tensors)
+>       return _VF.broadcast_tensors(tensors)  # type: ignore[attr-defined]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       RuntimeError: The size of tensor a (4352) must match the size of tensor b (0) at non-singleton dimension 3
+
+/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/functional.py:77: RuntimeError
+_ test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4] _
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), local_n = 4608
+use_non_fused = True
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    @pytest.mark.parametrize("local_n", [3584, 4352, 4608])
+    @pytest.mark.parametrize("use_non_fused", [True, False], ids=["separate", "fused"])
+    def test_decoder_shape_all_gather_matmul(mesh_device, local_n, use_non_fused):
+        """Fractured [32,1280] gather feeding one local QKV/MLP column matmul."""
+        if os.environ.get("QWEN36_RUN_FUSED_CCL_PROBE") != "1":
+            pytest.skip("set QWEN36_RUN_FUSED_CCL_PROBE=1")
+        from models.tt_dit.tests.models.wan2_2.test_all_gather_minimal_matmul_async import (
+            run_test_linear,
+        )
+    
+        start = time.perf_counter()
+>       results = run_test_linear(
+            mesh_device,
+            32,
+            5120,
+            local_n,
+            1,
+            8,
+            4,
+            1,
+            2,
+            ttnn.Topology.Ring,
+            core_grid=ttnn.CoreCoord(8, 8),
+            num_workers_per_link=4,
+            num_links=2,
+            use_bias=False,
+            use_non_fused=use_non_fused,
+            force_transpose=True,
+            sp_axis=0,
+            tp_axis=1,
+            num_iters=1,
+            enable_trace=False,
+            cluster_axis=1,
+            dtype=ttnn.bfloat16,
+            weight_dtype=ttnn.bfloat8_b,
+            math_fidelity=ttnn.MathFidelity.LoFi,
+            fp32_acc=False,
+        )
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:436: in run_test_linear
+    return run_test_linear_impl(
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:322: in run_test_linear_impl
+    assert_quality(
+/home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:28: in assert_quality
+    relative_rmse_val = torch.nn.functional.mse_loss(torch_output, tt_output).sqrt().item() / torch_output.std().item()
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/nn/functional.py:3931: in mse_loss
+    expanded_input, expanded_target = torch.broadcast_tensors(input, target)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tensors = (tensor([[[[-107.3376,   72.8426, -122.4341,  ..., -135.8510,  127.7976,
+             18.2932],
+          [   5.6968, ...  16.1702,  ...,   -4.4943,  -63.4667,
+             18.9456]]]]), tensor([], size=(1, 1, 32, 0), dtype=torch.bfloat16))
+
+    def broadcast_tensors(*tensors):
+        r"""broadcast_tensors(*tensors) -> List of Tensors
+    
+        Broadcasts the given tensors according to :ref:`broadcasting-semantics`.
+    
+        Args:
+            *tensors: any number of tensors of the same type
+    
+        .. warning::
+    
+            More than one element of a broadcasted tensor may refer to a single
+            memory location. As a result, in-place operations (especially ones that
+            are vectorized) may result in incorrect behavior. If you need to write
+            to the tensors, please clone them first.
+    
+        Example::
+    
+            >>> x = torch.arange(3).view(1, 3)
+            >>> y = torch.arange(2).view(2, 1)
+            >>> a, b = torch.broadcast_tensors(x, y)
+            >>> a.size()
+            torch.Size([2, 3])
+            >>> a
+            tensor([[0, 1, 2],
+                    [0, 1, 2]])
+        """
+        # This wrapper exists to support variadic args.
+        if has_torch_function(tensors):
+            return handle_torch_function(broadcast_tensors, tensors, *tensors)
+>       return _VF.broadcast_tensors(tensors)  # type: ignore[attr-defined]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       RuntimeError: The size of tensor a (4608) must match the size of tensor b (0) at non-singleton dimension 3
+
+/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/functional.py:77: RuntimeError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4]
+  /home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:28: UserWarning: Using a target size (torch.Size([1, 1, 32, 0])) that is different to the input size (torch.Size([1, 1, 32, 3584])). This will likely lead to incorrect results due to broadcasting. Please ensure they have the same size.
+    relative_rmse_val = torch.nn.functional.mse_loss(torch_output, tt_output).sqrt().item() / torch_output.std().item()
+
+models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4]
+  /home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:28: UserWarning: Using a target size (torch.Size([1, 1, 32, 0])) that is different to the input size (torch.Size([1, 1, 32, 4352])). This will likely lead to incorrect results due to broadcasting. Please ensure they have the same size.
+    relative_rmse_val = torch.nn.functional.mse_loss(torch_output, tt_output).sqrt().item() / torch_output.std().item()
+
+models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4]
+  /home/ttuser/dev/qwen-perf/tt-metal/models/tt_dit/tests/models/wan2_2/test_all_gather_minimal_matmul_async.py:28: UserWarning: Using a target size (torch.Size([1, 1, 32, 0])) that is different to the input size (torch.Size([1, 1, 32, 4608])). This will likely lead to incorrect results due to broadcasting. Please ensure they have the same size.
+    relative_rmse_val = torch.nn.functional.mse_loss(torch_output, tt_output).sqrt().item() / torch_output.std().item()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+2.71s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-3584-device_params0-4]
+2.34s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4352-device_params0-4]
+2.21s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4]
+2.02s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4608-device_params0-4]
+1.22s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-separate-device_params0-4]
+0.76s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-fused-device_params0-4]
+0.74s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4]
+0.68s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4]
+0.68s call     models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-separate-device_params0-4]
+0.23s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4352-device_params0-4]
+0.23s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4608-device_params0-4]
+0.22s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4]
+0.22s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-3584-device_params0-4]
+0.22s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4]
+0.22s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-fused-device_params0-4]
+0.21s setup    models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-separate-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-3584-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4352-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-fused-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4608-device_params0-4]
+=========================== short test summary info ============================
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-fused-device_params0-4]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-3584-device_params0-4]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4352-device_params0-4]
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-fused-4608-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_matmul_reduce_scatter[blackhole-separate-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-3584-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4352-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/optimized_multichip_decoder/autofix/fused_persistent/test_ccl_candidates.py::test_decoder_shape_all_gather_matmul[blackhole-separate-4608-device_params0-4]
+============ 4 failed, 4 passed, 2 deselected, 4 warnings in 16.01s ============
+nanobind: leaked 2 instances!
+ - leaked instance 0x72153d9e1488 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x72153958ea48 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 21 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - ... skipped remainder
+nanobind: leaked 247 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "to_json"
+ - leaked function ""
+ - leaked function "from_json"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-20 05:19:57.188 | info     |    BuildKernels | JIT cache stats: 65/172 hits (37.8%) [65 cached, 550 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-20 05:19:57.188 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-20 05:19:57.201 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-20 05:19:57.201 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-20 05:19:57.788 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-20 05:19:57.788 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-20 05:19:57.788 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

@@ -1,0 +1,185 @@
+Script started on 2026-08-20 06:57:50-04:00 [COMMAND="env -i HOME=/home/ttuser PATH=/home/ttuser/.tenstorrent-venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal TT_METAL_WATCHER=10 TT_METAL_WATCHER_DISABLE_ETH=1 TT_METAL_WATCHER_DUMP_ALL=1 QWEN36_CCL_PROVENANCE=1 /home/ttuser/.tenstorrent-venv/bin/pytest -q -s /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py -k 'linear_non_aligned_prefill_decode or full_paged_decode_trace'" <not executed on terminal>]
+[32m2026-08-20 06:57:51.232[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m79[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+[1m============================= test session starts ==============================[0m
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+[1mcollecting ... [0m[1mcollecting 26 items                                                            [0m[1mcollected 26 items / 24 deselected / 2 selected                                [0m
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4] [90m2026-08-20 06:57:53.147[0m | info     | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:228)[0m
+[90m2026-08-20 06:57:53.147[0m | info     | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:348)[0m
+[90m2026-08-20 06:57:53.147[0m | info     | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:95)[0m
+[90m2026-08-20 06:57:53.147[0m | info     | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:114)[0m
+[90m2026-08-20 06:57:53.159[0m | info     | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:574)[0m
+[90m2026-08-20 06:57:53.159[0m | info     | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:118)[0m
+[90m2026-08-20 06:57:53.237[0m | info     | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {}[0m [90m(cluster.cpp:168)[0m
+[90m2026-08-20 06:57:53.238[0m | info     | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:142)[0m
+[90m2026-08-20 06:57:53.238[0m | info     | [35m            UMD[0m | [37mKMD version: 2.10.0[0m [90m(cluster.cpp:145)[0m
+[90m2026-08-20 06:57:53.238[0m | info     | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:520)[0m
+[90m2026-08-20 06:57:53.239[0m | info     | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1024)[0m
+[90m2026-08-20 06:57:53.472[0m | info     | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1032)[0m
+[90m2026-08-20 06:57:53.596[0m | info     | [35m    Distributed[0m | [37mUsing auto discovery to generate mesh graph.[0m [90m(metal_env.cpp:408)[0m
+[90m2026-08-20 06:57:53.596[0m | info     | [35m    Distributed[0m | [37mConstructing control plane using auto-discovery (no mesh graph descriptor).[0m [90m(metal_env.cpp:470)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:57:53.596[0m | info     | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4}[0m [90m(topology_mapper_utils.cpp:2342)[0m
+[90m2026-08-20 06:57:53.596[0m | info     | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4}[0m [90m(topology_mapper_utils.cpp:2350)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m      LLRuntime[0m | [37mWatcher log file: /tmp/generated/watcher/watcher.log[0m [90m(watcher_server.cpp:293)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 0[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 1[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 2[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 3[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m      LLRuntime[0m | [37mWatcher server initialized, disabled features: ETH[0m [90m(watcher_server.cpp:554)[0m
+[90m2026-08-20 06:57:53.656[0m | info     | [35m          Metal[0m | [37mWatcher checking device 0[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:57:53.661[0m | info     | [35m          Metal[0m | [37mInitializing Fabric[0m [90m(fabric_firmware_initializer.cpp:296)[0m
+[90m2026-08-20 06:57:53.684[0m | info     | [35m          Metal[0m | [37mWatcher checking device 1[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:57:53.707[0m | info     | [35m          Metal[0m | [37mWatcher checking device 2[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:57:53.731[0m | info     | [35m          Metal[0m | [37mWatcher checking device 3[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:57:53.773[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 0[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:57:53.774[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 1[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:57:53.774[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 2[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:57:53.775[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 3[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:57:53.775[0m | info     | [35m          Metal[0m | [37mFabric initialized on 4 devices[0m [90m(fabric_firmware_initializer.cpp:444)[0m
+[90m2026-08-20 06:57:53.775[0m | info     | [35m          Metal[0m | [37mFabric Initialized with config FabricConfig::FABRIC_1D_RING[0m [90m(fabric_firmware_initializer.cpp:313)[0m
+[90m2026-08-20 06:57:53.958[0m | info     | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 06:57:53.958[0m | info     | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 06:57:53.958[0m | info     | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 06:57:53.958[0m | info     | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 06:57:54.538[0m | info     | [35m          Metal[0m | [37m[Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349989 GHz, device_time_at_sync=2500254182024 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[90m2026-08-20 06:57:54.538[0m | info     | [35m          Metal[0m | [37m[Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349980 GHz, device_time_at_sync=2512131283250 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[90m2026-08-20 06:57:54.540[0m | info     | [35m          Metal[0m | [37m[Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349988 GHz, device_time_at_sync=2518857513620 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[90m2026-08-20 06:57:54.540[0m | info     | [35m          Metal[0m | [37m[Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349990 GHz, device_time_at_sync=2505305747787 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[32m2026-08-20 06:57:54.551[0m | [34m[1mDEBUG   [0m | [36mconftest[0m:[36mmesh_device[0m:[36m599[0m - [34m[1mmultidevice with 4 devices is created[0m
+COMMAND_PROVENANCE cwd=/tmp argv=['/home/ttuser/.tenstorrent-venv/bin/pytest', '-q', '-s', '/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py', '-k', 'linear_non_aligned_prefill_decode or full_paged_decode_trace'] env={'QWEN36_CCL_PROVENANCE': '1'}
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[90m2026-08-20 06:58:03.861[0m | info     | [35m          Metal[0m | [37mWatcher checking device 0[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:03.886[0m | info     | [35m          Metal[0m | [37mWatcher checking device 1[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:03.910[0m | info     | [35m          Metal[0m | [37mWatcher checking device 2[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:03.935[0m | info     | [35m          Metal[0m | [37mWatcher checking device 3[0m [90m(watcher_device_reader.cpp:393)[0m
+0.9979603197687686
+0.9974607922168469
+0.998331463083172
+1.0
+CCL_RUNTIME_PROVENANCE layer_kind=linear_attention attention_policy=bf16 mlp_policy=bfp8 persistent=True prefill_links=1 decode_links=2 pool_id=133166363974592 allocations={'attention_16': {'bf16': 'DataType.BFLOAT16'}, 'full_mlp_16': {'bf16': 'DataType.BFLOAT16'}, 'linear_mlp_8': {'bfp8': 'DataType.BFLOAT8_B'}} branches={'attention': {'branch': 'explicit_persistent_all_reduce_async', 'input_dtype': 'DataType.BFLOAT16', 'output_dtype': 'DataType.BFLOAT16', 'persistent_buffer_dtype': 'DataType.BFLOAT16'}, 'mlp': {'branch': 'explicit_persistent_all_reduce_async', 'input_dtype': 'DataType.BFLOAT8_B', 'output_dtype': 'DataType.BFLOAT8_B', 'persistent_buffer_dtype': 'DataType.BFLOAT8_B'}}
+[32mPASSED[0m
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4] [90m2026-08-20 06:58:10.596[0m | info     | [35m          Metal[0m | [37mFabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane[0m [90m(metal_env.cpp:322)[0m
+[90m2026-08-20 06:58:10.596[0m | info     | [35m    Distributed[0m | [37mUsing auto discovery to generate mesh graph.[0m [90m(metal_env.cpp:408)[0m
+[90m2026-08-20 06:58:10.596[0m | info     | [35m    Distributed[0m | [37mConstructing control plane using auto-discovery (no mesh graph descriptor).[0m [90m(metal_env.cpp:470)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | warning  | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 06:58:10.596[0m | info     | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4}[0m [90m(topology_mapper_utils.cpp:2342)[0m
+[90m2026-08-20 06:58:10.596[0m | info     | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4}[0m [90m(topology_mapper_utils.cpp:2350)[0m
+[90m2026-08-20 06:58:10.597[0m | info     | [35m      LLRuntime[0m | [37mWatcher thread stopped watching...[0m [90m(watcher_server.cpp:602)[0m
+[90m2026-08-20 06:58:10.597[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 0[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:10.597[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 1[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:10.597[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 2[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:10.597[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 3[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m      LLRuntime[0m | [37mWatcher log file: /tmp/generated/watcher/watcher.log[0m [90m(watcher_server.cpp:293)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 0[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 1[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 2[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m      LLRuntime[0m | [37mWatcher attached device 3[0m [90m(watcher_server.cpp:139)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m      LLRuntime[0m | [37mWatcher server initialized, disabled features: ETH[0m [90m(watcher_server.cpp:554)[0m
+[90m2026-08-20 06:58:10.667[0m | info     | [35m          Metal[0m | [37mWatcher checking device 0[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:10.670[0m | info     | [35m          Metal[0m | [37mInitializing Fabric[0m [90m(fabric_firmware_initializer.cpp:296)[0m
+[90m2026-08-20 06:58:10.696[0m | info     | [35m          Metal[0m | [37mWatcher checking device 1[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:10.719[0m | info     | [35m          Metal[0m | [37mWatcher checking device 2[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:10.743[0m | info     | [35m          Metal[0m | [37mWatcher checking device 3[0m [90m(watcher_device_reader.cpp:393)[0m
+[90m2026-08-20 06:58:10.768[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 0[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:58:10.769[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 1[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:58:10.770[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 2[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:58:10.770[0m | info     | [35m          Metal[0m | [37mFabric initialized on Device 3[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 06:58:10.770[0m | info     | [35m          Metal[0m | [37mFabric initialized on 4 devices[0m [90m(fabric_firmware_initializer.cpp:444)[0m
+[90m2026-08-20 06:58:10.770[0m | info     | [35m          Metal[0m | [37mFabric Initialized with config FabricConfig::FABRIC_1D_RING[0m [90m(fabric_firmware_initializer.cpp:313)[0m
+[32m2026-08-20 06:58:10.955[0m | [34m[1mDEBUG   [0m | [36mconftest[0m:[36mmesh_device[0m:[36m599[0m - [34m[1mmultidevice with 4 devices is created[0m
+COMMAND_PROVENANCE cwd=/tmp argv=['/home/ttuser/.tenstorrent-venv/bin/pytest', '-q', '-s', '/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py', '-k', 'linear_non_aligned_prefill_decode or full_paged_decode_trace'] env={'QWEN36_CCL_PROVENANCE': '1'}
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+0.9954127239142914
+1.0
+CCL_RUNTIME_PROVENANCE layer_kind=full_attention attention_policy=bf16 mlp_policy=bf16 persistent=True prefill_links=1 decode_links=2 pool_id=133165864666496 allocations={'attention_16': {'bf16': 'DataType.BFLOAT16'}, 'full_mlp_16': {'bf16': 'DataType.BFLOAT16'}, 'linear_mlp_8': {'bfp8': 'DataType.BFLOAT8_B'}} branches={'attention': {'branch': 'explicit_persistent_all_reduce_async', 'input_dtype': 'DataType.BFLOAT16', 'output_dtype': 'DataType.BFLOAT16', 'persistent_buffer_dtype': 'DataType.BFLOAT16'}, 'mlp': {'branch': 'explicit_persistent_all_reduce_async', 'input_dtype': 'DataType.BFLOAT16', 'output_dtype': 'DataType.BFLOAT16', 'persistent_buffer_dtype': 'DataType.BFLOAT16'}}
+[32mPASSED[0m
+
+[33m=============================== warnings summary ===============================[0m
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+15.75s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+8.49s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+1.55s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+0.51s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+0.15s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+0.15s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+[36m[1m=========================== short test summary info ============================[0m
+[32mPASSED[0m ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::[1mtest_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4][0m
+[32mPASSED[0m ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::[1mtest_multichip_full_paged_decode_trace[blackhole-device_params0-4][0m
+[33m================ [32m2 passed[0m, [33m[1m24 deselected[0m, [33m[1m3 warnings[0m[33m in 27.71s[0m[33m =================[0m
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x791d3cbf9308 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x791d387bdd88 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 36 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - ... skipped remainder
+nanobind: leaked 307 functions!
+ - leaked function "size"
+ - leaked function "reset_sub_device_stall_group"
+ - leaked function "get_fabric_node_id"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "ClearKernelCache"
+ - leaked function ""
+ - leaked function "__init__"
+ - leaked function "to"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-20 06:58:20.807[0m | info     | [35m   BuildKernels[0m | [37mJIT cache stats: 675/745 hits (90.6%) [675 cached, 505 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-20 06:58:20.807[0m | info     | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-20 06:58:20.808[0m | info     | [35m      LLRuntime[0m | [37mWatcher thread stopped watching...[0m [90m(watcher_server.cpp:602)[0m
+[90m2026-08-20 06:58:20.809[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 0[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:20.809[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 1[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:20.809[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 2[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:20.809[0m | info     | [35m      LLRuntime[0m | [37mWatcher detached device 3[0m [90m(watcher_server.cpp:188)[0m
+[90m2026-08-20 06:58:20.822[0m | info     | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:513)[0m
+[90m2026-08-20 06:58:20.822[0m | info     | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1037)[0m
+[90m2026-08-20 06:58:21.310[0m | info     | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1046)[0m
+[90m2026-08-20 06:58:21.310[0m | info     | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:754)[0m
+[90m2026-08-20 06:58:21.310[0m | info     | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:757)[0m
+
+Script done on 2026-08-20 06:58:21-04:00 [COMMAND_EXIT_CODE="0"]

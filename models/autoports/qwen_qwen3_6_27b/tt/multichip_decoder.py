@@ -14,6 +14,7 @@ alternative remains available for future fused-collective work.
 from __future__ import annotations
 
 import math
+import os
 
 import torch
 import ttnn
@@ -25,7 +26,11 @@ from models.autoports.qwen_qwen3_6_27b.tt.functional_decoder import (
     LINEAR_CHUNK_SIZE,
     _state_key,
 )
-from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import OptimizedDecoder, _norm_l1_memory
+from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import (
+    OptimizedDecoder,
+    _decode_l1_memory,
+    _norm_l1_memory,
+)
 
 
 TP_SIZE = 4
@@ -155,6 +160,11 @@ class MultichipDecoder(OptimizedDecoder):
         "distributed_rms_norm",
     )
     TOTAL_MULTICHIP_COUNTS = {name: 0 for name in MULTICHIP_MANIFEST}
+    # MeshDevice does not expose a documented weak-reference lifecycle. Keep a
+    # validated identity entry for the process lifetime so decoder layers share
+    # stable trace addresses instead of reserving CCL buffers per layer.
+    _PERSISTENT_CCL_POOLS = {}
+    LAST_PROVENANCE_INSTANCE = None
 
     @classmethod
     def reset_multichip_counts(cls):
@@ -228,7 +238,25 @@ class MultichipDecoder(OptimizedDecoder):
             source = state_dict[_state_key(state_dict, layer_idx, suffix)].float() + 1.0
             common[role] = _fractured_norm_weight(source.reshape(1, 1, 1, -1), mesh_device)
 
-        mlp_dtype = ttnn.bfloat4_b if layer_kind == "linear_attention" else ttnn.bfloat8_b
+        dtype_by_name = {
+            "bf16": ttnn.bfloat16,
+            "bfp8": ttnn.bfloat8_b,
+            "bfp4": ttnn.bfloat4_b,
+        }
+        default_mlp_policies = (
+            {role: "bfp4" for role in ("gate", "up", "down")}
+            if layer_kind == "linear_attention"
+            else {"gate": "bfp4", "up": "bfp4", "down": "bfp8"}
+        )
+        mlp_policies = {
+            role: os.environ.get(
+                f"QWEN36_MC_MLP_{role.upper()}_DTYPE", default_mlp_policies[role]
+            )
+            for role in ("gate", "up", "down")
+        }
+        if any(policy not in dtype_by_name for policy in mlp_policies.values()):
+            raise ValueError("multichip MLP dtype must be bf16, bfp8, or bfp4")
+        mlp_dtypes = {role: dtype_by_name[policy] for role, policy in mlp_policies.items()}
         mlp_sources = {
             role: state_dict[_state_key(state_dict, layer_idx, f"mlp.{role}_proj.weight")]
             for role in ("gate", "up", "down")
@@ -256,16 +284,26 @@ class MultichipDecoder(OptimizedDecoder):
                 dim=1,
             )
         for role in ("gate", "up"):
-            normal, decode = _column_weight(mlp_sources[role], mesh_device, dtype=mlp_dtype)
+            normal, decode = _column_weight(
+                mlp_sources[role], mesh_device, dtype=mlp_dtypes[role]
+            )
             common[f"mlp_{role}"] = normal
             common[f"mlp_{role}_decode"] = decode
             common[f"mlp_{role}_dram_prefill"] = decode
-        normal, decode = _row_weight(mlp_sources["down"], mesh_device, dtype=mlp_dtype)
+        normal, decode = _row_weight(
+            mlp_sources["down"], mesh_device, dtype=mlp_dtypes["down"]
+        )
         common["mlp_down"] = normal
         common["mlp_down_decode"] = decode
         common["mlp_down_dram_prefill"] = decode
 
         if layer_kind == "full_attention":
+            input_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
+            ]
+            output_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
+            ]
             local_q_heads = config.num_attention_heads // TP_SIZE
             local_kv_heads = config.num_key_value_heads // TP_SIZE
             q_and_gate = state_dict[_state_key(state_dict, layer_idx, "self_attn.q_proj.weight")]
@@ -289,10 +327,12 @@ class MultichipDecoder(OptimizedDecoder):
                 packed_by_device.append((q, k, v, gate))
             full_source = _per_device_cat(packed_by_device)
             full_qkv, full_qkv_decode = _column_weight(
-                full_source, mesh_device, dtype=ttnn.bfloat8_b
+                full_source, mesh_device, dtype=input_projection_dtype
             )
             o_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.o_proj.weight")]
-            o_proj, o_proj_decode = _row_weight(o_source, mesh_device, dtype=ttnn.bfloat8_b)
+            o_proj, o_proj_decode = _row_weight(
+                o_source, mesh_device, dtype=output_projection_dtype
+            )
             common.update(
                 num_heads=local_q_heads,
                 num_kv_heads=local_kv_heads,
@@ -313,6 +353,12 @@ class MultichipDecoder(OptimizedDecoder):
                 ),
             )
         elif layer_kind == "linear_attention":
+            input_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
+            ]
+            output_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
+            ]
             qkv_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_qkv.weight")]
             z_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_z.weight")]
             beta_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
@@ -348,11 +394,11 @@ class MultichipDecoder(OptimizedDecoder):
                 conv_parts.append(torch.cat((q, k, v), dim=0))
             linear_source = _per_device_cat(packed_by_device)
             linear_projections, linear_projections_decode = _column_weight(
-                linear_source, mesh_device, dtype=ttnn.bfloat8_b
+                linear_source, mesh_device, dtype=input_projection_dtype
             )
             out_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.out_proj.weight")]
             linear_out_proj, linear_out_proj_decode = _row_weight(
-                out_source, mesh_device, dtype=ttnn.bfloat8_b
+                out_source, mesh_device, dtype=output_projection_dtype
             )
 
             conv_full = state_dict[_state_key(state_dict, layer_idx, "linear_attn.conv1d.weight")]
@@ -417,38 +463,101 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.optimization_counters = {name: 0 for name in cls.OPTIMIZATION_MANIFEST}
         decoder.multichip_counters = {name: 0 for name in cls.MULTICHIP_MANIFEST}
         decoder._runtime_phase = None
-        decoder.mlp_policies = {role: "bfp4" if mlp_dtype == ttnn.bfloat4_b else "bfp8" for role in ("gate", "up", "down")}
-        decoder.mlp_weight_dtypes = {role: mlp_dtype for role in ("gate", "up", "down")}
+        decoder.mlp_policies = mlp_policies
+        decoder.mlp_weight_dtypes = mlp_dtypes
         decoder.mlp_compute_configs = {
             role: ttnn.WormholeComputeKernelConfig(
-                math_fidelity=ttnn.MathFidelity.LoFi,
+                math_fidelity=(
+                    ttnn.MathFidelity.HiFi2
+                    if os.environ.get(f"QWEN36_MC_MLP_{role.upper()}_FIDELITY", "lofi")
+                    == "hifi2"
+                    else ttnn.MathFidelity.LoFi
+                ),
                 math_approx_mode=False,
                 fp32_dest_acc_en=False,
                 packer_l1_acc=True,
             )
             for role in ("gate", "up", "down")
         }
-        decoder.mlp_weight_dtype = mlp_dtype
+        decoder.mlp_weight_dtype = mlp_dtypes["gate"]
         decoder.matmul_compute_config = decoder.mlp_compute_configs["gate"]
         decoder.dram_sharded_mlp = True
         mlp_cores = 16 if layer_kind == "full_attention" else 8
         decoder.dram_sharded_mlp_cores = {
             role: mlp_cores for role in ("gate", "up", "down")
         }
-        decoder.dram_sharded_mlp_blocks = (
+        default_mlp_blocks = (
             {"gate": 10, "up": 10, "down": 17}
             if layer_kind == "linear_attention"
             else {role: 0 for role in ("gate", "up", "down")}
         )
+        decoder.dram_sharded_mlp_blocks = {
+            role: int(
+                os.environ.get(
+                    f"QWEN36_MC_MLP_{role.upper()}_BLOCK",
+                    str(default_mlp_blocks[role]),
+                )
+            )
+            for role in ("gate", "up", "down")
+        }
         decoder.mlp_padded_64 = False
         decoder.full_decode_mixed_mlp = False
         decoder.mlp_runtime_hidden_size = hidden_size
         decoder.mlp_runtime_intermediate_size = local_intermediate
         decoder.mlp_runtime_output_size = hidden_size
         decoder.dram_sharded_projections = "both"
-        decoder.projection_fidelity = "auto"
-        decoder.input_projection_weight_dtype = ttnn.bfloat8_b
-        decoder.output_projection_weight_dtype = ttnn.bfloat8_b
+        decoder.projection_fidelity = os.environ.get(
+            "QWEN36_MC_PROJECTION_FIDELITY", "auto"
+        )
+        if decoder.projection_fidelity not in ("auto", "lofi", "hifi2"):
+            raise ValueError("QWEN36_MC_PROJECTION_FIDELITY must be auto, lofi, or hifi2")
+        decoder.input_projection_weight_dtype = input_projection_dtype
+        decoder.output_projection_weight_dtype = output_projection_dtype
+        decoder.ccl_payload_dtype = os.environ.get("QWEN36_MC_CCL_DTYPE", "bf16")
+        if decoder.ccl_payload_dtype not in ("bf16", "bfp8"):
+            raise ValueError("QWEN36_MC_CCL_DTYPE must be bf16 or bfp8")
+        def resolve_ccl_policy(layer, role, built_in):
+            layer_prefix = "QWEN36_MC_LINEAR" if layer == "linear_attention" else "QWEN36_MC_FULL"
+            return os.environ.get(
+                f"{layer_prefix}_{role.upper()}_CCL_DTYPE",
+                os.environ.get(
+                    f"QWEN36_MC_{role.upper()}_CCL_DTYPE",
+                    os.environ.get("QWEN36_MC_CCL_DTYPE", built_in),
+                ),
+            )
+
+        linear_attention_ccl_dtype = resolve_ccl_policy("linear_attention", "attention", "bf16")
+        full_attention_ccl_dtype = resolve_ccl_policy("full_attention", "attention", "bf16")
+        linear_mlp_ccl_dtype = resolve_ccl_policy("linear_attention", "mlp", "bfp8")
+        full_mlp_ccl_dtype = resolve_ccl_policy("full_attention", "mlp", "bf16")
+        if layer_kind == "linear_attention":
+            decoder.attention_ccl_payload_dtype = linear_attention_ccl_dtype
+            decoder.mlp_ccl_payload_dtype = linear_mlp_ccl_dtype
+        else:
+            decoder.attention_ccl_payload_dtype = full_attention_ccl_dtype
+            decoder.mlp_ccl_payload_dtype = full_mlp_ccl_dtype
+        decoder.persistent_ccl_slot_dtypes = {
+            "attention_16": tuple(dict.fromkeys((linear_attention_ccl_dtype, full_attention_ccl_dtype))),
+            "linear_mlp_8": (linear_mlp_ccl_dtype,),
+            "full_mlp_16": (full_mlp_ccl_dtype,),
+        }
+        if any(
+            policy not in ("bf16", "bfp8")
+            for policy in (
+                decoder.attention_ccl_payload_dtype,
+                decoder.mlp_ccl_payload_dtype,
+            )
+        ):
+            raise ValueError("multichip attention/MLP CCL dtype must be bf16 or bfp8")
+        ccl_links_override = os.environ.get("QWEN36_MC_CCL_NUM_LINKS")
+        decoder.ccl_prefill_num_links = int(ccl_links_override or "1")
+        decoder.ccl_decode_num_links = int(ccl_links_override or "2")
+        if decoder.ccl_prefill_num_links not in (1, 2) or decoder.ccl_decode_num_links not in (1, 2):
+            raise ValueError("QWEN36_MC_CCL_NUM_LINKS must be 1 or 2")
+        decoder.persistent_ccl = os.environ.get("QWEN36_MC_PERSISTENT_CCL", "1") == "1"
+        decoder.persistent_ccl_pool = None
+        decoder.persistent_ccl_worker_id = None
+        decoder.ccl_branch_provenance = {}
         decoder.gdn_decode_update_geometry = "reuse96m"
         decoder.gdn_prefill_geometry = "reuse"
         decoder.prefill_matmul_geometry = "auto"
@@ -471,20 +580,193 @@ class MultichipDecoder(OptimizedDecoder):
             decoder.linear_output_dram_block = 0
         decoder._record_multichip("tp4_column_projections")
         decoder._record_multichip("tp4_row_projections")
+        if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+            cls.LAST_PROVENANCE_INSTANCE = decoder
         return decoder
 
-    def _all_reduce_partial(self, tensor):
+    def _ensure_persistent_ccl_pool(self):
+        if not self.persistent_ccl or self.persistent_ccl_pool is not None:
+            return
+        mesh_device = self.mesh_device
+        pool_key = id(mesh_device)
+        pool = type(self)._PERSISTENT_CCL_POOLS.get(pool_key)
+        if pool is not None and pool["mesh_device"] is not mesh_device:
+            raise RuntimeError("stale persistent CCL mesh identity entry")
+        if pool is None:
+            compute_grid = mesh_device.compute_with_storage_grid_size()
+            worker_cores = ttnn.CoreRangeSet(
+                {
+                    ttnn.CoreRange(
+                        ttnn.CoreCoord(0, 0),
+                        ttnn.CoreCoord(compute_grid.x - 1, compute_grid.y - 1),
+                    )
+                }
+            )
+            worker_id = ttnn.SubDeviceId(0)
+            manager = mesh_device.create_sub_device_manager(
+                [ttnn.SubDevice([worker_cores])], 0
+            )
+            mesh_device.load_sub_device_manager(manager)
+            mesh_device.set_sub_device_stall_group([worker_id])
+            pool = {
+                "mesh_device": mesh_device,
+                "manager": manager,
+                "worker_id": worker_id,
+                "worker_cores": worker_cores,
+                "buffers": {
+                    slot: {}
+                    for slot in (
+                        "attention_16",
+                        "full_mlp_16",
+                        "linear_mlp_8",
+                    )
+                },
+                "semaphores": {},
+            }
+            for slot, _ in (
+                ("attention_16", 16),
+                ("full_mlp_16", 16),
+                ("linear_mlp_8", 8),
+            ):
+                pool["semaphores"][slot] = ttnn.create_global_semaphore(
+                    mesh_device, worker_cores, 0
+                )
+            type(self)._PERSISTENT_CCL_POOLS[pool_key] = pool
+        slot_cores = {"attention_16": 16, "linear_mlp_8": 8, "full_mlp_16": 16}
+        for slot, payload_dtypes in self.persistent_ccl_slot_dtypes.items():
+            for payload_dtype in payload_dtypes:
+                if payload_dtype in pool["buffers"][slot]:
+                    continue
+                buffer_memory = _decode_l1_memory(
+                    32, self.hidden_size * TP_SIZE, slot_cores[slot]
+                )
+                pool["buffers"][slot][payload_dtype] = ttnn.from_torch(
+                    torch.zeros(
+                        (1, 1, 32, self.hidden_size * TP_SIZE),
+                        dtype=torch.bfloat16,
+                    ),
+                    device=mesh_device,
+                    dtype=(
+                        ttnn.bfloat16
+                        if payload_dtype == "bf16"
+                        else ttnn.bfloat8_b
+                    ),
+                    layout=ttnn.TILE_LAYOUT,
+                    memory_config=buffer_memory,
+                    mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+                )
+        self.persistent_ccl_pool = pool
+        self.persistent_ccl_worker_id = pool["worker_id"]
+
+    def decode_forward(self, *args, **kwargs):
+        # Initialize before the first decode graph is enqueued, but never alter
+        # the prefill worker/subdevice contract.
+        self._ensure_persistent_ccl_pool()
+        return super().decode_forward(*args, **kwargs)
+
+    def _all_reduce_partial(self, tensor, *, role):
         self._record_multichip("ring_all_reduce")
-        return ttnn.all_reduce(tensor, num_links=1, topology=ttnn.Topology.Ring)
+        payload_dtype = (
+            self.attention_ccl_payload_dtype
+            if role == "attention"
+            else self.mlp_ccl_payload_dtype
+        )
+        if payload_dtype == "bfp8":
+            tensor = ttnn.typecast(tensor, ttnn.bfloat8_b)
+        if self.persistent_ccl and self._runtime_phase == "decode":
+            slot = (
+                "attention_16"
+                if role == "attention"
+                else "linear_mlp_8"
+                if self.layer_kind == "linear_attention"
+                else "full_mlp_16"
+            )
+            expected_cores = 8 if slot == "linear_mlp_8" else 16
+            actual_cores = tensor.memory_config().shard_spec.num_cores()
+            if actual_cores != expected_cores:
+                raise ValueError(
+                    f"persistent CCL slot {slot!r} expects {expected_cores} cores, got {actual_cores}"
+                )
+            output = ttnn.experimental.all_reduce_async(
+                tensor,
+                self.persistent_ccl_pool["buffers"][slot][payload_dtype],
+                cluster_axis=1,
+                mesh_device=self.mesh_device,
+                multi_device_global_semaphore=self.persistent_ccl_pool["semaphores"][slot],
+                dtype=(
+                    ttnn.bfloat16
+                    if payload_dtype == "bf16"
+                    else ttnn.bfloat8_b
+                ),
+                memory_config=tensor.memory_config(),
+                topology=ttnn.Topology.Ring,
+                num_links=self._active_ccl_num_links(),
+                subdevice_id=self.persistent_ccl_worker_id,
+            )
+            branch = "explicit_persistent_all_reduce_async"
+            persistent_buffer = self.persistent_ccl_pool["buffers"][slot][
+                payload_dtype
+            ]
+        else:
+            output = ttnn.all_reduce(
+                tensor,
+                num_links=self._active_ccl_num_links(),
+                topology=ttnn.Topology.Ring,
+            )
+            branch = "composite_all_reduce"
+            persistent_buffer = None
+        if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+            self.ccl_branch_provenance[role] = {
+                "branch": branch,
+                "input_dtype": str(tensor.dtype),
+                "output_dtype": str(output.dtype),
+                "persistent_buffer_dtype": (
+                    str(persistent_buffer.dtype)
+                    if persistent_buffer is not None
+                    else "none"
+                ),
+            }
+        return ttnn.typecast(output, ttnn.bfloat16) if payload_dtype == "bfp8" else output
+
+    def print_ccl_provenance(self):
+        pool = self.persistent_ccl_pool
+        allocations = {
+            slot: {
+                payload: str(buffer.dtype)
+                for payload, buffer in buffers.items()
+            }
+            for slot, buffers in pool["buffers"].items()
+        }
+        print(
+            "CCL_RUNTIME_PROVENANCE "
+            f"layer_kind={self.layer_kind} "
+            f"attention_policy={self.attention_ccl_payload_dtype} "
+            f"mlp_policy={self.mlp_ccl_payload_dtype} "
+            f"persistent={self.persistent_ccl} "
+            f"prefill_links={self.ccl_prefill_num_links} "
+            f"decode_links={self.ccl_decode_num_links} "
+            f"pool_id={id(pool)} allocations={allocations} "
+            f"branches={self.ccl_branch_provenance}"
+        )
 
     def _reduce_scatter_partial(self, tensor):
         self._record_multichip("ring_reduce_scatter")
-        return ttnn.reduce_scatter(
+        if self.ccl_payload_dtype == "bfp8":
+            tensor = ttnn.typecast(tensor, ttnn.bfloat8_b)
+        output = ttnn.reduce_scatter(
             tensor,
             dim=3,
-            num_links=1,
+            num_links=self._active_ccl_num_links(),
             topology=ttnn.Topology.Ring,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        return ttnn.typecast(output, ttnn.bfloat16) if self.ccl_payload_dtype == "bfp8" else output
+
+    def _active_ccl_num_links(self):
+        return (
+            self.ccl_decode_num_links
+            if self._runtime_phase == "decode"
+            else self.ccl_prefill_num_links
         )
 
     def _distributed_norm_and_gather(self, fractured, weight):
@@ -588,10 +870,13 @@ class MultichipDecoder(OptimizedDecoder):
             self._runtime_phase = previous_phase
 
     def _mlp(self, hidden_states):
-        return self._all_reduce_partial(super()._mlp(hidden_states))
+        return self._all_reduce_partial(super()._mlp(hidden_states), role="mlp")
 
     def _finish_layer(self, residual, mixed):
-        return super()._finish_layer(residual, self._all_reduce_partial(mixed))
+        return super()._finish_layer(
+            residual,
+            self._all_reduce_partial(mixed, role="attention"),
+        )
 
     def allocate_paged_kv_cache(self, *, num_blocks: int, dtype=None):
         self._record_multichip("paged_local_kv_cache")

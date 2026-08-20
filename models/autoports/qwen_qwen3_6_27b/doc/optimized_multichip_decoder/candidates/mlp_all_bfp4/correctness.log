@@ -1,0 +1,277 @@
+2026-08-20 05:10:06.404 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 25 items / 22 deselected / 3 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4] 2026-08-20 05:10:08.275 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-20 05:10:08.275 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-20 05:10:08.275 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-20 05:10:08.275 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-20 05:10:08.287 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-20 05:10:08.287 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-20 05:10:08.365 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-20 05:10:08.365 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-20 05:10:08.365 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-20 05:10:08.365 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-20 05:10:08.367 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-20 05:10:08.594 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-20 05:10:08.713 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:10:08.713 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:08.713 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:10:08.713 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:10:08.716 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:08.717 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:08.718 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:08.718 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:08.757 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:10:08.783 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:10:08.784 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:10:08.785 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:10:08.786 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:10:08.786 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:10:08.786 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:10:08.835 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:10:08.835 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:10:08.835 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:10:08.835 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:10:09.414 | info     |           Metal | [Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349986 GHz, device_time_at_sync=12900067692263 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:10:09.415 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349988 GHz, device_time_at_sync=12868812036700 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:10:09.416 | info     |           Metal | [Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349981 GHz, device_time_at_sync=3321882060213 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:10:09.417 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349985 GHz, device_time_at_sync=3330183574055 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:10:09.428 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+0.9981278540204669
+0.9975882076843369
+0.9984120278982075
+1.0
+PASSED
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4] 2026-08-20 05:10:18.331 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:10:18.331 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:10:18.331 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:18.331 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:10:18.331 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:10:18.346 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:18.347 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:18.347 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:18.348 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:18.384 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:10:18.394 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:10:18.395 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:10:18.396 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:10:18.396 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:10:18.396 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:10:18.396 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:10:18.447 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+0.9941683239492428
+direct_pcc= 0.9941658973693848 mae= 0.08225112408399582 max_error= 2.3125
+FAILED2026-08-20 05:10:26.939 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4] 2026-08-20 05:10:27.090 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:10:27.090 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:10:27.090 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.090 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:10:27.091 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:10:27.091 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:10:27.104 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:27.105 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:27.106 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:27.106 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:10:27.141 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:10:27.152 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:10:27.153 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:10:27.154 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:10:27.154 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:10:27.154 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:10:27.154 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:10:27.205 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+0.9919113224082063
+direct_pcc= 0.9919113516807556 mae= 0.06920137256383896 max_error= 0.46875
+FAILED2026-08-20 05:10:35.748 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+_ test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x741001bc8410>
+mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_multichip_full_non_aligned_paged_prefill_decode(monkeypatch, mesh_device):
+        _select_multichip_path(monkeypatch)
+>       functional_tests.test_full_attention_real_weight_paged_prefill(mesh_device, 33)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:214: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:170: in test_full_attention_real_weight_paged_prefill
+    _pcc(reference, actual)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([[[-0.3398, -1.2422,  0.0586,  ..., -2.7656, -0.3672, -0.9180],
+         [ 1.3281, -0.6484,  0.3730,  ..., -0.6...0.2334,  0.3750],
+         [-0.0171,  0.2578,  1.2344,  ...,  2.0156, -0.3398,  1.5859]]],
+       dtype=torch.bfloat16)
+actual = tensor([[-3.6719e-01, -1.1484e+00,  1.9531e-03,  ..., -2.6250e+00,
+         -3.5547e-01, -8.1641e-01],
+        [ 1.375...  [ 1.6309e-01,  1.8555e-01,  1.0469e+00,  ...,  1.7969e+00,
+         -2.6562e-01,  1.4062e+00]], dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+>       assert passed, message
+E       AssertionError: np.float64(0.9941683239492428)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError
+______ test_multichip_full_paged_decode_trace[blackhole-device_params0-4] ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x74100e425940>
+mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_multichip_full_paged_decode_trace(monkeypatch, mesh_device):
+        _select_multichip_path(monkeypatch)
+>       functional_tests.test_full_attention_real_weight_paged_decode_trace(mesh_device)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:286: in test_full_attention_real_weight_paged_decode_trace
+    _pcc(reference[0, 0], actual)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+reference = tensor([ 0.0156,  0.2422,  0.2812,  ..., -0.1943, -1.2734,  0.0381],
+       dtype=torch.bfloat16)
+actual = tensor([-0.0352,  0.3145,  0.2637,  ..., -0.1631, -1.2422, -0.0342],
+       dtype=torch.bfloat16)
+threshold = 0.995
+
+    def _pcc(reference, actual, threshold=0.995):
+        assert reference.numel() == actual.numel(), (reference.shape, actual.shape)
+        reference_flat = reference.float().reshape(-1)
+        actual_flat = actual.float().reshape(-1)
+        passed, message = comp_pcc(reference_flat, actual_flat, threshold)
+        print(message)
+        if not passed:
+            print(
+                "direct_pcc=",
+                torch.corrcoef(torch.stack([reference_flat, actual_flat]))[0, 1].item(),
+                "mae=",
+                torch.mean(torch.abs(reference_flat - actual_flat)).item(),
+                "max_error=",
+                torch.max(torch.abs(reference_flat - actual_flat)).item(),
+            )
+>       assert passed, message
+E       AssertionError: np.float64(0.9919113224082063)
+E       assert np.False_
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:90: AssertionError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+8.62s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+8.41s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+8.34s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4]
+1.30s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+0.28s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4]
+0.27s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+0.11s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+=========================== short test summary info ============================
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+=========== 2 failed, 1 passed, 22 deselected, 3 warnings in 28.73s ============
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7410153c4318 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x741010f41188 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 36 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - ... skipped remainder
+nanobind: leaked 307 functions!
+ - leaked function "to_torch_with_padded_shape"
+ - leaked function ""
+ - leaked function "get_tile"
+ - leaked function "__repr__"
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-20 05:10:37.102 | info     |    BuildKernels | JIT cache stats: 690/690 hits (100.0%) [690 cached, 653 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-20 05:10:37.102 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-20 05:10:37.118 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-20 05:10:37.118 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-20 05:10:37.720 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-20 05:10:37.720 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-20 05:10:37.720 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

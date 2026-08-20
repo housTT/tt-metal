@@ -1,0 +1,979 @@
+2026-08-20 05:22:06.061 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 25 items / 23 deselected / 2 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4] 2026-08-20 05:22:07.958 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-20 05:22:07.958 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-20 05:22:07.958 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-20 05:22:07.958 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-20 05:22:07.971 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-20 05:22:07.971 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-20 05:22:08.050 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-20 05:22:08.050 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-20 05:22:08.050 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-20 05:22:08.050 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-20 05:22:08.051 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-20 05:22:08.281 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-20 05:22:08.405 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:22:08.405 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:08.405 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:22:08.405 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:22:08.408 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:08.409 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:08.410 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:08.410 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:08.449 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:22:08.474 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:22:08.475 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:22:08.476 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:22:08.477 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:22:08.477 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:22:08.477 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:22:08.528 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:22:08.528 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:22:08.528 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:22:08.528 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:22:09.107 | info     |           Metal | [Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349988 GHz, device_time_at_sync=13194632144339 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:22:09.107 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349988 GHz, device_time_at_sync=13162329166127 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:22:09.109 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349989 GHz, device_time_at_sync=3626579227136 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:22:09.110 | info     |           Metal | [Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349983 GHz, device_time_at_sync=3617291244040 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:22:09.121 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+FAILED2026-08-20 05:22:17.617 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4] 2026-08-20 05:22:17.762 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:22:17.762 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:22:17.762 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:22:17.762 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:22:17.762 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:22:17.776 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:17.776 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:17.777 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:17.778 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:22:17.816 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:22:17.826 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:22:17.827 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:22:17.828 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:22:17.829 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:22:17.829 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:22:17.829 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:22:17.880 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+FAILED2026-08-20 05:22:26.134 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+_ test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x79c059321700>
+mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_multichip_linear_non_aligned_prefill_decode(monkeypatch, mesh_device):
+        _select_multichip_path(monkeypatch)
+>       functional_tests.test_linear_attention_real_weight_prefill_and_decode(mesh_device, 65)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:206: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:299: in test_linear_attention_real_weight_prefill_and_decode
+    decoder = FunctionalDecoder.from_state_dict(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <class 'models.autoports.qwen_qwen3_6_27b.tt.multichip_decoder.MultichipDecoder'>
+state_dict = {'model.language_model.layers.0.input_layernorm.weight': tensor([ 0.0583, -0.0483, -0.0615,  ..., -0.0427, -0.0679, -0...81,
+        -2.5156, -3.4219, -2.4062, -3.6875, -2.8438, 13.4375, 12.6250, 13.1875],
+       dtype=torch.bfloat16), ...}
+hf_config = Qwen3_5TextConfig {
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "attn_output_gate": true,
+  "bos_token_id...  },
+  "tie_word_embeddings": false,
+  "transformers_version": "5.11.0",
+  "use_cache": true,
+  "vocab_size": 248320
+}
+
+layer_idx = 0, mesh_device = MeshDevice(1x4 grid, 4 devices)
+page_block_size = 64
+config = Qwen3_5TextConfig {
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "attn_output_gate": true,
+  "bos_token_id...  },
+  "tie_word_embeddings": false,
+  "transformers_version": "5.11.0",
+  "use_cache": true,
+  "vocab_size": 248320
+}
+
+layer_kind = 'linear_attention', hidden_size = 5120
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        state_dict,
+        *,
+        hf_config,
+        layer_idx: int,
+        mesh_device,
+        page_block_size: int = 64,
+        **kwargs,
+    ):
+        del kwargs
+        config = getattr(hf_config, "text_config", hf_config)
+        if mesh_device.get_num_devices() != TP_SIZE or tuple(mesh_device.shape) != MESH_SHAPE:
+            raise ValueError("MultichipDecoder requires this machine's 1x4 mesh")
+        if (
+            config.hidden_size != 5120
+            or config.intermediate_size != 17408
+            or config.num_attention_heads != 24
+            or config.num_key_value_heads != 4
+            or config.head_dim != 256
+        ):
+            raise ValueError("MultichipDecoder expects Qwen/Qwen3.6-27B")
+    
+        layer_kind = config.layer_types[layer_idx]
+        hidden_size = config.hidden_size
+        logical_local_intermediate = config.intermediate_size // TP_SIZE
+        local_intermediate = (
+            FULL_LOCAL_INTERMEDIATE_SIZE
+            if layer_kind == "full_attention"
+            else logical_local_intermediate
+        )
+        local_value_heads = config.linear_num_value_heads // TP_SIZE
+        local_key_heads = config.linear_num_key_heads // TP_SIZE
+    
+        def norm_weight(suffix, *, offset):
+            source = state_dict[_state_key(state_dict, layer_idx, suffix)].float()
+            if offset:
+                source = source + 1.0
+            return _replicated_weight(source.reshape(1, 1, 1, -1), mesh_device)
+    
+        common = dict(
+            mesh_device=mesh_device,
+            config=config,
+            layer_idx=layer_idx,
+            layer_kind=layer_kind,
+            hidden_size=hidden_size,
+            intermediate_size=local_intermediate,
+            rms_norm_eps=config.rms_norm_eps,
+            max_context=config.max_position_embeddings,
+            page_block_size=page_block_size,
+            full_prefill_sdpa_limit=FULL_PREFILL_SDPA_LIMIT,
+            full_prefill_chunk_size=FULL_PREFILL_CHUNK_SIZE,
+            full_prefill_q_chunk_size=FULL_PREFILL_Q_CHUNK_SIZE,
+            input_norm=norm_weight("input_layernorm.weight", offset=True),
+            post_attention_norm=norm_weight("post_attention_layernorm.weight", offset=True),
+        )
+        for role, suffix in (
+            ("input_norm_fractured", "input_layernorm.weight"),
+            ("post_attention_norm_fractured", "post_attention_layernorm.weight"),
+        ):
+            source = state_dict[_state_key(state_dict, layer_idx, suffix)].float() + 1.0
+            common[role] = _fractured_norm_weight(source.reshape(1, 1, 1, -1), mesh_device)
+    
+        dtype_by_name = {
+            "bf16": ttnn.bfloat16,
+            "bfp8": ttnn.bfloat8_b,
+            "bfp4": ttnn.bfloat4_b,
+        }
+        default_mlp_policies = (
+            {role: "bfp4" for role in ("gate", "up", "down")}
+            if layer_kind == "linear_attention"
+            else {"gate": "bfp4", "up": "bfp4", "down": "bfp8"}
+        )
+        mlp_policies = {
+            role: os.environ.get(
+                f"QWEN36_MC_MLP_{role.upper()}_DTYPE", default_mlp_policies[role]
+            )
+            for role in ("gate", "up", "down")
+        }
+        if any(policy not in dtype_by_name for policy in mlp_policies.values()):
+            raise ValueError("multichip MLP dtype must be bf16, bfp8, or bfp4")
+        mlp_dtypes = {role: dtype_by_name[policy] for role, policy in mlp_policies.items()}
+        mlp_sources = {
+            role: state_dict[_state_key(state_dict, layer_idx, f"mlp.{role}_proj.weight")]
+            for role in ("gate", "up", "down")
+        }
+        if local_intermediate != logical_local_intermediate:
+            # Padding each TP-local intermediate shard independently preserves
+            # device ownership while making 144 local tiles divisible over 16
+            # Blackhole compute cores.  The added rows/columns are algebraic
+            # zeros, so they remain internal to the MLP and do not alter the
+            # replicated 5,120-wide residual contract.
+            local_padding = local_intermediate - logical_local_intermediate
+            for role in ("gate", "up"):
+                mlp_sources[role] = torch.cat(
+                    [
+                        torch.nn.functional.pad(local_source, (0, 0, 0, local_padding))
+                        for local_source in torch.chunk(mlp_sources[role], TP_SIZE, dim=0)
+                    ],
+                    dim=0,
+                )
+            mlp_sources["down"] = torch.cat(
+                [
+                    torch.nn.functional.pad(local_source, (0, local_padding, 0, 0))
+                    for local_source in torch.chunk(mlp_sources["down"], TP_SIZE, dim=1)
+                ],
+                dim=1,
+            )
+        for role in ("gate", "up"):
+            normal, decode = _column_weight(
+                mlp_sources[role], mesh_device, dtype=mlp_dtypes[role]
+            )
+            common[f"mlp_{role}"] = normal
+            common[f"mlp_{role}_decode"] = decode
+            common[f"mlp_{role}_dram_prefill"] = decode
+        normal, decode = _row_weight(
+            mlp_sources["down"], mesh_device, dtype=mlp_dtypes["down"]
+        )
+        common["mlp_down"] = normal
+        common["mlp_down_decode"] = decode
+        common["mlp_down_dram_prefill"] = decode
+    
+        if layer_kind == "full_attention":
+            input_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
+            ]
+            output_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
+            ]
+            local_q_heads = config.num_attention_heads // TP_SIZE
+            local_kv_heads = config.num_key_value_heads // TP_SIZE
+            q_and_gate = state_dict[_state_key(state_dict, layer_idx, "self_attn.q_proj.weight")]
+            q_and_gate = q_and_gate.reshape(
+                config.num_attention_heads, config.head_dim * 2, hidden_size
+            )
+            k_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.k_proj.weight")]
+            v_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.v_proj.weight")]
+            packed_by_device = []
+            for device_index in range(TP_SIZE):
+                q = q_and_gate[
+                    device_index * local_q_heads : (device_index + 1) * local_q_heads,
+                    : config.head_dim,
+                ].reshape(-1, hidden_size)
+                gate = q_and_gate[
+                    device_index * local_q_heads : (device_index + 1) * local_q_heads,
+                    config.head_dim :,
+                ].reshape(-1, hidden_size)
+                k = torch.chunk(k_source, TP_SIZE, dim=0)[device_index]
+                v = torch.chunk(v_source, TP_SIZE, dim=0)[device_index]
+                packed_by_device.append((q, k, v, gate))
+            full_source = _per_device_cat(packed_by_device)
+            full_qkv, full_qkv_decode = _column_weight(
+                full_source, mesh_device, dtype=input_projection_dtype
+            )
+            o_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.o_proj.weight")]
+            o_proj, o_proj_decode = _row_weight(
+                o_source, mesh_device, dtype=output_projection_dtype
+            )
+            common.update(
+                num_heads=local_q_heads,
+                num_kv_heads=local_kv_heads,
+                head_dim=config.head_dim,
+                rotary_dim=int(
+                    config.head_dim * config.rope_parameters.get("partial_rotary_factor", 0.25)
+                ),
+                attention_scale=config.head_dim**-0.5,
+                full_qkv=full_qkv,
+                full_qkv_dram_decode=full_qkv_decode,
+                o_proj=o_proj,
+                o_proj_dram_decode=o_proj_decode,
+                q_norm=ttnn.reshape(
+                    norm_weight("self_attn.q_norm.weight", offset=True), [1, 1, 1, config.head_dim]
+                ),
+                k_norm=ttnn.reshape(
+                    norm_weight("self_attn.k_norm.weight", offset=True), [1, 1, 1, config.head_dim]
+                ),
+            )
+        elif layer_kind == "linear_attention":
+            input_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
+            ]
+            output_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
+            ]
+            qkv_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_qkv.weight")]
+            z_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_z.weight")]
+            beta_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
+            a_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_a.weight")]
+            q_width = config.linear_num_key_heads * config.linear_key_head_dim
+            v_width = config.linear_num_value_heads * config.linear_value_head_dim
+            packed_by_device = []
+            conv_parts = []
+            for device_index in range(TP_SIZE):
+                q = qkv_source[
+                    device_index * (q_width // TP_SIZE) : (device_index + 1) * (q_width // TP_SIZE)
+                ]
+                k = qkv_source[
+                    q_width + device_index * (q_width // TP_SIZE) : q_width
+                    + (device_index + 1) * (q_width // TP_SIZE)
+                ]
+                v = qkv_source[
+                    2 * q_width + device_index * (v_width // TP_SIZE) : 2 * q_width
+                    + (device_index + 1) * (v_width // TP_SIZE)
+                ]
+                z = torch.chunk(z_source, TP_SIZE, dim=0)[device_index]
+                beta = torch.nn.functional.pad(
+                    torch.chunk(beta_source, TP_SIZE, dim=0)[device_index], [0, 0, 0, 32 - local_value_heads]
+                )
+                decay = torch.nn.functional.pad(
+                    torch.chunk(a_source, TP_SIZE, dim=0)[device_index], [0, 0, 0, 32 - local_value_heads]
+                )
+                # 4,160 logical rows become 4,352 so each local N shard spans
+                # exactly 17 tiles per Blackhole DRAM bank.  The inherited
+                # projection adapter slices the inert 192-row tail.
+                tail = q.new_zeros((192, hidden_size))
+                packed_by_device.append((q, k, v, z, beta, decay, tail))
+                conv_parts.append(torch.cat((q, k, v), dim=0))
+            linear_source = _per_device_cat(packed_by_device)
+            linear_projections, linear_projections_decode = _column_weight(
+                linear_source, mesh_device, dtype=input_projection_dtype
+            )
+            out_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.out_proj.weight")]
+            linear_out_proj, linear_out_proj_decode = _row_weight(
+                out_source, mesh_device, dtype=output_projection_dtype
+            )
+    
+            conv_full = state_dict[_state_key(state_dict, layer_idx, "linear_attn.conv1d.weight")]
+            conv_by_device = []
+            for device_index, projection_rows in enumerate(conv_parts):
+                del projection_rows
+                indices = torch.cat(
+                    (
+                        torch.arange(device_index * (q_width // TP_SIZE), (device_index + 1) * (q_width // TP_SIZE)),
+                        torch.arange(q_width + device_index * (q_width // TP_SIZE), q_width + (device_index + 1) * (q_width // TP_SIZE)),
+                        torch.arange(2 * q_width + device_index * (v_width // TP_SIZE), 2 * q_width + (device_index + 1) * (v_width // TP_SIZE)),
+                    )
+                )
+                conv_by_device.append(conv_full[indices, 0, :].transpose(0, 1).contiguous())
+            conv_source = torch.cat(conv_by_device, dim=-1).reshape(
+                1, 1, config.linear_conv_kernel_dim, -1
+            )
+            conv_weight = ttnn.as_tensor(
+                conv_source,
+                dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+                device=mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+            )
+            a_log = state_dict[_state_key(state_dict, layer_idx, "linear_attn.A_log")]
+            dt_bias = state_dict[_state_key(state_dict, layer_idx, "linear_attn.dt_bias")]
+            a_decay = (-a_log.float().exp()).reshape(1, config.linear_num_value_heads, 1, 1)
+            dt_bias = dt_bias.float().reshape(1, config.linear_num_value_heads, 1, 1)
+            linear_norm_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.norm.weight")]
+            chunk_ones = a_log.float().new_ones((1, 1, LINEAR_CHUNK_SIZE, LINEAR_CHUNK_SIZE))
+            chunk_lower = chunk_ones.tril()
+            chunk_strict_lower = chunk_ones.tril(diagonal=-1)
+            common.update(
+                linear_num_key_heads=local_key_heads,
+                linear_num_value_heads=local_value_heads,
+                linear_key_head_dim=config.linear_key_head_dim,
+                linear_value_head_dim=config.linear_value_head_dim,
+                conv_kernel_size=config.linear_conv_kernel_dim,
+                conv_dim=(2 * local_key_heads * config.linear_key_head_dim + local_value_heads * config.linear_value_head_dim),
+                linear_chunk_size=LINEAR_CHUNK_SIZE,
+                linear_projections=linear_projections,
+                linear_projections_dram_decode=linear_projections_decode,
+                linear_out_proj=linear_out_proj,
+                linear_out_proj_dram_decode=linear_out_proj_decode,
+                conv_weight=conv_weight,
+                a_decay=ttnn.as_tensor(a_decay, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT, device=mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=1)),
+                dt_bias=ttnn.as_tensor(dt_bias, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT, device=mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=1)),
+                linear_chunk_lower=_replicated_weight(chunk_lower, mesh_device, dtype=ttnn.float32),
+                linear_chunk_strict_lower=_replicated_weight(chunk_strict_lower, mesh_device, dtype=ttnn.float32),
+                linear_chunk_identity=_replicated_weight(chunk_lower - chunk_strict_lower, mesh_device, dtype=ttnn.float32),
+                # The 128-wide GDN norm is shared by all value heads.
+                linear_norm=_replicated_weight(
+                    linear_norm_source.reshape(1, 1, 1, -1), mesh_device
+                ),
+            )
+        else:
+            raise ValueError(f"unsupported layer kind {layer_kind}")
+    
+        decoder = cls(**common)
+        decoder.fusion_counters = {name: 0 for name in cls.FUSION_MANIFEST}
+        decoder.optimization_counters = {name: 0 for name in cls.OPTIMIZATION_MANIFEST}
+        decoder.multichip_counters = {name: 0 for name in cls.MULTICHIP_MANIFEST}
+        decoder._runtime_phase = None
+        decoder.mlp_policies = mlp_policies
+        decoder.mlp_weight_dtypes = mlp_dtypes
+        decoder.mlp_compute_configs = {
+            role: ttnn.WormholeComputeKernelConfig(
+                math_fidelity=(
+                    ttnn.MathFidelity.HiFi2
+                    if os.environ.get(f"QWEN36_MC_MLP_{role.upper()}_FIDELITY", "lofi")
+                    == "hifi2"
+                    else ttnn.MathFidelity.LoFi
+                ),
+                math_approx_mode=False,
+                fp32_dest_acc_en=False,
+                packer_l1_acc=True,
+            )
+            for role in ("gate", "up", "down")
+        }
+        decoder.mlp_weight_dtype = mlp_dtypes["gate"]
+        decoder.matmul_compute_config = decoder.mlp_compute_configs["gate"]
+        decoder.dram_sharded_mlp = True
+        mlp_cores = 16 if layer_kind == "full_attention" else 8
+        decoder.dram_sharded_mlp_cores = {
+            role: mlp_cores for role in ("gate", "up", "down")
+        }
+        decoder.dram_sharded_mlp_blocks = (
+            {"gate": 10, "up": 10, "down": 17}
+            if layer_kind == "linear_attention"
+            else {role: 0 for role in ("gate", "up", "down")}
+        )
+        decoder.mlp_padded_64 = False
+        decoder.full_decode_mixed_mlp = False
+        decoder.mlp_runtime_hidden_size = hidden_size
+        decoder.mlp_runtime_intermediate_size = local_intermediate
+        decoder.mlp_runtime_output_size = hidden_size
+        decoder.dram_sharded_projections = "both"
+        decoder.projection_fidelity = os.environ.get(
+            "QWEN36_MC_PROJECTION_FIDELITY", "auto"
+        )
+        if decoder.projection_fidelity not in ("auto", "lofi", "hifi2"):
+            raise ValueError("QWEN36_MC_PROJECTION_FIDELITY must be auto, lofi, or hifi2")
+        decoder.input_projection_weight_dtype = input_projection_dtype
+        decoder.output_projection_weight_dtype = output_projection_dtype
+        decoder.ccl_payload_dtype = os.environ.get("QWEN36_MC_CCL_DTYPE", "bf16")
+        if decoder.ccl_payload_dtype not in ("bf16", "bfp8"):
+            raise ValueError("QWEN36_MC_CCL_DTYPE must be bf16 or bfp8")
+        ccl_links_override = os.environ.get("QWEN36_MC_CCL_NUM_LINKS")
+        decoder.ccl_prefill_num_links = int(ccl_links_override or "1")
+        decoder.ccl_decode_num_links = int(ccl_links_override or "2")
+        if decoder.ccl_prefill_num_links not in (1, 2) or decoder.ccl_decode_num_links not in (1, 2):
+            raise ValueError("QWEN36_MC_CCL_NUM_LINKS must be 1 or 2")
+        decoder.persistent_ccl = os.environ.get("QWEN36_MC_PERSISTENT_CCL", "0") == "1"
+        decoder.persistent_ccl_index = 0
+        decoder.persistent_ccl_buffers = []
+        decoder.persistent_ccl_semaphores = []
+        decoder.persistent_ccl_worker_id = None
+        if decoder.persistent_ccl:
+            if decoder.ccl_payload_dtype != "bf16":
+                raise ValueError("persistent CCL candidate currently requires BF16 payloads")
+            compute_grid = mesh_device.compute_with_storage_grid_size()
+            worker_cores = ttnn.CoreRangeSet(
+                {
+                    ttnn.CoreRange(
+                        ttnn.CoreCoord(0, 0),
+                        ttnn.CoreCoord(compute_grid.x - 1, compute_grid.y - 1),
+                    )
+                }
+            )
+            worker = ttnn.SubDevice([worker_cores])
+            decoder.persistent_ccl_worker_id = ttnn.SubDeviceId(0)
+            decoder.persistent_ccl_manager = mesh_device.create_sub_device_manager(
+                [worker], 0
+            )
+            mesh_device.load_sub_device_manager(decoder.persistent_ccl_manager)
+            mesh_device.set_sub_device_stall_group([decoder.persistent_ccl_worker_id])
+            slot_cores = (16, 8) if layer_kind == "linear_attention" else (16, 16)
+            for output_cores in slot_cores:
+>               buffer_memory = _decode_l1_memory(32, hidden_size * TP_SIZE, output_cores)
+                                ^^^^^^^^^^^^^^^^^
+E               NameError: name '_decode_l1_memory' is not defined
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:532: NameError
+______ test_multichip_full_paged_decode_trace[blackhole-device_params0-4] ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x799ef8744920>
+mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_multichip_full_paged_decode_trace(monkeypatch, mesh_device):
+        _select_multichip_path(monkeypatch)
+>       functional_tests.test_full_attention_real_weight_paged_decode_trace(mesh_device)
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_functional_decoder.py:202: in test_full_attention_real_weight_paged_decode_trace
+    decoder = FunctionalDecoder.from_state_dict(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = <class 'models.autoports.qwen_qwen3_6_27b.tt.multichip_decoder.MultichipDecoder'>
+state_dict = {'model.language_model.layers.3.input_layernorm.weight': tensor([0.1758, 0.2402, 0.1797,  ..., 0.3086, 0.2285, 0.1807]...60, -0.0124],
+        [ 0.0057,  0.0132,  0.0035,  ...,  0.0050, -0.0022, -0.0068]],
+       dtype=torch.bfloat16), ...}
+hf_config = Qwen3_5TextConfig {
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "attn_output_gate": true,
+  "bos_token_id...  },
+  "tie_word_embeddings": false,
+  "transformers_version": "5.11.0",
+  "use_cache": true,
+  "vocab_size": 248320
+}
+
+layer_idx = 3, mesh_device = MeshDevice(1x4 grid, 4 devices)
+page_block_size = 64
+config = Qwen3_5TextConfig {
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "attn_output_gate": true,
+  "bos_token_id...  },
+  "tie_word_embeddings": false,
+  "transformers_version": "5.11.0",
+  "use_cache": true,
+  "vocab_size": 248320
+}
+
+layer_kind = 'full_attention', hidden_size = 5120
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        state_dict,
+        *,
+        hf_config,
+        layer_idx: int,
+        mesh_device,
+        page_block_size: int = 64,
+        **kwargs,
+    ):
+        del kwargs
+        config = getattr(hf_config, "text_config", hf_config)
+        if mesh_device.get_num_devices() != TP_SIZE or tuple(mesh_device.shape) != MESH_SHAPE:
+            raise ValueError("MultichipDecoder requires this machine's 1x4 mesh")
+        if (
+            config.hidden_size != 5120
+            or config.intermediate_size != 17408
+            or config.num_attention_heads != 24
+            or config.num_key_value_heads != 4
+            or config.head_dim != 256
+        ):
+            raise ValueError("MultichipDecoder expects Qwen/Qwen3.6-27B")
+    
+        layer_kind = config.layer_types[layer_idx]
+        hidden_size = config.hidden_size
+        logical_local_intermediate = config.intermediate_size // TP_SIZE
+        local_intermediate = (
+            FULL_LOCAL_INTERMEDIATE_SIZE
+            if layer_kind == "full_attention"
+            else logical_local_intermediate
+        )
+        local_value_heads = config.linear_num_value_heads // TP_SIZE
+        local_key_heads = config.linear_num_key_heads // TP_SIZE
+    
+        def norm_weight(suffix, *, offset):
+            source = state_dict[_state_key(state_dict, layer_idx, suffix)].float()
+            if offset:
+                source = source + 1.0
+            return _replicated_weight(source.reshape(1, 1, 1, -1), mesh_device)
+    
+        common = dict(
+            mesh_device=mesh_device,
+            config=config,
+            layer_idx=layer_idx,
+            layer_kind=layer_kind,
+            hidden_size=hidden_size,
+            intermediate_size=local_intermediate,
+            rms_norm_eps=config.rms_norm_eps,
+            max_context=config.max_position_embeddings,
+            page_block_size=page_block_size,
+            full_prefill_sdpa_limit=FULL_PREFILL_SDPA_LIMIT,
+            full_prefill_chunk_size=FULL_PREFILL_CHUNK_SIZE,
+            full_prefill_q_chunk_size=FULL_PREFILL_Q_CHUNK_SIZE,
+            input_norm=norm_weight("input_layernorm.weight", offset=True),
+            post_attention_norm=norm_weight("post_attention_layernorm.weight", offset=True),
+        )
+        for role, suffix in (
+            ("input_norm_fractured", "input_layernorm.weight"),
+            ("post_attention_norm_fractured", "post_attention_layernorm.weight"),
+        ):
+            source = state_dict[_state_key(state_dict, layer_idx, suffix)].float() + 1.0
+            common[role] = _fractured_norm_weight(source.reshape(1, 1, 1, -1), mesh_device)
+    
+        dtype_by_name = {
+            "bf16": ttnn.bfloat16,
+            "bfp8": ttnn.bfloat8_b,
+            "bfp4": ttnn.bfloat4_b,
+        }
+        default_mlp_policies = (
+            {role: "bfp4" for role in ("gate", "up", "down")}
+            if layer_kind == "linear_attention"
+            else {"gate": "bfp4", "up": "bfp4", "down": "bfp8"}
+        )
+        mlp_policies = {
+            role: os.environ.get(
+                f"QWEN36_MC_MLP_{role.upper()}_DTYPE", default_mlp_policies[role]
+            )
+            for role in ("gate", "up", "down")
+        }
+        if any(policy not in dtype_by_name for policy in mlp_policies.values()):
+            raise ValueError("multichip MLP dtype must be bf16, bfp8, or bfp4")
+        mlp_dtypes = {role: dtype_by_name[policy] for role, policy in mlp_policies.items()}
+        mlp_sources = {
+            role: state_dict[_state_key(state_dict, layer_idx, f"mlp.{role}_proj.weight")]
+            for role in ("gate", "up", "down")
+        }
+        if local_intermediate != logical_local_intermediate:
+            # Padding each TP-local intermediate shard independently preserves
+            # device ownership while making 144 local tiles divisible over 16
+            # Blackhole compute cores.  The added rows/columns are algebraic
+            # zeros, so they remain internal to the MLP and do not alter the
+            # replicated 5,120-wide residual contract.
+            local_padding = local_intermediate - logical_local_intermediate
+            for role in ("gate", "up"):
+                mlp_sources[role] = torch.cat(
+                    [
+                        torch.nn.functional.pad(local_source, (0, 0, 0, local_padding))
+                        for local_source in torch.chunk(mlp_sources[role], TP_SIZE, dim=0)
+                    ],
+                    dim=0,
+                )
+            mlp_sources["down"] = torch.cat(
+                [
+                    torch.nn.functional.pad(local_source, (0, local_padding, 0, 0))
+                    for local_source in torch.chunk(mlp_sources["down"], TP_SIZE, dim=1)
+                ],
+                dim=1,
+            )
+        for role in ("gate", "up"):
+            normal, decode = _column_weight(
+                mlp_sources[role], mesh_device, dtype=mlp_dtypes[role]
+            )
+            common[f"mlp_{role}"] = normal
+            common[f"mlp_{role}_decode"] = decode
+            common[f"mlp_{role}_dram_prefill"] = decode
+        normal, decode = _row_weight(
+            mlp_sources["down"], mesh_device, dtype=mlp_dtypes["down"]
+        )
+        common["mlp_down"] = normal
+        common["mlp_down_decode"] = decode
+        common["mlp_down_dram_prefill"] = decode
+    
+        if layer_kind == "full_attention":
+            input_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
+            ]
+            output_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
+            ]
+            local_q_heads = config.num_attention_heads // TP_SIZE
+            local_kv_heads = config.num_key_value_heads // TP_SIZE
+            q_and_gate = state_dict[_state_key(state_dict, layer_idx, "self_attn.q_proj.weight")]
+            q_and_gate = q_and_gate.reshape(
+                config.num_attention_heads, config.head_dim * 2, hidden_size
+            )
+            k_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.k_proj.weight")]
+            v_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.v_proj.weight")]
+            packed_by_device = []
+            for device_index in range(TP_SIZE):
+                q = q_and_gate[
+                    device_index * local_q_heads : (device_index + 1) * local_q_heads,
+                    : config.head_dim,
+                ].reshape(-1, hidden_size)
+                gate = q_and_gate[
+                    device_index * local_q_heads : (device_index + 1) * local_q_heads,
+                    config.head_dim :,
+                ].reshape(-1, hidden_size)
+                k = torch.chunk(k_source, TP_SIZE, dim=0)[device_index]
+                v = torch.chunk(v_source, TP_SIZE, dim=0)[device_index]
+                packed_by_device.append((q, k, v, gate))
+            full_source = _per_device_cat(packed_by_device)
+            full_qkv, full_qkv_decode = _column_weight(
+                full_source, mesh_device, dtype=input_projection_dtype
+            )
+            o_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.o_proj.weight")]
+            o_proj, o_proj_decode = _row_weight(
+                o_source, mesh_device, dtype=output_projection_dtype
+            )
+            common.update(
+                num_heads=local_q_heads,
+                num_kv_heads=local_kv_heads,
+                head_dim=config.head_dim,
+                rotary_dim=int(
+                    config.head_dim * config.rope_parameters.get("partial_rotary_factor", 0.25)
+                ),
+                attention_scale=config.head_dim**-0.5,
+                full_qkv=full_qkv,
+                full_qkv_dram_decode=full_qkv_decode,
+                o_proj=o_proj,
+                o_proj_dram_decode=o_proj_decode,
+                q_norm=ttnn.reshape(
+                    norm_weight("self_attn.q_norm.weight", offset=True), [1, 1, 1, config.head_dim]
+                ),
+                k_norm=ttnn.reshape(
+                    norm_weight("self_attn.k_norm.weight", offset=True), [1, 1, 1, config.head_dim]
+                ),
+            )
+        elif layer_kind == "linear_attention":
+            input_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
+            ]
+            output_projection_dtype = dtype_by_name[
+                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
+            ]
+            qkv_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_qkv.weight")]
+            z_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_z.weight")]
+            beta_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
+            a_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_a.weight")]
+            q_width = config.linear_num_key_heads * config.linear_key_head_dim
+            v_width = config.linear_num_value_heads * config.linear_value_head_dim
+            packed_by_device = []
+            conv_parts = []
+            for device_index in range(TP_SIZE):
+                q = qkv_source[
+                    device_index * (q_width // TP_SIZE) : (device_index + 1) * (q_width // TP_SIZE)
+                ]
+                k = qkv_source[
+                    q_width + device_index * (q_width // TP_SIZE) : q_width
+                    + (device_index + 1) * (q_width // TP_SIZE)
+                ]
+                v = qkv_source[
+                    2 * q_width + device_index * (v_width // TP_SIZE) : 2 * q_width
+                    + (device_index + 1) * (v_width // TP_SIZE)
+                ]
+                z = torch.chunk(z_source, TP_SIZE, dim=0)[device_index]
+                beta = torch.nn.functional.pad(
+                    torch.chunk(beta_source, TP_SIZE, dim=0)[device_index], [0, 0, 0, 32 - local_value_heads]
+                )
+                decay = torch.nn.functional.pad(
+                    torch.chunk(a_source, TP_SIZE, dim=0)[device_index], [0, 0, 0, 32 - local_value_heads]
+                )
+                # 4,160 logical rows become 4,352 so each local N shard spans
+                # exactly 17 tiles per Blackhole DRAM bank.  The inherited
+                # projection adapter slices the inert 192-row tail.
+                tail = q.new_zeros((192, hidden_size))
+                packed_by_device.append((q, k, v, z, beta, decay, tail))
+                conv_parts.append(torch.cat((q, k, v), dim=0))
+            linear_source = _per_device_cat(packed_by_device)
+            linear_projections, linear_projections_decode = _column_weight(
+                linear_source, mesh_device, dtype=input_projection_dtype
+            )
+            out_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.out_proj.weight")]
+            linear_out_proj, linear_out_proj_decode = _row_weight(
+                out_source, mesh_device, dtype=output_projection_dtype
+            )
+    
+            conv_full = state_dict[_state_key(state_dict, layer_idx, "linear_attn.conv1d.weight")]
+            conv_by_device = []
+            for device_index, projection_rows in enumerate(conv_parts):
+                del projection_rows
+                indices = torch.cat(
+                    (
+                        torch.arange(device_index * (q_width // TP_SIZE), (device_index + 1) * (q_width // TP_SIZE)),
+                        torch.arange(q_width + device_index * (q_width // TP_SIZE), q_width + (device_index + 1) * (q_width // TP_SIZE)),
+                        torch.arange(2 * q_width + device_index * (v_width // TP_SIZE), 2 * q_width + (device_index + 1) * (v_width // TP_SIZE)),
+                    )
+                )
+                conv_by_device.append(conv_full[indices, 0, :].transpose(0, 1).contiguous())
+            conv_source = torch.cat(conv_by_device, dim=-1).reshape(
+                1, 1, config.linear_conv_kernel_dim, -1
+            )
+            conv_weight = ttnn.as_tensor(
+                conv_source,
+                dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+                device=mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+            )
+            a_log = state_dict[_state_key(state_dict, layer_idx, "linear_attn.A_log")]
+            dt_bias = state_dict[_state_key(state_dict, layer_idx, "linear_attn.dt_bias")]
+            a_decay = (-a_log.float().exp()).reshape(1, config.linear_num_value_heads, 1, 1)
+            dt_bias = dt_bias.float().reshape(1, config.linear_num_value_heads, 1, 1)
+            linear_norm_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.norm.weight")]
+            chunk_ones = a_log.float().new_ones((1, 1, LINEAR_CHUNK_SIZE, LINEAR_CHUNK_SIZE))
+            chunk_lower = chunk_ones.tril()
+            chunk_strict_lower = chunk_ones.tril(diagonal=-1)
+            common.update(
+                linear_num_key_heads=local_key_heads,
+                linear_num_value_heads=local_value_heads,
+                linear_key_head_dim=config.linear_key_head_dim,
+                linear_value_head_dim=config.linear_value_head_dim,
+                conv_kernel_size=config.linear_conv_kernel_dim,
+                conv_dim=(2 * local_key_heads * config.linear_key_head_dim + local_value_heads * config.linear_value_head_dim),
+                linear_chunk_size=LINEAR_CHUNK_SIZE,
+                linear_projections=linear_projections,
+                linear_projections_dram_decode=linear_projections_decode,
+                linear_out_proj=linear_out_proj,
+                linear_out_proj_dram_decode=linear_out_proj_decode,
+                conv_weight=conv_weight,
+                a_decay=ttnn.as_tensor(a_decay, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT, device=mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=1)),
+                dt_bias=ttnn.as_tensor(dt_bias, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT, device=mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=1)),
+                linear_chunk_lower=_replicated_weight(chunk_lower, mesh_device, dtype=ttnn.float32),
+                linear_chunk_strict_lower=_replicated_weight(chunk_strict_lower, mesh_device, dtype=ttnn.float32),
+                linear_chunk_identity=_replicated_weight(chunk_lower - chunk_strict_lower, mesh_device, dtype=ttnn.float32),
+                # The 128-wide GDN norm is shared by all value heads.
+                linear_norm=_replicated_weight(
+                    linear_norm_source.reshape(1, 1, 1, -1), mesh_device
+                ),
+            )
+        else:
+            raise ValueError(f"unsupported layer kind {layer_kind}")
+    
+        decoder = cls(**common)
+        decoder.fusion_counters = {name: 0 for name in cls.FUSION_MANIFEST}
+        decoder.optimization_counters = {name: 0 for name in cls.OPTIMIZATION_MANIFEST}
+        decoder.multichip_counters = {name: 0 for name in cls.MULTICHIP_MANIFEST}
+        decoder._runtime_phase = None
+        decoder.mlp_policies = mlp_policies
+        decoder.mlp_weight_dtypes = mlp_dtypes
+        decoder.mlp_compute_configs = {
+            role: ttnn.WormholeComputeKernelConfig(
+                math_fidelity=(
+                    ttnn.MathFidelity.HiFi2
+                    if os.environ.get(f"QWEN36_MC_MLP_{role.upper()}_FIDELITY", "lofi")
+                    == "hifi2"
+                    else ttnn.MathFidelity.LoFi
+                ),
+                math_approx_mode=False,
+                fp32_dest_acc_en=False,
+                packer_l1_acc=True,
+            )
+            for role in ("gate", "up", "down")
+        }
+        decoder.mlp_weight_dtype = mlp_dtypes["gate"]
+        decoder.matmul_compute_config = decoder.mlp_compute_configs["gate"]
+        decoder.dram_sharded_mlp = True
+        mlp_cores = 16 if layer_kind == "full_attention" else 8
+        decoder.dram_sharded_mlp_cores = {
+            role: mlp_cores for role in ("gate", "up", "down")
+        }
+        decoder.dram_sharded_mlp_blocks = (
+            {"gate": 10, "up": 10, "down": 17}
+            if layer_kind == "linear_attention"
+            else {role: 0 for role in ("gate", "up", "down")}
+        )
+        decoder.mlp_padded_64 = False
+        decoder.full_decode_mixed_mlp = False
+        decoder.mlp_runtime_hidden_size = hidden_size
+        decoder.mlp_runtime_intermediate_size = local_intermediate
+        decoder.mlp_runtime_output_size = hidden_size
+        decoder.dram_sharded_projections = "both"
+        decoder.projection_fidelity = os.environ.get(
+            "QWEN36_MC_PROJECTION_FIDELITY", "auto"
+        )
+        if decoder.projection_fidelity not in ("auto", "lofi", "hifi2"):
+            raise ValueError("QWEN36_MC_PROJECTION_FIDELITY must be auto, lofi, or hifi2")
+        decoder.input_projection_weight_dtype = input_projection_dtype
+        decoder.output_projection_weight_dtype = output_projection_dtype
+        decoder.ccl_payload_dtype = os.environ.get("QWEN36_MC_CCL_DTYPE", "bf16")
+        if decoder.ccl_payload_dtype not in ("bf16", "bfp8"):
+            raise ValueError("QWEN36_MC_CCL_DTYPE must be bf16 or bfp8")
+        ccl_links_override = os.environ.get("QWEN36_MC_CCL_NUM_LINKS")
+        decoder.ccl_prefill_num_links = int(ccl_links_override or "1")
+        decoder.ccl_decode_num_links = int(ccl_links_override or "2")
+        if decoder.ccl_prefill_num_links not in (1, 2) or decoder.ccl_decode_num_links not in (1, 2):
+            raise ValueError("QWEN36_MC_CCL_NUM_LINKS must be 1 or 2")
+        decoder.persistent_ccl = os.environ.get("QWEN36_MC_PERSISTENT_CCL", "0") == "1"
+        decoder.persistent_ccl_index = 0
+        decoder.persistent_ccl_buffers = []
+        decoder.persistent_ccl_semaphores = []
+        decoder.persistent_ccl_worker_id = None
+        if decoder.persistent_ccl:
+            if decoder.ccl_payload_dtype != "bf16":
+                raise ValueError("persistent CCL candidate currently requires BF16 payloads")
+            compute_grid = mesh_device.compute_with_storage_grid_size()
+            worker_cores = ttnn.CoreRangeSet(
+                {
+                    ttnn.CoreRange(
+                        ttnn.CoreCoord(0, 0),
+                        ttnn.CoreCoord(compute_grid.x - 1, compute_grid.y - 1),
+                    )
+                }
+            )
+            worker = ttnn.SubDevice([worker_cores])
+            decoder.persistent_ccl_worker_id = ttnn.SubDeviceId(0)
+            decoder.persistent_ccl_manager = mesh_device.create_sub_device_manager(
+                [worker], 0
+            )
+            mesh_device.load_sub_device_manager(decoder.persistent_ccl_manager)
+            mesh_device.set_sub_device_stall_group([decoder.persistent_ccl_worker_id])
+            slot_cores = (16, 8) if layer_kind == "linear_attention" else (16, 16)
+            for output_cores in slot_cores:
+>               buffer_memory = _decode_l1_memory(32, hidden_size * TP_SIZE, output_cores)
+                                ^^^^^^^^^^^^^^^^^
+E               NameError: name '_decode_l1_memory' is not defined
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:532: NameError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+8.33s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+8.11s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+1.31s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+0.26s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+=========================== short test summary info ============================
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_paged_decode_trace[blackhole-device_params0-4]
+================ 2 failed, 23 deselected, 3 warnings in 19.44s =================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x79c06dd3d188 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x79c06dd9a778 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 36 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - ... skipped remainder
+nanobind: leaked 307 functions!
+ - leaked function ""
+ - leaked function "RegisterProgramRealtimeProfilerCallback"
+ - leaked function "__repr__"
+ - leaked function "get_fabric_node_id"
+ - leaked function ""
+ - leaked function "synchronize_device"
+ - leaked function "contains"
+ - leaked function "compute_output_specs"
+ - leaked function "enable_program_cache"
+ - leaked function "get_submeshes"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-20 05:22:27.460 | info     |    BuildKernels | JIT cache stats: 81/81 hits (100.0%) [81 cached, 95 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-20 05:22:27.460 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-20 05:22:27.473 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-20 05:22:27.473 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-20 05:22:28.006 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-20 05:22:28.006 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-20 05:22:28.006 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

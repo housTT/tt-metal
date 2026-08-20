@@ -1,0 +1,666 @@
+diff --git a/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py b/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py
+index 87518ff544e..f93bc75ed73 100644
+--- a/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py
++++ b/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py
+@@ -14,6 +14,7 @@ alternative remains available for future fused-collective work.
+ from __future__ import annotations
+ 
+ import math
++import os
+ 
+ import torch
+ import ttnn
+@@ -25,7 +26,11 @@ from models.autoports.qwen_qwen3_6_27b.tt.functional_decoder import (
+     LINEAR_CHUNK_SIZE,
+     _state_key,
+ )
+-from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import OptimizedDecoder, _norm_l1_memory
++from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import (
++    OptimizedDecoder,
++    _decode_l1_memory,
++    _norm_l1_memory,
++)
+ 
+ 
+ TP_SIZE = 4
+@@ -155,6 +160,10 @@ class MultichipDecoder(OptimizedDecoder):
+         "distributed_rms_norm",
+     )
+     TOTAL_MULTICHIP_COUNTS = {name: 0 for name in MULTICHIP_MANIFEST}
++    # MeshDevice does not expose a documented weak-reference lifecycle. Keep a
++    # validated identity entry for the process lifetime so decoder layers share
++    # stable trace addresses instead of reserving CCL buffers per layer.
++    _PERSISTENT_CCL_POOLS = {}
+ 
+     @classmethod
+     def reset_multichip_counts(cls):
+@@ -228,7 +237,25 @@ class MultichipDecoder(OptimizedDecoder):
+             source = state_dict[_state_key(state_dict, layer_idx, suffix)].float() + 1.0
+             common[role] = _fractured_norm_weight(source.reshape(1, 1, 1, -1), mesh_device)
+ 
+-        mlp_dtype = ttnn.bfloat4_b if layer_kind == "linear_attention" else ttnn.bfloat8_b
++        dtype_by_name = {
++            "bf16": ttnn.bfloat16,
++            "bfp8": ttnn.bfloat8_b,
++            "bfp4": ttnn.bfloat4_b,
++        }
++        default_mlp_policies = (
++            {role: "bfp4" for role in ("gate", "up", "down")}
++            if layer_kind == "linear_attention"
++            else {"gate": "bfp4", "up": "bfp4", "down": "bfp8"}
++        )
++        mlp_policies = {
++            role: os.environ.get(
++                f"QWEN36_MC_MLP_{role.upper()}_DTYPE", default_mlp_policies[role]
++            )
++            for role in ("gate", "up", "down")
++        }
++        if any(policy not in dtype_by_name for policy in mlp_policies.values()):
++            raise ValueError("multichip MLP dtype must be bf16, bfp8, or bfp4")
++        mlp_dtypes = {role: dtype_by_name[policy] for role, policy in mlp_policies.items()}
+         mlp_sources = {
+             role: state_dict[_state_key(state_dict, layer_idx, f"mlp.{role}_proj.weight")]
+             for role in ("gate", "up", "down")
+@@ -256,16 +283,26 @@ class MultichipDecoder(OptimizedDecoder):
+                 dim=1,
+             )
+         for role in ("gate", "up"):
+-            normal, decode = _column_weight(mlp_sources[role], mesh_device, dtype=mlp_dtype)
++            normal, decode = _column_weight(
++                mlp_sources[role], mesh_device, dtype=mlp_dtypes[role]
++            )
+             common[f"mlp_{role}"] = normal
+             common[f"mlp_{role}_decode"] = decode
+             common[f"mlp_{role}_dram_prefill"] = decode
+-        normal, decode = _row_weight(mlp_sources["down"], mesh_device, dtype=mlp_dtype)
++        normal, decode = _row_weight(
++            mlp_sources["down"], mesh_device, dtype=mlp_dtypes["down"]
++        )
+         common["mlp_down"] = normal
+         common["mlp_down_decode"] = decode
+         common["mlp_down_dram_prefill"] = decode
+ 
+         if layer_kind == "full_attention":
++            input_projection_dtype = dtype_by_name[
++                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
++            ]
++            output_projection_dtype = dtype_by_name[
++                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
++            ]
+             local_q_heads = config.num_attention_heads // TP_SIZE
+             local_kv_heads = config.num_key_value_heads // TP_SIZE
+             q_and_gate = state_dict[_state_key(state_dict, layer_idx, "self_attn.q_proj.weight")]
+@@ -289,10 +326,12 @@ class MultichipDecoder(OptimizedDecoder):
+                 packed_by_device.append((q, k, v, gate))
+             full_source = _per_device_cat(packed_by_device)
+             full_qkv, full_qkv_decode = _column_weight(
+-                full_source, mesh_device, dtype=ttnn.bfloat8_b
++                full_source, mesh_device, dtype=input_projection_dtype
+             )
+             o_source = state_dict[_state_key(state_dict, layer_idx, "self_attn.o_proj.weight")]
+-            o_proj, o_proj_decode = _row_weight(o_source, mesh_device, dtype=ttnn.bfloat8_b)
++            o_proj, o_proj_decode = _row_weight(
++                o_source, mesh_device, dtype=output_projection_dtype
++            )
+             common.update(
+                 num_heads=local_q_heads,
+                 num_kv_heads=local_kv_heads,
+@@ -313,6 +352,12 @@ class MultichipDecoder(OptimizedDecoder):
+                 ),
+             )
+         elif layer_kind == "linear_attention":
++            input_projection_dtype = dtype_by_name[
++                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
++            ]
++            output_projection_dtype = dtype_by_name[
++                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
++            ]
+             qkv_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_qkv.weight")]
+             z_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_z.weight")]
+             beta_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
+@@ -348,11 +393,11 @@ class MultichipDecoder(OptimizedDecoder):
+                 conv_parts.append(torch.cat((q, k, v), dim=0))
+             linear_source = _per_device_cat(packed_by_device)
+             linear_projections, linear_projections_decode = _column_weight(
+-                linear_source, mesh_device, dtype=ttnn.bfloat8_b
++                linear_source, mesh_device, dtype=input_projection_dtype
+             )
+             out_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.out_proj.weight")]
+             linear_out_proj, linear_out_proj_decode = _row_weight(
+-                out_source, mesh_device, dtype=ttnn.bfloat8_b
++                out_source, mesh_device, dtype=output_projection_dtype
+             )
+ 
+             conv_full = state_dict[_state_key(state_dict, layer_idx, "linear_attn.conv1d.weight")]
+@@ -417,18 +462,23 @@ class MultichipDecoder(OptimizedDecoder):
+         decoder.optimization_counters = {name: 0 for name in cls.OPTIMIZATION_MANIFEST}
+         decoder.multichip_counters = {name: 0 for name in cls.MULTICHIP_MANIFEST}
+         decoder._runtime_phase = None
+-        decoder.mlp_policies = {role: "bfp4" if mlp_dtype == ttnn.bfloat4_b else "bfp8" for role in ("gate", "up", "down")}
+-        decoder.mlp_weight_dtypes = {role: mlp_dtype for role in ("gate", "up", "down")}
++        decoder.mlp_policies = mlp_policies
++        decoder.mlp_weight_dtypes = mlp_dtypes
+         decoder.mlp_compute_configs = {
+             role: ttnn.WormholeComputeKernelConfig(
+-                math_fidelity=ttnn.MathFidelity.LoFi,
++                math_fidelity=(
++                    ttnn.MathFidelity.HiFi2
++                    if os.environ.get(f"QWEN36_MC_MLP_{role.upper()}_FIDELITY", "lofi")
++                    == "hifi2"
++                    else ttnn.MathFidelity.LoFi
++                ),
+                 math_approx_mode=False,
+                 fp32_dest_acc_en=False,
+                 packer_l1_acc=True,
+             )
+             for role in ("gate", "up", "down")
+         }
+-        decoder.mlp_weight_dtype = mlp_dtype
++        decoder.mlp_weight_dtype = mlp_dtypes["gate"]
+         decoder.matmul_compute_config = decoder.mlp_compute_configs["gate"]
+         decoder.dram_sharded_mlp = True
+         mlp_cores = 16 if layer_kind == "full_attention" else 8
+@@ -446,9 +496,37 @@ class MultichipDecoder(OptimizedDecoder):
+         decoder.mlp_runtime_intermediate_size = local_intermediate
+         decoder.mlp_runtime_output_size = hidden_size
+         decoder.dram_sharded_projections = "both"
+-        decoder.projection_fidelity = "auto"
+-        decoder.input_projection_weight_dtype = ttnn.bfloat8_b
+-        decoder.output_projection_weight_dtype = ttnn.bfloat8_b
++        decoder.projection_fidelity = os.environ.get(
++            "QWEN36_MC_PROJECTION_FIDELITY", "auto"
++        )
++        if decoder.projection_fidelity not in ("auto", "lofi", "hifi2"):
++            raise ValueError("QWEN36_MC_PROJECTION_FIDELITY must be auto, lofi, or hifi2")
++        decoder.input_projection_weight_dtype = input_projection_dtype
++        decoder.output_projection_weight_dtype = output_projection_dtype
++        decoder.ccl_payload_dtype = os.environ.get("QWEN36_MC_CCL_DTYPE", "bf16")
++        if decoder.ccl_payload_dtype not in ("bf16", "bfp8"):
++            raise ValueError("QWEN36_MC_CCL_DTYPE must be bf16 or bfp8")
++        ccl_links_override = os.environ.get("QWEN36_MC_CCL_NUM_LINKS")
++        decoder.ccl_prefill_num_links = int(ccl_links_override or "1")
++        decoder.ccl_decode_num_links = int(ccl_links_override or "2")
++        if decoder.ccl_prefill_num_links not in (1, 2) or decoder.ccl_decode_num_links not in (1, 2):
++            raise ValueError("QWEN36_MC_CCL_NUM_LINKS must be 1 or 2")
++        decoder.persistent_ccl = os.environ.get("QWEN36_MC_PERSISTENT_CCL", "1") == "1"
++        decoder.persistent_ccl_index = 0
++        decoder.persistent_ccl_slots = (
++            ("attention_16", "linear_mlp_8")
++            if layer_kind == "linear_attention"
++            else ("attention_16", "full_mlp_16")
++        )
++        decoder.persistent_ccl_pool = None
++        decoder.persistent_ccl_worker_id = None
++        decoder.fused_fractured_ccl = (
++            os.environ.get("QWEN36_MC_FUSED_FRACTURED_CCL", "0") == "1"
++        )
++        decoder._fused_fractured_active = False
++        if decoder.persistent_ccl:
++            if decoder.ccl_payload_dtype != "bf16":
++                raise ValueError("persistent CCL candidate currently requires BF16 payloads")
+         decoder.gdn_decode_update_geometry = "reuse96m"
+         decoder.gdn_prefill_geometry = "reuse"
+         decoder.prefill_matmul_geometry = "auto"
+@@ -473,39 +551,377 @@ class MultichipDecoder(OptimizedDecoder):
+         decoder._record_multichip("tp4_row_projections")
+         return decoder
+ 
++    def _ensure_persistent_ccl_pool(self):
++        if not self.persistent_ccl or self.persistent_ccl_pool is not None:
++            return
++        mesh_device = self.mesh_device
++        pool_key = id(mesh_device)
++        pool = type(self)._PERSISTENT_CCL_POOLS.get(pool_key)
++        if pool is not None and pool["mesh_device"] is not mesh_device:
++            raise RuntimeError("stale persistent CCL mesh identity entry")
++        if pool is None:
++            compute_grid = mesh_device.compute_with_storage_grid_size()
++            worker_cores = ttnn.CoreRangeSet(
++                {
++                    ttnn.CoreRange(
++                        ttnn.CoreCoord(0, 0),
++                        ttnn.CoreCoord(compute_grid.x - 1, compute_grid.y - 1),
++                    )
++                }
++            )
++            worker_id = ttnn.SubDeviceId(0)
++            manager = mesh_device.create_sub_device_manager(
++                [ttnn.SubDevice([worker_cores])], 0
++            )
++            mesh_device.load_sub_device_manager(manager)
++            mesh_device.set_sub_device_stall_group([worker_id])
++            pool = {
++                "mesh_device": mesh_device,
++                "manager": manager,
++                "worker_id": worker_id,
++                "worker_cores": worker_cores,
++                "buffers": {},
++                "semaphores": {},
++            }
++            for slot, output_cores in (
++                ("attention_16", 16),
++                ("full_mlp_16", 16),
++                ("linear_mlp_8", 8),
++            ):
++                buffer_memory = _decode_l1_memory(
++                    32, self.hidden_size * TP_SIZE, output_cores
++                )
++                pool["buffers"][slot] = ttnn.from_torch(
++                    torch.zeros(
++                        (1, 1, 32, self.hidden_size * TP_SIZE),
++                        dtype=torch.bfloat16,
++                    ),
++                    device=mesh_device,
++                    dtype=ttnn.bfloat16,
++                    layout=ttnn.TILE_LAYOUT,
++                    memory_config=buffer_memory,
++                    mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
++                )
++                pool["semaphores"][slot] = ttnn.create_global_semaphore(
++                    mesh_device, worker_cores, 0
++                )
++            type(self)._PERSISTENT_CCL_POOLS[pool_key] = pool
++        self.persistent_ccl_pool = pool
++        self.persistent_ccl_worker_id = pool["worker_id"]
++
++    def decode_forward(self, *args, **kwargs):
++        # Initialize before the first decode graph is enqueued, but never alter
++        # the prefill worker/subdevice contract.
++        self._ensure_persistent_ccl_pool()
++        return super().decode_forward(*args, **kwargs)
++
++    def _ensure_fused_fractured_resources(self):
++        self._ensure_persistent_ccl_pool()
++        pool = self.persistent_ccl_pool
++        if "fused_rs_buffers" in pool:
++            return
++        pool["fused_rs_buffers"] = {}
++        pool["fused_rs_semaphores"] = {}
++        for slot in ("attention", "mlp"):
++            pool["fused_rs_buffers"][slot] = (
++                ttnn.from_torch(
++                    torch.zeros((1, 1, 32, self.hidden_size), dtype=torch.bfloat16),
++                    device=self.mesh_device,
++                    dtype=ttnn.bfloat16,
++                    layout=ttnn.TILE_LAYOUT,
++                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
++                    mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
++                ),
++                ttnn.from_torch(
++                    torch.zeros(
++                        (1, 1, 32, self.hidden_size // TP_SIZE),
++                        dtype=torch.bfloat16,
++                    ),
++                    device=self.mesh_device,
++                    dtype=ttnn.bfloat16,
++                    layout=ttnn.TILE_LAYOUT,
++                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
++                    mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
++                ),
++            )
++            pool["fused_rs_semaphores"][slot] = [
++                ttnn.create_global_semaphore(
++                    self.mesh_device,
++                    pool["worker_cores"],
++                    0,
++                )
++                for _ in range(3)
++            ]
++        pool["fused_ag_semaphores"] = {
++            slot: [
++                ttnn.create_global_semaphore(
++                    self.mesh_device, pool["worker_cores"], 0
++                )
++                for _ in range(2)
++            ]
++            for slot in ("attention", "mlp")
++        }
++        pool["fused_ag_barriers"] = {
++            slot: ttnn.create_global_semaphore(
++                self.mesh_device, pool["worker_cores"], 0
++            )
++            for slot in ("attention", "mlp")
++        }
++
++    def _fused_column_all_gather_matmul(
++        self, fractured, weight, *, slot, compute_kernel_config
++    ):
++        """Fuse the fractured-residual gather into its column consumer."""
++        self._ensure_fused_fractured_resources()
++        if fractured.memory_config() != ttnn.DRAM_MEMORY_CONFIG:
++            fractured = ttnn.to_memory_config(fractured, ttnn.DRAM_MEMORY_CONFIG)
++        if len(weight.shape) == 2:
++            weight = ttnn.reshape(weight, [1, 1, weight.shape[0], weight.shape[1]])
++        local_n = weight.shape[-1]
++        per_core_n = local_n // 32 // 8
++        gathered, output = ttnn.experimental.all_gather_matmul_async(
++            fractured,
++            weight,
++            persistent_output_buffer=None,
++            dim=3,
++            multi_device_global_semaphore=self.persistent_ccl_pool[
++                "fused_ag_semaphores"
++            ][slot],
++            all_gather_core_grid_offset=(0, 4),
++            barrier_semaphore=self.persistent_ccl_pool["fused_ag_barriers"][slot],
++            num_links=2,
++            # Keep the gathered lhs interleaved in DRAM.  The exact 4-core L1
++            # form overlaps the fused matmul's static circular-buffer region
++            # at this decoder's 5,120-wide K; the consumer below can reshard
++            # the returned lhs only when the second shared-lhs matmul needs it.
++            memory_config_ag=ttnn.DRAM_MEMORY_CONFIG,
++            topology=ttnn.Topology.Ring,
++            subdevice_id=self.persistent_ccl_worker_id,
++            memory_config_mm=ttnn.DRAM_MEMORY_CONFIG,
++            program_config=ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
++                compute_with_storage_grid_size=(8, 1),
++                in0_block_w=20,
++                out_subblock_h=1,
++                out_subblock_w=1,
++                per_core_M=1,
++                per_core_N=per_core_n,
++                fuse_batch=True,
++                fused_activation=None,
++                mcast_in0=True,
++            ),
++            compute_kernel_config=compute_kernel_config,
++            chunks_per_sync=10,
++            num_workers_per_link=4,
++            num_buffers_per_channel=2,
++        )
++        return gathered, output
++
++    def _fused_row_reduce_scatter(
++        self, hidden_states, weight, *, slot, in0_block_w, compute_kernel_config
++    ):
++        self._ensure_fused_fractured_resources()
++        logical_rows = hidden_states.shape[-2]
++        if hidden_states.memory_config() != ttnn.DRAM_MEMORY_CONFIG:
++            hidden_states = ttnn.to_memory_config(
++                hidden_states, ttnn.DRAM_MEMORY_CONFIG
++            )
++        intermediate, output = self.persistent_ccl_pool["fused_rs_buffers"][slot]
++        _, fractured = ttnn.experimental.matmul_reduce_scatter_async(
++            hidden_states,
++            weight,
++            persistent_intermediate_buffer=intermediate,
++            persistent_output_buffer=output,
++            dim=3,
++            multi_device_global_semaphore=self.persistent_ccl_pool[
++                "fused_rs_semaphores"
++            ][slot],
++            reduce_scatter_core_grid_offset=(0, 6),
++            num_links=2,
++            memory_config_rs=ttnn.DRAM_MEMORY_CONFIG,
++            topology=ttnn.Topology.Ring,
++            subdevice_id=self.persistent_ccl_worker_id,
++            memory_config_mm=ttnn.DRAM_MEMORY_CONFIG,
++            program_config=ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
++                compute_with_storage_grid_size=(8, 6),
++                in0_block_w=in0_block_w,
++                out_subblock_h=1,
++                out_subblock_w=1,
++                per_core_M=1,
++                per_core_N=20,
++                out_block_w=10,
++                transpose_mcast=False,
++                fused_activation=None,
++                fuse_batch=False,
++            ),
++            compute_kernel_config=compute_kernel_config,
++        )
++        # The persistent fused-CCL scratch owns a tile-aligned 32-row shape.
++        # Keep that alignment internal: decode callers may have one logical row
++        # (and prefill callers need not be tile aligned), so do not leak the
++        # scratch contract into the public residual shape.
++        if fractured.shape[-2] != logical_rows:
++            fractured = ttnn.slice(
++                fractured,
++                [0, 0, 0, 0],
++                [
++                    fractured.shape[0],
++                    fractured.shape[1],
++                    logical_rows,
++                    fractured.shape[3],
++                ],
++            )
++        return fractured
++
++    def _dram_projection(self, hidden_states, interleaved_weight, dram_weight, *, role):
++        if self._fused_fractured_active and role in ("full_input", "linear_input"):
++            _, output = self._fused_column_all_gather_matmul(
++                hidden_states,
++                interleaved_weight,
++                slot="attention",
++                compute_kernel_config=self.matmul_compute_config,
++            )
++            return output
++        if self._fused_fractured_active and role in ("full_output", "linear_output"):
++            compute = None
++            if self.projection_fidelity != "auto":
++                compute = ttnn.WormholeComputeKernelConfig(
++                    math_fidelity=(
++                        ttnn.MathFidelity.LoFi
++                        if self.projection_fidelity == "lofi"
++                        else ttnn.MathFidelity.HiFi2
++                    ),
++                    math_approx_mode=False,
++                    fp32_dest_acc_en=False,
++                    packer_l1_acc=True,
++                )
++            return self._fused_row_reduce_scatter(
++                hidden_states,
++                interleaved_weight,
++                slot="attention",
++                in0_block_w=6,
++                compute_kernel_config=compute,
++            )
++        return super()._dram_projection(
++            hidden_states, interleaved_weight, dram_weight, role=role
++        )
++
++    def _fused_fractured_mlp(self, hidden_states):
++        self._record_optimization("low_precision_mlp")
++        cores = self.dram_sharded_mlp_cores["gate"]
++        gathered, gate = self._fused_column_all_gather_matmul(
++            hidden_states,
++            self.mlp_gate,
++            slot="mlp",
++            compute_kernel_config=self.mlp_compute_configs["gate"],
++        )
++        input_memory = _norm_l1_memory(32, self.hidden_size, cores)
++        if gathered.memory_config() != input_memory:
++            gathered = ttnn.to_memory_config(gathered, input_memory)
++
++        def projection(role):
++            n = self.mlp_runtime_intermediate_size
++            return ttnn.linear(
++                gathered,
++                getattr(self, f"mlp_{role}_decode"),
++                dtype=ttnn.bfloat16,
++                program_config=ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
++                    in0_block_w=(10 if self.layer_kind == "linear_attention" else 10),
++                    per_core_M=1,
++                    per_core_N=n // 32 // cores,
++                    fused_activation=None,
++                ),
++                memory_config=_decode_l1_memory(32, n, cores),
++                compute_kernel_config=self.mlp_compute_configs[role],
++            )
++
++        up = projection("up")
++        activated = ttnn.multiply(
++            gate, up, input_tensor_a_activations=[ttnn.UnaryOpType.SILU]
++        )
++        return self._fused_row_reduce_scatter(
++            activated,
++            self.mlp_down,
++            slot="mlp",
++            in0_block_w=(17 if self.layer_kind == "linear_attention" else 9),
++            compute_kernel_config=self.mlp_compute_configs["down"],
++        )
++
+     def _all_reduce_partial(self, tensor):
+         self._record_multichip("ring_all_reduce")
+-        return ttnn.all_reduce(tensor, num_links=1, topology=ttnn.Topology.Ring)
++        if self.ccl_payload_dtype == "bfp8":
++            tensor = ttnn.typecast(tensor, ttnn.bfloat8_b)
++        if self.persistent_ccl and self._runtime_phase == "decode":
++            slot_index = self.persistent_ccl_index
++            self.persistent_ccl_index = (slot_index + 1) % len(self.persistent_ccl_slots)
++            slot = self.persistent_ccl_slots[slot_index]
++            expected_cores = 8 if slot == "linear_mlp_8" else 16
++            actual_cores = tensor.memory_config().shard_spec.num_cores()
++            if actual_cores != expected_cores:
++                raise ValueError(
++                    f"persistent CCL slot {slot!r} expects {expected_cores} cores, got {actual_cores}"
++                )
++            output = ttnn.experimental.all_reduce_async(
++                tensor,
++                self.persistent_ccl_pool["buffers"][slot],
++                cluster_axis=1,
++                mesh_device=self.mesh_device,
++                multi_device_global_semaphore=self.persistent_ccl_pool["semaphores"][slot],
++                dtype=ttnn.bfloat16,
++                memory_config=tensor.memory_config(),
++                topology=ttnn.Topology.Ring,
++                num_links=self._active_ccl_num_links(),
++                subdevice_id=self.persistent_ccl_worker_id,
++            )
++        else:
++            output = ttnn.all_reduce(
++                tensor,
++                num_links=self._active_ccl_num_links(),
++                topology=ttnn.Topology.Ring,
++            )
++        return ttnn.typecast(output, ttnn.bfloat16) if self.ccl_payload_dtype == "bfp8" else output
+ 
+     def _reduce_scatter_partial(self, tensor):
+         self._record_multichip("ring_reduce_scatter")
+-        return ttnn.reduce_scatter(
++        if self.ccl_payload_dtype == "bfp8":
++            tensor = ttnn.typecast(tensor, ttnn.bfloat8_b)
++        output = ttnn.reduce_scatter(
+             tensor,
+             dim=3,
+-            num_links=1,
++            num_links=self._active_ccl_num_links(),
+             topology=ttnn.Topology.Ring,
+             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+         )
++        return ttnn.typecast(output, ttnn.bfloat16) if self.ccl_payload_dtype == "bfp8" else output
++
++    def _active_ccl_num_links(self):
++        return (
++            self.ccl_decode_num_links
++            if self._runtime_phase == "decode"
++            else self.ccl_prefill_num_links
++        )
+ 
+     def _distributed_norm_and_gather(self, fractured, weight):
++        normalized = self._distributed_norm_fractured(fractured, weight)
++        return ttnn.all_gather(
++            normalized,
++            dim=3,
++            num_links=1,
++            topology=ttnn.Topology.Ring,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++
++    def _distributed_norm_fractured(self, fractured, weight):
+         self._record_multichip("distributed_rms_norm")
+         stats = ttnn.rms_norm_pre_all_gather(fractured, dtype=ttnn.bfloat16)
+         stats = ttnn.all_gather(
+             stats, dim=3, num_links=1, topology=ttnn.Topology.Ring
+         )
+-        normalized = ttnn.rms_norm_post_all_gather(
++        return ttnn.rms_norm_post_all_gather(
+             fractured,
+             stats,
+             epsilon=self.rms_norm_eps,
+             weight=weight,
+         )
+-        return ttnn.all_gather(
+-            normalized,
+-            dim=3,
+-            num_links=1,
+-            topology=ttnn.Topology.Ring,
+-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+-        )
+ 
+     def fracture_replicated_residual(self, hidden_states):
+         """One-time adapter for the embedding-to-first-layer stack boundary."""
+@@ -537,9 +953,18 @@ class MultichipDecoder(OptimizedDecoder):
+             raise ValueError("stacked_decode_forward expects a 1,280-wide TP-fractured residual")
+         previous_phase = self._runtime_phase
+         self._runtime_phase = "decode"
++        self._fused_fractured_active = self.fused_fractured_ccl
+         try:
+-            normalized = self._distributed_norm_and_gather(
+-                hidden_states, self.input_norm_fractured
++            if self._fused_fractured_active:
++                self._ensure_fused_fractured_resources()
++            normalized = (
++                self._distributed_norm_fractured(
++                    hidden_states, self.input_norm_fractured
++                )
++                if self._fused_fractured_active
++                else self._distributed_norm_and_gather(
++                    hidden_states, self.input_norm_fractured
++                )
+             )
+             if self.layer_kind == "full_attention":
+                 if any(
+@@ -566,25 +991,41 @@ class MultichipDecoder(OptimizedDecoder):
+                 mixed = self._linear_decode(normalized, linear_state=linear_state)
+             hidden_states = ttnn.add(
+                 hidden_states,
+-                self._reduce_scatter_partial(mixed),
++                mixed
++                if self._fused_fractured_active
++                else self._reduce_scatter_partial(mixed),
+                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
+             )
+-            mlp_input = self._distributed_norm_and_gather(
+-                hidden_states, self.post_attention_norm_fractured
++            mlp_input = (
++                self._distributed_norm_fractured(
++                    hidden_states, self.post_attention_norm_fractured
++                )
++                if self._fused_fractured_active
++                else self._distributed_norm_and_gather(
++                    hidden_states, self.post_attention_norm_fractured
++                )
+             )
+-            mlp_input = ttnn.to_memory_config(
+-                mlp_input,
+-                _norm_l1_memory(
+-                    32, self.hidden_size, self.dram_sharded_mlp_cores["gate"]
+-                ),
++            if not self._fused_fractured_active:
++                mlp_input = ttnn.to_memory_config(
++                    mlp_input,
++                    _norm_l1_memory(
++                        32, self.hidden_size, self.dram_sharded_mlp_cores["gate"]
++                    ),
++                )
++            mlp_partial = (
++                self._fused_fractured_mlp(mlp_input)
++                if self._fused_fractured_active
++                else super()._mlp(mlp_input)
+             )
+-            mlp_partial = super()._mlp(mlp_input)
+             return ttnn.add(
+                 hidden_states,
+-                self._reduce_scatter_partial(mlp_partial),
++                mlp_partial
++                if self._fused_fractured_active
++                else self._reduce_scatter_partial(mlp_partial),
+                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
+             )
+         finally:
++            self._fused_fractured_active = False
+             self._runtime_phase = previous_phase
+ 
+     def _mlp(self, hidden_states):
+

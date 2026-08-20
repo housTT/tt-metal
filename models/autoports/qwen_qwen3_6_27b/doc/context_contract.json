@@ -105,6 +105,47 @@
     },
     "completion_status": "passed"
   },
+  "optimized_multichip_decoder": {
+    "target_hardware": "4x Blackhole P300c",
+    "mesh_shape": [1, 4],
+    "tensor_parallel_degree": 4,
+    "residual_contract": "replicated TILE/DRAM [B,1,S,5120] between decoder layers; each decode row projection returns the same replicated contract through explicit persistent async all-reduce, with no additional inter-layer gather, reshard, or all-reduce",
+    "precision_policy": {
+      "activations_and_residuals": "BF16",
+      "attention_projection_weights": "BFP8",
+      "linear_attention_mlp_weights": "BFP4 gate/up/down",
+      "full_attention_mlp_weights": "BFP4 gate/up and BFP8 down",
+      "ccl_payload": "BF16 attention and full-attention MLP; BFP8 linear-attention MLP",
+      "compute_fidelity": "LoFi for decode projection and MLP groups where selected by the measured path"
+    },
+    "persistent_ccl_buffers": {
+      "allocation_scope": "one mesh-shared pool, lazily created before first decode and shared by every decoder layer",
+      "slots": [
+        "attention_16_core",
+        "full_mlp_16_core",
+        "linear_mlp_8_core"
+      ],
+      "shape_per_slot_per_device": "[1,1,32,20480] TILE/L1; attention_16_core and full_mlp_16_core BF16, linear_mlp_8_core BFP8",
+      "bytes_per_slot_per_device": {
+        "attention_16_core_bf16": 1310720,
+        "full_mlp_16_core_bf16": 1310720,
+        "linear_mlp_8_core_bfp8": 696320
+      },
+      "fixed_bytes_per_device": 3317760,
+      "capacity_effect": "fixed 3.1640625 MiB/device/mesh, not per layer; covered by the existing 4 GiB trace/activation/CCL/fragmentation reserve"
+    },
+    "tested_context": {
+      "maximum_logical_sequence_length": 262144,
+      "maximum_current_position": 262143,
+      "full_attention_prefill_status": "passed",
+      "full_attention_traced_decode_status": "passed; PCC 0.9994974156309941, repeat PCC 1.0",
+      "linear_attention_prefill_and_traced_decode_status": "final mixed default passed in 692.46 seconds; runtime provenance confirms BF16 attention and BFP8 linear-MLP CCL payloads",
+      "evidence": "optimized_multichip_decoder/final/context/full_native.log, full_native_decode.log, linear_native_mixed_default.log"
+    },
+    "maximum_active_batch_size_tested": 32,
+    "capability_reduction": null,
+    "completion_status": "passed"
+  },
   "functional_decoder": {
     "layer_kinds": [
       "linear_attention",

@@ -1,0 +1,618 @@
+2026-08-20 05:38:55.878 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 2 items
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-linear_attention] 2026-08-20 05:38:57.816 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-20 05:38:57.816 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-20 05:38:57.816 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-20 05:38:57.816 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-20 05:38:57.828 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-20 05:38:57.829 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-20 05:38:57.907 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-20 05:38:57.907 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-20 05:38:57.907 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-20 05:38:57.907 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-20 05:38:57.908 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-20 05:38:58.098 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-20 05:38:58.220 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:38:58.220 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:38:58.220 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:38:58.220 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:38:58.223 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:38:58.224 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:38:58.224 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:38:58.225 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:38:58.265 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:38:58.289 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:38:58.290 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:38:58.291 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:38:58.291 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:38:58.291 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:38:58.291 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:38:58.341 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:38:58.341 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:38:58.341 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:38:58.341 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory' (shm_resource_tracker.cpp:282)
+2026-08-20 05:38:58.921 | info     |           Metal | [Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349985 GHz, device_time_at_sync=3896079656974 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:38:58.921 | info     |           Metal | [Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349992 GHz, device_time_at_sync=13472394650911 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:38:58.921 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349987 GHz, device_time_at_sync=13438982544514 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:38:58.921 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349983 GHz, device_time_at_sync=3906593714581 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-20 05:38:58.932 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:39:06.364 | critical |          Always | TT_FATAL: AllGatherMatmulAsync requires input tensors to be of rank 4 (assert.hpp:104)
+FAILED2026-08-20 05:39:06.819 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-full_attention] 2026-08-20 05:39:06.975 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 05:39:06.975 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 05:39:06.975 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 05:39:06.975 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 05:39:06.975 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 05:39:06.989 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:39:06.990 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:39:06.991 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:39:06.992 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-20 05:39:07.027 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 05:39:07.038 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-20 05:39:07.038 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-20 05:39:07.039 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-20 05:39:07.040 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-20 05:39:07.040 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-20 05:39:07.040 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-20 05:39:07.091 | DEBUG    | conftest:mesh_device:599 - multidevice with 4 devices is created
+2026-08-20 05:39:14.282 | critical |          Always | TT_FATAL: AllGatherMatmulAsync requires input tensors to be of rank 4 (assert.hpp:104)
+FAILED2026-08-20 05:39:14.661 | INFO     | conftest:pytest_runtest_teardown:1140 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+_ test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-linear_attention] _
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_real_weight_replicated_vs_fractured_decode_perf(mesh_device, layer_idx):
+        """A/B the warmed real-weight replicated and selected stack contracts.
+    
+        Cache/state setup, the one-time stack-entry fracture, and the test-boundary
+        gather used for PCC are intentionally outside both measured traces.
+        """
+        if os.environ.get("QWEN36_RUN_STACKED_PERF") != "1":
+            pytest.skip("set QWEN36_RUN_STACKED_PERF=1")
+        torch.manual_seed(2036 + layer_idx)
+        config = functional_tests._config()
+        decoder = MultichipDecoder.from_state_dict(
+            functional_tests._load_layer_state(layer_idx),
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+        seq_len = 32
+        prefill_host = torch.randn(
+            1, 1, seq_len, config.hidden_size, dtype=torch.bfloat16
+        ) * 0.1
+        prefill = functional_tests._to_tt(prefill_host, mesh_device)
+    
+        if decoder.layer_kind == "full_attention":
+            rotary = functional_tests.Qwen3_5TextRotaryEmbedding(config)
+            cos_host, sin_host = rotary(
+                prefill_host[:, 0], torch.arange(seq_len).unsqueeze(0)
+            )
+            cos = functional_tests._to_tt(cos_host.unsqueeze(1), mesh_device)
+            sin = functional_tests._to_tt(sin_host.unsqueeze(1), mesh_device)
+            page_table = functional_tests._to_tt(
+                torch.arange(32, dtype=torch.int32).reshape(32, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            replicated_cache = decoder.allocate_paged_kv_cache(num_blocks=32)
+            fractured_cache = decoder.allocate_paged_kv_cache(num_blocks=32)
+            decoder.prefill_forward(
+                prefill,
+                logical_seq_len=seq_len,
+                cos=cos,
+                sin=sin,
+                page_table=page_table,
+                kv_cache=replicated_cache,
+            )
+            decoder.prefill_forward(
+                prefill,
+                logical_seq_len=seq_len,
+                cos=cos,
+                sin=sin,
+                page_table=page_table,
+                kv_cache=fractured_cache,
+            )
+            decode_host = torch.zeros(
+                1, 1, 32, config.hidden_size, dtype=torch.bfloat16
+            )
+            decode_host[:, :, 0] = (
+                torch.randn(1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+            )
+            decode_cos_host, decode_sin_host = rotary(
+                decode_host[:, 0, :1], torch.tensor([[seq_len]])
+            )
+            decode_cos = functional_tests._to_tt(
+                decode_cos_host.unsqueeze(0).expand(1, 32, 1, -1).contiguous(),
+                mesh_device,
+            )
+            decode_sin = functional_tests._to_tt(
+                decode_sin_host.unsqueeze(0).expand(1, 32, 1, -1).contiguous(),
+                mesh_device,
+            )
+            positions = functional_tests._to_tt(
+                torch.full((32,), seq_len, dtype=torch.int32),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            replicated_kwargs = dict(
+                current_positions=positions,
+                cos=decode_cos,
+                sin=decode_sin,
+                page_table=page_table,
+                kv_cache=replicated_cache,
+            )
+            fractured_kwargs = dict(replicated_kwargs, kv_cache=fractured_cache)
+        else:
+            replicated_state = decoder.allocate_linear_state(batch_size=1)
+            fractured_state = decoder.allocate_linear_state(batch_size=1)
+            decoder.prefill_forward(
+                prefill, logical_seq_len=seq_len, linear_state=replicated_state
+            )
+            decoder.prefill_forward(
+                prefill, logical_seq_len=seq_len, linear_state=fractured_state
+            )
+            decode_host = (
+                torch.randn(1, 1, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+            )
+            positions = functional_tests._to_tt(
+                torch.tensor([seq_len], dtype=torch.int32),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            replicated_kwargs = dict(
+                current_positions=positions, linear_state=replicated_state
+            )
+            fractured_kwargs = dict(
+                current_positions=positions, linear_state=fractured_state
+            )
+    
+        decode = functional_tests._to_tt(decode_host, mesh_device)
+        fractured_decode = decoder.fracture_replicated_residual(decode)
+    
+        def replicated_path():
+            return decoder.decode_forward(decode, **replicated_kwargs)
+    
+        def fractured_path():
+            return decoder.stacked_decode_forward(fractured_decode, **fractured_kwargs)
+    
+        replicated_output = replicated_path()
+>       fractured_output = fractured_path()
+                           ^^^^^^^^^^^^^^^^
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:582: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:579: in fractured_path
+    return decoder.stacked_decode_forward(fractured_decode, **fractured_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:985: in stacked_decode_forward
+    mixed = self._linear_decode(normalized, linear_state=linear_state)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/functional_decoder.py:864: in _linear_decode
+    output = self._linear_token(token, conv_state=conv_state, recurrent_state=recurrent_state)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1300: in _linear_token
+    mixed_qkv, z, beta, a = self._linear_input_projections(hidden_states, activate_beta=False)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1042: in _linear_input_projections
+    self._dram_projection(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:771: in _dram_projection
+    _, output = self._fused_column_all_gather_matmul(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:680: in _fused_column_all_gather_matmul
+    gathered, output = ttnn.experimental.all_gather_matmul_async(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.experimental.all_gather_matmul_async', function=<ttnn._ttnn.operations...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 3, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 5.6641e-01, -1.5703e+00,  ...,  6.9141e-01, -5.7812e-01]]]], sh...1230e-02,  ...,  0.0000e+00,  0.0000e+00]], shape=Shape([5120, 4352]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'all_gather_core_grid_offset': (0, 4), 'barrier_semaphore': <ttnn._ttnn.global_semaphore.global_semaphore object at 0...': 10, 'compute_kernel_config': <ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7f82747c5e30>, ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_matmul_async/device/all_gather_matmul_async_device_operation.cpp:32: input_tensor.logical_shape().rank() == 4 && weight_tensor.logical_shape().rank() == 4
+E               info:
+E               AllGatherMatmulAsync requires input tensors to be of rank 4
+E               backtrace:
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x407290) [0x7f828d007290]
+E                --- ttnn::experimental::prim::AllGatherMatmulAsyncDeviceOperation::validate_on_program_cache_miss(ttnn::experimental::prim::AllGatherMatmulAsyncParams const&, ttnn::experimental::prim::AllGatherMatmulAsyncInputs const&)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim35AllGatherMatmulAsyncDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS8_13tensor_args_tERNS8_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1bc) [0x7f828bd57e6c]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_12experimental4prim35AllGatherMatmulAsyncDeviceOperationEEENT_21tensor_return_value_tERKNS6_22operation_attributes_tERKNS6_13tensor_args_tE+0x35f) [0x7f828bd526af]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn4prim23all_gather_matmul_asyncERKN2tt8tt_metal6TensorES5_RKSt8optionalIS3_EjRKSt6vectorINS2_15GlobalSemaphoreESaISB_EENS1_7xy_pairERKS6_IS4_EjRKS6_INS2_12MemoryConfigEENS1_9tt_fabric8TopologyERKS6_ISB_ES6_IN4ttsl10StrongTypeIhNS2_14SubDeviceIdTagEEEESN_bbS6_IKNS2_8DataTypeEERKS6_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS13_33MatmulMultiCoreReuseProgramConfigENS13_42MatmulMultiCoreReuseMultiCastProgramConfigENS13_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS13_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS13_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS6_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEES6_IKNS_19ComputeKernelConfigEES6_IKNS_5types8CoreGridEES6_IjES1W_S1W_+0x6e5) [0x7f828bd4dda5]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn12experimental23all_gather_matmul_asyncERKN2tt8tt_metal6TensorES5_RKSt8optionalIS3_EjRKSt6vectorINS2_15GlobalSemaphoreESaISB_EENS1_7xy_pairERKS6_IS4_EjRKS6_INS2_12MemoryConfigEENS1_9tt_fabric8TopologyERKS6_ISB_ES6_IN4ttsl10StrongTypeIhNS2_14SubDeviceIdTagEEEESN_bbS6_IKNS2_8DataTypeEERKS6_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS13_33MatmulMultiCoreReuseProgramConfigENS13_42MatmulMultiCoreReuseMultiCastProgramConfigENS13_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS13_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS13_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS6_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEES6_IKNS_19ComputeKernelConfigEES6_IKNS_5types8CoreGridEES6_IjES1W_S1W_+0x186) [0x7f828bd4d6a6]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x37c703) [0x7f828cf7c703]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x7f828cf3b045]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x54cb34]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x115) [0x54b155]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyEval_EvalCode+0x15b) [0x5d544b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6085a2]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6b5033]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_SimpleFileObject+0x1aa) [0x6b4d9a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_AnyFileObject+0x4f) [0x6b4bcf]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_RunMain+0x3b5) [0x6bcc35]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_BytesMain+0x2d) [0x6bc71d]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7f82d302a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7f82d302a28b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_start+0x25) [0x657bc5]
+
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: RuntimeError
+_ test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-full_attention] _
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", [0, 3], ids=["linear_attention", "full_attention"])
+    @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+    @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+    def test_real_weight_replicated_vs_fractured_decode_perf(mesh_device, layer_idx):
+        """A/B the warmed real-weight replicated and selected stack contracts.
+    
+        Cache/state setup, the one-time stack-entry fracture, and the test-boundary
+        gather used for PCC are intentionally outside both measured traces.
+        """
+        if os.environ.get("QWEN36_RUN_STACKED_PERF") != "1":
+            pytest.skip("set QWEN36_RUN_STACKED_PERF=1")
+        torch.manual_seed(2036 + layer_idx)
+        config = functional_tests._config()
+        decoder = MultichipDecoder.from_state_dict(
+            functional_tests._load_layer_state(layer_idx),
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            page_block_size=64,
+        )
+        seq_len = 32
+        prefill_host = torch.randn(
+            1, 1, seq_len, config.hidden_size, dtype=torch.bfloat16
+        ) * 0.1
+        prefill = functional_tests._to_tt(prefill_host, mesh_device)
+    
+        if decoder.layer_kind == "full_attention":
+            rotary = functional_tests.Qwen3_5TextRotaryEmbedding(config)
+            cos_host, sin_host = rotary(
+                prefill_host[:, 0], torch.arange(seq_len).unsqueeze(0)
+            )
+            cos = functional_tests._to_tt(cos_host.unsqueeze(1), mesh_device)
+            sin = functional_tests._to_tt(sin_host.unsqueeze(1), mesh_device)
+            page_table = functional_tests._to_tt(
+                torch.arange(32, dtype=torch.int32).reshape(32, 1),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            replicated_cache = decoder.allocate_paged_kv_cache(num_blocks=32)
+            fractured_cache = decoder.allocate_paged_kv_cache(num_blocks=32)
+            decoder.prefill_forward(
+                prefill,
+                logical_seq_len=seq_len,
+                cos=cos,
+                sin=sin,
+                page_table=page_table,
+                kv_cache=replicated_cache,
+            )
+            decoder.prefill_forward(
+                prefill,
+                logical_seq_len=seq_len,
+                cos=cos,
+                sin=sin,
+                page_table=page_table,
+                kv_cache=fractured_cache,
+            )
+            decode_host = torch.zeros(
+                1, 1, 32, config.hidden_size, dtype=torch.bfloat16
+            )
+            decode_host[:, :, 0] = (
+                torch.randn(1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+            )
+            decode_cos_host, decode_sin_host = rotary(
+                decode_host[:, 0, :1], torch.tensor([[seq_len]])
+            )
+            decode_cos = functional_tests._to_tt(
+                decode_cos_host.unsqueeze(0).expand(1, 32, 1, -1).contiguous(),
+                mesh_device,
+            )
+            decode_sin = functional_tests._to_tt(
+                decode_sin_host.unsqueeze(0).expand(1, 32, 1, -1).contiguous(),
+                mesh_device,
+            )
+            positions = functional_tests._to_tt(
+                torch.full((32,), seq_len, dtype=torch.int32),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            replicated_kwargs = dict(
+                current_positions=positions,
+                cos=decode_cos,
+                sin=decode_sin,
+                page_table=page_table,
+                kv_cache=replicated_cache,
+            )
+            fractured_kwargs = dict(replicated_kwargs, kv_cache=fractured_cache)
+        else:
+            replicated_state = decoder.allocate_linear_state(batch_size=1)
+            fractured_state = decoder.allocate_linear_state(batch_size=1)
+            decoder.prefill_forward(
+                prefill, logical_seq_len=seq_len, linear_state=replicated_state
+            )
+            decoder.prefill_forward(
+                prefill, logical_seq_len=seq_len, linear_state=fractured_state
+            )
+            decode_host = (
+                torch.randn(1, 1, 1, config.hidden_size, dtype=torch.bfloat16) * 0.1
+            )
+            positions = functional_tests._to_tt(
+                torch.tensor([seq_len], dtype=torch.int32),
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            replicated_kwargs = dict(
+                current_positions=positions, linear_state=replicated_state
+            )
+            fractured_kwargs = dict(
+                current_positions=positions, linear_state=fractured_state
+            )
+    
+        decode = functional_tests._to_tt(decode_host, mesh_device)
+        fractured_decode = decoder.fracture_replicated_residual(decode)
+    
+        def replicated_path():
+            return decoder.decode_forward(decode, **replicated_kwargs)
+    
+        def fractured_path():
+            return decoder.stacked_decode_forward(fractured_decode, **fractured_kwargs)
+    
+        replicated_output = replicated_path()
+>       fractured_output = fractured_path()
+                           ^^^^^^^^^^^^^^^^
+
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:582: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py:579: in fractured_path
+    return decoder.stacked_decode_forward(fractured_decode, **fractured_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:972: in stacked_decode_forward
+    mixed = self._full_decode(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:815: in _full_decode
+    query, key, value, gate = self._full_qkv_decode(hidden_states, kwargs["cos"], kwargs["sin"])
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:1045: in _full_qkv_decode
+    return super()._full_qkv_decode(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:1416: in _full_qkv_decode
+    packed = self._dram_projection(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:771: in _dram_projection
+    _, output = self._fused_column_all_gather_matmul(
+/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py:680: in _fused_column_all_gather_matmul
+    gathered, output = ttnn.experimental.all_gather_matmul_async(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.experimental.all_gather_matmul_async', function=<ttnn._ttnn.operations...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 3, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 2.0625e+00,  3.0469e-01,  ..., -1.2891e-01,  2.4805e-01],
+     ...8828e-03,  ..., -1.0742e-02,  0.0000e+00]], shape=Shape([5120, 3584]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'all_gather_core_grid_offset': (0, 4), 'barrier_semaphore': <ttnn._ttnn.global_semaphore.global_semaphore object at 0...': 10, 'compute_kernel_config': <ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7f827471f660>, ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_matmul_async/device/all_gather_matmul_async_device_operation.cpp:32: input_tensor.logical_shape().rank() == 4 && weight_tensor.logical_shape().rank() == 4
+E               info:
+E               AllGatherMatmulAsync requires input tensors to be of rank 4
+E               backtrace:
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x407290) [0x7f828d007290]
+E                --- ttnn::experimental::prim::AllGatherMatmulAsyncDeviceOperation::validate_on_program_cache_miss(ttnn::experimental::prim::AllGatherMatmulAsyncParams const&, ttnn::experimental::prim::AllGatherMatmulAsyncInputs const&)
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim35AllGatherMatmulAsyncDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS8_13tensor_args_tERNS8_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1bc) [0x7f828bd57e6c]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_12experimental4prim35AllGatherMatmulAsyncDeviceOperationEEENT_21tensor_return_value_tERKNS6_22operation_attributes_tERKNS6_13tensor_args_tE+0x35f) [0x7f828bd526af]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn4prim23all_gather_matmul_asyncERKN2tt8tt_metal6TensorES5_RKSt8optionalIS3_EjRKSt6vectorINS2_15GlobalSemaphoreESaISB_EENS1_7xy_pairERKS6_IS4_EjRKS6_INS2_12MemoryConfigEENS1_9tt_fabric8TopologyERKS6_ISB_ES6_IN4ttsl10StrongTypeIhNS2_14SubDeviceIdTagEEEESN_bbS6_IKNS2_8DataTypeEERKS6_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS13_33MatmulMultiCoreReuseProgramConfigENS13_42MatmulMultiCoreReuseMultiCastProgramConfigENS13_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS13_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS13_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS6_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEES6_IKNS_19ComputeKernelConfigEES6_IKNS_5types8CoreGridEES6_IjES1W_S1W_+0x6e5) [0x7f828bd4dda5]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn12experimental23all_gather_matmul_asyncERKN2tt8tt_metal6TensorES5_RKSt8optionalIS3_EjRKSt6vectorINS2_15GlobalSemaphoreESaISB_EENS1_7xy_pairERKS6_IS4_EjRKS6_INS2_12MemoryConfigEENS1_9tt_fabric8TopologyERKS6_ISB_ES6_IN4ttsl10StrongTypeIhNS2_14SubDeviceIdTagEEEESN_bbS6_IKNS2_8DataTypeEERKS6_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS13_33MatmulMultiCoreReuseProgramConfigENS13_42MatmulMultiCoreReuseMultiCastProgramConfigENS13_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS13_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS13_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS6_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEES6_IKNS_19ComputeKernelConfigEES6_IKNS_5types8CoreGridEES6_IjES1W_S1W_+0x186) [0x7f828bd4d6a6]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x37c703) [0x7f828cf7c703]
+E                --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x7f828cf3b045]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x3ab) [0x54aa6b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x54ca6d]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x54cb34]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x115) [0x54b155]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyObject_Call+0x6c) [0x54b0ac]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0x4cbe) [0x5db13e]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_Call_Prepend+0x18a) [0x54a84a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x5a31b8]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyObject_MakeTpCall+0x13e) [0x548ffe]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(PyEval_EvalCode+0x15b) [0x5d544b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6085a2]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3() [0x6b5033]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_SimpleFileObject+0x1aa) [0x6b4d9a]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_PyRun_AnyFileObject+0x4f) [0x6b4bcf]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_RunMain+0x3b5) [0x6bcc35]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(Py_BytesMain+0x2d) [0x6bc71d]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7f82d302a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7f82d302a28b]
+E                --- /home/ttuser/.tenstorrent-venv/bin/python3(_start+0x25) [0x657bc5]
+
+/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/decorators.py:650: RuntimeError
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+7.43s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-linear_attention]
+7.19s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-full_attention]
+1.28s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-linear_attention]
+0.27s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-full_attention]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-linear_attention]
+0.12s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-full_attention]
+=========================== short test summary info ============================
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-linear_attention]
+FAILED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_real_weight_replicated_vs_fractured_decode_perf[blackhole-device_params0-4-full_attention]
+======================== 2 failed, 3 warnings in 18.15s ========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7f82891967d8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7f828913d188 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 36 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - ... skipped remainder
+nanobind: leaked 307 functions!
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function "get_fabric_node_id"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "set_program_cache_misses_allowed"
+ - leaked function ""
+ - leaked function "init_device_compute_kernel_config"
+ - leaked function ""
+ - leaked function "load_sub_device_manager"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-20 05:39:15.857 | info     |    BuildKernels | JIT cache stats: 634/634 hits (100.0%) [634 cached, 492 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-20 05:39:15.858 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-20 05:39:15.872 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-08-20 05:39:15.872 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-08-20 05:39:16.423 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-08-20 05:39:16.424 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-08-20 05:39:16.424 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

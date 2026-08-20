@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -49,6 +50,24 @@ def _assert_multichip_path():
     assert counts["tp4_column_projections"] > 0
     assert counts["tp4_row_projections"] > 0
     assert counts["ring_all_reduce"] > 0
+
+
+def _print_command_provenance():
+    qwen_env = {
+        key: value
+        for key, value in sorted(os.environ.items())
+        if key.startswith("QWEN36")
+    }
+    print(f"COMMAND_PROVENANCE cwd={os.getcwd()} argv={sys.argv} env={qwen_env}")
+
+
+def _print_runtime_provenance_if_requested():
+    if os.environ.get("QWEN36_CCL_PROVENANCE") != "1":
+        return
+    decoder = MultichipDecoder.LAST_PROVENANCE_INSTANCE
+    assert decoder is not None
+    decoder.print_ccl_provenance()
+    MultichipDecoder.LAST_PROVENANCE_INSTANCE = None
 
 
 def _assert_all_replicas(reference, actual, threshold=0.995):
@@ -184,6 +203,8 @@ def test_multichip_local_tensor_and_state_contracts(mesh_device):
         mesh_device=mesh_device,
         page_block_size=64,
     )
+    assert full.persistent_ccl_pool is None
+    assert linear.persistent_ccl_pool is None
     assert linear.linear_num_key_heads == 4
     assert linear.linear_num_value_heads == 12
     assert linear.conv_dim == 2560
@@ -201,9 +222,63 @@ def test_multichip_local_tensor_and_state_contracts(mesh_device):
 
 @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
-def test_multichip_linear_non_aligned_prefill_decode(monkeypatch, mesh_device):
+def test_shared_persistent_ccl_pool_sequential_layers(monkeypatch, mesh_device):
+    if os.environ.get("QWEN36_RUN_SHARED_CCL_POOL") != "1":
+        pytest.skip("set QWEN36_RUN_SHARED_CCL_POOL=1")
     _select_multichip_path(monkeypatch)
     functional_tests.test_linear_attention_real_weight_prefill_and_decode(mesh_device, 65)
+    pool = MultichipDecoder._PERSISTENT_CCL_POOLS[id(mesh_device)]
+    expected_payloads = {
+        "attention_16": {"bf16": ttnn.bfloat16},
+        "full_mlp_16": {"bf16": ttnn.bfloat16},
+        "linear_mlp_8": {"bfp8": ttnn.bfloat8_b},
+    }
+    assert {
+        slot: {payload: buffer.dtype for payload, buffer in buffers.items()}
+        for slot, buffers in pool["buffers"].items()
+    } == expected_payloads
+    buffer_ids = {
+        slot: {payload: id(buffer) for payload, buffer in buffers.items()}
+        for slot, buffers in pool["buffers"].items()
+    }
+    for slot, buffers in pool["buffers"].items():
+        for payload, buffer in buffers.items():
+            device_tensor = ttnn.get_device_tensors(buffer)[0]
+            print(
+                "PERSISTENT_CCL_POOL_SLOT "
+                f"slot={slot} payload={payload} dtype={buffer.dtype} "
+                f"identity={id(buffer)} device0_address={device_tensor.buffer_address()}"
+            )
+    tile_count = 32 * 20480 // (32 * 32)
+    fixed_bytes_per_device = tile_count * (2048 + 2048 + 1088)
+    assert fixed_bytes_per_device == 3_317_760
+    print(
+        "PERSISTENT_CCL_POOL_BYTES "
+        f"tiles_per_slot={tile_count} bf16_tile_bytes=2048 "
+        f"bfp8_tile_bytes=1088 fixed_bytes_per_device={fixed_bytes_per_device}"
+    )
+    functional_tests.test_full_attention_real_weight_paged_decode_trace(mesh_device)
+    assert MultichipDecoder._PERSISTENT_CCL_POOLS[id(mesh_device)] is pool
+    final_buffer_ids = {
+        slot: {payload: id(buffer) for payload, buffer in buffers.items()}
+        for slot, buffers in pool["buffers"].items()
+    }
+    assert final_buffer_ids == buffer_ids
+    print(
+        "PERSISTENT_CCL_POOL_STABLE "
+        f"pool_id={id(pool)} before={buffer_ids} after={final_buffer_ids}"
+    )
+    assert len(pool["buffers"]) == 3
+
+
+@pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
+@pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+def test_multichip_linear_non_aligned_prefill_decode(monkeypatch, mesh_device):
+    if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+        _print_command_provenance()
+    _select_multichip_path(monkeypatch)
+    functional_tests.test_linear_attention_real_weight_prefill_and_decode(mesh_device, 65)
+    _print_runtime_provenance_if_requested()
     _assert_multichip_path()
 
 
@@ -220,8 +295,11 @@ def test_multichip_full_non_aligned_paged_prefill_decode(monkeypatch, mesh_devic
 @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
 def test_multichip_full_paged_decode_trace(monkeypatch, mesh_device):
+    if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+        _print_command_provenance()
     _select_multichip_path(monkeypatch)
     functional_tests.test_full_attention_real_weight_paged_decode_trace(mesh_device)
+    _print_runtime_provenance_if_requested()
     _assert_multichip_path()
 
 
@@ -260,6 +338,8 @@ def test_multichip_real_weight_batch32(monkeypatch, mesh_device, layer_idx):
 @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
 def test_multichip_decoder_perf(monkeypatch, mesh_device, layer_idx):
+    if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+        _print_command_provenance()
     _select_multichip_path(monkeypatch)
     signpost_times_ns = {}
     original_signpost = functional_tests.signpost
@@ -279,6 +359,8 @@ def test_multichip_decoder_perf(monkeypatch, mesh_device, layer_idx):
         replays = int(os.environ.get("QWEN36_DECODE_REPLAYS", "10"))
         elapsed = signpost_times_ns[f"{tag}_DECODE_TRACE_END"] - signpost_times_ns[f"{tag}_DECODE_TRACE_START"]
         print(f"{tag}_MULTICHIP_DECODE_TRACE_E2E_US_PER_REPLAY={elapsed / 1_000 / replays:.3f}")
+    if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+        _print_runtime_provenance_if_requested()
     _assert_multichip_path()
 
 
@@ -302,9 +384,12 @@ def test_multichip_full_advertised_context_prefill(monkeypatch, mesh_device, log
 @pytest.mark.parametrize("mesh_device", MESH_DEVICE, indirect=True)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
 def test_multichip_linear_native_context(monkeypatch, mesh_device):
+    if os.environ.get("QWEN36_CCL_PROVENANCE") == "1":
+        _print_command_provenance()
     _select_multichip_path(monkeypatch)
     functional_tests.test_linear_attention_advertised_context_prefill(mesh_device)
     functional_tests.test_linear_attention_advertised_context_decode(mesh_device)
+    _print_runtime_provenance_if_requested()
     _assert_multichip_path()
 
 
