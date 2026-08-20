@@ -326,7 +326,7 @@ profiler CSV bulk, or raw eval sample dumps. Total copy-back: ~1.2 MB.
 
 | repo | branch | commit | contents |
 |---|---|---|---|
-| `tt-metal` (this repo) | `agentic-research/hous/ornith-1.0-35B` | `336b4dfdb7c7d8a2cce0dfd1cff05b14fd769ba4` | `doc/tti_release/` evidence + the two `tests/test_generator_vllm.py` regression tests |
+| `tt-metal` (this repo) | `agentic-research/hous/ornith-1.0-35B` | `5803ef097a8d3b24f68c2482eabb54f89c2cb2fc` | `doc/tti_release/` evidence + the two `tests/test_generator_vllm.py` regression tests (this line's own SHA is recorded by the follow-up commit that fixes it) |
 | `/home/ttuser/dev/ornith/vllm` | `dev` | `52f5bcd6c9f7c472a55237beff8245af3874518b` | the §6 plugin fix (`vllm_tt_plugin/input_batch.py`, `model_runner.py`) |
 
 The plugin fix lives in a separate checkout outside this repo, so it is committed there and must be
