@@ -126,3 +126,12 @@ The final report still names framework layout operations. The decode residual no
 - `stage_review_1.md`, `stage_review_2.md`, `stage_review_3.md`: independent findings and prior dispositions.
 
 The final independent `$stage-review` verdict and local stage commit SHA are recorded after review at the end of this file.
+
+## Final checkpoint
+
+- Independent `$stage-review` 8 verdict: **clean-pass**; no required work,
+  material concerns, or hard-check gaps (`stage_review_8.md`).
+- Stage implementation, tests, documentation, and reviewed evidence checkpoint:
+  `382dc418473` (`Optimize Qwen3.6-27B decoder`).
+- The checkpoint and this SHA-recording follow-up are local only; nothing was
+  pushed.
