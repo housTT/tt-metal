@@ -1,0 +1,238 @@
+diff --git a/reference_config/evals/eval_config.py b/reference_config/evals/eval_config.py
+index 1007a109..96ba9268 100644
+--- a/reference_config/evals/eval_config.py
++++ b/reference_config/evals/eval_config.py
+@@ -5264,6 +5264,146 @@ _eval_config_list = [
+             ),
+         ],
+     ),
++    # -------------------------------------------------------------------------
++    # LOCAL ADDITION (not upstream): generated TTNN autoport of
++    # ornith-ai/Ornith-1.0-35B (tt-metal models/autoports/ornith_ai_ornith_1_0_35b).
++    #
++    # Task selection. Ornith-1.0-35B is a Qwen3.5-MoE-derived *reasoning* model
++    # (chat template pre-fills "<think>\n"; served with --reasoning-parser qwen3),
++    # so it takes the same eval shape as the other reasoning models in this file:
++    #   * instruction following -> `ifeval`   (as AFM-4.5B / gemma-3-*-it / Mistral)
++    #   * GPQA Diamond          -> `r1_gpqa_diamond` (as Qwen3-*, Kimi-K2.*,
++    #     MiniMax-M*, gemma-4-*): the R1-style zero-shot variant is the correct
++    #     one for a thinking model; the n-shot generative variant demonstrates
++    #     bare "(C)" answers and suppresses reasoning.
++    # `meta_ifeval` / `meta_gpqa_cot` are deliberately NOT used: those tasks are
++    # Meta-Llama-only. setup_evals_meta() derives the dataset name as
++    # f"{hf_model_repo}-evals", i.e. it would look for a nonexistent
++    # "ornith-ai/Ornith-1.0-35B-evals" repo, and their prompts are pre-rendered in
++    # the Llama-3 chat format with apply_chat_template=False. Every non-Llama model
++    # in this file uses ifeval/leaderboard_ifeval + a GPQA variant for the same
++    # reason. `ifeval` and `r1_gpqa_diamond` are this model's equivalents of the
++    # meta_ifeval / meta_gpqa_cot quality gates.
++    #
++    # Reference scores. Ornith-1.0-35B's model card publishes only agentic-coding
++    # benchmarks (Terminal-Bench 2.1, SWE-bench {Verified,Pro,Multilingual},
++    # NL2Repo, Claw-eval, SWE Atlas) - no IFEval and no GPQA. No GPU/vendor
++    # reference run exists for these two tasks either, so published_score and
++    # gpu_reference_score are left None rather than invented: the release report
++    # then renders the measured score with accuracy_check = N/A. Fill these in
++    # once a reference run exists.
++    #
++    # Sampling follows the checkpoint's own generation_config.json
++    # (temperature 1.0, top_p 0.95, top_k 20) and the model card's Quickstart.
++    EvalConfig(
++        hf_model_repo="ornith-ai/Ornith-1.0-35B",
++        tasks=[
++            EvalTask(
++                task_name="ifeval",
++                score=EvalTaskScore(
++                    published_score=None,
++                    published_score_ref=None,
++                    gpu_reference_score=None,
++                    gpu_reference_score_ref=(
++                        "none: no published IFEval score on the Ornith-1.0-35B model "
++                        "card and no GPU reference run for this autoport"
++                    ),
++                    score_func=score_task_keys_mean,
++                    score_func_kwargs={
++                        "result_keys": [
++                            "prompt_level_strict_acc,none",
++                            "inst_level_strict_acc,none",
++                            "prompt_level_loose_acc,none",
++                            "inst_level_loose_acc,none",
++                        ],
++                        "unit": "percent",
++                    },
++                ),
++                workflow_venv_type=WorkflowVenvType.EVALS_COMMON,
++                # Chat endpoint so the *server* applies the checkpoint's own
++                # chat template (thinking on) and the qwen3 reasoning parser
++                # returns the final answer in `content`. IFEval scores the
++                # visible answer, so the <think> trace must not reach the
++                # scorer - client-side templating on /v1/completions would put
++                # it there.
++                use_chat_api=True,
++                model_kwargs={
++                    # full doc/context_contract.json context; nothing lowered
++                    "max_length": 262144,
++                    # lm-eval's aiohttp ClientTimeout(total=...) has to cover the
++                    # whole generation, and this autoport decodes at ~7 tok/s/user
++                    # on a max_num_seqs=32 server (the padded 32-row decode step,
++                    # doc/optimized_vllm limitation 4), so 8192 tokens can take
++                    # ~20 min. 7200 s leaves ample headroom.
++                    "timeout": 7200,
++                },
++                gen_kwargs={
++                    # lm-eval's local-chat-completions streaming parser raises
++                    # KeyError 'message'; streaming must stay off.
++                    "stream": "false",
++                    "max_gen_toks": 8192,
++                    "until": [],
++                    "do_sample": "true",
++                    "temperature": 1.0,
++                    "top_k": 20,
++                    "top_p": 0.95,
++                },
++                limit_samples_map={
++                    EvalLimitMode.CI_NIGHTLY: 0.05,
++                    EvalLimitMode.SMOKE_TEST: 0.01,
++                },
++            ),
++            EvalTask(
++                task_name="r1_gpqa_diamond",
++                score=EvalTaskScore(
++                    published_score=None,
++                    published_score_ref=None,
++                    gpu_reference_score=None,
++                    gpu_reference_score_ref=(
++                        "none: no published GPQA score on the Ornith-1.0-35B model "
++                        "card and no GPU reference run for this autoport"
++                    ),
++                    score_func=score_task_single_key,
++                    score_func_kwargs={
++                        "result_keys": [
++                            "exact_match,none",
++                        ],
++                        "unit": "percent",
++                    },
++                ),
++                workflow_venv_type=WorkflowVenvType.EVALS_COMMON,
++                use_chat_api=True,
++                model_kwargs={
++                    "max_length": 262144,
++                    # A full 32768-token reasoning generation takes ~78 min at
++                    # this autoport's ~7 tok/s/user decode rate on a
++                    # max_num_seqs=32 server. The first release attempt used
++                    # 3600 s and lm-eval's aiohttp total timeout aborted and
++                    # re-prefilled 7 of 10 in-flight samples ~55 min in; that is
++                    # a client-timeout mismatch, not a model failure, so the
++                    # timeout is raised rather than the generation budget cut.
++                    "timeout": 21600,
++                },
++                gen_kwargs={
++                    "stream": "false",
++                    # Reasoning budget, matching the other Qwen-family reasoning
++                    # models in this file (Qwen3-32B / QwQ-32B use 32768). This
++                    # is a generation budget, not a context cap: max_length
++                    # stays at the full 262144 contract.
++                    "max_gen_toks": 32768,
++                    "until": [],
++                    "do_sample": "true",
++                    "temperature": 1.0,
++                    "top_k": 20,
++                    "top_p": 0.95,
++                },
++                limit_samples_map={
++                    EvalLimitMode.CI_NIGHTLY: 0.05,
++                    EvalLimitMode.SMOKE_TEST: 0.01,
++                },
++            ),
++        ],
++    ),
+ ]
+
+
+diff --git a/workflows/model_spec.py b/workflows/model_spec.py
+index 21cb5fb1..dce3bf39 100644
+--- a/workflows/model_spec.py
++++ b/workflows/model_spec.py
+@@ -294,6 +294,15 @@ qwen36_blackhole_impl = ImplSpec(
+     repo_url="https://github.com/tenstorrent/tt-metal",
+     code_path="models/demos/blackhole/qwen36",
+ )
++# Generated TTNN autoport for ornith-ai/Ornith-1.0-35B (tt-metal
++# models/autoports/ornith_ai_ornith_1_0_35b). Local addition for the autoport
++# release run; the code path is the generated autoport, not models/tt_transformers.
++ornith_1_0_35b_autoport_impl = ImplSpec(
++    impl_id="ornith_1_0_35b_autoport",
++    impl_name="ornith-1-0-35b-autoport",
++    repo_url="https://github.com/tenstorrent/tt-metal",
++    code_path="models/autoports/ornith_ai_ornith_1_0_35b",
++)
+ training_lora_impl = ImplSpec(
+     impl_id="training_lora",
+     impl_name="training-lora",
+@@ -322,6 +331,7 @@ _IMPL_REGISTRY: Dict[str, ImplSpec] = {
+     "qwen36_blackhole": qwen36_blackhole_impl,
+     "training_lora": training_lora_impl,
+     "qwen36_blackhole_b8": qwen36_blackhole_b8_impl,
++    "ornith_1_0_35b_autoport": ornith_1_0_35b_autoport_impl,
+ }
+
+
+diff --git a/workflows/model_specs/prod/llm.yaml b/workflows/model_specs/prod/llm.yaml
+index a65d88da..71e84f11 100644
+--- a/workflows/model_specs/prod/llm.yaml
++++ b/workflows/model_specs/prod/llm.yaml
+@@ -1282,3 +1282,54 @@ templates:
+     Qwen/Qwen3.6-27B:
+       reasoning_parser_name: qwen3
+       tool_call_parser_name: qwen3_coder
++# -----------------------------------------------------------------------------
++# LOCAL ADDITION (not upstream): generated TTNN autoport of ornith-ai/Ornith-1.0-35B.
++# Added by the tt-metal autoport release run so the TTI release workflow evaluates
++# models/autoports/ornith_ai_ornith_1_0_35b and NOT models/tt_transformers.
++# The server is launched externally from the tt-metal checkout (no --docker-server,
++# no --local-server); vllm_args/env_vars here record the launch configuration that
++# external server actually uses.
++#   max_context           = doc/context_contract.json supported.context_length
++#   max_tokens_all_users  = measured "GPU KV cache size: 264,192 tokens" logged by
++#                           this run.s external autoport server at max_num_seqs=32
++# -----------------------------------------------------------------------------
++- weights:
++    - ornith-ai/Ornith-1.0-35B
++  version: "0.20.0"
++  tt_metal_commit: 278e0ba
++  vllm_commit: 5380fd4
++  impl: ornith_1_0_35b_autoport
++  inference_engine: VLLM
++  model_type: LLM
++  supported_modalities:
++    - text
++  device_model_specs:
++    - device: P300X2
++      max_concurrency: 32
++      max_context: 262144
++      max_tokens_all_users_override: 264192
++      default_impl: true
++      # One lm-eval attempt per request: a retry of a multi-thousand-token
++      # reasoning generation costs the better part of an hour on this device,
++      # and the default 3x exponential backoff turns one slow sample into hours.
++      eval_max_retries: 1
++      env_vars:
++        HF_MODEL: ornith-ai/Ornith-1.0-35B
++        MESH_DEVICE: "(1, 4)"
++      vllm_args:
++        max_num_batched_tokens: "262144"
++        enable_auto_tool_choice: true
++        reasoning_parser: qwen3
++        tool_call_parser: qwen3_xml
++      override_tt_config:
++        fabric_config: FABRIC_1D_RING
++        fabric_router_max_packet_bytes: 8192
++        trace_region_size: 200000000
++        l1_small_size: 24576
++        sample_on_device_mode: all
++  status: EXPERIMENTAL
++  has_builtin_warmup: true
++  metadata:
++    ornith-ai/Ornith-1.0-35B:
++      reasoning_parser_name: qwen3
++      tool_call_parser_name: qwen3_xml

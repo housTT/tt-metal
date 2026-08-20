@@ -271,6 +271,112 @@ def test_a_reduced_target_does_not_overwrite_the_served_capability_report():
         assert (served / name).read_bytes() == blob, f"a reduced build rewrote readiness_vllm/{name}"
 
 
+def test_a_discarded_async_token_does_not_leave_the_runner_ahead_of_the_scheduler():
+    """A preempted request must re-prefill at the length the *scheduler* believes in.
+
+    This is the TTI-release hang. Under async scheduling the plugin's ``TTScheduler`` throws away the
+    decode tokens still in the pipeline when it preempts a request - they were computed against KV the
+    preempt just freed. The model runner had already appended those same tokens to its own
+    ``CachedRequestState.output_token_ids``, so after one preempt-with-a-token-in-flight the runner's
+    copy of the request is one token longer than the scheduler's.
+
+    That one-token drift is not cosmetic. On resume the runner seeds ``InputBatch.num_tokens`` from its
+    own history, and the prefill path calls a prefill "an unfinished chunk" exactly when
+    ``prompt_lens < num_tokens``. One token of drift makes a *complete* prefill look unfinished, so the
+    runner samples nothing and publishes an empty token list. vLLM's async ``num_output_placeholders``
+    for that step is then never retired, and ``Scheduler.schedule``'s max-tokens guard
+    (``num_computed_tokens + 2 - num_output_placeholders >= num_prompt_tokens + max_tokens``) skips the
+    request on every subsequent step: one request RUNNING, zero tokens scheduled, devices idle, forever.
+
+    ``CachedRequestData.num_output_tokens`` (accepted output tokens plus async placeholders) is the
+    scheduler's authoritative count, so the runner has to reconcile against it on resume - the same
+    thing ``gpu_model_runner._update_states`` does upstream.
+    """
+    from vllm.v1.worker.gpu_input_batch import CachedRequestState
+    from vllm_tt_plugin.input_batch import apply_cached_req_state_update
+
+    prompt = list(range(16384))
+    accepted_by_scheduler = 127
+
+    # The runner applied 128 tokens; the scheduler kept 127 and dropped the in-flight one.
+    req_state = CachedRequestState(
+        req_id="preempted",
+        prompt_token_ids=prompt,
+        mm_features=None,
+        sampling_params=None,
+        pooling_params=None,
+        generator=None,
+        block_ids=([],),
+        num_computed_tokens=0,
+        output_token_ids=list(range(128)),
+    )
+    scheduler_token_ids = prompt + list(range(accepted_by_scheduler))
+
+    changed = apply_cached_req_state_update(
+        req_state,
+        num_computed_tokens=0,
+        new_block_ids=([1, 2, 3],),
+        resumed_from_preemption=True,
+        num_output_tokens=accepted_by_scheduler,
+        all_token_ids=scheduler_token_ids,
+        in_persistent_batch=False,
+        async_scheduling=True,
+    )
+
+    assert changed, "the resync has to report that it rewrote the runner's output history"
+    assert req_state.output_token_ids == list(range(accepted_by_scheduler))
+    # This is the number InputBatch.add_request writes into num_tokens, and the number the prefill
+    # path compares against prompt_lens. Drift here is the hang.
+    assert req_state.num_tokens == len(prompt) + accepted_by_scheduler == 16511
+
+
+def test_the_resync_leaves_a_healthy_request_and_its_batch_row_alone():
+    """The reconciliation must be a no-op when nothing was discarded.
+
+    It only ever shortens: the scheduler's count is authoritative, but a runner that legitimately has
+    fewer tokens than the scheduler (the token for the step in flight has not been applied yet) must not
+    be "topped up" from the scheduler's list. And for a request still holding a persistent-batch row the
+    list is aliased by ``InputBatch.req_output_token_ids``, so it has to be trimmed in place rather than
+    rebound.
+    """
+    from vllm.v1.worker.gpu_input_batch import CachedRequestState
+    from vllm_tt_plugin.input_batch import apply_cached_req_state_update
+
+    def state(output_len):
+        return CachedRequestState(
+            req_id="running",
+            prompt_token_ids=[7, 7, 7, 7],
+            mm_features=None,
+            sampling_params=None,
+            pooling_params=None,
+            generator=None,
+            block_ids=([0],),
+            num_computed_tokens=4,
+            output_token_ids=list(range(output_len)),
+        )
+
+    healthy = state(5)
+    aliased = healthy.output_token_ids
+    assert not apply_cached_req_state_update(
+        healthy, 9, None, False, num_output_tokens=5, in_persistent_batch=True, async_scheduling=True
+    )
+    assert healthy.output_token_ids == list(range(5))
+
+    drifted = state(6)
+    aliased = drifted.output_token_ids
+    assert apply_cached_req_state_update(
+        drifted, 9, None, False, num_output_tokens=5, in_persistent_batch=True, async_scheduling=True
+    )
+    assert drifted.output_token_ids == list(range(5))
+    assert drifted.output_token_ids is aliased, "the persistent batch aliases this list; trim in place"
+
+    behind = state(3)
+    assert not apply_cached_req_state_update(
+        behind, 9, None, False, num_output_tokens=5, in_persistent_batch=True, async_scheduling=True
+    )
+    assert behind.output_token_ids == list(range(3)), "a step still in flight must not be invented"
+
+
 # --------------------------------------------------------------------------------------
 # device: the plugin-facing API on the reduced target
 # --------------------------------------------------------------------------------------
