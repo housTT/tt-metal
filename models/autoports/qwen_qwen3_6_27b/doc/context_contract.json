@@ -37,6 +37,74 @@
     "capability_reduction": null,
     "completion_status": "passed"
   },
+  "multichip_decoder": {
+    "target_hardware": "4x Blackhole P300c",
+    "mesh_shape": [1, 4],
+    "fabric_config": "FABRIC_1D_RING",
+    "topology": "Ring",
+    "tensor_parallel_degree": 4,
+    "residual_contract": "prefill and the selected production decode stack use replicated TILE/DRAM [B,1,S,5120] input/output with ring all-reduce after both row projections; the correctness-valid TP-fractured [B,1,S,1280] alternative is rejected by real-layer latency",
+    "decode_stack_topology_evidence": {
+      "attention_row_k1536_replicated_us": 282.176,
+      "attention_row_k1536_fractured_us": 257.913,
+      "full_mlp_k4608_replicated_us": 361.541,
+      "full_mlp_k4608_fractured_us": 337.104,
+      "boundary_pcc": 0.9998153603662963,
+      "stacked_decode_trace_status": "passed for linear-attention and full-attention layers; compatibility gather PCC 0.998354 and 0.998317 respectively, repeat PCC 1.0",
+      "real_layer_linear_replicated_us": 772.178,
+      "real_layer_linear_fractured_us": 871.299,
+      "real_layer_full_replicated_us": 551.352,
+      "real_layer_full_fractured_us": 652.115,
+      "selected_contract": "replicated"
+    },
+    "full_attention_local_heads": {
+      "query_heads": 6,
+      "kv_heads": 1,
+      "head_dim": 256
+    },
+    "full_attention_kv_cache": {
+      "dtype": "BFLOAT8_B",
+      "layout": "TILE/DRAM paged, KV-head sharded across TP=4",
+      "shape_per_tensor_per_device": "[num_blocks, 1, 64, 256]",
+      "bytes_per_device_per_full_attention_layer_at_max_context": 142606336,
+      "bytes_per_device_for_16_full_attention_layers_at_max_context": 2281701376,
+      "page_table_policy": "replicated logical page table; each device updates and reads its one local KV head",
+      "current_position_policy": "replicated logical current positions"
+    },
+    "linear_attention_state": {
+      "local_value_heads": 12,
+      "recurrent_shape_per_device": "[batch, 12, 128, 128]",
+      "conv_shape_per_device": "[batch, 1, 4, 2560]",
+      "batch32_bytes_per_device_for_48_linear_layers": 1459617792
+    },
+    "memory_capacity_plan": {
+      "device_dram_bytes": 34359738368,
+      "calculated_decoder_stack_weight_bytes_per_device": 10035920896,
+      "reserved_trace_activation_ccl_fragmentation_bytes_per_device": 4294967296,
+      "kv_cache_bytes_per_device": 2281701376,
+      "batch32_linear_state_bytes_per_device": 1459617792,
+      "calculated_decoder_stage_total_bytes_per_device": 18072207360,
+      "weight_calculation_basis": "48 linear layers at 140148736 bytes plus 16 full layers at 206798848 bytes, including interleaved and DRAM-sharded duplicate weight layouts and tile-format storage (BFP4 tile 576 B, BFP8 tile 1088 B, BF16 tile 2048 B)",
+      "state_calculation_basis": "BFP8 cache includes 1088-byte tile overhead; recurrent FP32 state is 24 MiB/layer and the [32,1,4,2560] BF16 conv state pads its tiled height to 32 for 5 MiB/layer",
+      "status": "decoder-stage weights, maximum cache/state, and 4 GiB reserve total 16.831 GiB/device; max-context allocations and real-weight layer execution passed on all four 32 GiB devices"
+    },
+    "tested_context": {
+      "maximum_logical_sequence_length": 262144,
+      "maximum_current_position": 262143,
+      "prefill_status": "passed for both layer kinds, including full lengths 32769 and 262144",
+      "decode_status": "passed at position 262143 with warmed trace replay for both layer kinds",
+      "evidence": "multichip_decoder/context/full_context_prefill.log, full_native_decode.log, linear_native_context.log"
+    },
+    "capability_reduction": null,
+    "capability_evidence": {
+      "maximum_active_batch_size_tested": 32,
+      "full_decode_pcc_at_position_262143": 0.9998360369914381,
+      "full_decode_replay_pcc": 1.0,
+      "full_native_prefill_seconds": 57.51,
+      "linear_native_prefill_and_decode_seconds": 709.79
+    },
+    "completion_status": "passed"
+  },
   "functional_decoder": {
     "layer_kinds": [
       "linear_attention",

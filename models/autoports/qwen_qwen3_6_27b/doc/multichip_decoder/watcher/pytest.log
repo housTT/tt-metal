@@ -1,0 +1,120 @@
+2026-08-20 03:51:07.813 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collected 10 items / 6 deselected / 4 selected
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_linear_non_aligned_prefill_decode[blackhole-device_params0-4] 2026-08-20 03:51:09.727 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-20 03:51:09.727 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-20 03:51:09.727 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-20 03:51:09.727 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-20 03:51:09.739 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-20 03:51:09.739 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-20 03:51:09.817 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-20 03:51:09.817 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-20 03:51:09.817 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-20 03:51:09.817 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-20 03:51:09.819 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-20 03:51:09.855 | warning  |             UMD | AICLK settled at 1343 MHz, within 5% of the requested 1350 MHz but not an exact match. Proceeding. (chip.cpp:237)
+2026-08-20 03:51:10.006 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-20 03:51:10.127 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 03:51:10.127 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:10.127 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 03:51:10.127 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 03:51:10.750 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/multichip_decoder/watcher/generated/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-20 03:51:10.750 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-20 03:51:10.750 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-20 03:51:10.750 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-20 03:51:10.750 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-20 03:51:10.750 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-20 03:51:10.750 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:10.756 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 03:51:10.756 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:10.765 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:10.771 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:12.708 | critical |          Always | TT_FATAL: Program size (27968) too large for kernel config buffer (25600) on ACTIVE_ETH (assert.hpp:104)
+ERROR
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_multichip_full_non_aligned_paged_prefill_decode[blackhole-device_params0-4] 2026-08-20 03:51:13.007 | info     |           Metal | Fabric config changed from FabricConfig::FABRIC_1D_RING to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:322)
+2026-08-20 03:51:13.007 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-20 03:51:13.007 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.007 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-20 03:51:13.008 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-20 03:51:13.008 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-20 03:51:13.008 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-08-20 03:51:13.008 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-08-20 03:51:13.009 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-08-20 03:51:13.009 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-08-20 03:51:13.009 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-08-20 03:51:13.092 | info     |       LLRuntime | Watcher log file: /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/multichip_decoder/watcher/generated/generated/watcher/watcher.log (watcher_server.cpp:293)
+2026-08-20 03:51:13.092 | info     |       LLRuntime | Watcher attached device 0 (watcher_server.cpp:139)
+2026-08-20 03:51:13.092 | info     |       LLRuntime | Watcher attached device 1 (watcher_server.cpp:139)
+2026-08-20 03:51:13.092 | info     |       LLRuntime | Watcher attached device 2 (watcher_server.cpp:139)
+2026-08-20 03:51:13.092 | info     |       LLRuntime | Watcher attached device 3 (watcher_server.cpp:139)
+2026-08-20 03:51:13.092 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:554)
+2026-08-20 03:51:13.092 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:13.096 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-20 03:51:13.100 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:13.109 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:393)
+2026-08-20 03:51:13.114 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:393)
+Fatal Python error: Segmentation fault
+
+Thread 0x00007549d9fdd080 (most recent call first):
+  File "/home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/distributed/distributed.py", line 671 in open_mesh_device
+  File "/home/ttuser/dev/qwen-perf/tt-metal/conftest.py", line 593 in mesh_device
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/fixtures.py", line 908 in call_fixture_func
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/fixtures.py", line 1202 in pytest_fixture_setup
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/fixtures.py", line 1110 in execute
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/fixtures.py", line 627 in _get_active_fixturedef
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/fixtures.py", line 539 in getfixturevalue
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/fixtures.py", line 707 in _fillfixtures
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/python.py", line 1723 in setup
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 523 in setup
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 165 in pytest_runtest_setup
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 245 in <lambda>
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 353 in from_call
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 244 in call_and_report
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 131 in runtestprotocol
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/runner.py", line 118 in pytest_runtest_protocol
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/main.py", line 396 in pytest_runtestloop
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/main.py", line 372 in _main
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/main.py", line 318 in wrap_session
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/main.py", line 365 in pytest_cmdline_main
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_callers.py", line 121 in _multicall
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_manager.py", line 120 in _hookexec
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/pluggy/_hooks.py", line 512 in __call__
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py", line 199 in main
+  File "/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py", line 223 in console_main
+  File "/home/ttuser/.tenstorrent-venv/bin/pytest", line 8 in <module>
+
+Extension modules: numpy._core._multiarray_umath, numpy.linalg._umath_linalg, torch._C, torch._C._dynamo.autograd_compiler, torch._C._dynamo.eval_frame, torch._C._dynamo.guards, torch._C._dynamo.utils, torch._C._fft, torch._C._linalg, torch._C._nested, torch._C._nn, torch._C._sparse, torch._C._special, PIL._imaging, PIL._imagingft, numpy.random._common, numpy.random.bit_generator, numpy.random._bounded_integers, numpy.random._pcg64, numpy.random._mt19937, numpy.random._generator, numpy.random._philox, numpy.random._sfc64, numpy.random.mtrand, regex._regex, yaml._yaml, markupsafe._speedups, psutil._psutil_linux, sentencepiece._sentencepiece, _cyutility, pandas._libs._cyutility, pandas._libs.tslibs.ccalendar, pandas._libs.tslibs.np_datetime, pandas._libs.tslibs.dtypes, pandas._libs.tslibs.base, pandas._libs.tslibs.nattype, pandas._libs.tslibs.timezones, pandas._libs.properties, pandas._libs.tslibs.fields, pandas._libs.tslibs.timedeltas, pandas._libs.tslibs.tzconversion, pandas._libs.tslibs.timestamps, pandas._libs.tslibs.offsets, pandas._libs.tslibs.strptime, pandas._libs.tslibs.parsing, pandas._libs.tslibs.conversion, pandas._libs.tslibs.period, pandas._libs.tslibs.vectorized, pandas._libs.ops_dispatch, pandas._libs.missing, pandas._libs.hashtable, pandas._libs.algos, pandas._libs.interval, pandas._libs.lib, pandas._libs.ops, pandas._libs.hashing, pandas._libs.arrays, pandas._libs.tslib, pandas._libs.sparse, pandas._libs.internals, pandas._libs.indexing, pandas._libs.index, pandas._libs.writers, pandas._libs.join, pandas._libs.window.aggregations, pandas._libs.window.indexers, pandas._libs.reshape, pandas._libs.groupby, pandas._libs.json, pandas._libs.parsers, pandas._libs.testing, kiwisolver._cext (total: 72)

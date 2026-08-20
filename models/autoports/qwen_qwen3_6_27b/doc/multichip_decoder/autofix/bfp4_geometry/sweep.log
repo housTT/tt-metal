@@ -1,0 +1,183 @@
+Script started on 2026-08-20 04:45:15-04:00 [COMMAND="env TT_METAL_HOME=/home/ttuser/.local/lib/model-bringup/tt-metal TT_METAL_RUNTIME_ROOT=/home/ttuser/.local/lib/model-bringup/tt-metal PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal QWEN36_RUN_BFP4_GEOMETRY_SWEEP=1 pytest -s -q /home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_linear_attention_bfp4_mlp_geometry_sweep" <not executed on terminal>]
+[32m2026-08-20 04:45:15.801[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m79[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/.tenstorrent-venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/ttuser/dev/qwen-perf/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collecting ... collecting 1 item                                                              collected 1 item                                                               
+
+../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_linear_attention_bfp4_mlp_geometry_sweep[blackhole-device_params0-4] [90m2026-08-20 04:45:17.738[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:228)[0m
+[90m2026-08-20 04:45:17.738[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:348)[0m
+[90m2026-08-20 04:45:17.738[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:95)[0m
+[90m2026-08-20 04:45:17.738[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:114)[0m
+[90m2026-08-20 04:45:17.751[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:574)[0m
+[90m2026-08-20 04:45:17.751[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:118)[0m
+[90m2026-08-20 04:45:17.830[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {}[0m [90m(cluster.cpp:168)[0m
+[90m2026-08-20 04:45:17.830[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:142)[0m
+[90m2026-08-20 04:45:17.830[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.10.0[0m [90m(cluster.cpp:145)[0m
+[90m2026-08-20 04:45:17.830[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:520)[0m
+[90m2026-08-20 04:45:17.831[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1024)[0m
+[90m2026-08-20 04:45:18.013[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1032)[0m
+[90m2026-08-20 04:45:18.132[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing auto discovery to generate mesh graph.[0m [90m(metal_env.cpp:408)[0m
+[90m2026-08-20 04:45:18.132[0m | [32minfo    [m | [35m    Distributed[0m | [37mConstructing control plane using auto-discovery (no mesh graph descriptor).[0m [90m(metal_env.cpp:470)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:89)[0m
+[90m2026-08-20 04:45:18.132[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4}[0m [90m(topology_mapper_utils.cpp:2342)[0m
+[90m2026-08-20 04:45:18.132[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4}[0m [90m(topology_mapper_utils.cpp:2350)[0m
+[90m2026-08-20 04:45:18.135[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mUsing pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/[0m [90m(build_env_manager.cpp:347)[0m
+[90m2026-08-20 04:45:18.136[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mUsing pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/[0m [90m(build_env_manager.cpp:347)[0m
+[90m2026-08-20 04:45:18.137[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mUsing pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/[0m [90m(build_env_manager.cpp:347)[0m
+[90m2026-08-20 04:45:18.137[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mUsing pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/[0m [90m(build_env_manager.cpp:347)[0m
+[90m2026-08-20 04:45:18.177[0m | [32minfo    [m | [35m          Metal[0m | [37mInitializing Fabric[0m [90m(fabric_firmware_initializer.cpp:296)[0m
+[90m2026-08-20 04:45:18.204[0m | [32minfo    [m | [35m          Metal[0m | [37mFabric initialized on Device 0[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 04:45:18.205[0m | [32minfo    [m | [35m          Metal[0m | [37mFabric initialized on Device 1[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 04:45:18.206[0m | [32minfo    [m | [35m          Metal[0m | [37mFabric initialized on Device 2[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 04:45:18.207[0m | [32minfo    [m | [35m          Metal[0m | [37mFabric initialized on Device 3[0m [90m(device.cpp:431)[0m
+[90m2026-08-20 04:45:18.207[0m | [32minfo    [m | [35m          Metal[0m | [37mFabric initialized on 4 devices[0m [90m(fabric_firmware_initializer.cpp:444)[0m
+[90m2026-08-20 04:45:18.207[0m | [32minfo    [m | [35m          Metal[0m | [37mFabric Initialized with config FabricConfig::FABRIC_1D_RING[0m [90m(fabric_firmware_initializer.cpp:313)[0m
+[90m2026-08-20 04:45:18.256[0m | [32minfo    [m | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 04:45:18.256[0m | [32minfo    [m | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 04:45:18.256[0m | [32minfo    [m | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 04:45:18.256[0m | [32minfo    [m | [35m          Metal[0m | [37mShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory'[0m [90m(shm_resource_tracker.cpp:282)[0m
+[90m2026-08-20 04:45:18.836[0m | [32minfo    [m | [35m          Metal[0m | [37m[Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349986 GHz, device_time_at_sync=2767885802765 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[90m2026-08-20 04:45:18.836[0m | [32minfo    [m | [35m          Metal[0m | [37m[Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349977 GHz, device_time_at_sync=12311534616027 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[90m2026-08-20 04:45:18.837[0m | [32minfo    [m | [35m          Metal[0m | [37m[Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349979 GHz, device_time_at_sync=2761276403438 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[90m2026-08-20 04:45:18.838[0m | [32minfo    [m | [35m          Metal[0m | [37m[Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349985 GHz, device_time_at_sync=12340956536836 cycles[0m [90m(realtime_profiler_manager.cpp:1127)[0m
+[32m2026-08-20 04:45:18.849[0m | [34m[1mDEBUG   [0m | [36mconftest[0m:[36mmesh_device[0m:[36m599[0m - [34m[1mmultidevice with 4 devices is created[0m
+[90m2026-08-20 04:45:19.128[0m | [33m[1mwarning [m | [35m             Op[0m | [37mttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used[0m [90m(tilize_device_operation.cpp:156)[0m
+0.9930389547593144
+BFP4_GEOMETRY role=gate_up device=0 M=32 K=5120 N=4352 cores=8 in0_block_w=20 latency_us=94.687
+0.9930389547593144
+BFP4_GEOMETRY role=gate_up device=1 M=32 K=5120 N=4352 cores=8 in0_block_w=20 latency_us=94.687
+0.9930389547593144
+BFP4_GEOMETRY role=gate_up device=2 M=32 K=5120 N=4352 cores=8 in0_block_w=20 latency_us=94.687
+0.9930389547593144
+BFP4_GEOMETRY role=gate_up device=3 M=32 K=5120 N=4352 cores=8 in0_block_w=20 latency_us=94.687
+0.9930854506301035
+BFP4_GEOMETRY role=gate_up device=0 M=32 K=5120 N=4352 cores=8 in0_block_w=10 latency_us=57.787
+0.9930854506301035
+BFP4_GEOMETRY role=gate_up device=1 M=32 K=5120 N=4352 cores=8 in0_block_w=10 latency_us=57.787
+0.9930854506301035
+BFP4_GEOMETRY role=gate_up device=2 M=32 K=5120 N=4352 cores=8 in0_block_w=10 latency_us=57.787
+0.9930854506301035
+BFP4_GEOMETRY role=gate_up device=3 M=32 K=5120 N=4352 cores=8 in0_block_w=10 latency_us=57.787
+0.9930908872199271
+BFP4_GEOMETRY role=gate_up device=0 M=32 K=5120 N=4352 cores=8 in0_block_w=5 latency_us=59.041
+0.9930908872199271
+BFP4_GEOMETRY role=gate_up device=1 M=32 K=5120 N=4352 cores=8 in0_block_w=5 latency_us=59.041
+0.9930908872199271
+BFP4_GEOMETRY role=gate_up device=2 M=32 K=5120 N=4352 cores=8 in0_block_w=5 latency_us=59.041
+0.9930908872199271
+BFP4_GEOMETRY role=gate_up device=3 M=32 K=5120 N=4352 cores=8 in0_block_w=5 latency_us=59.041
+0.9930935146141916
+BFP4_GEOMETRY role=gate_up device=0 M=32 K=5120 N=4352 cores=8 in0_block_w=4 latency_us=61.638
+0.9930935146141916
+BFP4_GEOMETRY role=gate_up device=1 M=32 K=5120 N=4352 cores=8 in0_block_w=4 latency_us=61.638
+0.9930935146141916
+BFP4_GEOMETRY role=gate_up device=2 M=32 K=5120 N=4352 cores=8 in0_block_w=4 latency_us=61.638
+0.9930935146141916
+BFP4_GEOMETRY role=gate_up device=3 M=32 K=5120 N=4352 cores=8 in0_block_w=4 latency_us=61.638
+0.9930778807378462
+BFP4_GEOMETRY role=gate_up device=0 M=32 K=5120 N=4352 cores=8 in0_block_w=2 latency_us=73.956
+0.9930778807378462
+BFP4_GEOMETRY role=gate_up device=1 M=32 K=5120 N=4352 cores=8 in0_block_w=2 latency_us=73.956
+0.9930778807378462
+BFP4_GEOMETRY role=gate_up device=2 M=32 K=5120 N=4352 cores=8 in0_block_w=2 latency_us=73.956
+0.9930778807378462
+BFP4_GEOMETRY role=gate_up device=3 M=32 K=5120 N=4352 cores=8 in0_block_w=2 latency_us=73.956
+0.993028184086693
+BFP4_GEOMETRY role=gate_up device=0 M=32 K=5120 N=4352 cores=8 in0_block_w=1 latency_us=125.220
+0.993028184086693
+BFP4_GEOMETRY role=gate_up device=1 M=32 K=5120 N=4352 cores=8 in0_block_w=1 latency_us=125.220
+0.993028184086693
+BFP4_GEOMETRY role=gate_up device=2 M=32 K=5120 N=4352 cores=8 in0_block_w=1 latency_us=125.220
+0.993028184086693
+BFP4_GEOMETRY role=gate_up device=3 M=32 K=5120 N=4352 cores=8 in0_block_w=1 latency_us=125.220
+[90m2026-08-20 04:45:19.692[0m | [33m[1mwarning [m | [35m             Op[0m | [37mttnn::tilize: Using input shard spec for output tensor because the legacy sharded optimized program factory is being used[0m [90m(tilize_device_operation.cpp:156)[0m
+0.9930679435389319
+BFP4_GEOMETRY role=down device=0 M=32 K=4352 N=5120 cores=8 in0_block_w=17 latency_us=60.470
+0.9930679435389319
+BFP4_GEOMETRY role=down device=1 M=32 K=4352 N=5120 cores=8 in0_block_w=17 latency_us=60.470
+0.9930679435389319
+BFP4_GEOMETRY role=down device=2 M=32 K=4352 N=5120 cores=8 in0_block_w=17 latency_us=60.470
+0.9930679435389319
+BFP4_GEOMETRY role=down device=3 M=32 K=4352 N=5120 cores=8 in0_block_w=17 latency_us=60.470
+0.993049213947042
+BFP4_GEOMETRY role=down device=0 M=32 K=4352 N=5120 cores=8 in0_block_w=1 latency_us=114.866
+0.993049213947042
+BFP4_GEOMETRY role=down device=1 M=32 K=4352 N=5120 cores=8 in0_block_w=1 latency_us=114.866
+0.993049213947042
+BFP4_GEOMETRY role=down device=2 M=32 K=4352 N=5120 cores=8 in0_block_w=1 latency_us=114.866
+0.993049213947042
+BFP4_GEOMETRY role=down device=3 M=32 K=4352 N=5120 cores=8 in0_block_w=1 latency_us=114.866
+PASSED
+
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+---- generated xml file: /tmp/generated/test_reports/most_recent_tests.xml -----
+============================== slowest durations ===============================
+1.26s setup    models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_linear_attention_bfp4_mlp_geometry_sweep[blackhole-device_params0-4]
+1.08s call     models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_linear_attention_bfp4_mlp_geometry_sweep[blackhole-device_params0-4]
+0.11s teardown models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_linear_attention_bfp4_mlp_geometry_sweep[blackhole-device_params0-4]
+=========================== short test summary info ============================
+PASSED ../home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tests/test_multichip_decoder.py::test_linear_attention_bfp4_mlp_geometry_sweep[blackhole-device_params0-4]
+======================== 1 passed, 3 warnings in 3.58s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7455479d1488 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7455435866e8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 35 types!
+ - leaked type "DispatchCoreAxis"
+ - leaked type "ttnn._ttnn.device.SubDeviceManagerId"
+ - leaked type "MathFidelity"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "FabricConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - ... skipped remainder
+nanobind: leaked 305 functions!
+ - leaked function "create_sub_device_manager"
+ - leaked function "ranges"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "ClearKernelCache"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-20 04:45:21.263[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 88/88 hits (100.0%) [88 cached, 20 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-20 04:45:21.263[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-20 04:45:21.277[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:513)[0m
+[90m2026-08-20 04:45:21.278[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1037)[0m
+[90m2026-08-20 04:45:21.735[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1046)[0m
+[90m2026-08-20 04:45:21.735[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:754)[0m
+[90m2026-08-20 04:45:21.735[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:757)[0m
+
+Script done on 2026-08-20 04:45:21-04:00 [COMMAND_EXIT_CODE="0"]
