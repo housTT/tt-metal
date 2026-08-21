@@ -143,9 +143,10 @@ TOPK_US_PER_WIDTH_UNIT = 0.188
 #: picks is the optimum of the *whole* sampler rather than of the reduction alone.
 TOPK_GROUP_MACHINERY_US_PER_GROUP = 5.52
 
-#: L1-small the decoder's CCL ops allocate their semaphores from. Same value as
-#: ``tests/test_multichip_decoder.py``'s ``DEVICE_PARAMS``.
-DEFAULT_L1_SMALL_SIZE = 24576
+#: L1-small the decoder's CCL ops allocate their cached per-program semaphores from. Device-side
+#: prefill batching adds B2/B4 program shapes to the serving warm-up; 24 KiB filled before the final
+#: two B1 tail shapes, while 32 KiB covers the complete serving shape set with headroom.
+DEFAULT_L1_SMALL_SIZE = 32768
 
 #: Trace region for the whole-model decode trace plus the sampling trace. A 40-layer decode capture
 #: is far larger than the single-layer captures the decoder stage took with ``trace_region_size=0``.

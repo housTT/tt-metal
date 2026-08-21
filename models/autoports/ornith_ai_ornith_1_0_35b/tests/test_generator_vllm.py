@@ -92,6 +92,18 @@ def test_the_prefill_warm_up_covers_every_physical_block_the_path_can_produce(mo
     assert adapter.prefill_warmup_lengths() == [2048, 256, 128], "an explicit list, clamped to the chunk"
 
 
+def test_serving_l1_small_reservation_covers_grouped_prefill_warmup_cache():
+    """Keep the production opener above the measured B1/B2/B4 cache-exhaustion floor.
+
+    With the B1 tail ladder through 384 plus the grouped 2048-token B2/B4 shapes resident in the
+    program cache, 24 KiB was completely occupied before the 256- and 128-token tails could compile.
+    The model opener and the device-serving fixtures both consume this default, so pin the promoted
+    32 KiB reservation here rather than allowing a serving-only OOM to escape the host test suite.
+    """
+
+    assert M.DEFAULT_L1_SMALL_SIZE == 32 * 1024
+
+
 def test_prefill_warmup_compiles_grouped_batches_once_at_the_largest_configured_shape():
     calls = []
 

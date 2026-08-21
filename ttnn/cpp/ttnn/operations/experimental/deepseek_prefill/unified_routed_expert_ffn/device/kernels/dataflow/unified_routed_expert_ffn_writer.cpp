@@ -62,6 +62,7 @@ void kernel_main() {
     // up_done = up landed.
     const uint32_t up_go_sem_id = get_arg_val<uint32_t>(7);
     const uint32_t up_done_sem_id = get_arg_val<uint32_t>(8);
+    const uint32_t assignment_addr = get_arg_val<uint32_t>(9);
 
     constexpr uint32_t cb_out = get_compile_time_arg_val(1);
     // per_core_M_max: CB-sized max per-core M. The runtime per_core_M is picked
@@ -106,6 +107,11 @@ void kernel_main() {
     // zero-filling them. Derived identically to the reader's down_k_tail_skip.
     constexpr bool down_k_tail_skip = get_compile_time_arg_val(24) != 0;
     constexpr uint32_t num_local_experts = get_compile_time_arg_val(25);
+    constexpr uint32_t assignment_output = get_compile_time_arg_val(26);
+    constexpr uint32_t cb_out_rm = get_compile_time_arg_val(27);
+    constexpr uint32_t cb_assignment_scratch = get_compile_time_arg_val(28);
+    constexpr uint32_t topk = get_compile_time_arg_val(29);
+    constexpr uint32_t num_input_tokens = get_compile_time_arg_val(30);
 
     constexpr uint32_t d_out_subblock_num_tiles = d_out_subblock_h * d_out_subblock_w;
     // Full compile-time M-subblock count of cb_out (the down matmul copies the
@@ -120,14 +126,16 @@ void kernel_main() {
     CircularBuffer cb_counts_scratch_buf(cb_counts_scratch);
     CircularBuffer cb_idx_scratch_buf(cb_idx_scratch);
     CircularBuffer cb_start_scratch_buf(cb_start_scratch);
+    CircularBuffer cb_out_rm_buf(cb_out_rm);
+    CircularBuffer cb_assignment_scratch_buf(cb_assignment_scratch);
 
     // Accessor compile-arg stream order (host appends in this exact order):
-    // out, then start (direct-write), then up (UP_SPLIT). The accessors are
+    // out, start (direct-write/indexed), up (UP_SPLIT), assignments. The accessors are
     // constructed unconditionally; start_acc is used only when direct_write,
     // up_acc only when writer_split_up.
-    constexpr uint32_t out_accessor_offset = 26;
+    constexpr uint32_t out_accessor_offset = 31;
     constexpr auto out_args = TensorAccessorArgs<out_accessor_offset>();
-    const auto out_acc = TensorAccessor(out_args, output_addr, cb_out_buf.get_tile_size());
+    const auto out_acc = TensorAccessor(out_args, output_addr);
 
     constexpr uint32_t start_accessor_offset = out_args.next_compile_time_args_offset();
     constexpr auto start_args = TensorAccessorArgs<start_accessor_offset>();
@@ -135,6 +143,10 @@ void kernel_main() {
 
     constexpr uint32_t up_accessor_offset = start_args.next_compile_time_args_offset();
     constexpr auto up_args = TensorAccessorArgs<up_accessor_offset>();
+
+    constexpr uint32_t assignment_accessor_offset = up_args.next_compile_time_args_offset();
+    constexpr auto assignment_args = TensorAccessorArgs<assignment_accessor_offset>();
+    const auto assignment_acc = TensorAccessor(assignment_args, assignment_addr);
 
     const uint32_t out_tile_bytes = cb_out_buf.get_tile_size();
 
@@ -153,12 +165,18 @@ void kernel_main() {
     // Fetch the region-offset vector once for the whole fused local-expert
     // range. Each expert indexes its own global id below.
     const volatile tt_l1_ptr uint32_t* start_ptr = nullptr;
-    if constexpr (direct_write != 0) {
+    if constexpr (direct_write != 0 || assignment_output != 0) {
         const uint32_t start_l1 = cb_start_scratch_buf.get_write_ptr();
         const uint32_t start_page_size = start_acc.get_aligned_page_size();
         noc.async_read(start_acc, CoreLocalMem<uint32_t>(start_l1), start_page_size, {.page_id = 0}, {});
         noc.async_read_barrier();
         start_ptr = reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(start_l1);
+    }
+
+    uint32_t assignment_l1 = 0;
+    if constexpr (assignment_output != 0) {
+        cb_assignment_scratch_buf.reserve_back(1);
+        assignment_l1 = cb_assignment_scratch_buf.get_write_ptr();
     }
 
     // ---- UP_SPLIT up-weight read setup ----
@@ -185,14 +203,17 @@ void kernel_main() {
         // begins at start[global_expert_id] (token row); convert to tile rows.
         // Mirrors ttnn::insert's writer: start_tile_row = start_value / TILE.
         uint32_t row_offset_tiles = 0;
+        uint32_t assignment_start = 0;
         if constexpr (direct_write != 0) {
             const uint32_t start_value = start_ptr[global_expert_id];
             row_offset_tiles = start_value / TILE_HEIGHT;
+        } else if constexpr (assignment_output != 0) {
+            assignment_start = start_ptr[global_expert_id];
         }
 
-        // Runtime up-weight address array starts after the nine fixed writer
+        // Runtime up-weight address array starts after the ten fixed writer
         // args. All tensors share the accessor descriptor validated host-side.
-        const uint32_t up_addr = get_arg_val<uint32_t>(9 + expert_offset);
+        const uint32_t up_addr = get_arg_val<uint32_t>(10 + expert_offset);
         const auto up_acc = TensorAccessor(up_args, up_addr, get_tile_size(cb_in1_up));
 
         for (uint32_t chunk = 0; chunk < effective_chunks; ++chunk) {
@@ -267,60 +288,78 @@ void kernel_main() {
             const uint32_t sb_m_bound = d_in1_num_subblocks_M;
             for (uint32_t sb_m = 0; sb_m < sb_m_bound; ++sb_m) {
                 for (uint32_t sb_n = 0; sb_n < d_in1_num_subblocks_N; ++sb_n) {
-                    cb_out_buf.wait_front(d_out_subblock_num_tiles);
-                    uint32_t subblock_tile_offset = 0;
-                    for (uint32_t i = 0; i < d_out_subblock_h; ++i) {
-                        for (uint32_t j = 0; j < d_out_subblock_w; ++j) {
-                            const uint32_t row = row0 + sb_m * d_out_subblock_h + i;
-                            const uint32_t col = col0 + sb_n * d_out_subblock_w + j;
-                            // `row` indexes the FFN *input* (x) tile-rows; the
-                            // destination tile-row adds the per-expert region
-                            // offset (0 in non-direct mode).
-                            const uint32_t dst_row = row_offset_tiles + row;
-                            // Bounds that decide whether this is a real output tile
-                            // for this expert:
-                            //   * col < N_down_tiles_full: GRID_X=11 ceil_div
-                            //     produces phantom output cols past actual N.
-                            //   * row < M_tiles_full: ceil_div of M produces a
-                            //     last-chunk tail past actual M when
-                            //     M_tiles_full doesn't divide chunk_M_tiles.
-                            //   * row < count_tiles: the last chunk's per_core_M
-                            //     rows extend past count_tiles when count_tiles
-                            //     is not chunk-aligned.
-                            //   * sb_m < per_core_M: cb_out carries per_core_M_max
-                            //     rows (full ring); rows past the runtime per_core_M
-                            //     are zeros that belong to other cores — never write.
-                            if (sb_m < per_core_M && col < N_down_tiles_full && row < M_tiles_full &&
-                                row < count_tiles) {
-                                // The destination tile-row must stay inside the
-                                // (possibly shared) output buffer. ttnn::insert
-                                // asserted the whole-slice fit
-                                // (start_tile_idx + num_tiles <= global_num_tiles);
-                                // assert the per-tile equivalent so an over-capacity
-                                // region offset fails loudly in watcher builds. The
-                                // guard below keeps Release builds safe (skip the OOB
-                                // write rather than corrupt DRAM, since ASSERT is a
-                                // no-op there).
-                                ASSERT(dst_row < dst_M_tiles);
-                                if (dst_row < dst_M_tiles) {
-                                    const uint32_t tile_idx = dst_row * N_down_tiles_full + col;
+                    if constexpr (assignment_output != 0) {
+                        // Compute first packed the down result to BF8 and then
+                        // pack-untilized it to 32 ROW_MAJOR BF16 row segments.
+                        // Scatter those segments to token-major assignment pages;
+                        // gx cores own disjoint hidden byte ranges and every
+                        // token*K+slot assignment is unique, so writes cannot race.
+                        static_assert(d_out_subblock_h == 1);
+                        constexpr uint32_t rm_segment_bytes = d_out_subblock_w * TILE_HEIGHT * sizeof(uint16_t);
+                        cb_out_rm_buf.wait_front(TILE_HEIGHT);
+                        const uint32_t row = row0 + sb_m;
+                        const uint32_t col = col0 + sb_n * d_out_subblock_w;
+                        if (sb_m < per_core_M && row < M_tiles_full && row < count_tiles && col < N_down_tiles_full) {
+                            const uint32_t row_base = row * TILE_HEIGHT;
+                            const uint32_t real_rows =
+                                (row_base + TILE_HEIGHT <= count_value) ? TILE_HEIGHT : (count_value - row_base);
+                            noc.async_read(
+                                assignment_acc,
+                                CoreLocalMem<uint32_t>(assignment_l1),
+                                real_rows * sizeof(uint32_t),
+                                {.page_id = 0, .offset_bytes = (assignment_start + row_base) * sizeof(uint32_t)},
+                                {});
+                            noc.async_read_barrier();
+
+                            const volatile tt_l1_ptr uint32_t* assignment_ptr =
+                                reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(assignment_l1);
+                            const uint32_t available_tiles = N_down_tiles_full - col;
+                            const uint32_t write_tiles =
+                                available_tiles < d_out_subblock_w ? available_tiles : d_out_subblock_w;
+                            const uint32_t write_bytes = write_tiles * TILE_HEIGHT * sizeof(uint16_t);
+                            const uint32_t output_offset_bytes = col * TILE_HEIGHT * sizeof(uint16_t);
+                            const uint32_t rm_l1 = cb_out_rm_buf.get_read_ptr();
+                            for (uint32_t r = 0; r < real_rows; ++r) {
+                                const uint32_t assignment = assignment_ptr[r];
+                                if (assignment < num_input_tokens * topk) {
                                     noc.async_write(
-                                        cb_out_buf,
+                                        CoreLocalMem<uint32_t>(rm_l1 + r * rm_segment_bytes),
                                         out_acc,
-                                        out_tile_bytes,
-                                        {.offset_bytes = subblock_tile_offset},
-                                        {.page_id = tile_idx});
+                                        write_bytes,
+                                        {},
+                                        {.page_id = assignment, .offset_bytes = output_offset_bytes});
                                 }
                             }
-                            subblock_tile_offset += out_tile_bytes;
                         }
+                        noc.async_writes_flushed();
+                        cb_out_rm_buf.pop_front(TILE_HEIGHT);
+                    } else {
+                        cb_out_buf.wait_front(d_out_subblock_num_tiles);
+                        uint32_t subblock_tile_offset = 0;
+                        for (uint32_t i = 0; i < d_out_subblock_h; ++i) {
+                            for (uint32_t j = 0; j < d_out_subblock_w; ++j) {
+                                const uint32_t row = row0 + sb_m * d_out_subblock_h + i;
+                                const uint32_t col = col0 + sb_n * d_out_subblock_w + j;
+                                const uint32_t dst_row = row_offset_tiles + row;
+                                if (sb_m < per_core_M && col < N_down_tiles_full && row < M_tiles_full &&
+                                    row < count_tiles) {
+                                    ASSERT(dst_row < dst_M_tiles);
+                                    if (dst_row < dst_M_tiles) {
+                                        const uint32_t tile_idx = dst_row * N_down_tiles_full + col;
+                                        noc.async_write(
+                                            cb_out_buf,
+                                            out_acc,
+                                            out_tile_bytes,
+                                            {.offset_bytes = subblock_tile_offset},
+                                            {.page_id = tile_idx});
+                                    }
+                                }
+                                subblock_tile_offset += out_tile_bytes;
+                            }
+                        }
+                        noc.async_writes_flushed();
+                        cb_out_buf.pop_front(d_out_subblock_num_tiles);
                     }
-                    // Wait for the writes to LEAVE this core (departed sender);
-                    // doesn't wait for the DRAM round-trip. Safe to reuse the L1
-                    // slot now — the NoC has captured the data. ~10x faster than
-                    // noc_async_write_barrier per subblock at small per_core_M.
-                    noc.async_writes_flushed();
-                    cb_out_buf.pop_front(d_out_subblock_num_tiles);
                 }
             }
         }

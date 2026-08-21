@@ -12,6 +12,7 @@
 #include "tt-metalium/math.hpp"
 #include "ttnn/operations/creation/creation.hpp"
 #include "ttnn/operations/experimental/deepseek_prefill/routed_expert_ffn/routed_expert_ffn.hpp"
+#include "ttnn/tensor/tensor_ops.hpp"
 
 namespace ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn {
 
@@ -84,7 +85,9 @@ ttnn::Tensor unified_routed_expert_moe(
     RoutedExpertActivation activation,
     const std::optional<std::vector<ttnn::Tensor>>& gate_biases,
     const std::optional<std::vector<ttnn::Tensor>>& up_biases,
-    const std::optional<std::vector<ttnn::Tensor>>& down_biases) {
+    const std::optional<std::vector<ttnn::Tensor>>& down_biases,
+    const std::optional<ttnn::Tensor>& packed_assignment_ids,
+    uint32_t topk) {
     TT_FATAL(
         gate_projs.size() == up_projs.size() && gate_projs.size() == down_projs.size(),
         "gate/up/down projection lists must have the same length (got {}, {}, {})",
@@ -107,6 +110,14 @@ ttnn::Tensor unified_routed_expert_moe(
         "gate/up/down bias lists must all be provided together or all omitted (got {} of 3)",
         bias_lists);
     const bool has_bias = bias_lists == 3;
+    const bool assignment_indexed = packed_assignment_ids.has_value();
+    TT_FATAL(
+        assignment_indexed == (topk > 0),
+        "packed_assignment_ids presence ({}) must exactly match a positive topk ({})",
+        assignment_indexed,
+        topk);
+    TT_FATAL(!assignment_indexed || !has_bias, "assignment-indexed MoE does not support projection biases");
+    TT_FATAL(!assignment_indexed || topk <= 16, "assignment-indexed topk ({}) exceeds 16", topk);
     if (has_bias) {
         TT_FATAL(
             gate_biases->size() == experts_per_chip && up_biases->size() == experts_per_chip &&
@@ -143,15 +154,33 @@ ttnn::Tensor unified_routed_expert_moe(
     //     reads only written rows (bounded per expert to
     //     [offset, offset + ceil_tile(count))).
     const bool x_is_row_major = dispatched_buffer.layout() == tt::tt_metal::Layout::ROW_MAJOR;
+    TT_FATAL(!assignment_indexed || x_is_row_major, "assignment-indexed MoE requires ROW_MAJOR BF16 x");
+    const auto assignment_output = [&]() {
+        const auto shape =
+            ttnn::Shape({1, 1, dispatched_buffer.logical_shape()[-2] * topk, dispatched_buffer.logical_shape()[-1]});
+        const auto spec = tt::tt_metal::TensorSpec(
+            shape,
+            tt::tt_metal::TensorLayout(
+                tt::tt_metal::DataType::BFLOAT16,
+                tt::tt_metal::PageConfig(tt::tt_metal::Layout::ROW_MAJOR),
+                tt::tt_metal::MemoryConfig{
+                    tt::tt_metal::TensorMemoryLayout::INTERLEAVED, tt::tt_metal::BufferType::DRAM}));
+        // Every expert-parallel device owns a different assignment plan and
+        // therefore different slot contents. Preserve the planner topology;
+        // creating this buffer with the default replicated topology would
+        // mislabel distinct per-device data and make combine unsafe.
+        return ttnn::create_device_tensor(spec, dispatched_buffer.device(), expert_region_offsets.tensor_topology());
+    };
     const ttnn::Tensor output =
-        x_is_row_major ? ttnn::empty(
-                             dispatched_buffer.logical_shape(),
-                             tt::tt_metal::DataType::BFLOAT8_B,
-                             tt::tt_metal::Layout::TILE,
-                             dispatched_buffer.device(),
-                             tt::tt_metal::MemoryConfig{
-                                 tt::tt_metal::TensorMemoryLayout::INTERLEAVED, tt::tt_metal::BufferType::DRAM})
-                       : dispatched_buffer;
+        assignment_indexed ? assignment_output()
+        : x_is_row_major   ? ttnn::empty(
+                               dispatched_buffer.logical_shape(),
+                               tt::tt_metal::DataType::BFLOAT8_B,
+                               tt::tt_metal::Layout::TILE,
+                               dispatched_buffer.device(),
+                               tt::tt_metal::MemoryConfig{
+                                   tt::tt_metal::TensorMemoryLayout::INTERLEAVED, tt::tt_metal::BufferType::DRAM})
+                         : dispatched_buffer;
     const uint32_t m_tiles = (max_dispatched_tokens_per_expert + 31) / 32;
     if (!has_bias) {
         constexpr uint32_t kMaxChunkMTiles = 64;
@@ -173,14 +202,19 @@ ttnn::Tensor unified_routed_expert_moe(
                 first_local_expert,
                 kMaxChunkMTiles,
                 m_tiles,
-                /*read_x_at_offset=*/true,
+                /*read_x_at_offset=*/!assignment_indexed,
                 x_is_row_major,
                 compute_kernel_config.has_value()
                     ? std::optional<ttnn::DeviceComputeKernelConfig>(*compute_kernel_config)
                     : std::nullopt,
                 output,
                 expert_region_offsets,
-                activation);
+                activation,
+                std::nullopt,
+                std::nullopt,
+                std::nullopt,
+                packed_assignment_ids,
+                topk);
         }
         return output;
     }

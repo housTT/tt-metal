@@ -171,7 +171,9 @@ void bind_unified_routed_expert_ffn(nb::module_& mod) {
         nb::arg("activation") = RoutedExpertActivation::Silu,
         nb::arg("gate_biases") = nb::none(),
         nb::arg("up_biases") = nb::none(),
-        nb::arg("down_biases") = nb::none());
+        nb::arg("down_biases") = nb::none(),
+        nb::arg("packed_assignment_ids") = nb::none(),
+        nb::arg("topk") = 0);
 }
 
 }  // namespace ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::detail

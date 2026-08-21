@@ -115,7 +115,13 @@ ttnn::Tensor unified_routed_expert_moe(
     // the bias-free DeepSeek / MiniMax-M3 path.
     const std::optional<std::vector<ttnn::Tensor>>& gate_biases = std::nullopt,
     const std::optional<std::vector<ttnn::Tensor>>& up_biases = std::nullopt,
-    const std::optional<std::vector<ttnn::Tensor>>& down_biases = std::nullopt);
+    const std::optional<std::vector<ttnn::Tensor>>& down_biases = std::nullopt,
+    // Top-k-native production mode: preserve original x and gather it through
+    // the expert-major assignment plan; write BF8-rounded results directly to
+    // token-major [T*K,H] ROW_MAJOR BF16 slots. Both args are absent/zero for
+    // the established compact expert-region path.
+    const std::optional<ttnn::Tensor>& packed_assignment_ids = std::nullopt,
+    uint32_t topk = 0);
 
 }  // namespace ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn
 

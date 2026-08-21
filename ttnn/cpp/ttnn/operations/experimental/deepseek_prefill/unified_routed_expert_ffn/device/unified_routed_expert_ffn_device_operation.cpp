@@ -7,6 +7,7 @@
 #include <initializer_list>
 #include <tuple>
 #include <utility>
+#include <variant>
 
 #include <tt-metalium/constants.hpp>
 
@@ -20,6 +21,20 @@ bool is_dram_interleaved(const ttnn::Tensor& t) {
     const auto& mem = t.memory_config();
     return mem.buffer_type() == tt::tt_metal::BufferType::DRAM &&
            mem.memory_layout() == tt::tt_metal::TensorMemoryLayout::INTERLEAVED;
+}
+
+bool is_fully_replicated(const tt::tt_metal::TensorTopology& topology) {
+    using Shard = tt::tt_metal::distributed::MeshMapperConfig::Shard;
+    for (const auto& placement : topology.placements()) {
+        if (std::holds_alternative<Shard>(placement)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool has_same_mesh_footprint(const tt::tt_metal::TensorTopology& lhs, const tt::tt_metal::TensorTopology& rhs) {
+    return lhs.distribution_shape() == rhs.distribution_shape() && lhs.mesh_coords() == rhs.mesh_coords();
 }
 }  // namespace
 
@@ -43,9 +58,44 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
         op.num_local_experts == 1 || !op.fuse_bias,
         "projection-bias fusion is supported only by the single-expert fallback");
     TT_FATAL(
-        op.num_local_experts == 1 ||
-            (op.read_x_at_offset && t.expert_region_offsets.has_value() && t.optional_output.has_value()),
-        "multi-expert execution requires shared-buffer input offsets and a direct-write output");
+        op.num_local_experts == 1 || ((op.read_x_at_offset || op.assignment_indexed) &&
+                                      t.expert_region_offsets.has_value() && t.optional_output.has_value()),
+        "multi-expert execution requires shared-buffer offsets and either direct-write or assignment-indexed output");
+    TT_FATAL(
+        op.assignment_indexed == t.packed_assignment_ids.has_value(),
+        "assignment_indexed ({}) must exactly match packed_assignment_ids presence ({})",
+        op.assignment_indexed,
+        t.packed_assignment_ids.has_value());
+    if (op.assignment_indexed) {
+        TT_FATAL(op.x_is_row_major, "assignment-indexed input requires ROW_MAJOR BF16 x");
+        TT_FATAL(!op.read_x_at_offset, "assignment-indexed x resolves token rows and must not also use region offsets");
+        TT_FATAL(t.expert_region_offsets.has_value(), "assignment-indexed input requires expert_region_offsets");
+        TT_FATAL(t.optional_output.has_value(), "assignment-indexed output requires a preallocated slot buffer");
+        TT_FATAL(op.topk > 0 && op.topk <= 16, "assignment-indexed topk ({}) must be in [1,16]", op.topk);
+        TT_FATAL(!op.fuse_bias, "assignment-indexed output does not support projection biases");
+
+        const auto& plan_topology = t.expert_region_offsets->tensor_topology();
+        TT_FATAL(
+            is_fully_replicated(t.x.tensor_topology()),
+            "assignment-indexed x must be fully replicated across the expert-parallel mesh");
+        TT_FATAL(
+            has_same_mesh_footprint(t.x.tensor_topology(), plan_topology),
+            "assignment-indexed x and planner tensors must cover the same mesh coordinates");
+        TT_FATAL(
+            t.counts.tensor_topology() == plan_topology,
+            "counts topology must exactly match expert_region_offsets in assignment-indexed mode");
+        TT_FATAL(
+            t.global_expert_idx_table.tensor_topology() == plan_topology,
+            "global_expert_idx_table topology must exactly match expert_region_offsets in assignment-indexed mode");
+        TT_FATAL(
+            t.packed_assignment_ids->tensor_topology() == plan_topology,
+            "packed_assignment_ids topology must exactly match expert_region_offsets");
+        TT_FATAL(
+            t.optional_output->tensor_topology() == plan_topology,
+            "assignment slot output topology must exactly match expert_region_offsets");
+    } else {
+        TT_FATAL(op.topk == 0, "topk must be zero outside assignment-indexed mode, got {}", op.topk);
+    }
 
     TT_FATAL(t.x.storage_type() == ttnn::StorageType::DEVICE, "x must be on device");
     TT_FATAL(t.x.buffer() != nullptr, "x must have a device buffer");
@@ -186,8 +236,9 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
     // Direct-write mode: expert_region_offsets present => the writer places
     // this expert's output into the SHARED optional_output buffer at the
     // expert's region offset (fusing ttnn::insert). Requires optional_output.
-    const bool direct_write = t.expert_region_offsets.has_value();
-    if (direct_write) {
+    const bool has_region_offsets = t.expert_region_offsets.has_value();
+    const bool direct_write = has_region_offsets && !op.assignment_indexed;
+    if (has_region_offsets) {
         const auto& start = *t.expert_region_offsets;
         // These mirror ttnn::insert's validate_index_tensor for the `start`
         // tensor: by fusing insert into this op, the FFN now owns the
@@ -226,7 +277,50 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
             t.counts.logical_shape()[-1]);
         TT_FATAL(
             t.optional_output.has_value(),
-            "direct-write mode (expert_region_offsets set) requires optional_output (the shared destination buffer)");
+            "expert_region_offsets require optional_output (shared region or assignment-slot destination)");
+    }
+
+    if (op.assignment_indexed) {
+        const auto& assignments = *t.packed_assignment_ids;
+        TT_FATAL(assignments.storage_type() == ttnn::StorageType::DEVICE, "packed_assignment_ids must be on device");
+        TT_FATAL(assignments.buffer() != nullptr, "packed_assignment_ids must have a device buffer");
+        TT_FATAL(assignments.device() == t.x.device(), "packed_assignment_ids must be on the same device as x");
+        TT_FATAL(
+            assignments.dtype() == tt::tt_metal::DataType::UINT32,
+            "packed_assignment_ids must be UINT32, got {}",
+            assignments.dtype());
+        TT_FATAL(
+            assignments.layout() == tt::tt_metal::Layout::ROW_MAJOR,
+            "packed_assignment_ids must be ROW_MAJOR, got {}",
+            assignments.layout());
+        TT_FATAL(is_dram_interleaved(assignments), "packed_assignment_ids must be DRAM-interleaved");
+        const auto& assignment_shape = assignments.logical_shape();
+        TT_FATAL(
+            assignment_shape.rank() == 2 && assignment_shape[0] == 1 && assignment_shape[-1] > 0,
+            "packed_assignment_ids must have shape [1,capacity], got {}",
+            assignment_shape);
+        // A valid native plan contains at most tokens*topk real assignments.
+        // Its expert-major regions are independently rounded up to TILE rows,
+        // adding at most TILE-1 padding entries per local expert. Require the
+        // full local-to-global table's conservative upper bound here so every
+        // region start + rounded count emitted by the planner remains inside
+        // the single assignment page, including later fused expert groups.
+        const uint64_t tokens = t.x.logical_shape()[-2];
+        constexpr uint64_t tile_height = tt::constants::TILE_HEIGHT;
+        const uint64_t required_assignment_capacity = tokens * op.topk + (tile_height - 1) * idx_table_size;
+        TT_FATAL(
+            static_cast<uint64_t>(assignment_shape[-1]) >= required_assignment_capacity,
+            "packed_assignment_ids capacity ({}) is below the native planner bound ({}) for "
+            "tokens={}, topk={}, local experts={}",
+            assignment_shape[-1],
+            required_assignment_capacity,
+            tokens,
+            op.topk,
+            idx_table_size);
+        TT_FATAL(
+            assignments.buffer()->num_pages() == 1,
+            "packed_assignment_ids must fit in one ROW_MAJOR page, got {} pages",
+            assignments.buffer()->num_pages());
     }
 
     if (t.optional_output.has_value()) {
@@ -234,17 +328,28 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
         TT_FATAL(out.storage_type() == ttnn::StorageType::DEVICE, "optional_output must be on device");
         TT_FATAL(out.buffer() != nullptr, "optional_output must have a device buffer");
         TT_FATAL(out.device() == t.x.device(), "optional_output must be on the same device as x");
-        TT_FATAL(out.layout() == tt::tt_metal::Layout::TILE, "optional_output must be TILE layout");
+        TT_FATAL(
+            out.layout() == (op.assignment_indexed ? tt::tt_metal::Layout::ROW_MAJOR : tt::tt_metal::Layout::TILE),
+            "optional_output layout must be {} in this mode, got {}",
+            op.assignment_indexed ? "ROW_MAJOR" : "TILE",
+            out.layout());
         TT_FATAL(is_dram_interleaved(out), "optional_output must be DRAM-interleaved");
         // Output dtype must match x EXCEPT in row-major mode: there x is bf16
         // ROW_MAJOR but the tilized output is bf8_b TILE (for downstream
         // combine), so the two legitimately differ. The tilize/down-matmul packs
         // to the output's dtype regardless.
-        TT_FATAL(
-            op.x_is_row_major || out.dtype() == t.x.dtype(),
-            "optional_output dtype ({}) must match x dtype ({})",
-            out.dtype(),
-            t.x.dtype());
+        if (op.assignment_indexed) {
+            TT_FATAL(
+                out.dtype() == tt::tt_metal::DataType::BFLOAT16,
+                "assignment slot output must be BFLOAT16, got {}",
+                out.dtype());
+        } else {
+            TT_FATAL(
+                op.x_is_row_major || out.dtype() == t.x.dtype(),
+                "optional_output dtype ({}) must match x dtype ({})",
+                out.dtype(),
+                t.x.dtype());
+        }
         const auto& out_shape = out.padded_shape();
         TT_FATAL(
             out_shape.rank() == x_shape.rank(),
@@ -271,7 +376,19 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
         // buffer (M >= x's M, tile-aligned; the writer bounds rows by
         // dst_M_tiles); otherwise the output is per-expert and M must match x.
         constexpr uint32_t TILE_H = tt::constants::TILE_HEIGHT;
-        if (direct_write) {
+        if (op.assignment_indexed) {
+            const uint64_t expected_slots = static_cast<uint64_t>(t.x.logical_shape()[-2]) * op.topk;
+            TT_FATAL(
+                out.logical_shape()[-2] == expected_slots,
+                "assignment slot output M ({}) must equal tokens*topk ({})",
+                out.logical_shape()[-2],
+                expected_slots);
+            TT_FATAL(
+                out.buffer()->num_pages() == expected_slots,
+                "assignment slot output must expose one ROW_MAJOR page per slot (expected {}, got {})",
+                expected_slots,
+                out.buffer()->num_pages());
+        } else if (direct_write) {
             TT_FATAL(out_shape[-2] % TILE_H == 0, "optional_output M ({}) must be tile-aligned", out_shape[-2]);
             TT_FATAL(
                 out_shape[-2] >= x_shape[-2],
@@ -394,7 +511,9 @@ ttnn::Tensor unified_routed_expert_ffn(
     ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::RoutedExpertActivation activation,
     const std::optional<ttnn::Tensor>& gate_bias,
     const std::optional<ttnn::Tensor>& up_bias,
-    const std::optional<ttnn::Tensor>& down_bias) {
+    const std::optional<ttnn::Tensor>& down_bias,
+    const std::optional<ttnn::Tensor>& packed_assignment_ids,
+    uint32_t topk) {
     using OperationType = ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::
         UnifiedRoutedExpertFfnDeviceOperation;
     return ttnn::device_operation::launch<OperationType>(
@@ -405,6 +524,8 @@ ttnn::Tensor unified_routed_expert_ffn(
             .num_local_experts = static_cast<uint32_t>(gate_projs.size()),
             .read_x_at_offset = read_x_at_offset,
             .x_is_row_major = x_is_row_major,
+            .assignment_indexed = packed_assignment_ids.has_value(),
+            .topk = topk,
             .activation = activation,
             .fuse_bias = gate_bias.has_value(),
             .compute_kernel_config = compute_kernel_config},
@@ -417,6 +538,7 @@ ttnn::Tensor unified_routed_expert_ffn(
             .global_expert_idx_table = global_expert_idx_table,
             .optional_output = optional_output,
             .expert_region_offsets = expert_region_offsets,
+            .packed_assignment_ids = packed_assignment_ids,
             .gate_bias = gate_bias,
             .up_bias = up_bias,
             .down_bias = down_bias});
@@ -440,7 +562,9 @@ ttnn::Tensor unified_routed_expert_ffn(
     ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::RoutedExpertActivation activation,
     const std::optional<ttnn::Tensor>& gate_bias,
     const std::optional<ttnn::Tensor>& up_bias,
-    const std::optional<ttnn::Tensor>& down_bias) {
+    const std::optional<ttnn::Tensor>& down_bias,
+    const std::optional<ttnn::Tensor>& packed_assignment_ids,
+    uint32_t topk) {
     return unified_routed_expert_ffn(
         x,
         std::vector<ttnn::Tensor>{gate_proj},
@@ -459,7 +583,9 @@ ttnn::Tensor unified_routed_expert_ffn(
         activation,
         gate_bias,
         up_bias,
-        down_bias);
+        down_bias,
+        packed_assignment_ids,
+        topk);
 }
 
 }  // namespace ttnn::prim

@@ -139,6 +139,10 @@ void kernel_main() {
     constexpr uint32_t X_RM_ELEM_BYTES = get_compile_time_arg_val(30);
     // Consecutive local experts handled by this program.
     constexpr uint32_t num_local_experts = get_compile_time_arg_val(31);
+    constexpr uint32_t assignment_indexed = get_compile_time_arg_val(32);
+    constexpr uint32_t cb_assignment_scratch = get_compile_time_arg_val(33);
+    constexpr uint32_t topk = get_compile_time_arg_val(34);
+    constexpr uint32_t num_input_tokens = get_compile_time_arg_val(35);
     // UP_SPLIT iff the reader multicasts up but does not read it from DRAM.
     constexpr bool up_split = (reader_mcasts_up != 0) && (reader_reads_up == 0);
 
@@ -158,7 +162,7 @@ void kernel_main() {
     // always agree. When false the matmul reads those rows and the fill stays.
     constexpr bool down_k_tail_skip = (K_down_tiles_padded - K_down_tiles) < in0_block_w_d;
 
-    constexpr uint32_t x_accessor_offset = 32;
+    constexpr uint32_t x_accessor_offset = 36;
     constexpr auto x_args = TensorAccessorArgs<x_accessor_offset>();
     const auto x_acc = TensorAccessor(x_args, x_addr, get_tile_size(cb_in0_x));
     // Row-major x accessor (x_is_row_major): x is a ROW_MAJOR bf16 buffer whose
@@ -194,20 +198,25 @@ void kernel_main() {
     constexpr auto start_args = TensorAccessorArgs<start_accessor_offset>();
     const auto start_acc = TensorAccessor(start_args, start_addr);
 
+    const uint32_t assignment_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 1);
+    constexpr uint32_t assignment_accessor_offset = start_args.next_compile_time_args_offset();
+    constexpr auto assignment_args = TensorAccessorArgs<assignment_accessor_offset>();
+    const auto assignments_acc = TensorAccessor(assignment_args, assignment_addr);
+
 #ifdef FUSE_BIAS
-    constexpr uint32_t weight_addr_rt_offset = M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 4;
+    constexpr uint32_t weight_addr_rt_offset = M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 5;
 #else
-    constexpr uint32_t weight_addr_rt_offset = M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 1;
+    constexpr uint32_t weight_addr_rt_offset = M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 2;
 #endif
 
 #ifdef FUSE_BIAS
     // gpt-oss expert biases. RT addrs immediately follow start_addr; CT bias CB
     // ids + accessors follow the start accessor. Read once (below), added by the
     // compute kernel (gate/up before the activation, down after the down matmul).
-    const uint32_t gate_bias_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 1);
-    const uint32_t up_bias_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 2);
-    const uint32_t down_bias_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 3);
-    constexpr uint32_t bias_cb_offset = start_args.next_compile_time_args_offset();
+    const uint32_t gate_bias_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 2);
+    const uint32_t up_bias_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 3);
+    const uint32_t down_bias_addr = get_arg_val<uint32_t>(M_ROW_NOC_RT_OFFSET + 2 * GRID_X_NOC + 4);
+    constexpr uint32_t bias_cb_offset = assignment_args.next_compile_time_args_offset();
     constexpr uint32_t cb_gate_bias = get_compile_time_arg_val(bias_cb_offset + 0);
     constexpr uint32_t cb_up_bias = get_compile_time_arg_val(bias_cb_offset + 1);
     constexpr uint32_t cb_down_bias = get_compile_time_arg_val(bias_cb_offset + 2);
@@ -242,6 +251,7 @@ void kernel_main() {
     CircularBuffer cb_counts_scratch_obj(cb_counts_scratch);
     CircularBuffer cb_idx_scratch_obj(cb_idx_scratch);
     CircularBuffer cb_start_scratch_obj(cb_start_scratch);
+    CircularBuffer cb_assignment_scratch_obj(cb_assignment_scratch);
     CircularBuffer cb_x_rm_obj(cb_x_rm);
     CircularBuffer cb_activated_obj(cb_activated);
 
@@ -291,7 +301,7 @@ void kernel_main() {
     // Fetch the shared region-offset vector once. The fused loop below indexes
     // it once per local expert rather than re-reading the page E times.
     const volatile tt_l1_ptr uint32_t* start_ptr = nullptr;
-    if constexpr (read_x_at_offset != 0) {
+    if constexpr (read_x_at_offset != 0 || assignment_indexed != 0) {
         cb_start_scratch_obj.reserve_back(1);
         const uint32_t start_l1 = cb_start_scratch_obj.get_write_ptr();
         noc_read.async_read(
@@ -299,6 +309,12 @@ void kernel_main() {
         noc_read.async_read_barrier();
         cb_start_scratch_obj.push_back(1);
         start_ptr = reinterpret_cast<volatile tt_l1_ptr uint32_t*>(start_l1);
+    }
+
+    uint32_t assignment_l1 = 0;
+    if constexpr (assignment_indexed != 0) {
+        cb_assignment_scratch_obj.reserve_back(1);
+        assignment_l1 = cb_assignment_scratch_obj.get_write_ptr();
     }
 
     const uint32_t x_tile_bytes = get_tile_size(cb_in0_x);
@@ -345,10 +361,13 @@ void kernel_main() {
         // buffer and this expert's rows begin at start[global_id].
         uint32_t x_start_tile_idx = 0;
         uint32_t x_start_stick = 0;
+        uint32_t assignment_start = 0;
         if constexpr (read_x_at_offset != 0) {
             const uint32_t start_value = start_ptr[global_expert_id];
             x_start_tile_idx = (start_value / TILE_HEIGHT) * K_gate_tiles;
             x_start_stick = start_value;
+        } else if constexpr (assignment_indexed != 0) {
+            assignment_start = start_ptr[global_expert_id];
         }
 
 #ifdef FUSE_BIAS
@@ -494,17 +513,38 @@ void kernel_main() {
                                 const uint32_t row_base = tile_row * TILE_HEIGHT;
                                 const uint32_t real_r =
                                     (row_base + TILE_HEIGHT <= count_value) ? TILE_HEIGHT : (count_value - row_base);
-                                for (uint32_t r = 0; r < real_r; ++r) {
-                                    // x_start_stick offsets into this expert's region
-                                    // of the shared row-major buffer (0 when x is a
-                                    // standalone per-expert buffer).
-                                    const uint32_t stick = x_start_stick + row_base + r;
+                                if constexpr (assignment_indexed != 0) {
+                                    // One contiguous planner block per expert tile-row. Resolve all
+                                    // 32 assignment ids once, then gather the corresponding original
+                                    // x[token] sticks. The planner stores token*K+slot and valid
+                                    // expert rows are a prefix of the tile-aligned region.
                                     noc_read.async_read(
-                                        x_acc_rm,
-                                        CoreLocalMem<uint32_t>(l1_x),
-                                        rm_kblock_bytes,
-                                        {.page_id = stick, .offset_bytes = col_off_bytes},
+                                        assignments_acc,
+                                        CoreLocalMem<uint32_t>(assignment_l1),
+                                        real_r * sizeof(uint32_t),
+                                        {.page_id = 0,
+                                         .offset_bytes = (assignment_start + row_base) * sizeof(uint32_t)},
                                         {});
+                                    noc_read.async_read_barrier();
+                                }
+                                volatile tt_l1_ptr uint32_t* assignment_ptr =
+                                    reinterpret_cast<volatile tt_l1_ptr uint32_t*>(assignment_l1);
+                                for (uint32_t r = 0; r < real_r; ++r) {
+                                    uint32_t stick = x_start_stick + row_base + r;
+                                    bool assignment_valid = true;
+                                    if constexpr (assignment_indexed != 0) {
+                                        const uint32_t assignment = assignment_ptr[r];
+                                        assignment_valid = assignment < num_input_tokens * topk;
+                                        stick = assignment_valid ? assignment / topk : 0;
+                                    }
+                                    if (assignment_valid && stick < num_input_tokens) {
+                                        noc_read.async_read(
+                                            x_acc_rm,
+                                            CoreLocalMem<uint32_t>(l1_x),
+                                            rm_kblock_bytes,
+                                            {.page_id = stick, .offset_bytes = col_off_bytes},
+                                            {});
+                                    }
                                     l1_x += rm_kblock_bytes;
                                 }
                                 // Skip the padding sticks in this tile-row (stale L1, dropped).

@@ -496,6 +496,34 @@ def _read_bool_env(name: str) -> bool:
     raise ValueError(f"{name} must be one of 1/true/on/yes or 0/false/off/no; got {os.environ.get(name)!r}")
 
 
+#: Select the router-index-native prefill MoE. Unlike :data:`MOE_GATHER_EXPERTS`, this path never
+#: materializes dense ``[tokens, experts]`` routing: it preserves top-k's FP32 scores and UINT32
+#: indices through device-native dispatch, fused experts and fused weighted combine. It is still
+#: prefill-only; decode retains the sparse path.
+MOE_TOPK_NATIVE_ENV_VAR = "ORNITH_MOE_TOPK_NATIVE"
+MOE_TOPK_NATIVE = _read_bool_env(MOE_TOPK_NATIVE_ENV_VAR)
+
+#: Largest native planner/combine span. Real flattened prefill calls are split on this boundary:
+#: B1x2048 -> two composite invocations and B4x2048 -> eight, always in token order.
+MOE_TOPK_NATIVE_SUB_CHUNK = 1024
+
+
+def _topk_native_chunk_ranges(tokens: int, sub_chunk: int = MOE_TOPK_NATIVE_SUB_CHUNK) -> tuple[tuple[int, int], ...]:
+    """Exact token-order decomposition for the native primitive's bounded L1 planner.
+
+    Production calls are deliberately all-native or not-native: a ragged tail would mix routing
+    representations and make the invocation proof ambiguous, so this helper rejects it and the
+    caller uses the accepted gathered fallback for the whole layer call.
+    """
+
+    tokens, sub_chunk = int(tokens), int(sub_chunk)
+    if tokens <= 0 or sub_chunk <= 0:
+        raise ValueError(f"native top-k chunking needs positive tokens/sub_chunk; got {tokens}/{sub_chunk}")
+    if tokens % sub_chunk:
+        raise ValueError(f"native top-k tokens ({tokens}) must be divisible by sub-chunk ({sub_chunk})")
+    return tuple((start, start + sub_chunk) for start in range(0, tokens, sub_chunk))
+
+
 #: Replace the two routed ``ttnn.sparse_matmul`` calls with a **gathered** per-expert FFN.
 #:
 #: ``ttnn.sparse_matmul`` is the single largest item of the prefill window: it computes, for every
@@ -1802,6 +1830,54 @@ class OptimizedMoE:
         #: Set by :meth:`prepare_gather_experts`; read by :meth:`_gather_reason` and by the tests.
         self.gather_refusal: str | None = "prepare_gather_experts has not run for this layer"
 
+        # Router-index-native prefill capability and proof counters. `calls` counts actual composite
+        # invocations (one per <=1024-token sub-chunk), while `layer_calls` counts completed public
+        # MoE calls. The serving capability aggregates `calls` per layer, so B1/B4 produce uniform
+        # deltas of 2/8 across all 40 layers and cannot pass on an environment selection alone.
+        self.topk_native_weights_loaded = self.gather_experts
+        self.topk_native_ready = False
+        self.topk_native_refusal: str | None = "prepare_topk_native has not run for this layer"
+        self.topk_native_global_to_local = None
+        self.topk_native_calls = 0
+        self.topk_native_layer_calls = 0
+        self.topk_native_subchunks = 0
+        # Only eligible prefill attempts that cannot enter the selected native path increment this.
+        # Decode and deliberately ineligible short/padded calls do not.
+        self.topk_native_fallbacks = 0
+
+    @property
+    def topk_native_selected(self) -> bool:
+        """Live selection state; tests may flip the module flag after import."""
+
+        return bool(MOE_TOPK_NATIVE)
+
+    @property
+    def topk_native_enabled(self) -> bool:
+        """Whether this concrete layer has every object needed for native execution."""
+
+        return bool(
+            self.topk_native_selected
+            and self.topk_native_weights_loaded
+            and self.topk_native_ready
+            and self.topk_native_refusal is None
+            and self.topk_native_global_to_local is not None
+        )
+
+    def topk_native_status(self) -> dict:
+        """Per-layer status consumed by the serving capability aggregator."""
+
+        return {
+            "selected": self.topk_native_selected,
+            "weights_loaded": bool(self.topk_native_weights_loaded),
+            "ready": bool(self.topk_native_ready),
+            "enabled": self.topk_native_enabled,
+            "refusal": self.topk_native_refusal,
+            "calls": int(self.topk_native_calls),
+            "fallbacks": int(self.topk_native_fallbacks),
+            "layer_calls": int(self.topk_native_layer_calls),
+            "subchunks": int(self.topk_native_subchunks),
+        }
+
     def _expert_mem(self, tokens: int):
         """Memory config for this call's ``num_experts``-wide intermediates.
 
@@ -1899,6 +1975,39 @@ class OptimizedMoE:
         return self._router_zeros[shape]
 
     # ---------------- router ----------------
+    def _routing_pairs(self, x):
+        """Preserved ``(FLOAT32 top-k weights, UINT32 global indices)`` for native MoE.
+
+        This is intentionally separate from :meth:`routing_weights`: calling this method commits to
+        the native representation and no scatter target or dense ``[T,E]`` tensor is allocated.
+        """
+
+        logits = ttnn.linear(
+            x,
+            self.w["router"],
+            dtype=ttnn.float32,
+            compute_kernel_config=self.dense_ckc,
+            program_config=self.proj_cfgs.get(
+                "router",
+                _physical_rows(x.shape),
+                x.shape[-1],
+                self.cfg.num_experts,
+                fp32_acc=self.policy.router_fp32_acc,
+                decode=self._decode_phase,
+            ),
+        )
+        values, raw_indices = ttnn.topk(logits, k=self.cfg.num_experts_per_tok, dim=-1, sorted=True)
+        # The native planner consumes UINT32 tile faces. FP32 topk currently
+        # produces that dtype, but make the API boundary explicit so a future
+        # topk default change cannot route through a mis-sized index accessor.
+        indices = ttnn.typecast(raw_indices, ttnn.uint32)
+        if indices is not raw_indices:
+            ttnn.deallocate(raw_indices)
+        weights = ttnn.softmax(values, dim=-1, numeric_stable=True, compute_kernel_config=self.dense_ckc)
+        ttnn.deallocate(logits)
+        ttnn.deallocate(values)
+        return weights, indices
+
     def routing_weights(self, x):
         """Dense routing weights ``[1, 1, tokens, num_experts]`` (bfloat16, zeros off-selection).
 
@@ -2117,6 +2226,119 @@ class OptimizedMoE:
         ttnn.deallocate(down)
         return ttnn.reshape(ttnn.unsqueeze_to_4D(reduced), [1, 1, tokens, H])
 
+    # ---------------- router-index-native experts ----------------
+    def prepare_topk_native(self, prefill_chunk: int) -> bool:
+        """Finalize setup-time native readiness for this concrete layer.
+
+        The base single-chip geometry owns all 256 experts and is intentionally refused by the
+        validated 64-local-expert bound. :class:`MultichipMoE` installs the mesh-sharded
+        global-to-local table first, then delegates the remaining checks here.
+        """
+
+        if not self.topk_native_selected:
+            self.topk_native_ready = False
+            self.topk_native_refusal = f"{MOE_TOPK_NATIVE_ENV_VAR} is not set"
+            return False
+        reasons = []
+        if self.cfg.num_experts > MOE_GATHER_MAX_LOCAL_EXPERTS:
+            reasons.append(
+                f"{self.cfg.num_experts} local experts exceeds the validated native bound "
+                f"{MOE_GATHER_MAX_LOCAL_EXPERTS}"
+            )
+        if self.cfg.num_experts_per_tok > 16:
+            reasons.append(f"top-k {self.cfg.num_experts_per_tok} exceeds the native kernel bound 16")
+        if self.cfg.dim % 1024:
+            reasons.append(f"hidden size {self.cfg.dim} is not divisible by the fused combine block 1024")
+        if self.policy.expert_act_dtype != ttnn.bfloat8_b:
+            reasons.append(
+                f"expert output policy {self.policy.expert_act_dtype} is not BFLOAT8_B at the collective boundary"
+            )
+        if int(prefill_chunk) < MOE_TOPK_NATIVE_SUB_CHUNK:
+            reasons.append(f"prefill chunk {prefill_chunk} is below native sub-chunk {MOE_TOPK_NATIVE_SUB_CHUNK}")
+        if not self.topk_native_weights_loaded:
+            reasons.append("the per-expert gate/up/down weight lists were not uploaded")
+        if self.topk_native_global_to_local is None:
+            reasons.append("the mesh-sharded global-to-local expert table was not prepared")
+        if reasons:
+            self.topk_native_ready = False
+            self.topk_native_refusal = "; ".join(reasons)
+            logger.warning(f"top-k-native routed experts unavailable: {self.topk_native_refusal}")
+            return False
+        self.topk_native_refusal = None
+        self.topk_native_ready = True
+        return True
+
+    def _topk_native_geometry_reason(self, tokens: int, decode: bool, valid_tokens) -> str | None:
+        """Shape-only eligibility; readiness failures on eligible calls count as fallbacks."""
+
+        tokens = int(tokens)
+        if decode:
+            return "decode intentionally keeps sparse MoE"
+        if valid_tokens is not None:
+            return "tile-padded calls intentionally keep the accepted fallback"
+        if tokens < MOE_TOPK_NATIVE_SUB_CHUNK:
+            return f"{tokens} tokens is below {MOE_TOPK_NATIVE_SUB_CHUNK}"
+        if tokens % MOE_TOPK_NATIVE_SUB_CHUNK:
+            return f"{tokens} tokens has a ragged native sub-chunk"
+        if self.cfg.num_experts > MOE_GATHER_MAX_LOCAL_EXPERTS:
+            return f"{self.cfg.num_experts} local experts exceeds {MOE_GATHER_MAX_LOCAL_EXPERTS}"
+        if self.cfg.num_experts_per_tok > 16:
+            return f"top-k {self.cfg.num_experts_per_tok} exceeds 16"
+        if self.cfg.dim % 1024:
+            return f"hidden size {self.cfg.dim} is not divisible by 1024"
+        if self.policy.expert_act_dtype != ttnn.bfloat8_b:
+            return "the selected precision policy does not emit BFLOAT8_B expert partials"
+        return None
+
+    def _topk_native_routed_experts(self, x, topk_weights, topk_indices, tokens: int):
+        """Run the exact public native composite over <=1024-token slices in token order."""
+
+        parts = []
+        for start, end in _topk_native_chunk_ranges(tokens):
+            whole = start == 0 and end == tokens
+            chunk = x if whole else ttnn.slice(x, [0, 0, start, 0], [1, 1, end, self.cfg.dim])
+            indices = (
+                topk_indices
+                if whole
+                else ttnn.slice(topk_indices, [0, 0, start, 0], [1, 1, end, self.cfg.num_experts_per_tok])
+            )
+            weights = (
+                topk_weights
+                if whole
+                else ttnn.slice(topk_weights, [0, 0, start, 0], [1, 1, end, self.cfg.num_experts_per_tok])
+            )
+            span = end - start
+            # `calls` is actual composite invocation count, not an env-selected intent counter.
+            self.topk_native_calls += 1
+            part = ttnn.experimental.deepseek_prefill.topk_routed_expert_moe(
+                chunk,
+                indices,
+                weights,
+                self.topk_native_global_to_local,
+                self.w["expert_gate_list"],
+                self.w["expert_up_list"],
+                self.w["expert_down_list"],
+                num_local_experts=self.cfg.num_experts,
+                valid_tokens=span,
+                max_dispatched_tokens_per_expert=span,
+                activation=ttnn.RoutedExpertActivation.Silu,
+            )
+            self.topk_native_subchunks += 1
+            parts.append(part)
+            if chunk is not x:
+                ttnn.deallocate(chunk)
+            if indices is not topk_indices:
+                ttnn.deallocate(indices)
+            if weights is not topk_weights:
+                ttnn.deallocate(weights)
+
+        routed = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=2)
+        if len(parts) > 1:
+            for part in parts:
+                ttnn.deallocate(part)
+        self.topk_native_layer_calls += 1
+        return routed
+
     # ---------------- gathered experts ----------------
     def prepare_gather_experts(self, prefill_chunk: int) -> bool:
         """Build the gathered path's host-side constants. Setup, not forward.
@@ -2129,8 +2351,8 @@ class OptimizedMoE:
         A call whose token count was never prepared keeps the sparse path — slower and correct, the
         same rule ``MultichipMoE.prepare_decode_gate`` states for an unprepared decode row count.
         """
-        if not MOE_GATHER_EXPERTS:
-            self.gather_refusal = f"{MOE_GATHER_ENV_VAR} is not set"
+        if not (MOE_GATHER_EXPERTS or MOE_TOPK_NATIVE):
+            self.gather_refusal = f"neither {MOE_GATHER_ENV_VAR} nor {MOE_TOPK_NATIVE_ENV_VAR} is set"
             return False
         largest = min(MOE_GATHER_SUB_CHUNK, int(prefill_chunk))
         reason = _gather_support_reason(self.cfg.num_experts, largest)
@@ -2509,8 +2731,8 @@ class OptimizedMoE:
         the setup-time ones and a test can assert on the exact clause that fired, which is what stops a
         "the gathered arm agreed with the sparse arm" result from passing because both arms were sparse.
         """
-        if not MOE_GATHER_EXPERTS:
-            return f"{MOE_GATHER_ENV_VAR} is not set"
+        if not (MOE_GATHER_EXPERTS or MOE_TOPK_NATIVE):
+            return f"neither {MOE_GATHER_ENV_VAR} nor {MOE_TOPK_NATIVE_ENV_VAR} is set"
         if not self.gather_experts:
             return "the per-expert weight layout was not uploaded (the switch was clear at load time)"
         if self.gather_refusal is not None:
@@ -2606,6 +2828,22 @@ class OptimizedMoE:
         # its scatter chain barely scale with the token count (they are single-core on a 256-wide
         # last dim), so 64 group-sized routers cost 64x what one whole-call router does. Slicing the
         # dense score vector per group is tile-aligned and nearly free.
+        native_geometry_reason = self._topk_native_geometry_reason(tokens, self._decode_phase, valid_tokens)
+        if self.topk_native_selected and native_geometry_reason is None and self.topk_native_enabled:
+            topk_weights, topk_indices = self._routing_pairs(x)
+            routed = self._topk_native_routed_experts(x, topk_weights, topk_indices, tokens)
+            ttnn.deallocate(topk_weights)
+            ttnn.deallocate(topk_indices)
+            out = ttnn.add(routed, shared)
+            ttnn.deallocate(routed)
+            ttnn.deallocate(shared)
+            return out
+        if self.topk_native_selected and native_geometry_reason is None:
+            # This was a supported native prefill shape but the live layer lacked required objects.
+            # It is the only case counted as fallback; decode, short and padded calls are intentional
+            # sparse/gather choices and must not perturb the serving proof counter.
+            self.topk_native_fallbacks += 1
+
         dense = self.routing_weights(x)
         if self._gather_ok(tokens, self._decode_phase, valid_tokens):
             # The gathered path (:data:`MOE_GATHER_EXPERTS`). It replaces the whole expert-group loop
@@ -3080,7 +3318,7 @@ class OptimizedDecoder(LightweightModule):
         # (a single-device mesh, where `num_experts` is the full 256). Otherwise an unsupported build
         # would pay 453 MB per layer for a weight layout nothing will ever read, and
         # `OptimizedMoE.gather_experts` would claim the path is available when it is not.
-        if MOE_GATHER_EXPERTS and _gather_support_reason(config.num_experts) is None:
+        if (MOE_GATHER_EXPERTS or MOE_TOPK_NATIVE) and _gather_support_reason(config.num_experts) is None:
             # The gathered path's layout: one 2D tensor per expert per projection, oriented the way
             # `unified_routed_expert_ffn` reads them — gate/up as (K=hidden, N=moe_intermediate) and
             # down as (K=moe_intermediate, N=hidden), i.e. the transpose of the HF `[out, in]` rows.
@@ -3140,6 +3378,7 @@ class OptimizedDecoder(LightweightModule):
         # the forward for the same reason as everything else in this method: they need
         # ``ttnn.from_torch``. A no-op when the path is off, and idempotent across re-entry.
         self.moe.prepare_gather_experts(self.prefill_chunk)
+        self.moe.prepare_topk_native(self.prefill_chunk)
         # Freed before being replaced: prefill_forward/decode_forward re-enter here when a
         # full_attention layer is handed a larger batch than it was allocated for.
         if self.batch_idxs is not None:

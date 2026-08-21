@@ -51,7 +51,9 @@ ttnn::Tensor unified_routed_expert_ffn(
         ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::RoutedExpertActivation::Silu,
     const std::optional<ttnn::Tensor>& gate_bias = std::nullopt,
     const std::optional<ttnn::Tensor>& up_bias = std::nullopt,
-    const std::optional<ttnn::Tensor>& down_bias = std::nullopt);
+    const std::optional<ttnn::Tensor>& down_bias = std::nullopt,
+    const std::optional<ttnn::Tensor>& packed_assignment_ids = std::nullopt,
+    uint32_t topk = 0);
 
 ttnn::Tensor unified_routed_expert_ffn(
     const ttnn::Tensor& x,
@@ -72,6 +74,8 @@ ttnn::Tensor unified_routed_expert_ffn(
         ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::RoutedExpertActivation::Silu,
     const std::optional<ttnn::Tensor>& gate_bias = std::nullopt,
     const std::optional<ttnn::Tensor>& up_bias = std::nullopt,
-    const std::optional<ttnn::Tensor>& down_bias = std::nullopt);
+    const std::optional<ttnn::Tensor>& down_bias = std::nullopt,
+    const std::optional<ttnn::Tensor>& packed_assignment_ids = std::nullopt,
+    uint32_t topk = 0);
 
 }  // namespace ttnn::prim

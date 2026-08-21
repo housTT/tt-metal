@@ -560,9 +560,11 @@ class _MultichipProjectionConfigs(_ProjectionConfigs):
     def __init__(self, mesh_device, policy=None):
         super().__init__(mesh_device, policy)
         self.in1_bytes = {
-            role: _DTYPE_BYTES.get(getattr(policy, field, None), _UNKNOWN_DTYPE_BYTES)
-            if policy is not None
-            else _UNKNOWN_DTYPE_BYTES
+            role: (
+                _DTYPE_BYTES.get(getattr(policy, field, None), _UNKNOWN_DTYPE_BYTES)
+                if policy is not None
+                else _UNKNOWN_DTYPE_BYTES
+            )
             for role, field in self.WEIGHT_FIELD.items()
         }
 
@@ -631,6 +633,32 @@ def _replicate_mapper(mesh_device):
     return ttnn.replicate_tensor_to_mesh_mapper(mesh_device)
 
 
+def _global_to_local_expert_maps(e_global: int, e_local: int, tp: int, *, nonlocal_value: int = -1):
+    """Host reference for the one global->local mapping used by both router paths.
+
+    Device ``d`` owns the contiguous global range ``[d*E_local, (d+1)*E_local)``. Owned experts map
+    to ``0..E_local-1``. By default every non-local expert is the bit pattern
+    ``UINT32_MAX`` (host ``torch.int32(-1)``), which is the native planner's
+    explicit sentinel. The fused decode scatter requests its in-range dump
+    column ``E_local`` through ``nonlocal_value``.
+    Keeping this in one helper prevents the fused decode gate and top-k-native prefill planner from
+    silently adopting different expert ownership semantics.
+    """
+
+    import torch
+
+    e_global, e_local, tp = int(e_global), int(e_local), int(tp)
+    if e_global <= 0 or e_local <= 0 or tp <= 0 or e_local * tp != e_global:
+        raise ValueError(f"contiguous expert mapping requires E_global == E_local*tp; got {e_global}/{e_local}/{tp}")
+    per_device = []
+    for device in range(tp):
+        mapped = torch.full((e_global,), int(nonlocal_value), dtype=torch.int32)
+        lo = device * e_local
+        mapped[lo : lo + e_local] = torch.arange(e_local, dtype=torch.int32)
+        per_device.append(mapped)
+    return torch.stack(per_device, dim=0)
+
+
 # `_free_unless_aliased` now lives in `optimized_decoder` and is imported above: the decode-residual
 # fold this module's `_all_reduce` introduced was extended to the whole decode mixer path there
 # (`DECODE_COMPACT_ROWS`), and both call sites need the same aliasing guard.
@@ -683,6 +711,23 @@ class MultichipMoE(OptimizedMoE):
         self._gate_buffers: dict[int, tuple] = {}
         #: Persistent ROW_MAJOR all-zero scatter bases for the fused gate, keyed by the same row count.
         self._gate_zeros: dict[int, object] = {}
+
+    def prepare_topk_native(self, prefill_chunk: int) -> bool:
+        """Upload the planner's exact per-device global->local table at setup."""
+
+        if not self.topk_native_selected:
+            return super().prepare_topk_native(prefill_chunk)
+        if self.topk_native_global_to_local is None:
+            host = _global_to_local_expert_maps(self.global_cfg.num_experts, self.cfg.num_experts, self.tp)
+            self.topk_native_global_to_local = ttnn.from_torch(
+                host,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                device=self.device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=_shard_mapper(self.device, dim=0),
+            )
+        return super().prepare_topk_native(prefill_chunk)
 
     # ---------------- fused router gate ----------------
     def prepare_decode_gate(self, rows: int) -> bool:
@@ -762,12 +807,8 @@ class MultichipMoE(OptimizedMoE):
             # dump column is sliced off after the scatter, so the non-local selections cost a write
             # nobody reads - and the `expert_select` one-hot matmul that used to do this narrowing
             # disappears. Per-device values, so this tensor is mesh-sharded, not replicated.
-            per_device = []
-            for d in range(self.tp):
-                mapped = torch.full((e_global,), e_local, dtype=torch.int32)
-                lo = d * e_local
-                mapped[lo : lo + e_local] = torch.arange(e_local, dtype=torch.int32)
-                per_device.append(mapped.reshape(1, *face).transpose(1, 2).repeat(rows, 1, 1))
+            maps = _global_to_local_expert_maps(e_global, e_local, self.tp, nonlocal_value=e_local)
+            per_device = [maps[d].reshape(1, *face).transpose(1, 2).repeat(rows, 1, 1) for d in range(self.tp)]
             ids_host = torch.cat(per_device, dim=0)
             mapper = _shard_mapper(self.device, dim=0)
         else:
@@ -891,6 +932,33 @@ class MultichipMoE(OptimizedMoE):
         return super()._sparse_cfg(role, tokens, active_bound * scale)
 
     # ---------------- router ----------------
+    def _routing_pairs(self, x):
+        """Global top-k pairs for native prefill, replicated before local dispatch."""
+
+        cfg = self.global_cfg
+        logits = ttnn.linear(
+            x,
+            self.w["router"],
+            dtype=ttnn.float32,
+            compute_kernel_config=self.dense_ckc,
+            program_config=self.proj_cfgs.get(
+                "router",
+                _physical_rows(x.shape),
+                x.shape[-1],
+                cfg.num_experts,
+                fp32_acc=self.policy.router_fp32_acc,
+                decode=False,
+            ),
+        )
+        values, raw_indices = ttnn.topk(logits, k=cfg.num_experts_per_tok, dim=-1, sorted=True)
+        indices = ttnn.typecast(raw_indices, ttnn.uint32)
+        if indices is not raw_indices:
+            ttnn.deallocate(raw_indices)
+        weights = ttnn.softmax(values, dim=-1, numeric_stable=True, compute_kernel_config=self.dense_ckc)
+        ttnn.deallocate(logits)
+        ttnn.deallocate(values)
+        return weights, indices
+
     def routing_weights(self, x):
         """Device-local dense routing weights ``[1, 1, tokens, num_experts_local]``.
 
@@ -1170,6 +1238,22 @@ class MultichipDecoder(OptimizedDecoder):
             out = self._stack_sum(tensor, asynchronous=True)
         else:
             raise ValueError(f"unknown CCL_MODE {CCL_MODE!r}")
+
+        # Every spelling above is a full-mesh all-reduce, so every device owns
+        # the same complete result.  The cluster-axis-free CCL composite can
+        # retain its input's device-unique topology metadata even though the
+        # payload has been reduced and gathered.  Correct that metadata here:
+        # downstream expert-parallel operators use it to distinguish a truly
+        # replicated activation from an unsafe per-device shard.  This is a
+        # host-side relabel only; it neither copies nor redistributes payload.
+        topology = out.tensor_topology()
+        out.update_tensor_topology(
+            ttnn.TensorTopology(
+                topology.distribution_shape(),
+                [ttnn.PlacementReplicate() for _ in topology.placements()],
+                topology.mesh_coords(),
+            )
+        )
         ttnn.deallocate(tensor)
         return out
 
@@ -1414,6 +1498,7 @@ class MultichipDecoder(OptimizedDecoder):
         # And the gathered routed-expert path's prefill constants, for the same reason: host work, so
         # setup. A no-op unless `optimized_decoder.MOE_GATHER_EXPERTS` selected that path at load time.
         self.moe.prepare_gather_experts(self.prefill_chunk)
+        self.moe.prepare_topk_native(self.prefill_chunk)
         # Only when a mode that uses them can be selected: three global semaphores per layer is
         # nothing here, but a 40-layer stack should not allocate 120 of them for a path it never
         # takes. The shipped CCL_MODE is `all_reduce`, which needs none.
@@ -1520,9 +1605,11 @@ class MultichipDecoder(OptimizedDecoder):
                 raise ValueError(f"expected {tp} shards, got {len(parts)}")
             joined = torch.cat([p.contiguous() for p in parts], dim=dim)
             return ttnn.as_tensor(
-                joined.to(torch.bfloat16).contiguous()
-                if tensor_dtype == ttnn.bfloat16
-                else joined.float().contiguous(),
+                (
+                    joined.to(torch.bfloat16).contiguous()
+                    if tensor_dtype == ttnn.bfloat16
+                    else joined.float().contiguous()
+                ),
                 dtype=tensor_dtype,
                 layout=layout,
                 device=mesh_device,
@@ -1779,7 +1866,9 @@ class MultichipDecoder(OptimizedDecoder):
         # The support predicate as well as the switch: at tp=1 `cfg.num_experts` is the full 256 and the
         # path refuses, so uploading the per-expert layout there would be 453 MB per layer for weights
         # nothing reads. See `optimized_decoder._gather_support_reason`.
-        if _optimized.MOE_GATHER_EXPERTS and _optimized._gather_support_reason(cfg.num_experts) is None:
+        if (_optimized.MOE_GATHER_EXPERTS or _optimized.MOE_TOPK_NATIVE) and _optimized._gather_support_reason(
+            cfg.num_experts
+        ) is None:
             # The gathered path's per-expert layout, expert-parallel: local expert ``i`` on device
             # ``d`` is global expert ``d * e_local + i``, so each list entry is that local slot's four
             # shards, one per device. Orientation is the fused kernel's — gate/up (K=dim, N=inter),

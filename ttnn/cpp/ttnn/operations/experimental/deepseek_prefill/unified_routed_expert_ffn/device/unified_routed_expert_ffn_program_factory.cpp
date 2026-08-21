@@ -68,6 +68,12 @@ constexpr uint32_t CB_X_RM = tt::CBIndex::c_16;
 constexpr uint32_t CB_GATE_BIAS = tt::CBIndex::c_17;
 constexpr uint32_t CB_UP_BIAS = tt::CBIndex::c_18;
 constexpr uint32_t CB_DOWN_BIAS = tt::CBIndex::c_19;
+// Top-k-native assignment mode scratch/output. Reader and writer use separate
+// 32-id pages; compute widens one BF8 output subblock into 32 ROW_MAJOR BF16
+// hidden-column segments for assignment-addressed writes.
+constexpr uint32_t CB_ASSIGNMENT_SCRATCH_READER = tt::CBIndex::c_20;
+constexpr uint32_t CB_OUT_RM = tt::CBIndex::c_21;
+constexpr uint32_t CB_ASSIGNMENT_SCRATCH_WRITER = tt::CBIndex::c_22;
 }  // namespace
 
 UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnProgramFactory::create(
@@ -214,7 +220,13 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
     const tt::DataFormat gate_df = tt::tt_metal::datatype_to_dataformat_converter(t.gate_projs.front().dtype());
     const tt::DataFormat up_df = tt::tt_metal::datatype_to_dataformat_converter(t.up_projs.front().dtype());
     const tt::DataFormat down_df = tt::tt_metal::datatype_to_dataformat_converter(t.down_projs.front().dtype());
-    const tt::DataFormat out_df = tt::tt_metal::datatype_to_dataformat_converter(tensor_return_value.dtype());
+    // Assignment output preserves the established numerical boundary: down
+    // results first pack to BF8, then pack-untilize widens those rounded values
+    // into the ROW_MAJOR BF16 slot buffer. Therefore CB_OUT stays BF8 even
+    // though the destination tensor is BF16.
+    const tt::DataFormat out_df = op.assignment_indexed
+                                      ? tt::DataFormat::Bfp8_b
+                                      : tt::tt_metal::datatype_to_dataformat_converter(tensor_return_value.dtype());
     // Partials vs intermediates deliberately differ in format; the compute
     // kernel pack-reconfigs between them (partials <-> intermed) explicitly.
     //   * partials_gu/partials_d are Float16_b: they hold the K-loop matmul
@@ -271,6 +283,10 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         total += static_cast<uint64_t>(M * per_core_N_d) * partials_d_tile_size;                  // cb_mm_partials_d
         total += static_cast<uint64_t>(d_out_subblock_h * d_out_subblock_w * 2) * out_tile_size;  // cb_out
         total += static_cast<uint64_t>(M * in0_block_w_d * 2) * intermed_tile_size;               // cb_in0_down_full
+        if (op.assignment_indexed) {
+            const uint64_t rm_segment_bytes = static_cast<uint64_t>(d_out_subblock_w) * TILE * sizeof(uint16_t);
+            total += 2ull * TILE * rm_segment_bytes;  // double-buffered CB_OUT_RM, 32 row pages/batch
+        }
         // Bias CBs (FUSE_BIAS): single-buffered, per_core_N_gu (gate/up) + per_core_N_d
         // (down) tiles. Keep in sync with the CB allocations in the "Bias CBs" section.
         total += static_cast<uint64_t>(2 * per_core_N_gu + per_core_N_d) * bias_ts;
@@ -395,8 +411,10 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
     // writer targets tile row 0 of a per-expert buffer. The `start` accessor
     // is appended unconditionally so the writer's CT-arg layout is stable;
     // when not in direct-write mode it points at out_buffer and is never read.
-    const bool direct_write = t.expert_region_offsets.has_value();
-    auto* start_buffer = direct_write ? t.expert_region_offsets->buffer() : out_buffer;
+    const bool has_region_offsets = t.expert_region_offsets.has_value();
+    const bool direct_write = has_region_offsets && !op.assignment_indexed;
+    auto* start_buffer = has_region_offsets ? t.expert_region_offsets->buffer() : out_buffer;
+    auto* assignment_buffer = op.assignment_indexed ? t.packed_assignment_ids->buffer() : out_buffer;
     // dst_M_tiles bounds destination writes. Equals M_tiles_full when the
     // output matches x's shape; is the shared buffer's tile-row count in
     // direct-write mode.
@@ -591,6 +609,23 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
             .set_page_size(CB_START_SCRATCH_READER, start_scratch_bytes);
     tt::tt_metal::CreateCircularBuffer(program, core_range_set, start_reader_cb_cfg);
 
+    if (op.assignment_indexed) {
+        constexpr uint32_t assignment_scratch_bytes = TILE * sizeof(uint32_t);
+        for (const uint32_t cb_id : {CB_ASSIGNMENT_SCRATCH_READER, CB_ASSIGNMENT_SCRATCH_WRITER}) {
+            tt::tt_metal::CircularBufferConfig assignment_cfg =
+                tt::tt_metal::CircularBufferConfig(assignment_scratch_bytes, {{cb_id, tt::DataFormat::UInt32}})
+                    .set_page_size(cb_id, assignment_scratch_bytes);
+            tt::tt_metal::CreateCircularBuffer(program, core_range_set, assignment_cfg);
+        }
+
+        const uint32_t rm_segment_bytes = d_out_subblock_w * TILE * sizeof(uint16_t);
+        const uint32_t rm_batch_bytes = TILE * rm_segment_bytes;
+        tt::tt_metal::CircularBufferConfig out_rm_cfg =
+            tt::tt_metal::CircularBufferConfig(2 * rm_batch_bytes, {{CB_OUT_RM, tt::DataFormat::Float16_b}})
+                .set_page_size(CB_OUT_RM, rm_segment_bytes);
+        tt::tt_metal::CreateCircularBuffer(program, core_range_set, out_rm_cfg);
+    }
+
     // Bias CBs (FUSE_BIAS): one full per-core N-column slice each; single-buffered
     // (read once, reused across all chunks). gate/up: per_core_N_gu tiles; down:
     // per_core_N_d tiles. Bias broadcast across rows in the compute kernel.
@@ -660,6 +695,11 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         tt::datum_size(tt::DataFormat::Float16_b),
         // Consecutive local experts executed within this one program launch.
         op.num_local_experts,
+        // Assignment-indexed x: expert-region row -> token*K+slot.
+        static_cast<uint32_t>(op.assignment_indexed),
+        CB_ASSIGNMENT_SCRATCH_READER,
+        op.topk,
+        static_cast<uint32_t>(t.x.logical_shape()[-2]),
     };
     tt::tt_metal::TensorAccessorArgs(x_buffer).append_to(reader_ct_args);
     tt::tt_metal::TensorAccessorArgs(gate_buffer).append_to(reader_ct_args);
@@ -671,8 +711,9 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
     // Points at expert_region_offsets in direct/offset mode, else out_buffer
     // (unread when read_x_at_offset is 0), keeping the CT-arg layout stable.
     tt::tt_metal::TensorAccessorArgs(start_buffer).append_to(reader_ct_args);
+    tt::tt_metal::TensorAccessorArgs(assignment_buffer).append_to(reader_ct_args);
 
-    // FUSE_BIAS: after the `start` accessor, append the 3 bias CB ids then the 3
+    // FUSE_BIAS: after the `start` and assignment accessors, append the 3 bias CB ids then the 3
     // bias tensor accessors (gate, up, down). The reader reads them at the
     // offset after start_args.next_compile_time_args_offset(). Only present when
     // fuse_bias — a distinct program (FUSE_BIAS define is in the cache key).
@@ -738,13 +779,19 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         // reader's identically-derived constexpr.
         static_cast<uint32_t>((K_down_tiles_padded - K_down_tiles) < in0_block_w_d),  // 24 down_k_tail_skip
         op.num_local_experts,                                                         // 25
+        static_cast<uint32_t>(op.assignment_indexed),                                 // 26
+        CB_OUT_RM,                                                                    // 27
+        CB_ASSIGNMENT_SCRATCH_WRITER,                                                 // 28
+        op.topk,                                                                      // 29
+        static_cast<uint32_t>(t.x.logical_shape()[-2]),                               // 30 input tokens
     };
     // Accessor compile-arg stream order MUST match the writer kernel:
-    // out, then start (direct-write), then up (UP_SPLIT).
+    // out, start, up (UP_SPLIT), then packed assignments.
     tt::tt_metal::TensorAccessorArgs(out_buffer).append_to(writer_ct_args);
     tt::tt_metal::TensorAccessorArgs(start_buffer).append_to(writer_ct_args);
     // up accessor follows start; used only when the writer handles `up`.
     tt::tt_metal::TensorAccessorArgs(up_buffer).append_to(writer_ct_args);
+    tt::tt_metal::TensorAccessorArgs(assignment_buffer).append_to(writer_ct_args);
 
     auto writer_kernel_id = tt::tt_metal::CreateKernel(
         program,
@@ -805,6 +852,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         K_down_tiles,
         // Consecutive local experts executed within this one program launch.
         op.num_local_experts,
+        static_cast<uint32_t>(op.assignment_indexed),
     };
     std::unordered_map<std::string, uint32_t> compute_named_args = {
         // Row-major bf16 x staging (x_is_row_major only); tilize input CB.
@@ -821,6 +869,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         {"cb_mm_partials_up", CB_PARTIALS_UP},
         {"cb_mm_partials_d", CB_PARTIALS_D},
         {"cb_out", CB_OUT},
+        {"cb_out_rm", CB_OUT_RM},
         // For device-side count read: compute waits on the reader's push and
         // bounds its chunk loop by effective_chunks = ceil(count/chunk_M_tiles).
         {"cb_counts_scratch", CB_COUNTS_SCRATCH},
@@ -934,8 +983,8 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         //  29: act_ready_sem_id  30: act_valid_sem_id
         //  31: up_go_sem_id  32: up_done_sem_id
         //  33..33+2*GRID_X-1: M-row NoC coord table (GRID_X pairs of x, y)
-        //  33+2*GRID_X: start_addr (expert_region_offsets; read only when
-        //     read_x_at_offset, else points at out_buffer and is unread)
+        //  33+2*GRID_X: start_addr (expert_region_offsets)
+        //  34+2*GRID_X: packed_assignment_ids_addr (indexed mode only)
         //  trailing: optional 3 bias addrs, then gate[E], up[E], down[E]
         std::vector<uint32_t> reader_args = {
             x_buffer->address(),
@@ -986,8 +1035,8 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         // comment). Same buffer the writer gets; read by the reader only when
         // read_x_at_offset.
         reader_args.push_back(start_buffer->address());
-        // FUSE_BIAS: 3 bias addrs immediately after start_addr (read by the
-        // reader at start_offset + 1..3). Kept last so override can update them.
+        reader_args.push_back(assignment_buffer->address());
+        // FUSE_BIAS: 3 bias addrs immediately after assignment_addr.
         if (fuse_bias) {
             reader_args.push_back(t.gate_bias->buffer()->address());
             reader_args.push_back(t.up_bias->buffer()->address());
@@ -1010,7 +1059,8 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         //      out_buffer, unused by the kernel)
         //   4: up_addr  5: my_nt_gu  6: is_up_sender (gy==0)
         //   7: up_go_sem_id  8: up_done_sem_id  (UP_SPLIT local same-core handshake)
-        //   9..9+E-1: up-weight base address for each local expert
+        //   9: packed_assignment_ids_addr (indexed mode only)
+        //  10..10+E-1: up-weight base address for each local expert
         std::vector<uint32_t> writer_args = {
             out_buffer->address(),                 // 0
             my_mt,                                 // 1
@@ -1021,6 +1071,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
             static_cast<uint32_t>(is_in1_sender),  // 6 is_up_sender
             up_go_sem_id,                          // 7
             up_done_sem_id,                        // 8
+            assignment_buffer->address(),          // 9
         };
         for (const auto& weight : t.up_projs) {
             writer_args.push_back(weight.buffer()->address());
@@ -1056,6 +1107,8 @@ void UnifiedRoutedExpertFfnProgramFactory::override_runtime_arguments(
     const uint32_t out_addr = tensor_return_value.buffer()->address();
     const uint32_t start_addr =
         t.expert_region_offsets.has_value() ? t.expert_region_offsets->buffer()->address() : out_addr;
+    const uint32_t assignment_addr =
+        t.packed_assignment_ids.has_value() ? t.packed_assignment_ids->buffer()->address() : out_addr;
     // FUSE_BIAS appends 3 bias addrs after start_addr, so start is no longer the
     // last reader arg. Recover its index from the presence of the bias tensors.
     const bool has_bias = t.gate_bias.has_value();
@@ -1068,16 +1121,17 @@ void UnifiedRoutedExpertFfnProgramFactory::override_runtime_arguments(
         reader_args[3] = down_addr;
         reader_args[4] = counts_addr;
         reader_args[5] = idx_addr;
-        // start_addr sits before the optional bias addrs and 3 E-entry weight
+        // start_addr and assignment_addr sit before the optional bias addrs and 3 E-entry weight
         // address arrays.
-        const size_t start_idx = reader_args.size() - 3 * op.num_local_experts - (has_bias ? 3 : 0) - 1;
+        const size_t start_idx = reader_args.size() - 3 * op.num_local_experts - (has_bias ? 3 : 0) - 2;
         reader_args[start_idx] = start_addr;
+        reader_args[start_idx + 1] = assignment_addr;
         if (has_bias) {
-            reader_args[start_idx + 1] = t.gate_bias->buffer()->address();
-            reader_args[start_idx + 2] = t.up_bias->buffer()->address();
-            reader_args[start_idx + 3] = t.down_bias->buffer()->address();
+            reader_args[start_idx + 2] = t.gate_bias->buffer()->address();
+            reader_args[start_idx + 3] = t.up_bias->buffer()->address();
+            reader_args[start_idx + 4] = t.down_bias->buffer()->address();
         }
-        const size_t weight_base = start_idx + 1 + (has_bias ? 3 : 0);
+        const size_t weight_base = start_idx + 2 + (has_bias ? 3 : 0);
         for (uint32_t expert = 0; expert < op.num_local_experts; ++expert) {
             reader_args[weight_base + expert] = t.gate_projs[expert].buffer()->address();
             reader_args[weight_base + op.num_local_experts + expert] = t.up_projs[expert].buffer()->address();
@@ -1088,8 +1142,9 @@ void UnifiedRoutedExpertFfnProgramFactory::override_runtime_arguments(
         writer_args[0] = out_addr;
         writer_args[3] = start_addr;
         writer_args[4] = up_addr;  // two-RISC up-weight read base address
+        writer_args[9] = assignment_addr;
         for (uint32_t expert = 0; expert < op.num_local_experts; ++expert) {
-            writer_args[9 + expert] = t.up_projs[expert].buffer()->address();
+            writer_args[10 + expert] = t.up_projs[expert].buffer()->address();
         }
     }
 }

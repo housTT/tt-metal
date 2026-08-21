@@ -84,6 +84,13 @@ struct UnifiedRoutedExpertFfnParams {
     // pre-fusion path for standalone / Wormhole callers.
     bool x_is_row_major = false;
 
+    // Top-k-native production mode. x remains the original [T,H] ROW_MAJOR
+    // activation; packed_assignment_ids maps each expert-region row to
+    // token*K+slot. The reader gathers x[token] and the writer scatters the
+    // BF8-rounded FFN result into a [T*K,H] ROW_MAJOR BF16 slot buffer.
+    bool assignment_indexed = false;
+    uint32_t topk = 0;
+
     // Per-expert FFN activation variant. Baked into the compute kernel as a
     // compile-time define, so each variant caches as a distinct program — hence
     // it is part of the program-cache key below.
@@ -105,6 +112,8 @@ struct UnifiedRoutedExpertFfnParams {
         "num_local_experts",
         "read_x_at_offset",
         "x_is_row_major",
+        "assignment_indexed",
+        "topk",
         "activation",
         "fuse_bias");
     auto attribute_values() const {
@@ -115,6 +124,8 @@ struct UnifiedRoutedExpertFfnParams {
             num_local_experts,
             read_x_at_offset,
             x_is_row_major,
+            assignment_indexed,
+            topk,
             activation,
             fuse_bias);
     }
@@ -148,6 +159,10 @@ struct UnifiedRoutedExpertFfnInputs {
     // buffer) at start[global_id]/TILE tile-rows, fusing the ttnn::insert step.
     // Requires optional_output to also be set.
     std::optional<Tensor> expert_region_offsets;
+    // Expert-major assignment vector produced by the native planner. Required
+    // exactly when assignment_indexed=true. Valid rows contain token*K+slot;
+    // padded rows contain UINT32_MAX and are never read by the writer.
+    std::optional<Tensor> packed_assignment_ids;
     // Optional per-expert projection biases (gpt-oss). All three are present or
     // all absent (validated host-side). gate_bias/up_bias are (1, N=hidden);
     // down_bias is (1, N=emb). When set, the fused kernel adds gate/up bias

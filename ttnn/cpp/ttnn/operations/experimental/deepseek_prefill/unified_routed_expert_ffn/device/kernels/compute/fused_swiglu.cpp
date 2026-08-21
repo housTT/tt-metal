@@ -57,6 +57,7 @@
 
 #include "api/compute/compute_kernel_hw_startup.h"
 #include "api/compute/matmul.h"
+#include "api/compute/pack_untilize.h"
 #include "api/compute/eltwise_binary.h"
 #include "api/compute/tile_move_copy.h"
 #include "api/compute/tilize.h"
@@ -102,14 +103,16 @@ template <
     uint32_t d_per_core_N = 0,
     // K-tiles to reduce in the LAST block. Defaults to the full width (no-op);
     // the down phase passes the real count so it skips tail padding tiles.
-    uint32_t last_block_w = in0_block_w>
+    uint32_t last_block_w = in0_block_w,
+    bool assignment_output = false>
 FORCE_INLINE void matmul_phase(
     uint32_t in0_cb_id,
     uint32_t in1_cb_id,
     uint32_t partials_cb_id,
     uint32_t final_cb_id,
     uint32_t m_subblocks,
-    uint32_t down_bias_cb_id = 0) {
+    uint32_t down_bias_cb_id = 0,
+    uint32_t out_rm_cb_id = 0) {
     // The DOWN matmul keeps a FULL compile-time-MAX per_core_M ring. Its
     // PACKER_L1_ACC discipline drains the partials ring every K-block and relies
     // on push==drain==out_block_num_tiles so the write pointer wraps back to
@@ -154,6 +157,7 @@ FORCE_INLINE void matmul_phase(
     CircularBuffer in1_cb(in1_cb_id);
     CircularBuffer partials_cb(partials_cb_id);
     CircularBuffer final_cb(final_cb_id);
+    CircularBuffer out_rm_cb(out_rm_cb_id);
 
     for (uint32_t block = 0; block < num_blocks; ++block) {
         in0_cb.wait_front(in0_block_num_tiles);
@@ -261,6 +265,13 @@ FORCE_INLINE void matmul_phase(
 #endif
 
     for (uint32_t sb = 0; sb < (EFF_OUT / out_subblock_num_tiles); ++sb) {
+        if constexpr (assignment_output) {
+            // pack_untilize reprograms unpack/pack state. Restore the BF16
+            // partials -> BF8 final copy at every subblock boundary before
+            // quantizing the next result.
+            pack_reconfig_data_format(final_cb_id);
+            copy_tile_to_dst_init_short_with_dt(in1_cb_id, partials_cb_id);
+        }
         tile_regs_acquire();
         partials_cb.wait_front(out_subblock_num_tiles);
         for (uint32_t i = 0; i < out_subblock_num_tiles; ++i) {
@@ -288,6 +299,22 @@ FORCE_INLINE void matmul_phase(
         final_cb.push_back(out_subblock_num_tiles);
 
         tile_regs_release();
+
+        if constexpr (assignment_output) {
+            // Preserve the accepted precision point exactly: the down result
+            // has already packed to BF8 in final_cb. Pack-untilize widens those
+            // rounded values to 32 ROW_MAJOR BF16 hidden-column segments for
+            // assignment-addressed writes; it never exposes unrounded partials.
+            static_assert(out_subblock_h == 1);
+            final_cb.wait_front(out_subblock_num_tiles);
+            out_rm_cb.reserve_back(32);
+            reconfig_data_format(final_cb_id, final_cb_id);
+            pack_untilize_init<out_subblock_w, out_subblock_w>(final_cb_id, out_rm_cb_id);
+            pack_untilize_block<out_subblock_w, out_subblock_w>(final_cb_id, 1, out_rm_cb_id);
+            out_rm_cb.push_back(32);
+            final_cb.pop_front(out_subblock_num_tiles);
+            pack_untilize_uninit(out_rm_cb_id);
+        }
     }
 }
 
@@ -762,6 +789,7 @@ void kernel_main() {
     // for any dims (the reader still zero-fills those tiles).
     constexpr uint32_t d_K_down_tiles = get_compile_time_arg_val(34);
     constexpr uint32_t num_local_experts = get_compile_time_arg_val(35);
+    constexpr uint32_t assignment_output = get_compile_time_arg_val(36);
     constexpr uint32_t d_last_block_w = (d_K_down_tiles > (d_num_blocks - 1) * d_in0_block_w)
                                             ? d_K_down_tiles - (d_num_blocks - 1) * d_in0_block_w
                                             : d_in0_block_w;
@@ -779,6 +807,7 @@ void kernel_main() {
     constexpr uint32_t cb_partials_up = get_named_compile_time_arg_val("cb_mm_partials_up");
     constexpr uint32_t cb_partials_d = get_named_compile_time_arg_val("cb_mm_partials_d");
     constexpr uint32_t cb_out = get_named_compile_time_arg_val("cb_out");
+    constexpr uint32_t cb_out_rm = get_named_compile_time_arg_val("cb_out_rm");
     constexpr uint32_t cb_counts_scratch = get_named_compile_time_arg_val("cb_counts_scratch");
     constexpr uint32_t cb_idx_scratch = get_named_compile_time_arg_val("cb_idx_scratch");
     // Row-major bf16 x staging (x_is_row_major only); tilize input CB. Unused
@@ -944,8 +973,15 @@ void kernel_main() {
                 d_out_block_num_tiles,
                 /*apply_silu_on_final=*/false,
                 /*d_per_core_N=*/d_in1_per_core_w,
-                /*last_block_w=*/d_last_block_w>(
-                cb_in0_down_full, cb_in1_down, cb_partials_d, cb_out, /*m_subblocks=*/re_m_valid, cb_down_bias);
+                /*last_block_w=*/d_last_block_w,
+                /*assignment_output=*/assignment_output != 0>(
+                cb_in0_down_full,
+                cb_in1_down,
+                cb_partials_d,
+                cb_out,
+                /*m_subblocks=*/re_m_valid,
+                cb_down_bias,
+                cb_out_rm);
         }  // end chunk loop
     }  // end local-expert loop
 }
