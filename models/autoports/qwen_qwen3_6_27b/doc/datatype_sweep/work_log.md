@@ -182,4 +182,4 @@ capacity, non-aligned/token-out/qualitative gates, AutoFix evidence, and both
 Pareto plots. The local checkpoint SHA is recorded below. No push will be
 performed.
 
-Primary stage checkpoint: pending
+Primary stage checkpoint: `2d494f6d253` (`Add Qwen3.6 datatype sweep policy`).
