@@ -9,10 +9,17 @@ stack, real checkpoint weights, the AIME24 chat-template readiness reference and
 
 ## 1. The selected config
 
-[`selected_precision_config.json`](selected_precision_config.json) — **`C06-proj-bfp4-lofi`**. It is
-the model's **default**: `OrnithModel.from_pretrained` resolves `policy=None` through
-[`tt/precision_config.py`](../../tt/precision_config.py), which loads that file. There is no second
-copy of the selected values in code, and no call site has to ask for them.
+**Current default:** [`selected_precision_config.json`](selected_precision_config.json) now selects
+**`C25-prefill-sdpa-qk128`**. The later
+[prefill-throughput optimization](../prefill_optimization/README.md) retains every C06 arithmetic,
+KV-cache and sampling choice and changes only `prefill.sdpa_q_k_chunk` from 256 to 128. Gathered MoE
+remains opt-in through `ORNITH_MOE_GATHER=1`; it is not part of the environment-free precision
+default.
+
+The datatype sweep originally selected **`C06-proj-bfp4-lofi`**, establishing the arithmetic policy
+documented below. `OrnithModel.from_pretrained` resolves `policy=None` through
+[`tt/precision_config.py`](../../tt/precision_config.py), which loads the current selected file.
+There is no second copy of the selected values in code, and no call site has to request them.
 
 | group | weights | math fidelity | changed by this stage |
 |---|---|---|---|
