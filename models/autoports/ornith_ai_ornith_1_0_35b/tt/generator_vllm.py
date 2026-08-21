@@ -54,6 +54,7 @@ from __future__ import annotations
 import atexit
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -161,6 +162,78 @@ def _gathered_moe_prefill_capability(model) -> dict:
     }
 
 
+def _topk_native_moe_prefill_capability(model) -> dict:
+    """Aggregate stable runtime proof from every live layer's native top-k MoE object."""
+
+    layers = list(getattr(model, "layers", ()))
+    layer_indices = list(getattr(model, "layer_indices", range(len(layers))))
+    expected_layers = int(getattr(getattr(model, "cfg", None), "num_hidden_layers", 40))
+    rows = []
+    for ordinal, layer in enumerate(layers):
+        moe = getattr(layer, "moe", None)
+        status_fn = getattr(moe, "topk_native_status", None)
+        if callable(status_fn):
+            raw = dict(status_fn())
+        else:
+            raw = {
+                "selected": False,
+                "weights_loaded": False,
+                "ready": False,
+                "enabled": False,
+                "refusal": "layer has no topk_native_status() capability state",
+                "calls": 0,
+                "fallbacks": 0,
+                "layer_calls": 0,
+                "subchunks": 0,
+            }
+        rows.append(
+            {
+                "layer_index": int(layer_indices[ordinal] if ordinal < len(layer_indices) else ordinal),
+                "selected": bool(raw.get("selected", False)),
+                "weights_loaded": bool(raw.get("weights_loaded", False)),
+                "ready": bool(raw.get("ready", False)),
+                "enabled": bool(raw.get("enabled", False)),
+                "refusal": None if raw.get("refusal") is None else str(raw.get("refusal")),
+                "calls": int(raw.get("calls", 0)),
+                "fallbacks": int(raw.get("fallbacks", 0)),
+                "layer_calls": int(raw.get("layer_calls", 0)),
+                "subchunks": int(raw.get("subchunks", 0)),
+            }
+        )
+
+    total_layers = len(rows)
+    inventory_complete = total_layers == expected_layers
+    refusal_reasons = sorted({row["refusal"] for row in rows if row["refusal"] is not None})
+    if not inventory_complete:
+        refusal_reasons.append(f"live layer inventory is {total_layers}/{expected_layers}")
+    selected_layers = sum(int(row["selected"]) for row in rows)
+    weights_loaded_layers = sum(int(row["weights_loaded"]) for row in rows)
+    ready_layers = sum(int(row["ready"]) for row in rows)
+    enabled_layers = sum(int(row["enabled"]) for row in rows)
+    return {
+        "schema": "ornith-topk-native-moe-prefill/1",
+        "selected": total_layers > 0 and selected_layers == total_layers,
+        "weights_loaded": total_layers > 0 and weights_loaded_layers == total_layers,
+        "ready_layers": ready_layers,
+        "total_layers": total_layers,
+        "expected_layers": expected_layers,
+        "enabled": inventory_complete and total_layers > 0 and enabled_layers == total_layers,
+        "refusal": None if not refusal_reasons else "; ".join(refusal_reasons),
+        "calls": sum(row["calls"] for row in rows),
+        "fallbacks": sum(row["fallbacks"] for row in rows),
+        "layer_calls": sum(row["layer_calls"] for row in rows),
+        "subchunks": sum(row["subchunks"] for row in rows),
+        "selected_layers": selected_layers,
+        "weights_loaded_layers": weights_loaded_layers,
+        "enabled_layers": enabled_layers,
+        "calls_per_layer": [row["calls"] for row in rows],
+        "fallbacks_per_layer": [row["fallbacks"] for row in rows],
+        "per_layer_layer_calls": [row["layer_calls"] for row in rows],
+        "per_layer_subchunks": [row["subchunks"] for row in rows],
+        "layers": rows,
+    }
+
+
 def _resolve_snapshot(hf_config) -> Any:
     """The local checkpoint directory, from the environment the server was launched with."""
     for key in ("MODEL_WEIGHTS_DIR", "HF_MODEL"):
@@ -204,6 +277,7 @@ class TTQwen3_5MoeForConditionalGeneration:
         "supports_prefix_caching": False,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
+        "supports_batched_prefill": True,
     }
 
     # ------------------------------------------------------------------ construction
@@ -263,6 +337,11 @@ class TTQwen3_5MoeForConditionalGeneration:
         #: What :meth:`_apply_decode_sampling` last pushed to the device, so an unchanged serving
         #: batch does not rebuild and re-copy the sampler's parameter tensors every token.
         self._last_sampling_key: tuple | None = None
+        #: Stable process identity plus monotonic report sequence let an acceptance harness prove
+        #: that warm-up and final counters came from the same live engine rather than two reports
+        #: that merely describe the same configuration.
+        self._runtime_session_id = uuid.uuid4().hex
+        self._capability_snapshot_seq = 0
 
     def _text_config(self):
         return getattr(self.hf_config, "text_config", self.hf_config)
@@ -603,37 +682,31 @@ class TTQwen3_5MoeForConditionalGeneration:
         )
         started = time.perf_counter()
         entries = self.mesh_device.num_program_cache_entries()
+        grouped_batches = [batch for batch in self.model.DEVICE_PREFILL_BATCHES if batch <= self.max_batch_size]
         for length in lengths:
-            tokens = torch.ones(1, length, dtype=torch.int32)
-            before = self.mesh_device.num_program_cache_entries()
-            gen.prefill_requests_into_slots(
-                tokens,
-                [length],
-                [0],
-                page_table=table,
-                kv_cache=kv_cache,
-                sample_on_device=False,
-                ensure_traces=False,
-            )
-            logger.info(
-                f"warm-up: prefill {length} token(s) compiled "
-                f"{self.mesh_device.num_program_cache_entries() - before} program(s)"
-            )
-        if self.max_batch_size > 1:
-            # A continuation restores its recurrent row from the persistent decode pack before it
-            # resumes. Compile that slice/copy path before decode trace capture, just like the eager
-            # prefill programs above, so the first interleaved long prompt does not discover it while
-            # a captured trace is live and force an otherwise avoidable re-capture.
-            before = self.mesh_device.num_program_cache_entries()
-            # Slice program hashes include their static begin/end coordinates, so warming slot 0
-            # alone does not cover a request assigned slot 1..B-1. Shapes deduplicate across layers;
-            # coordinates do not. Exercise every serving slot before capture.
-            for slot in range(self.max_batch_size):
-                self.model._restore_prefill_state_from_slot(slot, force=True)
-            logger.info(
-                f"warm-up: prefill restore for {self.max_batch_size} slot(s) compiled "
-                f"{self.mesh_device.num_program_cache_entries() - before} program(s)"
-            )
+            # Preserve the established B1 coverage of every physical tail. Grouped serving is
+            # compiled at the largest configured shape (2048 in production); any later B2/B4 tail
+            # remains supported, and the generator's program-cache guard safely recaptures decode
+            # before replay if that new shape compiles a program. Compiling every tail at all three
+            # batches would triple an already substantial server start-up with no batch-8 sweep
+            # benefit.
+            physical_batches = [1, *grouped_batches] if length == lengths[0] else [1]
+            for batch in physical_batches:
+                tokens = torch.ones(batch, length, dtype=torch.int32)
+                before = self.mesh_device.num_program_cache_entries()
+                gen.prefill_requests_into_slots(
+                    tokens,
+                    [length] * batch,
+                    list(range(batch)),
+                    page_table=table[:batch],
+                    kv_cache=kv_cache,
+                    sample_on_device=False,
+                    ensure_traces=False,
+                )
+                logger.info(
+                    f"warm-up: physical batch {batch} x {length} token(s) compiled "
+                    f"{self.mesh_device.num_program_cache_entries() - before} program(s)"
+                )
         shortest = lengths[-1]
         if can_sample_on_device:
             tokens = torch.ones(1, shortest, dtype=torch.int32)
@@ -658,6 +731,7 @@ class TTQwen3_5MoeForConditionalGeneration:
         # inherits it.
         gen.reset()
         self._reset_serving_state()
+        self.model.reset_prefill_batching_runtime()
 
     def warmup_model_decode(
         self,
@@ -1103,9 +1177,14 @@ class TTQwen3_5MoeForConditionalGeneration:
     def serving_capability(self) -> dict:
         """What this serving build actually is. Written to the stage's evidence."""
         gen = self.generator
+        self._capability_snapshot_seq += 1
         capability = self.model.capability()
         capability["gathered_moe_prefill"] = _gathered_moe_prefill_capability(self.model)
+        capability["topk_native_moe_prefill"] = _topk_native_moe_prefill_capability(self.model)
         report = {
+            "runtime_evidence_schema": "ornith-prefill-runtime-evidence/1",
+            "runtime_session_id": self._runtime_session_id,
+            "snapshot_seq": self._capability_snapshot_seq,
             "adapter": type(self).__name__,
             "architecture": "TTQwen3_5MoeForConditionalGeneration",
             "max_model_len": self.max_model_len,

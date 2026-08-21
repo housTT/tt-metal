@@ -374,6 +374,11 @@ class _CheckpointReader:
 class OrnithModel(LightweightModule):
     """The whole Ornith-1.0-35B text model on one TTNN mesh."""
 
+    #: Physical request batches with dedicated eager-prefill state packs.  These are deliberately
+    #: small: B=2/B=4 are the measured serving targets, while larger concurrency is decomposed into
+    #: multiple physical groups and decode continues to use ``max_batch_size``.
+    DEVICE_PREFILL_BATCHES = (2, 4)
+
     def __init__(
         self,
         mesh_device,
@@ -478,11 +483,18 @@ class OrnithModel(LightweightModule):
             )
 
         self.max_batch_size = None
-        self._packs: dict[int, list[dict]] = {}
-        self._active_pack: int | None = None
-        # Which persistent decode slot the shared batch-1 prefill pack mirrors. A partial prefill
-        # keeps this pack as its authority while other decode rows run: inactive decode rows still
-        # execute DeltaNet and therefore cannot safely hold a paused prompt on their own.
+        # Recurrent state used by a prefill must not alias the state used by the captured decode
+        # graph, including when both have the same physical batch.  Keys therefore include the
+        # purpose as well as the batch: ("prefill", 4) and ("decode", 4) are distinct allocations.
+        # Batch 1 retains its historical shared allocation only for a max-batch-1 deployment, where
+        # there is no concurrent request whose decode could advance an idle row.
+        self._packs: dict[tuple, list[dict]] = {}
+        self._active_pack: tuple | None = None
+        # Which persistent decode slots each prefill pack mirrors. A partial prefill keeps its pack
+        # as the authority while another request decodes: inactive decode rows still execute
+        # DeltaNet and therefore cannot safely hold a paused prompt on their own.  The batch-1 alias
+        # is kept for the existing serving-state tests and single-request helpers.
+        self._prefill_pack_slots: dict[tuple[int, int], tuple[int | None, ...] | None] = {}
         self._prefill_pack_slot: int | None = None
         # Serving-prefill metadata buffers. They are allocated as part of allocate_state(), before
         # a generator can capture decode, and then refreshed in place once per scheduler chunk.
@@ -490,7 +502,8 @@ class OrnithModel(LightweightModule):
         # all absolute offsets reuse the same row for a given shape.
         self._prefill_position_rows: dict[int, object] = {}
         self._prefill_chunk_start = None
-        self._prefill_fill_page_table = None
+        self._prefill_fill_page_tables: dict[int, object] = {}
+        self._prefill_fill_page_table = None  # compatibility alias for the batch-1 staging row
         self.kv_cache = None
         self.num_blocks = None
 
@@ -525,6 +538,50 @@ class OrnithModel(LightweightModule):
             #: not counted here.
             "decode_syncs": 0,
         }
+        self.reset_prefill_batching_runtime()
+
+    def reset_prefill_batching_runtime(self) -> None:
+        """Reset traffic counters after compile warm-up, without changing model state."""
+
+        self.prefill_batching_runtime = {
+            "device_invocations": 0,
+            "batched_device_invocations": 0,
+            "grouped_chunks": 0,
+            "grouped_users": 0,
+            "physical_batch_histogram": {},
+            "logical_users": 0,
+            "logical_tokens": 0,
+            "migrated_continuations": 0,
+            "migrated_users": 0,
+            "fallback_invocations": 0,
+            "fallback_reasons": {},
+        }
+
+    def _record_prefill_device_invocation(self, batch: int, logical_tokens_per_user: int) -> None:
+        """Record one actual embedding-to-layer-stack device invocation."""
+
+        batch = int(batch)
+        logical_tokens_per_user = int(logical_tokens_per_user)
+        runtime = self.prefill_batching_runtime
+        runtime["device_invocations"] += 1
+        runtime["logical_users"] += batch
+        runtime["logical_tokens"] += batch * logical_tokens_per_user
+        key = str(batch)
+        histogram = runtime["physical_batch_histogram"]
+        histogram[key] = int(histogram.get(key, 0)) + 1
+        if batch > 1:
+            runtime["batched_device_invocations"] += 1
+            runtime["grouped_chunks"] += 1
+            runtime["grouped_users"] += batch
+
+    def record_prefill_fallback(self, reason: str, invocations: int = 1) -> None:
+        """Record serial device calls selected instead of one eligible grouped call."""
+
+        invocations = int(invocations)
+        runtime = self.prefill_batching_runtime
+        runtime["fallback_invocations"] += invocations
+        reasons = runtime["fallback_reasons"]
+        reasons[str(reason)] = int(reasons.get(str(reason), 0)) + invocations
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -802,7 +859,14 @@ class OrnithModel(LightweightModule):
         }
         self._prefill_chunk_start = upload(torch.zeros(1, dtype=torch.int32), ttnn.int32)
         blocks_per_chunk = self.prefill_chunk // self.page_block_size
-        self._prefill_fill_page_table = upload(torch.zeros(1, blocks_per_chunk, dtype=torch.int32), ttnn.int32)
+        staging_batches = sorted(
+            {1, *(batch for batch in self.DEVICE_PREFILL_BATCHES if batch <= int(self.max_batch_size or 1))}
+        )
+        self._prefill_fill_page_tables = {
+            batch: upload(torch.zeros(batch, blocks_per_chunk, dtype=torch.int32), ttnn.int32)
+            for batch in staging_batches
+        }
+        self._prefill_fill_page_table = self._prefill_fill_page_tables[1]
 
     def _prefill_chunk_host_inputs(self, host_page_table, *, start_pos: int, logical_len: int):
         """Build the three fixed-shape host values copied into prefill staging buffers.
@@ -832,8 +896,14 @@ class OrnithModel(LightweightModule):
         table = torch.as_tensor(host_page_table).to(torch.int32)
         if table.dim() == 1:
             table = table.unsqueeze(0)
-        if table.dim() != 2 or int(table.shape[0]) != 1:
-            raise ValueError(f"offset-stable prefill stages exactly one page-table row, got {tuple(table.shape)}")
+        if table.dim() != 2:
+            raise ValueError(f"offset-stable prefill needs a rank-2 page table, got {tuple(table.shape)}")
+        batch = int(table.shape[0])
+        if batch not in self._prefill_fill_page_tables:
+            raise ValueError(
+                f"no persistent prefill staging for physical batch {batch}; "
+                f"allocated batches are {sorted(self._prefill_fill_page_tables)}"
+            )
 
         physical_len = min(self.prefill_chunk, _align_up(logical_len, MC.PREFILL_ALIGN))
         block0 = start_pos // self.page_block_size
@@ -847,7 +917,7 @@ class OrnithModel(LightweightModule):
 
         positions = torch.arange(start_pos, start_pos + physical_len, dtype=torch.int32).reshape(1, physical_len)
         chunk_start = torch.tensor([start_pos], dtype=torch.int32)
-        fill_page_table = torch.zeros(1, self.prefill_chunk // self.page_block_size, dtype=torch.int32)
+        fill_page_table = torch.zeros(batch, self.prefill_chunk // self.page_block_size, dtype=torch.int32)
         fill_page_table[:, :used_blocks] = table[:, block0:block1]
         return positions, chunk_start, fill_page_table, physical_len
 
@@ -888,12 +958,19 @@ class OrnithModel(LightweightModule):
                 mesh_mapper=mapper,
             )
 
+        batch = int(fill_page_table.shape[0])
+        fill_buffer = self._prefill_fill_page_tables.get(batch)
+        if fill_buffer is None:
+            raise ValueError(
+                f"no persistent prefill staging for physical batch {batch}; "
+                f"allocated batches are {sorted(self._prefill_fill_page_tables)}"
+            )
         ttnn.copy_host_to_device_tensor(host_tensor(positions, ttnn.uint32), position_buffer)
         ttnn.copy_host_to_device_tensor(host_tensor(chunk_start, ttnn.int32), self._prefill_chunk_start)
-        ttnn.copy_host_to_device_tensor(host_tensor(fill_page_table, ttnn.int32), self._prefill_fill_page_table)
+        ttnn.copy_host_to_device_tensor(host_tensor(fill_page_table, ttnn.int32), fill_buffer)
         return PrefillChunkInputs(
             full_page_table=page_table,
-            fill_page_table=self._prefill_fill_page_table,
+            fill_page_table=fill_buffer,
             position_idxs=position_buffer,
             chunk_start_idx_tensor=self._prefill_chunk_start,
             start_pos=int(start_pos),
@@ -903,30 +980,27 @@ class OrnithModel(LightweightModule):
     def allocate_state(self, max_batch_size: int):
         """Allocate the per-batch decoder state for both the prefill and the decode batch.
 
-        Prefill runs **one user at a time at batch 1** and decode runs at ``max_batch_size``. Two
-        reasons, both structural rather than convenient:
-
-        * a ``linear_attention`` layer's DeltaNet state is per-row and recurrent, so a batch of
-          mixed-length prompts cannot be right-padded into one call — the pad tokens would advance
-          the short users' state — and cannot be left-padded either, because ``full_attention``
-          RoPE positions are absolute. Per-user prefill is what the paged/recurrent split allows;
-        * ``ttnn.conv1d``'s prepared weights depend on the batch, and its coverage *shrinks* as the
-          batch grows: at batch 1 every prefill block length gets a conv program and at batch 32
-          none do. Prefilling at batch 1 is therefore also the faster path.
-
-        Both packs are built here, at setup, so a forward never reallocates and a captured trace's
-        buffer addresses stay valid.
+        Synchronized equal-length/equal-offset requests use dedicated B=2/B=4 prefill packs;
+        everything else retains the batch-1 path.  Every prefill pack is separate from the decode
+        pack, even when their physical batches match, because decode advances inactive DeltaNet rows
+        and would otherwise overwrite a paused continuation.  All packs are built here, at setup,
+        so a forward never reallocates and a captured trace's buffer addresses stay valid.
         """
         max_batch_size = int(max_batch_size)
         if max_batch_size < 1 or max_batch_size > MAX_SAMPLING_BATCH:
             raise ValueError(f"max_batch_size {max_batch_size} must be in [1, {MAX_SAMPLING_BATCH}]")
         self.max_batch_size = max_batch_size
         self._packs = {}
+        self._prefill_pack_slots = {}
         self._prefill_pack_slot = None
-        for batch in dict.fromkeys((1, max_batch_size)):
+
+        def allocate_pack(key: tuple, batch: int, *, immutable_from: tuple | None = None) -> None:
+            if immutable_from is not None:
+                self._packs[key] = [self._clone_pack_mutable_state(shared) for shared in self._packs[immutable_from]]
+                return
             for layer in self.layers:
                 layer.allocate_state(batch)
-            self._packs[batch] = [self._capture_pack(layer) for layer in self.layers]
+            self._packs[key] = [self._capture_pack(layer) for layer in self.layers]
             # `MultichipDecoder.allocate_state` frees the conv1d weights and the paged-fill row
             # indices it finds on the layer before building the new ones, so the pack just captured
             # has to be detached from the layer or the *next* batch's allocation would free the
@@ -935,11 +1009,43 @@ class OrnithModel(LightweightModule):
             for layer in self.layers:
                 layer.w["conv1d_weights"] = {}
                 layer.batch_idxs = None
+
+        prefill_batches = sorted({1, *(batch for batch in self.DEVICE_PREFILL_BATCHES if batch <= max_batch_size)})
+        wave_lanes = max(1, (max_batch_size + 3) // 4)
+        lane_counts = {
+            # A B4 wave can shrink first to B2+B1 and later from B2 to B1 after preemption. Keep
+            # enough smaller packs for both branches without ever restoring from an advanced decode
+            # row. Same-batch lanes clone only mutable state, so prepared conv weights stay shared.
+            1: min(max_batch_size, 2 * wave_lanes),
+            2: wave_lanes,
+            4: wave_lanes,
+        }
+        for batch in prefill_batches:
+            # Greedy B4/B2/B1 decomposition can use several B4 waves in one scheduler call (for
+            # example concurrency 8). Smaller lanes are migration destinations when an established
+            # wave loses members between scheduler steps.
+            lanes = lane_counts[batch]
+            for lane in range(lanes):
+                key = ("prefill", batch) if lane == 0 else ("prefill", batch, lane)
+                canonical = ("prefill", batch) if lane else None
+                allocate_pack(key, batch, immutable_from=canonical)
+                self._prefill_pack_slots[(batch, lane)] = None
+        if max_batch_size == 1:
+            # No other row can decode while the only request is paused, so preserving the original
+            # shared batch-1 allocation avoids adding a state copy to the latency baseline.
+            self._packs[("decode", 1)] = self._packs[("prefill", 1)]
+        else:
+            same_batch_prefill = ("prefill", max_batch_size)
+            allocate_pack(
+                ("decode", max_batch_size),
+                max_batch_size,
+                immutable_from=(same_batch_prefill if same_batch_prefill in self._packs else None),
+            )
         self._share_fused_gate_buffers()
         self._prebuild_slot_masks(max_batch_size)
         self._allocate_prefill_staging()
-        self._active_pack = max_batch_size
-        self._apply_pack(max_batch_size)
+        self._active_pack = None
+        self._apply_pack(max_batch_size, purpose="decode")
 
     def _prebuild_slot_masks(self, max_batch_size: int):
         """Build every per-slot merge mask here, at setup, rather than lazily at first use.
@@ -952,10 +1058,12 @@ class OrnithModel(LightweightModule):
         catch it (``_merge_rows`` compiles programs too, so the program cache moves), but that is a
         side effect of another op's compilation, not a guarantee about these tensors.
         """
-        if max_batch_size <= 1:
-            return
-        for slot in range(max_batch_size):
-            self._slot_mask(slot, max_batch_size)
+        batches = {int(max_batch_size), *(key[0] for key in self._prefill_pack_slots)}
+        for batch in sorted(batches):
+            if batch <= 1:
+                continue
+            for slot in range(batch):
+                self._slot_mask(slot, batch)
 
     def _share_fused_gate_buffers(self):
         """One set of fused-router-gate buffers for the whole stack instead of one per layer.
@@ -1017,29 +1125,69 @@ class OrnithModel(LightweightModule):
             "conv1d_lengths": list(layer.conv1d_lengths),
         }
 
-    def _apply_pack(self, batch: int) -> None:
-        for layer, pack in zip(self.layers, self._packs[batch]):
+    @staticmethod
+    def _clone_pack_mutable_state(canonical: dict) -> dict:
+        """Allocate a same-batch pack without preparing duplicate immutable tensors.
+
+        Prepared conv1d weights and full-attention batch indices depend only on physical batch, so
+        every same-batch lane can share them. Recurrent and convolution-history tensors are live
+        request state and must be independent. Building only those buffers avoids both the resident
+        duplicate and the expensive prepare-then-deallocate cycle for every accepted conv length.
+        """
+
+        recurrent = canonical.get("recurrent_state")
+        conv_state = canonical.get("conv_state")
+        return {
+            "batch_size": canonical["batch_size"],
+            "batch_idxs": canonical.get("batch_idxs"),
+            "recurrent_state": None if recurrent is None else ttnn.zeros_like(recurrent),
+            "conv_state": None if conv_state is None else [ttnn.zeros_like(buf) for buf in conv_state],
+            "conv1d_weights": canonical.get("conv1d_weights", {}),
+            "conv1d_lengths": list(canonical.get("conv1d_lengths", ())),
+        }
+
+    def _apply_pack(self, batch: int, *, purpose: str, pack_index: int = 0) -> None:
+        key = (
+            (str(purpose), int(batch))
+            if str(purpose) != "prefill" or int(pack_index) == 0
+            else (str(purpose), int(batch), int(pack_index))
+        )
+        if key not in self._packs:
+            raise ValueError(f"state pack {key} is not allocated; available packs are {sorted(self._packs)}")
+        for layer, pack in zip(self.layers, self._packs[key]):
             layer.batch_size = pack["batch_size"]
             layer.batch_idxs = pack["batch_idxs"]
             layer.recurrent_state = pack["recurrent_state"]
             layer.conv_state = pack["conv_state"]
             layer.w["conv1d_weights"] = pack["conv1d_weights"]
             layer.conv1d_lengths = list(pack["conv1d_lengths"])
-        self._active_pack = batch
+        self._active_pack = key
 
-    def _use_pack(self, batch: int) -> None:
-        if self._active_pack != batch:
-            self._apply_pack(batch)
+    def _use_pack(self, batch: int, *, purpose: str = "decode", pack_index: int = 0) -> None:
+        key = (
+            (str(purpose), int(batch))
+            if str(purpose) != "prefill" or int(pack_index) == 0
+            else (str(purpose), int(batch), int(pack_index))
+        )
+        if self._active_pack != key:
+            self._apply_pack(batch, purpose=purpose, pack_index=pack_index)
 
     def reset_state(self, *, zero_kv_cache: bool = True):
         """Wipe every per-prompt state: DeltaNet recurrent/conv rows in both packs, and the cache."""
         self.state_is_live = False
+        self._prefill_pack_slots = dict.fromkeys(self._prefill_pack_slots)
         self._prefill_pack_slot = None
-        for batch in self._packs:
-            self._apply_pack(batch)
+        seen = set()
+        for key, pack in self._packs.items():
+            # max-batch-1 intentionally aliases its prefill/decode pack.
+            identity = id(pack)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            self._apply_pack(key[1], purpose=key[0], pack_index=(key[2] if len(key) > 2 else 0))
             for layer in self.layers:
                 layer.reset_state()
-        self._apply_pack(self.max_batch_size)
+        self._apply_pack(self.max_batch_size, purpose="decode")
         if zero_kv_cache and self.kv_cache is not None:
             for entry in self.kv_cache:
                 for tensor in entry:
@@ -1346,8 +1494,9 @@ class OrnithModel(LightweightModule):
     def ttnn_prefill_forward(self, tokens_tt, *, start_pos: int, page_table=None):
         """One prefill chunk through embeddings and the layer stack. Device tensors only.
 
-        ``tokens_tt`` is ``[1, logical_len]`` uint32 ROW_MAJOR; the return is the replicated
-        residual ``[1, logical_len, dim]``.
+        ``tokens_tt`` is ``[batch, logical_len]`` uint32 ROW_MAJOR; the return is the replicated
+        residual ``[batch, logical_len, dim]``. Serving selects batch > 1 only for synchronized
+        rows with the same logical length and absolute start.
         """
         # DRAM interleaved, explicitly, because that is the decoder stage's inter-layer contract and
         # this op would otherwise *inherit* it: `ttnn.embedding` defaults its output memory config to
@@ -1356,8 +1505,11 @@ class OrnithModel(LightweightModule):
         # a caller happened to build its token tensor. Naming it here pins the contract instead.
         # (Tried and refuted as the cause of the 40-layer prefill L1 clash - see README section 5.2;
         # that was the per-layer router buffers.)
+        batch = int(tokens_tt.shape[0])
+        logical_len = int(tokens_tt.shape[-1])
+        self._record_prefill_device_invocation(batch, logical_len)
         x = ttnn.embedding(tokens_tt, self.embed_weight, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        x = ttnn.reshape(x, [1, int(tokens_tt.shape[-1]), self.dim])
+        x = ttnn.reshape(x, [batch, logical_len, self.dim])
         for layer in self.layers:
             nxt = layer.prefill_forward(x, start_pos=start_pos, page_table=page_table, chunk_size=self.prefill_chunk)
             ttnn.deallocate(x)
@@ -1372,6 +1524,7 @@ class OrnithModel(LightweightModule):
         start_pos: int = 0,
         return_all_logits: bool = False,
         return_logits=True,
+        pack_index: int = 0,
     ):
         """Prefill one user's prompt and return its logits.
 
@@ -1409,7 +1562,7 @@ class OrnithModel(LightweightModule):
         if start_pos % self.prefill_chunk:
             raise ValueError(f"start_pos {start_pos} must be a multiple of the prefill chunk {self.prefill_chunk}")
 
-        self._use_pack(1)
+        self._use_pack(1, purpose="prefill", pack_index=int(pack_index))
         self.state_is_live = True
         chunk = self.prefill_chunk
         all_logits = [] if return_all_logits else None
@@ -1465,6 +1618,309 @@ class OrnithModel(LightweightModule):
         if return_all_logits:
             return torch.cat(all_logits, dim=1)
         return last_logits
+
+    def prefill_forward_batched_into_slots(
+        self,
+        tokens,
+        *,
+        page_table,
+        slots,
+        start_pos: int = 0,
+        return_logits=True,
+        continue_from_state: bool = False,
+        pack_index: int = 0,
+    ):
+        """Run one synchronized B=2/B=4 serving chunk in a single model invocation.
+
+        Every row must cover the same token interval; callers enforce that admission invariant and
+        stage a batch-shaped :class:`PrefillChunkInputs`.  The dedicated prefill pack remains the
+        authority across an intervening decode step.  A continuation therefore requires the exact
+        same ordered serving-slot tuple at invocation time. The serving planner preserves an intact
+        wave or first migrates survivors by authoritative slot identity into a collision-free smaller
+        pack; a direct mismatch is refused because an inactive decode row has already advanced.
+
+        ``return_logits`` matches :meth:`prefill_forward_single`: ``"device"`` returns sampler-ready
+        logits with the B real rows at the front, and ``True`` returns host ``[B, 1, vocab]``.
+        """
+
+        import torch
+
+        tokens = torch.as_tensor(tokens)
+        if tokens.dim() != 2:
+            raise ValueError(f"grouped prefill tokens must be rank 2 [B, S], got {tuple(tokens.shape)}")
+        batch, logical_len = (int(tokens.shape[0]), int(tokens.shape[1]))
+        pack_index = int(pack_index)
+        pack_key = ("prefill", batch) if pack_index == 0 else ("prefill", batch, pack_index)
+        if batch not in self.DEVICE_PREFILL_BATCHES or pack_key not in self._packs:
+            raise ValueError(
+                f"grouped prefill batch {batch} is unsupported; allocated physical batches are "
+                f"{sorted({key[1] for key in self._packs if key[0] == 'prefill' and key[1] > 1})}"
+            )
+        if not 1 <= logical_len <= self.prefill_chunk:
+            raise ValueError(f"one grouped prefill call must carry 1..{self.prefill_chunk} tokens, got {logical_len}")
+        start_pos = int(start_pos)
+        if start_pos % self.prefill_chunk:
+            raise ValueError(f"grouped prefill start_pos {start_pos} must be a multiple of {self.prefill_chunk}")
+        if start_pos + logical_len > self.max_context:
+            raise ValueError(
+                f"grouped prefill window [{start_pos}, {start_pos + logical_len}) exceeds {self.max_context}"
+            )
+        slots = tuple(int(slot) for slot in slots)
+        if len(slots) != batch or len(set(slots)) != batch:
+            raise ValueError(f"grouped prefill batch {batch} needs {batch} unique slots, got {list(slots)}")
+        if any(slot < 0 or slot >= int(self.max_batch_size) for slot in slots):
+            raise ValueError(f"grouped prefill slots {list(slots)} are outside [0, {self.max_batch_size})")
+
+        if continue_from_state:
+            self._require_prefill_pack_binding(batch, pack_index, slots)
+            self._use_pack(batch, purpose="prefill", pack_index=pack_index)
+        else:
+            self._reset_prefill_pack(batch, pack_index=pack_index)
+            self._bind_prefill_pack(batch, pack_index, slots)
+
+        self.state_is_live = True
+        tokens_tt = ttnn.from_torch(
+            tokens.to(torch.int32).contiguous(),
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        )
+        hidden = self.ttnn_prefill_forward(tokens_tt, start_pos=start_pos, page_table=page_table)
+        ttnn.deallocate(tokens_tt)
+        owned = logical_len > 1
+        last = ttnn.slice(hidden, [0, logical_len - 1, 0], [batch, logical_len, self.dim]) if owned else hidden
+        rows = self._sampler_rows(last, batch)
+        normed = self._final_norm(rows)
+        device_logits = self._lm_head(normed)
+        ttnn.deallocate(normed)
+        if owned:
+            ttnn.deallocate(last)
+        ttnn.deallocate(hidden)
+        self._merge_prefill_state_into_slots(slots, batch, pack_index=pack_index)
+        self._use_pack(self.max_batch_size, purpose="decode")
+
+        if return_logits == "device":
+            return device_logits
+        if return_logits is False:
+            ttnn.deallocate(device_logits)
+            return None
+        host = self._logits_to_host(device_logits)[:, :batch, :]
+        ttnn.deallocate(device_logits)
+        return host.transpose(0, 1).contiguous()
+
+    def _require_prefill_pack_binding(self, batch: int, pack_index: int, slots) -> None:
+        """Fail closed unless a continuation exactly matches its authoritative pack lanes.
+
+        A scheduler-side shrink or reorder cannot be repaired from the decode pack: fixed-batch
+        decode advances inactive DeltaNet rows.  Keeping this check independent of device work also
+        makes the preemption invariant directly testable on a host-only runner.
+        """
+
+        batch = int(batch)
+        pack_index = int(pack_index)
+        slots = tuple(int(slot) for slot in slots)
+        bound = self._prefill_pack_slots.get((batch, pack_index))
+        if bound == slots:
+            return
+        self.record_prefill_fallback("continuation_pack_mismatch")
+        raise RuntimeError(
+            f"grouped prefill batch {batch} lane {pack_index} is bound to slots {bound}, "
+            f"not continuation slots {slots}; refusing to restore from decode rows because "
+            "inactive rows advance during decode"
+        )
+
+    def _bind_prefill_pack(self, batch: int, pack_index: int, slots) -> None:
+        """Make one pack the exclusive continuation authority for its serving slots.
+
+        A slot can be reused by a fresh request after an older B1/B2/B4 request completes. Leaving
+        the older pack's tuple intact would let a later shrink accidentally pass an exact-slot check
+        against stale state. Claimed rows become holes in the previous tuple rather than erasing the
+        whole tuple: the untouched rows may still need to migrate into another smaller pack after an
+        abort split one physical wave into B2+B1.
+        """
+
+        batch = int(batch)
+        pack_index = int(pack_index)
+        slots = tuple(int(slot) for slot in slots)
+        authority_key = (batch, pack_index)
+        claimed = set(slots)
+        for key, bound in list(self._prefill_pack_slots.items()):
+            if key == authority_key or bound is None:
+                continue
+            updated = tuple(None if owner in claimed else owner for owner in bound)
+            if updated != bound:
+                self._prefill_pack_slots[key] = None if all(owner is None for owner in updated) else updated
+                if key == (1, 0) and self._prefill_pack_slots[key] is None:
+                    self._prefill_pack_slot = None
+        self._prefill_pack_slots[authority_key] = slots
+        if batch == 1:
+            if pack_index == 0:
+                self._prefill_pack_slot = slots[0]
+
+    @staticmethod
+    def _prefill_storage_key(batch: int, pack_index: int) -> tuple:
+        batch = int(batch)
+        pack_index = int(pack_index)
+        return ("prefill", batch) if pack_index == 0 else ("prefill", batch, pack_index)
+
+    def _prefill_sources_for_slots(self, slots) -> list[tuple[tuple[int, int], int]]:
+        """Return ``(authority key, source row)`` for each slot, rejecting ambiguity or loss."""
+
+        slots = tuple(int(slot) for slot in slots)
+        found: dict[int, tuple[tuple[int, int], int]] = {}
+        wanted = set(slots)
+        for key, bound in self._prefill_pack_slots.items():
+            if bound is None:
+                continue
+            for row, owner in enumerate(bound):
+                if owner is None or owner not in wanted:
+                    continue
+                if owner in found:
+                    self.record_prefill_fallback("ambiguous_continuation_authority")
+                    raise RuntimeError(f"serving slot {owner} is authoritative in both {found[owner][0]} and {key}")
+                found[owner] = (key, row)
+        missing = [slot for slot in slots if slot not in found]
+        if missing:
+            self.record_prefill_fallback("missing_continuation_authority", len(missing))
+            raise RuntimeError(
+                f"continuation slots {missing} have no live prefill-pack authority; refusing to restore "
+                "from decode rows because inactive rows advance during decode"
+            )
+        return [found[slot] for slot in slots]
+
+    def plan_prefill_continuation_groups(self, slots) -> list[tuple[tuple[int, ...], int, int]]:
+        """Preserve authority waves while planning a possibly shrunken continuation step.
+
+        The returned triples are ``(request indices, physical batch, pack lane)``. Full waves keep
+        their original pack and row order, even if vLLM presents the slots in a different order.
+        Shrunken waves greedily use smaller B2/B1 packs that are not the source of any other live
+        survivor. This is what makes B4->B2+B1 and B2->B1 safe without touching an advanced decode
+        row or overwriting the original B1 branch.
+        """
+
+        slots = tuple(int(slot) for slot in slots)
+        if not slots or len(set(slots)) != len(slots):
+            raise ValueError(f"continuation slots must be a non-empty unique sequence, got {list(slots)}")
+        sources = self._prefill_sources_for_slots(slots)
+        active = set(slots)
+
+        # The scheduler presents every live partial prefill on a continuation step. Rows absent here
+        # were aborted/preempted and become holes, while their device state stays intact long enough
+        # for the surviving rows from the same source pack to migrate below.
+        for key, bound in list(self._prefill_pack_slots.items()):
+            if bound is None:
+                continue
+            kept = tuple(owner if owner in active else None for owner in bound)
+            self._prefill_pack_slots[key] = None if all(owner is None for owner in kept) else kept
+            if key == (1, 0) and self._prefill_pack_slots[key] is None:
+                self._prefill_pack_slot = None
+
+        by_source: dict[tuple[int, int], list[tuple[int, int, int]]] = {}
+        for user, (slot, (key, source_row)) in enumerate(zip(slots, sources)):
+            by_source.setdefault(key, []).append((source_row, user, slot))
+        source_keys = set(by_source)
+        reserved: set[tuple[int, int]] = set()
+        plan: list[tuple[tuple[int, ...], int, int]] = []
+
+        for source_key, entries in by_source.items():
+            source_batch, source_lane = source_key
+            entries.sort(key=lambda item: item[0])
+            if len(entries) == source_batch and [row for row, _, _ in entries] == list(range(source_batch)):
+                users = tuple(user for _, user, _ in entries)
+                plan.append((users, source_batch, source_lane))
+                reserved.add(source_key)
+                continue
+
+            first = 0
+            while first < len(entries):
+                remaining = len(entries) - first
+                target_batch = 2 if remaining >= 2 and source_batch > 2 else 1
+                candidates = sorted(
+                    key
+                    for key in self._prefill_pack_slots
+                    if key[0] == target_batch and key not in source_keys and key not in reserved
+                )
+                if not candidates:
+                    self.record_prefill_fallback("no_migration_pack", remaining)
+                    raise RuntimeError(
+                        f"no free B{target_batch} prefill pack can preserve survivors of B{source_batch} "
+                        f"lane {source_lane}; live source packs are {sorted(source_keys)}"
+                    )
+                target_key = candidates[0]
+                stop = first + target_batch
+                plan.append((tuple(user for _, user, _ in entries[first:stop]), *target_key))
+                reserved.add(target_key)
+                first = stop
+        return plan
+
+    def prepare_prefill_pack_continuation(self, batch: int, pack_index: int, slots) -> bool:
+        """Select an exact pack or migrate authoritative rows into a smaller destination pack.
+
+        Returns ``True`` when device-side recurrent/conv state copies were required. The planner
+        guarantees the destination is not a source pack, so reset cannot destroy a row before it is
+        staged and copied.
+        """
+
+        batch = int(batch)
+        pack_index = int(pack_index)
+        slots = tuple(int(slot) for slot in slots)
+        target_key = (batch, pack_index)
+        if self._prefill_pack_slots.get(target_key) == slots:
+            self._use_pack(batch, purpose="prefill", pack_index=pack_index)
+            return False
+        sources = self._prefill_sources_for_slots(slots)
+        if any(source_key == target_key for source_key, _ in sources):
+            self.record_prefill_fallback("colliding_migration_pack", batch)
+            raise RuntimeError(f"destination prefill pack {target_key} is also a live migration source")
+
+        self._reset_prefill_pack(batch, pack_index=pack_index)
+        for target_row, (source_key, source_row) in enumerate(sources):
+            self._copy_prefill_state_row(source_key, source_row, target_key, target_row)
+        self._bind_prefill_pack(batch, pack_index, slots)
+        self._use_pack(batch, purpose="prefill", pack_index=pack_index)
+        runtime = self.prefill_batching_runtime
+        runtime["migrated_continuations"] += 1
+        runtime["migrated_users"] += batch
+        return True
+
+    def _copy_prefill_state_row(
+        self,
+        source_key: tuple[int, int],
+        source_row: int,
+        target_key: tuple[int, int],
+        target_row: int,
+    ) -> None:
+        """Copy one authoritative row, including every conv-history tap, between prefill packs."""
+
+        source_batch, source_lane = source_key
+        target_batch, target_lane = target_key
+        source = self._packs[self._prefill_storage_key(source_batch, source_lane)]
+        target = self._packs[self._prefill_storage_key(target_batch, target_lane)]
+        for src, dst in zip(source, target):
+            if src["recurrent_state"] is None:
+                continue
+            recurrent_row, recurrent_owned = self._state_row(src["recurrent_state"], source_row, source_batch)
+            try:
+                self._write_prefill_state_row(recurrent_row, dst["recurrent_state"], target_row, target_batch, "r")
+            finally:
+                if recurrent_owned:
+                    ttnn.deallocate(recurrent_row)
+            for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
+                conv_row, conv_owned = self._state_row(src_buf, source_row, source_batch)
+                try:
+                    self._write_prefill_state_row(conv_row, dst_buf, target_row, target_batch, "c")
+                finally:
+                    if conv_owned:
+                        ttnn.deallocate(conv_row)
+
+    def _write_prefill_state_row(self, row, destination, target_row: int, target_batch: int, kind: str) -> None:
+        if target_batch == 1:
+            ttnn.copy(row, destination)
+            return
+        axis = self._slot_axis(destination, target_batch)
+        self._merge_rows(row, destination, self._slot_mask(target_row, target_batch)[kind], target_batch, axis)
 
     #: Rows of hidden state pushed through the LM head at once on the all-logits path. 248320
     #: bfloat16 columns is ~0.5 MB of logits per row, so a full 2048-token chunk in one call would
@@ -1630,9 +2086,13 @@ class OrnithModel(LightweightModule):
             for u in range(batch)
         ]
 
-    def _reset_prefill_pack(self):
-        self._prefill_pack_slot = None
-        self._use_pack(1)
+    def _reset_prefill_pack(self, batch: int = 1, *, pack_index: int = 0):
+        batch = int(batch)
+        pack_index = int(pack_index)
+        self._prefill_pack_slots[(batch, pack_index)] = None
+        if batch == 1 and pack_index == 0:
+            self._prefill_pack_slot = None
+        self._use_pack(batch, purpose="prefill", pack_index=pack_index)
         for layer in self.layers:
             layer.reset_state()
 
@@ -1645,6 +2105,7 @@ class OrnithModel(LightweightModule):
         start_pos: int = 0,
         return_logits=True,
         continue_from_state: bool = False,
+        pack_index: int = 0,
     ):
         """Prefill **one** request and leave its state where the decode graph will read it.
 
@@ -1656,26 +2117,30 @@ class OrnithModel(LightweightModule):
         is the same reset/merge sequence the batched :meth:`prefill_forward` runs per user, exposed
         for the single-request path so the two cannot drift.
         """
+        pack_index = int(pack_index)
         if continue_from_state:
-            self._restore_prefill_state_from_slot(slot)
+            self._require_prefill_pack_binding(1, pack_index, (int(slot),))
+            self._use_pack(1, purpose="prefill", pack_index=pack_index)
         else:
-            self._reset_prefill_pack()
+            self._reset_prefill_pack(pack_index=pack_index)
         out = self.prefill_forward_single(
-            tokens, page_table=page_table, start_pos=start_pos, return_logits=return_logits
+            tokens,
+            page_table=page_table,
+            start_pos=start_pos,
+            return_logits=return_logits,
+            pack_index=pack_index,
         )
-        self._merge_prefill_state_into_slot(slot)
+        self._merge_prefill_state_into_slot(slot, pack_index=pack_index)
         self._use_pack(self.max_batch_size)
         return out
 
     def _restore_prefill_state_from_slot(self, slot: int, *, force: bool = False):
-        """Copy decode row ``slot`` into the shared batch-1 prefill state pack.
+        """Legacy low-level helper that copies decode row ``slot`` into the B1 prefill pack.
 
-        A serving prefill chunk always finishes by merging its batch-1 DeltaNet state into the
-        request's persistent decode slot. The batch-1 pack stays authoritative for that same slot
-        until another prefill replaces it; this matters because an interleaved fixed-batch decode
-        still advances inactive DeltaNet rows. When another prefill did replace the pack, restoring
-        from the slot makes continuation independent of that call ordering and is the inverse of
-        :meth:`_merge_prefill_state_into_slot`.
+        The vLLM serving path never uses this to resume a partial request: fixed-batch decode advances
+        inactive DeltaNet rows, so serving retains prefill-pack authority and migrates that exact
+        state when a wave shrinks. This inverse of :meth:`_merge_prefill_state_into_slot` remains for
+        the older one-request-at-a-time :meth:`prefill_forward` compatibility surface.
 
         The sliced rows are transient and deallocated before returning. Both destination packs were
         allocated during setup, so this changes their contents without changing any buffer address a
@@ -1688,23 +2153,23 @@ class OrnithModel(LightweightModule):
             raise ValueError(f"state slot {slot} is outside [0, {batch})")
         slot = int(slot)
         if not force and self._prefill_pack_slot == slot:
-            self._use_pack(1)
+            self._use_pack(1, purpose="prefill")
             return
         if batch == 1:
-            self._prefill_pack_slot = 0
-            self._use_pack(1)
+            self._bind_prefill_pack(1, 0, (0,))
+            self._use_pack(1, purpose="prefill")
             return
 
-        src_pack = self._packs[batch]
-        dst_pack = self._packs[1]
+        src_pack = self._packs[("decode", batch)]
+        dst_pack = self._packs[("prefill", 1)]
         for src, dst in zip(src_pack, dst_pack):
             if src["recurrent_state"] is None:
                 continue
             self._copy_state_slot(src["recurrent_state"], dst["recurrent_state"], slot, batch)
             for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
                 self._copy_state_slot(src_buf, dst_buf, slot, batch)
-        self._prefill_pack_slot = slot
-        self._use_pack(1)
+        self._bind_prefill_pack(1, 0, (slot,))
+        self._use_pack(1, purpose="prefill")
 
     def _copy_state_slot(self, src, dst, slot: int, batch: int):
         """Copy one slot of ``src`` into the same-shaped batch-1 ``dst`` buffer."""
@@ -1718,32 +2183,73 @@ class OrnithModel(LightweightModule):
         finally:
             ttnn.deallocate(row)
 
-    def _merge_prefill_state_into_slot(self, slot: int):
+    def _merge_prefill_state_into_slot(self, slot: int, *, pack_index: int = 0):
         """Copy the batch-1 prefill DeltaNet state into row ``slot`` of the decode-batch state.
 
         A no-op when the two packs are the same object (``max_batch_size == 1``), which is the
         batch-1 latency path this model is primarily tuned for.
         """
-        batch = self.max_batch_size
-        if batch == 1:
-            self._prefill_pack_slot = 0
-            return
-        import torch
+        self._merge_prefill_state_into_slots((int(slot),), 1, pack_index=int(pack_index))
 
-        mask = self._slot_mask(slot, batch)
-        src_pack = self._packs[1]
-        dst_pack = self._packs[batch]
+    def _merge_prefill_state_into_slots(self, slots, prefill_batch: int, *, pack_index: int = 0):
+        """Copy every row of one prefill pack into arbitrary persistent decode slots."""
+
+        decode_batch = int(self.max_batch_size)
+        prefill_batch = int(prefill_batch)
+        pack_index = int(pack_index)
+        slots = tuple(int(slot) for slot in slots)
+        if len(slots) != prefill_batch or len(set(slots)) != prefill_batch:
+            raise ValueError(f"prefill batch {prefill_batch} needs unique decode slots, got {list(slots)}")
+        if any(slot < 0 or slot >= decode_batch for slot in slots):
+            raise ValueError(f"decode slots {list(slots)} are outside [0, {decode_batch})")
+        if decode_batch == 1:
+            self._bind_prefill_pack(1, 0, (0,))
+            return
+
+        src_key = ("prefill", prefill_batch) if pack_index == 0 else ("prefill", prefill_batch, pack_index)
+        src_pack = self._packs[src_key]
+        dst_pack = self._packs[("decode", decode_batch)]
         for src, dst in zip(src_pack, dst_pack):
             if src["recurrent_state"] is None:
                 continue
-            for key in ("recurrent_state",):
-                self._merge_rows(src[key], dst[key], mask["r"], batch)
-            for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
-                # The slot axis is read off the *destination*: the batch-1 source has extent 1 on
-                # every candidate axis, so it cannot name the axis itself.
-                self._merge_rows(src_buf, dst_buf, mask["c"], batch, self._slot_axis(dst_buf, batch))
-        self._prefill_pack_slot = int(slot)
-        del torch
+            for source_row, slot in enumerate(slots):
+                mask = self._slot_mask(slot, decode_batch)
+                recurrent_row, recurrent_owned = self._state_row(src["recurrent_state"], source_row, prefill_batch)
+                try:
+                    self._merge_rows(recurrent_row, dst["recurrent_state"], mask["r"], decode_batch)
+                finally:
+                    if recurrent_owned:
+                        ttnn.deallocate(recurrent_row)
+                for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
+                    conv_row, conv_owned = self._state_row(src_buf, source_row, prefill_batch)
+                    try:
+                        self._merge_rows(
+                            conv_row,
+                            dst_buf,
+                            mask["c"],
+                            decode_batch,
+                            self._slot_axis(dst_buf, decode_batch),
+                        )
+                    finally:
+                        if conv_owned:
+                            ttnn.deallocate(conv_row)
+        self._bind_prefill_pack(prefill_batch, pack_index, slots)
+
+    def _state_row(self, buf, row: int, batch: int):
+        """Return ``(row, owned)`` without deallocating a full-range B1 alias.
+
+        ``ttnn.slice`` returns its input for full logical bounds. A B1 state row is the complete
+        persistent pack tensor, so treating it as an owned temporary destroys the pack after its
+        first merge and the next warm-up/reset fails with ``Input Tensor is not allocated``.
+        """
+
+        shape = [int(d) for d in buf.shape]
+        axis = self._slot_axis(buf, int(batch))
+        begins, ends = [0] * len(shape), list(shape)
+        begins[axis], ends[axis] = int(row), int(row) + 1
+        if all(begin == 0 for begin in begins) and ends == shape:
+            return buf, False
+        return ttnn.slice(buf, begins, ends), True
 
     def remap_state_slots(self, remap) -> int:
         """Reindex the per-slot DeltaNet state after a vLLM batch condense.
@@ -1788,6 +2294,13 @@ class OrnithModel(LightweightModule):
             # ``values[new] == old``. The batch-1 pack still holds the state that was at ``old``;
             # after the permutation that request owns the corresponding ``new`` slot.
             self._prefill_pack_slot = values.index(self._prefill_pack_slot)
+            self._prefill_pack_slots[(1, 0)] = (self._prefill_pack_slot,)
+        for authority_key, slots in list(self._prefill_pack_slots.items()):
+            if authority_key == (1, 0) or slots is None:
+                continue
+            self._prefill_pack_slots[authority_key] = tuple(
+                None if slot is None else values.index(slot) for slot in slots
+            )
         logger.info(f"remapped {len(moves)} recurrent state row(s) across {moved} layer(s)")
         return moved
 
@@ -2060,6 +2573,10 @@ class OrnithModel(LightweightModule):
     # ------------------------------------------------------------------ introspection
     def capability(self) -> dict:
         """The advertised capability contract, as the model actually built it."""
+        allocated_prefill = sorted({key[1] for key in self._packs if key[0] == "prefill"})
+        allocated_lanes = {
+            str(batch): sum(1 for key in self._prefill_pack_slots if key[0] == batch) for batch in allocated_prefill
+        }
         return {
             "hf_model_id": HF_MODEL_ID,
             "mesh_shape": list(self.mesh_device.shape),
@@ -2081,6 +2598,19 @@ class OrnithModel(LightweightModule):
             "lm_head_dtype": str(self.lm_head_weights[0].dtype),
             "ccl_mode": MC.CCL_MODE,
             "router_mode": MC.ROUTER_MODE,
+            "prefill_batching": {
+                "supported_physical_batches": [
+                    batch for batch in (1, *self.DEVICE_PREFILL_BATCHES) if batch <= int(self.max_batch_size or 1)
+                ],
+                "allocated_state_packs": allocated_prefill,
+                "allocated_state_pack_lanes": allocated_lanes,
+                "synchronized_chunks_only": True,
+                "serial_fallback": True,
+                **{
+                    key: (dict(value) if isinstance(value, dict) else int(value))
+                    for key, value in self.prefill_batching_runtime.items()
+                },
+            },
             "precision": self.precision_summary(),
         }
 

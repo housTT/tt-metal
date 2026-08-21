@@ -58,6 +58,31 @@ DEFAULT_CACHE_CONTEXT = 262144
 _GREEDY = "greedy"
 
 
+def plan_synchronized_prefill_groups(count: int) -> list[tuple[int, int, int]]:
+    """Greedy B4/B2/B1 decomposition as ``(first, stop, pack_index)``.
+
+    Multiple B4 waves get distinct pack indices so concurrency 8 is two real B4 model calls whose
+    paused recurrent states can both survive. B2/B1 are unique remainders.
+    """
+
+    count = int(count)
+    if count < 1:
+        raise ValueError(f"prefill request count must be >= 1, got {count}")
+    groups = []
+    first = 0
+    batch4_lane = 0
+    while count - first >= 4:
+        groups.append((first, first + 4, batch4_lane))
+        first += 4
+        batch4_lane += 1
+    if count - first >= 2:
+        groups.append((first, first + 2, 0))
+        first += 2
+    if first < count:
+        groups.append((first, first + 1, 0))
+    return groups
+
+
 def _greedy_params():
     from models.common.sampling import SamplingParams
 
@@ -1117,6 +1142,8 @@ class OrnithGenerator(Generator):
             starts = [int(start_pos)] * count
         else:
             starts = [int(v) for v in torch.as_tensor(start_pos).reshape(-1)[:count]]
+        if len(starts) != count:
+            raise ValueError(f"{count} prompt row(s) but {len(starts)} start position(s)")
         table = self._resolve_page_table(page_table, kv_cache, "prefill_requests_into_slots")
         table = torch.as_tensor(table).to(torch.int32)
         if table.dim() == 1:
@@ -1124,62 +1151,162 @@ class OrnithGenerator(Generator):
         if table.shape[0] < count:
             raise ValueError(f"page table has {int(table.shape[0])} row(s) for {count} prompt(s)")
 
-        out = []
-        for user in range(count):
-            slot = rows[user]
+        for user, (slot, start, end) in enumerate(zip(rows, starts, lens)):
             if not 0 <= slot < self.max_batch_size:
                 raise ValueError(f"state slot {slot} is outside [0, {self.max_batch_size})")
-            end = lens[user]
-            start = starts[user]
             if end <= start:
                 raise ValueError(f"request {user} has an empty chunk [{start}, {end})")
-            host_page_row = table[user : user + 1]
-            page_row = self._page_row_tensor(host_page_row)
-            prefill_inputs = self.model.prepare_prefill_chunk_inputs(
-                page_table=page_row,
-                host_page_table=host_page_row,
-                start_pos=start,
-                logical_len=end - start,
+        if len(set(rows)) != count:
+            raise ValueError(f"a prefill step needs one unique state slot per request, got {rows}")
+
+        chunks = [end - start for start, end in zip(starts, lens)]
+        synchronized = len(set(starts)) == 1 and len(set(chunks)) == 1
+        if count > 1 and not synchronized and any(start > 0 for start in starts):
+            self.model.record_prefill_fallback("unsynchronized_continuation_refused", count)
+            raise RuntimeError(
+                "multiple partial Ornith prefills must retain one synchronized start and chunk length; "
+                f"got starts={starts}, chunk_lengths={chunks}. Serial restoration from decode rows is unsafe "
+                "because inactive DeltaNet rows advance during an intervening decode."
             )
-            logits = self.model.prefill_request_into_slot(
-                tokens[user : user + 1, start:end],
-                page_table=prefill_inputs,
-                slot=slot,
-                start_pos=start,
-                return_logits="device" if sample_on_device else True,
-                continue_from_state=start > 0,
-            )
-            if page_row is not None:
-                ttnn.deallocate(page_row)
-            if not sample_on_device:
-                out.append(logits)
+
+        groups: list[tuple[tuple[int, ...], int, int]]
+        continuation = synchronized and starts[0] > 0
+        if continuation:
+            # Resolve every survivor against the pack row that is actually authoritative. A fresh
+            # greedy decomposition would, for example, mix the survivors of B2(A,B)+B1(C) into one
+            # B2 after A aborts. The model planner instead retains exact waves or selects collision-
+            # free smaller packs and migrates their recurrent/conv state device-side.
+            groups = self.model.plan_prefill_continuation_groups(rows)
+        elif synchronized:
+            groups = [
+                (tuple(range(first, stop)), stop - first, pack_index)
+                for first, stop, pack_index in plan_synchronized_prefill_groups(count)
+            ]
+            if groups[-1][1] == 1 and count > 1:
+                self.model.record_prefill_fallback("singleton_remainder", 1)
+        else:
+            groups = [((user,), 1, 0) for user in range(count)]
+            if count > 1:
+                self.model.record_prefill_fallback("mixed_chunk_geometry", count)
+
+        out = [None] * count
+        for users, physical_batch, pack_index in groups:
+            group_slots = tuple(rows[user] for user in users)
+            if continuation:
+                self.model.prepare_prefill_pack_continuation(physical_batch, pack_index, group_slots)
+            if physical_batch == 1:
+                user = users[0]
+                host_page_row = table[user : user + 1]
+                page_row = self._page_table_tensor(host_page_row)
+                try:
+                    prefill_inputs = self.model.prepare_prefill_chunk_inputs(
+                        page_table=page_row,
+                        host_page_table=host_page_row,
+                        start_pos=starts[user],
+                        logical_len=chunks[user],
+                    )
+                    logits = self.model.prefill_request_into_slot(
+                        tokens[user : user + 1, starts[user] : lens[user]],
+                        page_table=prefill_inputs,
+                        slot=rows[user],
+                        start_pos=starts[user],
+                        return_logits="device" if sample_on_device else True,
+                        continue_from_state=starts[user] > 0,
+                        pack_index=pack_index,
+                    )
+                finally:
+                    if page_row is not None:
+                        ttnn.deallocate(page_row)
+                if not sample_on_device:
+                    out[user] = logits
+                    continue
+                out[user] = self._sample_prefill_row(
+                    logits,
+                    local_row=0,
+                    user=user,
+                    slot=rows[user],
+                    before_sample=before_sample,
+                )
+                ttnn.deallocate(logits)
                 continue
-            if before_sample is not None:
-                before_sample(user, slot)
-            self.sampling.sample(logits=logits, tt_out_tok=self._prefill_tokens, enable_trace=False)
+
+            first = users[0]
+            group_start = starts[first]
+            group_len = chunks[first]
+            host_page_rows = table[list(users)]
+            page_rows = self._page_table_tensor(host_page_rows)
+            try:
+                prefill_inputs = self.model.prepare_prefill_chunk_inputs(
+                    page_table=page_rows,
+                    host_page_table=host_page_rows,
+                    start_pos=group_start,
+                    logical_len=group_len,
+                )
+                logits = self.model.prefill_forward_batched_into_slots(
+                    tokens[list(users), group_start : group_start + group_len],
+                    page_table=prefill_inputs,
+                    slots=group_slots,
+                    start_pos=group_start,
+                    return_logits="device" if sample_on_device else True,
+                    continue_from_state=group_start > 0,
+                    pack_index=pack_index,
+                )
+            finally:
+                if page_rows is not None:
+                    ttnn.deallocate(page_rows)
+            if not sample_on_device:
+                for local_row, user in enumerate(users):
+                    out[user] = logits[local_row : local_row + 1]
+                continue
+            for local_row, user in enumerate(users):
+                out[user] = self._sample_prefill_row(
+                    logits,
+                    local_row=local_row,
+                    user=user,
+                    slot=rows[user],
+                    before_sample=before_sample,
+                )
             ttnn.deallocate(logits)
-            ttnn.synchronize_device(self.mesh_device)
-            sampled = ttnn.to_torch(ttnn.get_device_tensors(self._prefill_tokens)[0]).reshape(-1)[0]
-            out.append(int(sampled))
         if sample_on_device:
             return torch.tensor(out, dtype=torch.int32)
         return torch.cat(out, dim=0)
 
-    def _page_row_tensor(self, host_row):
-        """One request's ``[1, blocks]`` int32 ROW_MAJOR page table, on device.
+    def _sample_prefill_row(self, logits, *, local_row: int, user: int, slot: int, before_sample) -> int:
+        """Sample one real row of grouped logits with that request's slot-correct state.
 
-        Deallocated by the caller as soon as the prefill that needs it returns: a buffer allocated
+        The callback broadcasts this request's parameters, penalties and seed across the sampler's
+        32 physical rows, exactly as the historical batch-1 path did.  Selecting ``local_row`` from
+        the scratch output therefore preserves per-request semantics without composing logits on
+        host or forcing the whole prefill step onto host sampling.
+        """
+
+        if before_sample is not None:
+            before_sample(int(user), int(slot))
+        self.sampling.sample(logits=logits, tt_out_tok=self._prefill_tokens, enable_trace=False)
+        ttnn.synchronize_device(self.mesh_device)
+        sampled = ttnn.to_torch(ttnn.get_device_tensors(self._prefill_tokens)[0]).reshape(-1)[int(local_row)]
+        return int(sampled)
+
+    def _page_table_tensor(self, host_rows):
+        """A transient ``[B, blocks]`` int32 ROW_MAJOR page table on device.
+
+        Deallocated by the caller as soon as the prefill group that needs it returns: a buffer allocated
         while the decode traces are live must not outlive the call that made it (see
         :meth:`_ensure_traces_replay_safe`).
         """
         return ttnn.from_torch(
-            torch.as_tensor(host_row).to(torch.int32).contiguous(),
+            torch.as_tensor(host_rows).to(torch.int32).contiguous(),
             dtype=ttnn.int32,
             layout=ttnn.ROW_MAJOR_LAYOUT,
             device=self.mesh_device,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
         )
+
+    def _page_row_tensor(self, host_row):
+        """Compatibility spelling for callers that stage exactly one request."""
+
+        return self._page_table_tensor(host_row)
 
     # ------------------------------------------------------------------ lifecycle
     def reset(self) -> None:

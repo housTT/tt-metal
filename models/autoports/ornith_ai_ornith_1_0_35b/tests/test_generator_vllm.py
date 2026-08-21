@@ -33,6 +33,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt import multichip_decoder as MC
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.generator_vllm import (
     DEFAULT_MAX_TOKENS_ALL_USERS,
     TTQwen3_5MoeForConditionalGeneration,
+    _topk_native_moe_prefill_capability,
 )
 
 MODEL_DIR = Path(__file__).resolve().parents[1]
@@ -91,6 +92,50 @@ def test_the_prefill_warm_up_covers_every_physical_block_the_path_can_produce(mo
     assert adapter.prefill_warmup_lengths() == [2048, 256, 128], "an explicit list, clamped to the chunk"
 
 
+def test_prefill_warmup_compiles_grouped_batches_once_at_the_largest_configured_shape():
+    calls = []
+
+    class _Mesh:
+        def num_program_cache_entries(self):
+            return 0
+
+    class _Model:
+        prefill_chunk = 2048
+        DEVICE_PREFILL_BATCHES = (2, 4)
+
+        def reset_prefill_batching_runtime(self):
+            calls.append(("reset-counters",))
+
+    class _Generator:
+        owns_cache = False
+
+        def prefill_requests_into_slots(self, tokens, prompt_lens, slots, **kwargs):
+            calls.append(("prefill", tuple(tokens.shape), tuple(prompt_lens), tuple(slots)))
+
+        def reset(self):
+            calls.append(("reset",))
+
+    adapter = TTQwen3_5MoeForConditionalGeneration.__new__(TTQwen3_5MoeForConditionalGeneration)
+    adapter.model = _Model()
+    adapter.generator = _Generator()
+    adapter.mesh_device = _Mesh()
+    adapter.max_batch_size = 4
+    adapter.serving_counters = {"prefill_warmup_lengths": 0, "prefill_warmup_programs": 0}
+    adapter.prefill_warmup_lengths = lambda: [2048, 128]
+    adapter._warmup_page_table = lambda: torch.zeros(4, 64, dtype=torch.int32)
+    adapter._reset_serving_state = lambda: calls.append(("reset-serving",))
+
+    adapter.warmup_model_prefill(enable_trace=False)
+
+    assert [call for call in calls if call[0] == "prefill"] == [
+        ("prefill", (1, 2048), (2048,), (0,)),
+        ("prefill", (2, 2048), (2048, 2048), (0, 1)),
+        ("prefill", (4, 2048), (2048, 2048, 2048, 2048), (0, 1, 2, 3)),
+        ("prefill", (1, 128), (128,), (0,)),
+    ]
+    assert calls[-3:] == [("reset",), ("reset-serving",), ("reset-counters",)]
+
+
 def test_the_plugin_registers_this_adapter_for_both_architectures():
     """Both registrations matter, and for different reasons.
 
@@ -136,7 +181,102 @@ def test_the_capability_flags_are_the_ones_this_stage_proved():
     flags = TTQwen3_5MoeForConditionalGeneration.model_capabilities
     assert flags["supports_sample_on_device"] is True
     assert flags["supports_async_decode"] is True, "the split submit/read/process path is implemented"
+    assert flags["supports_batched_prefill"] is True
     assert flags["supports_prefix_caching"] is False, "not implemented and not tested, so not claimed"
+
+
+def test_runtime_prefill_evidence_has_stable_session_and_monotonic_top_level_sequence():
+    class _Model:
+        layers = []
+
+        def capability(self):
+            return {
+                "prefill_batching": {
+                    "supported_physical_batches": [1, 2, 4],
+                    "allocated_state_packs": [1, 2, 4],
+                    "allocated_state_pack_lanes": {"1": 4, "2": 2, "4": 2},
+                    "device_invocations": 2,
+                    "batched_device_invocations": 2,
+                    "physical_batch_histogram": {"4": 2},
+                    "logical_users": 8,
+                    "logical_tokens": 1024,
+                    "fallback_invocations": 0,
+                    "fallback_reasons": {},
+                }
+            }
+
+    adapter = TTQwen3_5MoeForConditionalGeneration.__new__(TTQwen3_5MoeForConditionalGeneration)
+    adapter.model = _Model()
+    adapter.generator = None
+    adapter._runtime_session_id = "same-engine"
+    adapter._capability_snapshot_seq = 0
+    adapter.max_model_len = 131072
+    adapter.max_batch_size = 8
+    adapter.page_table_blocks = 2048
+    adapter.uses_mrope = True
+    adapter.serving_counters = {}
+
+    before = adapter.serving_capability()
+    after = adapter.serving_capability()
+
+    assert before["runtime_evidence_schema"] == "ornith-prefill-runtime-evidence/1"
+    assert before["runtime_session_id"] == after["runtime_session_id"] == "same-engine"
+    assert (before["snapshot_seq"], after["snapshot_seq"]) == (1, 2)
+    assert "runtime_session_id" not in after["capability"]["prefill_batching"]
+    assert after["capability"]["prefill_batching"]["physical_batch_histogram"] == {"4": 2}
+    assert after["capability"]["prefill_batching"]["allocated_state_pack_lanes"] == {
+        "1": 4,
+        "2": 2,
+        "4": 2,
+    }
+
+
+def test_topk_native_capability_aggregates_exactly_forty_live_layer_statuses():
+    class _Moe:
+        def __init__(self, layer):
+            self.status = {
+                "selected": True,
+                "weights_loaded": True,
+                "ready": True,
+                "enabled": True,
+                "refusal": None,
+                "calls": layer + 1,
+                "fallbacks": 0,
+                "layer_calls": 2,
+                "subchunks": 2 * (layer + 1),
+            }
+
+        def topk_native_status(self):
+            return dict(self.status)
+
+    class _Layer:
+        def __init__(self, layer):
+            self.moe = _Moe(layer)
+
+    model = type("_Model", (), {})()
+    model.cfg = type("_Config", (), {"num_hidden_layers": 40})()
+    model.layer_indices = list(range(40))
+    model.layers = [_Layer(layer) for layer in range(40)]
+
+    ready = _topk_native_moe_prefill_capability(model)
+    assert ready["schema"] == "ornith-topk-native-moe-prefill/1"
+    assert ready["total_layers"] == ready["expected_layers"] == 40
+    assert len(ready["layers"]) == len(ready["calls_per_layer"]) == len(ready["fallbacks_per_layer"]) == 40
+    assert ready["selected"] is ready["weights_loaded"] is ready["enabled"] is True
+    assert ready["ready_layers"] == ready["enabled_layers"] == 40
+    assert ready["refusal"] is None
+    assert ready["calls"] == sum(range(1, 41))
+    assert ready["layer_calls"] == 80
+    assert ready["subchunks"] == 2 * sum(range(1, 41))
+
+    model.layers[17].moe.status.update(ready=False, enabled=False, refusal="native constants missing", fallbacks=3)
+    refused = _topk_native_moe_prefill_capability(model)
+    assert refused["enabled"] is False
+    assert refused["ready_layers"] == refused["enabled_layers"] == 39
+    assert refused["refusal"] == "native constants missing"
+    assert refused["fallbacks"] == 3
+    assert refused["fallbacks_per_layer"][17] == 3
+    assert refused["layers"][17]["layer_index"] == 17
 
 
 def test_the_adapter_implements_the_shared_vllm_adapter_contract():
