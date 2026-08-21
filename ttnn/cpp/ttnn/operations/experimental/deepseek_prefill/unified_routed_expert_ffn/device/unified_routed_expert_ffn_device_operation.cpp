@@ -25,7 +25,30 @@ bool is_dram_interleaved(const ttnn::Tensor& t) {
 
 void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
     const operation_attributes_t& op, const tensor_args_t& t) {
+    TT_FATAL(op.num_local_experts > 0, "num_local_experts must be > 0");
+    TT_FATAL(
+        op.num_local_experts <= MAX_FUSED_LOCAL_EXPERTS,
+        "num_local_experts ({}) exceeds the fused-kernel limit ({})",
+        op.num_local_experts,
+        MAX_FUSED_LOCAL_EXPERTS);
+    TT_FATAL(
+        t.gate_projs.size() == op.num_local_experts && t.up_projs.size() == op.num_local_experts &&
+            t.down_projs.size() == op.num_local_experts,
+        "gate/up/down projection lists must each contain num_local_experts ({}) tensors; got ({}, {}, {})",
+        op.num_local_experts,
+        t.gate_projs.size(),
+        t.up_projs.size(),
+        t.down_projs.size());
+    TT_FATAL(
+        op.num_local_experts == 1 || !op.fuse_bias,
+        "projection-bias fusion is supported only by the single-expert fallback");
+    TT_FATAL(
+        op.num_local_experts == 1 ||
+            (op.read_x_at_offset && t.expert_region_offsets.has_value() && t.optional_output.has_value()),
+        "multi-expert execution requires shared-buffer input offsets and a direct-write output");
+
     TT_FATAL(t.x.storage_type() == ttnn::StorageType::DEVICE, "x must be on device");
+    TT_FATAL(t.x.buffer() != nullptr, "x must have a device buffer");
     // x layout/dtype depends on x_is_row_major:
     //   false (default): x is TILE BFLOAT8_B — the reader reads tile pages directly.
     //   true: x is ROW_MAJOR BFLOAT16 (the dispatch output) — the reader streams
@@ -54,9 +77,9 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
     }
 
     const auto& x_shape = t.x.padded_shape();
-    const auto& gate_shape = t.gate_proj.padded_shape();
-    const auto& up_shape = t.up_proj.padded_shape();
-    const auto& down_shape = t.down_proj.padded_shape();
+    const auto& gate_shape = t.gate_projs.front().padded_shape();
+    const auto& up_shape = t.up_projs.front().padded_shape();
+    const auto& down_shape = t.down_projs.front().padded_shape();
 
     TT_FATAL(
         x_shape[-1] == gate_shape[-2] && x_shape[-1] == up_shape[-2],
@@ -88,11 +111,34 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
     // Weight tensors share x's storage / layout / memory contract — fail
     // host-side if the caller forgot to upload one, picked the wrong layout,
     // or sharded weights (the kernel reader assumes DRAM-interleaved).
-    for (const auto& [name, w] : std::initializer_list<std::pair<const char*, const ttnn::Tensor&>>{
-             {"gate_proj", t.gate_proj}, {"up_proj", t.up_proj}, {"down_proj", t.down_proj}}) {
-        TT_FATAL(w.storage_type() == ttnn::StorageType::DEVICE, "{} must be on device", name);
-        TT_FATAL(w.layout() == tt::tt_metal::Layout::TILE, "{} must be TILE layout", name);
-        TT_FATAL(is_dram_interleaved(w), "{} must be DRAM-interleaved", name);
+    for (uint32_t expert = 0; expert < op.num_local_experts; ++expert) {
+        for (const auto& [name, w, reference] :
+             std::initializer_list<std::tuple<const char*, const ttnn::Tensor&, const ttnn::Tensor&>>{
+                 {"gate_proj", t.gate_projs[expert], t.gate_projs.front()},
+                 {"up_proj", t.up_projs[expert], t.up_projs.front()},
+                 {"down_proj", t.down_projs[expert], t.down_projs.front()}}) {
+            TT_FATAL(w.storage_type() == ttnn::StorageType::DEVICE, "{}[{}] must be on device", name, expert);
+            TT_FATAL(w.buffer() != nullptr, "{}[{}] must have a device buffer", name, expert);
+            TT_FATAL(w.device() == t.x.device(), "{}[{}] must be on the same device as x", name, expert);
+            TT_FATAL(w.layout() == tt::tt_metal::Layout::TILE, "{}[{}] must be TILE layout", name, expert);
+            TT_FATAL(is_dram_interleaved(w), "{}[{}] must be DRAM-interleaved", name, expert);
+            TT_FATAL(
+                w.padded_shape() == reference.padded_shape(),
+                "{}[{}] padded shape ({}) must match {}[0] ({})",
+                name,
+                expert,
+                w.padded_shape(),
+                name,
+                reference.padded_shape());
+            TT_FATAL(
+                w.dtype() == reference.dtype(),
+                "{}[{}] dtype ({}) must match {}[0] ({})",
+                name,
+                expert,
+                w.dtype(),
+                name,
+                reference.dtype());
+        }
     }
 
     // Aux tensors: counts / global_expert_idx_table are small UINT32 vectors
@@ -107,9 +153,18 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
     for (const auto& [name, a] : std::initializer_list<std::pair<const char*, const ttnn::Tensor&>>{
              {"counts", t.counts}, {"global_expert_idx_table", t.global_expert_idx_table}}) {
         TT_FATAL(a.storage_type() == ttnn::StorageType::DEVICE, "{} must be on device", name);
+        TT_FATAL(a.buffer() != nullptr, "{} must have a device buffer", name);
+        TT_FATAL(a.device() == t.x.device(), "{} must be on the same device as x", name);
         TT_FATAL(a.dtype() == tt::tt_metal::DataType::UINT32, "{} must be UINT32", name);
+        TT_FATAL(
+            a.layout() == tt::tt_metal::Layout::ROW_MAJOR, "{} must be ROW_MAJOR layout, got {}", name, a.layout());
         TT_FATAL(is_dram_interleaved(a), "{} must be DRAM-interleaved", name);
-        const uint32_t num_entries = a.logical_shape()[-1];
+        const auto& aux_shape = a.logical_shape();
+        const bool valid_1d = aux_shape.rank() == 1;
+        const bool valid_2d = aux_shape.rank() == 2 && aux_shape[0] == 1;
+        TT_FATAL(valid_1d || valid_2d, "{} must be 1D or 2D with first dimension == 1, got shape {}", name, aux_shape);
+        const uint32_t num_entries = aux_shape[-1];
+        TT_FATAL(num_entries > 0, "{} must contain at least one entry", name);
         TT_FATAL(
             num_entries <= MAX_GLOBAL_EXPERTS,
             "{} length ({}) exceeds the maximum supported number of experts ({}) — "
@@ -118,11 +173,15 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
             num_entries,
             MAX_GLOBAL_EXPERTS);
     }
+    const uint64_t idx_table_size = t.global_expert_idx_table.logical_shape()[-1];
+    const uint64_t first_local_expert = op.local_expert_id;
+    const uint64_t num_local_experts = op.num_local_experts;
     TT_FATAL(
-        op.local_expert_id < t.global_expert_idx_table.logical_shape()[-1],
-        "local_expert_id ({}) >= idx_table size ({})",
-        op.local_expert_id,
-        t.global_expert_idx_table.logical_shape()[-1]);
+        num_local_experts <= idx_table_size && first_local_expert <= idx_table_size - num_local_experts,
+        "local expert range [{}, {}) exceeds idx_table size ({})",
+        first_local_expert,
+        first_local_expert + num_local_experts,
+        idx_table_size);
 
     // Direct-write mode: expert_region_offsets present => the writer places
     // this expert's output into the SHARED optional_output buffer at the
@@ -137,6 +196,8 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
         // noc_async_read_page(page 0) and indexes start[global_id], which is
         // only correct for a contiguous ROW_MAJOR single-page UINT32 vector.
         TT_FATAL(start.storage_type() == ttnn::StorageType::DEVICE, "expert_region_offsets must be on device");
+        TT_FATAL(start.buffer() != nullptr, "expert_region_offsets must have a device buffer");
+        TT_FATAL(start.device() == t.x.device(), "expert_region_offsets must be on the same device as x");
         TT_FATAL(start.dtype() == tt::tt_metal::DataType::UINT32, "expert_region_offsets must be UINT32");
         TT_FATAL(
             start.layout() == tt::tt_metal::Layout::ROW_MAJOR,
@@ -171,6 +232,8 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
     if (t.optional_output.has_value()) {
         const auto& out = *t.optional_output;
         TT_FATAL(out.storage_type() == ttnn::StorageType::DEVICE, "optional_output must be on device");
+        TT_FATAL(out.buffer() != nullptr, "optional_output must have a device buffer");
+        TT_FATAL(out.device() == t.x.device(), "optional_output must be on the same device as x");
         TT_FATAL(out.layout() == tt::tt_metal::Layout::TILE, "optional_output must be TILE layout");
         TT_FATAL(is_dram_interleaved(out), "optional_output must be DRAM-interleaved");
         // Output dtype must match x EXCEPT in row-major mode: there x is bf16
@@ -237,6 +300,8 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
                  {"up_bias", *t.up_bias, static_cast<uint32_t>(up_shape[-1])},
                  {"down_bias", *t.down_bias, static_cast<uint32_t>(down_shape[-1])}}) {
             TT_FATAL(b.storage_type() == ttnn::StorageType::DEVICE, "{} must be on device", name);
+            TT_FATAL(b.buffer() != nullptr, "{} must have a device buffer", name);
+            TT_FATAL(b.device() == t.x.device(), "{} must be on the same device as x", name);
             TT_FATAL(b.layout() == tt::tt_metal::Layout::TILE, "{} must be TILE layout", name);
             TT_FATAL(is_dram_interleaved(b), "{} must be DRAM-interleaved", name);
             // Exact LOGICAL shape: a single row of exactly `expected_n` columns. The
@@ -278,7 +343,13 @@ void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_miss(
 }
 
 void UnifiedRoutedExpertFfnDeviceOperation::validate_on_program_cache_hit(
-    const operation_attributes_t&, const tensor_args_t&) {}
+    const operation_attributes_t& op, const tensor_args_t& t) {
+    // Tensor addresses and device ownership are intentionally excluded from the
+    // program key and patched at dispatch. Revalidate the full contract on a
+    // cache hit so a same-spec tensor from another device (or any malformed
+    // replacement tensor) cannot bypass the checks above.
+    validate_on_program_cache_miss(op, t);
+}
 
 UnifiedRoutedExpertFfnDeviceOperation::spec_return_value_t UnifiedRoutedExpertFfnDeviceOperation::compute_output_specs(
     const operation_attributes_t&, const tensor_args_t& t) {
@@ -294,8 +365,7 @@ UnifiedRoutedExpertFfnDeviceOperation::spec_return_value_t UnifiedRoutedExpertFf
 }
 
 UnifiedRoutedExpertFfnDeviceOperation::tensor_return_value_t
-UnifiedRoutedExpertFfnDeviceOperation::create_output_tensors(
-    const operation_attributes_t& op, const tensor_args_t& t) {
+UnifiedRoutedExpertFfnDeviceOperation::create_output_tensors(const operation_attributes_t& op, const tensor_args_t& t) {
     if (t.optional_output.has_value()) {
         return *t.optional_output;
     }
@@ -305,6 +375,52 @@ UnifiedRoutedExpertFfnDeviceOperation::create_output_tensors(
 }  // namespace ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn
 
 namespace ttnn::prim {
+
+ttnn::Tensor unified_routed_expert_ffn(
+    const ttnn::Tensor& x,
+    const std::vector<ttnn::Tensor>& gate_projs,
+    const std::vector<ttnn::Tensor>& up_projs,
+    const std::vector<ttnn::Tensor>& down_projs,
+    const ttnn::Tensor& counts,
+    const ttnn::Tensor& global_expert_idx_table,
+    uint32_t first_local_expert_id,
+    uint32_t chunk_M_tiles,
+    uint32_t m_tiles,
+    bool read_x_at_offset,
+    bool x_is_row_major,
+    const std::optional<ttnn::DeviceComputeKernelConfig>& compute_kernel_config,
+    const std::optional<ttnn::Tensor>& optional_output,
+    const std::optional<ttnn::Tensor>& expert_region_offsets,
+    ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::RoutedExpertActivation activation,
+    const std::optional<ttnn::Tensor>& gate_bias,
+    const std::optional<ttnn::Tensor>& up_bias,
+    const std::optional<ttnn::Tensor>& down_bias) {
+    using OperationType = ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::
+        UnifiedRoutedExpertFfnDeviceOperation;
+    return ttnn::device_operation::launch<OperationType>(
+        OperationType::operation_attributes_t{
+            .chunk_M_tiles = chunk_M_tiles,
+            .m_tiles = m_tiles,
+            .local_expert_id = first_local_expert_id,
+            .num_local_experts = static_cast<uint32_t>(gate_projs.size()),
+            .read_x_at_offset = read_x_at_offset,
+            .x_is_row_major = x_is_row_major,
+            .activation = activation,
+            .fuse_bias = gate_bias.has_value(),
+            .compute_kernel_config = compute_kernel_config},
+        OperationType::tensor_args_t{
+            .x = x,
+            .gate_projs = gate_projs,
+            .up_projs = up_projs,
+            .down_projs = down_projs,
+            .counts = counts,
+            .global_expert_idx_table = global_expert_idx_table,
+            .optional_output = optional_output,
+            .expert_region_offsets = expert_region_offsets,
+            .gate_bias = gate_bias,
+            .up_bias = up_bias,
+            .down_bias = down_bias});
+}
 
 ttnn::Tensor unified_routed_expert_ffn(
     const ttnn::Tensor& x,
@@ -325,30 +441,25 @@ ttnn::Tensor unified_routed_expert_ffn(
     const std::optional<ttnn::Tensor>& gate_bias,
     const std::optional<ttnn::Tensor>& up_bias,
     const std::optional<ttnn::Tensor>& down_bias) {
-    using OperationType =
-        ttnn::operations::experimental::deepseek_prefill::unified_routed_expert_ffn::UnifiedRoutedExpertFfnDeviceOperation;
-    return ttnn::device_operation::launch<OperationType>(
-        OperationType::operation_attributes_t{
-            .chunk_M_tiles = chunk_M_tiles,
-            .m_tiles = m_tiles,
-            .local_expert_id = local_expert_id,
-            .read_x_at_offset = read_x_at_offset,
-            .x_is_row_major = x_is_row_major,
-            .activation = activation,
-            .fuse_bias = gate_bias.has_value(),
-            .compute_kernel_config = compute_kernel_config},
-        OperationType::tensor_args_t{
-            .x = x,
-            .gate_proj = gate_proj,
-            .up_proj = up_proj,
-            .down_proj = down_proj,
-            .counts = counts,
-            .global_expert_idx_table = global_expert_idx_table,
-            .optional_output = optional_output,
-            .expert_region_offsets = expert_region_offsets,
-            .gate_bias = gate_bias,
-            .up_bias = up_bias,
-            .down_bias = down_bias});
+    return unified_routed_expert_ffn(
+        x,
+        std::vector<ttnn::Tensor>{gate_proj},
+        std::vector<ttnn::Tensor>{up_proj},
+        std::vector<ttnn::Tensor>{down_proj},
+        counts,
+        global_expert_idx_table,
+        local_expert_id,
+        chunk_M_tiles,
+        m_tiles,
+        read_x_at_offset,
+        x_is_row_major,
+        compute_kernel_config,
+        optional_output,
+        expert_region_offsets,
+        activation,
+        gate_bias,
+        up_bias,
+        down_bias);
 }
 
 }  // namespace ttnn::prim

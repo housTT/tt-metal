@@ -77,8 +77,8 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
     tt::tt_metal::Program program = tt::tt_metal::CreateProgram();
 
     const auto& x_shape = t.x.padded_shape();
-    const auto& gate_shape = t.gate_proj.padded_shape();
-    const auto& down_shape = t.down_proj.padded_shape();
+    const auto& gate_shape = t.gate_projs.front().padded_shape();
+    const auto& down_shape = t.down_projs.front().padded_shape();
 
     // This expert's M (not x's allocated M): x may be a shared buffer wider
     // than one expert's region. K still comes from x's last dim (emb).
@@ -211,9 +211,9 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
 
     // -------------------------- data formats / tile sizes -----------------
     const tt::DataFormat x_df = tt::tt_metal::datatype_to_dataformat_converter(t.x.dtype());
-    const tt::DataFormat gate_df = tt::tt_metal::datatype_to_dataformat_converter(t.gate_proj.dtype());
-    const tt::DataFormat up_df = tt::tt_metal::datatype_to_dataformat_converter(t.up_proj.dtype());
-    const tt::DataFormat down_df = tt::tt_metal::datatype_to_dataformat_converter(t.down_proj.dtype());
+    const tt::DataFormat gate_df = tt::tt_metal::datatype_to_dataformat_converter(t.gate_projs.front().dtype());
+    const tt::DataFormat up_df = tt::tt_metal::datatype_to_dataformat_converter(t.up_projs.front().dtype());
+    const tt::DataFormat down_df = tt::tt_metal::datatype_to_dataformat_converter(t.down_projs.front().dtype());
     const tt::DataFormat out_df = tt::tt_metal::datatype_to_dataformat_converter(tensor_return_value.dtype());
     // Partials vs intermediates deliberately differ in format; the compute
     // kernel pack-reconfigs between them (partials <-> intermed) explicitly.
@@ -382,9 +382,9 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
     const CoreRangeSet core_range_set{core_range};
 
     auto* x_buffer = t.x.buffer();
-    auto* gate_buffer = t.gate_proj.buffer();
-    auto* up_buffer = t.up_proj.buffer();
-    auto* down_buffer = t.down_proj.buffer();
+    auto* gate_buffer = t.gate_projs.front().buffer();
+    auto* up_buffer = t.up_projs.front().buffer();
+    auto* down_buffer = t.down_projs.front().buffer();
     auto* counts_buffer = t.counts.buffer();
     auto* idx_buffer = t.global_expert_idx_table.buffer();
     auto* out_buffer = tensor_return_value.buffer();
@@ -658,6 +658,8 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         // X_RM_ELEM_BYTES — byte size of one row-major x element (x is bf16 in
         // the row-major path).
         tt::datum_size(tt::DataFormat::Float16_b),
+        // Consecutive local experts executed within this one program launch.
+        op.num_local_experts,
     };
     tt::tt_metal::TensorAccessorArgs(x_buffer).append_to(reader_ct_args);
     tt::tt_metal::TensorAccessorArgs(gate_buffer).append_to(reader_ct_args);
@@ -735,6 +737,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         // the writer's `up` read can skip zero-filling them. Must match the
         // reader's identically-derived constexpr.
         static_cast<uint32_t>((K_down_tiles_padded - K_down_tiles) < in0_block_w_d),  // 24 down_k_tail_skip
+        op.num_local_experts,                                                         // 25
     };
     // Accessor compile-arg stream order MUST match the writer kernel:
     // out, then start (direct-write), then up (UP_SPLIT).
@@ -800,6 +803,8 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         // matmul over the last K-block's tail padding tiles (zero-activated)
         // instead of computing dead MACs.
         K_down_tiles,
+        // Consecutive local experts executed within this one program launch.
+        op.num_local_experts,
     };
     std::unordered_map<std::string, uint32_t> compute_named_args = {
         // Row-major bf16 x staging (x_is_row_major only); tilize input CB.
@@ -931,6 +936,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         //  33..33+2*GRID_X-1: M-row NoC coord table (GRID_X pairs of x, y)
         //  33+2*GRID_X: start_addr (expert_region_offsets; read only when
         //     read_x_at_offset, else points at out_buffer and is unread)
+        //  trailing: optional 3 bias addrs, then gate[E], up[E], down[E]
         std::vector<uint32_t> reader_args = {
             x_buffer->address(),
             gate_buffer->address(),
@@ -987,6 +993,15 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
             reader_args.push_back(t.up_bias->buffer()->address());
             reader_args.push_back(t.down_bias->buffer()->address());
         }
+        for (const auto& weight : t.gate_projs) {
+            reader_args.push_back(weight.buffer()->address());
+        }
+        for (const auto& weight : t.up_projs) {
+            reader_args.push_back(weight.buffer()->address());
+        }
+        for (const auto& weight : t.down_projs) {
+            reader_args.push_back(weight.buffer()->address());
+        }
         tt::tt_metal::SetRuntimeArgs(program, reader_kernel_id, core, reader_args);
 
         // Writer runtime arg layout (must match unified_routed_expert_ffn_writer.cpp):
@@ -995,6 +1010,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         //      out_buffer, unused by the kernel)
         //   4: up_addr  5: my_nt_gu  6: is_up_sender (gy==0)
         //   7: up_go_sem_id  8: up_done_sem_id  (UP_SPLIT local same-core handshake)
+        //   9..9+E-1: up-weight base address for each local expert
         std::vector<uint32_t> writer_args = {
             out_buffer->address(),                 // 0
             my_mt,                                 // 1
@@ -1006,6 +1022,9 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
             up_go_sem_id,                          // 7
             up_done_sem_id,                        // 8
         };
+        for (const auto& weight : t.up_projs) {
+            writer_args.push_back(weight.buffer()->address());
+        }
         tt::tt_metal::SetRuntimeArgs(program, writer_kernel_id, core, writer_args);
     }
 
@@ -1020,7 +1039,7 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
 
 void UnifiedRoutedExpertFfnProgramFactory::override_runtime_arguments(
     cached_program_t& cached_program,
-    const UnifiedRoutedExpertFfnParams& /*op*/,
+    const UnifiedRoutedExpertFfnParams& op,
     const UnifiedRoutedExpertFfnInputs& t,
     Tensor& tensor_return_value) {
     auto& program = cached_program.program;
@@ -1029,9 +1048,9 @@ void UnifiedRoutedExpertFfnProgramFactory::override_runtime_arguments(
     const auto& cores = cached_program.shared_variables.cores;
 
     const uint32_t x_addr = t.x.buffer()->address();
-    const uint32_t gate_addr = t.gate_proj.buffer()->address();
-    const uint32_t up_addr = t.up_proj.buffer()->address();
-    const uint32_t down_addr = t.down_proj.buffer()->address();
+    const uint32_t gate_addr = t.gate_projs.front().buffer()->address();
+    const uint32_t up_addr = t.up_projs.front().buffer()->address();
+    const uint32_t down_addr = t.down_projs.front().buffer()->address();
     const uint32_t counts_addr = t.counts.buffer()->address();
     const uint32_t idx_addr = t.global_expert_idx_table.buffer()->address();
     const uint32_t out_addr = tensor_return_value.buffer()->address();
@@ -1049,19 +1068,29 @@ void UnifiedRoutedExpertFfnProgramFactory::override_runtime_arguments(
         reader_args[3] = down_addr;
         reader_args[4] = counts_addr;
         reader_args[5] = idx_addr;
-        // start_addr sits before the (optional) 3 trailing bias addrs.
-        const size_t start_idx = reader_args.size() - 1 - (has_bias ? 3 : 0);
+        // start_addr sits before the optional bias addrs and 3 E-entry weight
+        // address arrays.
+        const size_t start_idx = reader_args.size() - 3 * op.num_local_experts - (has_bias ? 3 : 0) - 1;
         reader_args[start_idx] = start_addr;
         if (has_bias) {
-            reader_args[reader_args.size() - 3] = t.gate_bias->buffer()->address();
-            reader_args[reader_args.size() - 2] = t.up_bias->buffer()->address();
-            reader_args[reader_args.size() - 1] = t.down_bias->buffer()->address();
+            reader_args[start_idx + 1] = t.gate_bias->buffer()->address();
+            reader_args[start_idx + 2] = t.up_bias->buffer()->address();
+            reader_args[start_idx + 3] = t.down_bias->buffer()->address();
+        }
+        const size_t weight_base = start_idx + 1 + (has_bias ? 3 : 0);
+        for (uint32_t expert = 0; expert < op.num_local_experts; ++expert) {
+            reader_args[weight_base + expert] = t.gate_projs[expert].buffer()->address();
+            reader_args[weight_base + op.num_local_experts + expert] = t.up_projs[expert].buffer()->address();
+            reader_args[weight_base + 2 * op.num_local_experts + expert] = t.down_projs[expert].buffer()->address();
         }
 
         auto& writer_args = tt::tt_metal::GetRuntimeArgs(program, writer_id, core);
         writer_args[0] = out_addr;
         writer_args[3] = start_addr;
         writer_args[4] = up_addr;  // two-RISC up-weight read base address
+        for (uint32_t expert = 0; expert < op.num_local_experts; ++expert) {
+            writer_args[9 + expert] = t.up_projs[expert].buffer()->address();
+        }
     }
 }
 

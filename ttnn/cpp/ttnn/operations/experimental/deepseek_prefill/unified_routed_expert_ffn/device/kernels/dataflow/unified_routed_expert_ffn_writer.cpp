@@ -56,7 +56,6 @@ void kernel_main() {
     const uint32_t start_addr = get_arg_val<uint32_t>(3);
     // UP_SPLIT up-weight read args: up tensor base, this core's N-column, and
     // whether this core is the gy=0 sender (only senders read `up`).
-    const uint32_t up_addr = get_arg_val<uint32_t>(4);
     const uint32_t my_nt_gu = get_arg_val<uint32_t>(5);
     const bool is_up_sender = get_arg_val<uint32_t>(6) != 0;
     // UP_SPLIT local handshake sems (see reader): up_go = slot reserved,
@@ -106,6 +105,7 @@ void kernel_main() {
     // matmul never reduces the N-OOB hidden columns, so the `up` read can skip
     // zero-filling them. Derived identically to the reader's down_k_tail_skip.
     constexpr bool down_k_tail_skip = get_compile_time_arg_val(24) != 0;
+    constexpr uint32_t num_local_experts = get_compile_time_arg_val(25);
 
     constexpr uint32_t d_out_subblock_num_tiles = d_out_subblock_h * d_out_subblock_w;
     // Full compile-time M-subblock count of cb_out (the down matmul copies the
@@ -125,7 +125,7 @@ void kernel_main() {
     // out, then start (direct-write), then up (UP_SPLIT). The accessors are
     // constructed unconditionally; start_acc is used only when direct_write,
     // up_acc only when writer_split_up.
-    constexpr uint32_t out_accessor_offset = 25;
+    constexpr uint32_t out_accessor_offset = 26;
     constexpr auto out_args = TensorAccessorArgs<out_accessor_offset>();
     const auto out_acc = TensorAccessor(out_args, output_addr, cb_out_buf.get_tile_size());
 
@@ -135,7 +135,6 @@ void kernel_main() {
 
     constexpr uint32_t up_accessor_offset = start_args.next_compile_time_args_offset();
     constexpr auto up_args = TensorAccessorArgs<up_accessor_offset>();
-    const auto up_acc = TensorAccessor(up_args, up_addr, get_tile_size(cb_in1_up));
 
     const uint32_t out_tile_bytes = cb_out_buf.get_tile_size();
 
@@ -150,163 +149,179 @@ void kernel_main() {
         reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(cb_counts_scratch_buf.get_read_ptr());
     const uint32_t idx_l1 = cb_idx_scratch_buf.get_read_ptr();
     const volatile tt_l1_ptr uint32_t* idx_ptr = reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(idx_l1);
-    const uint32_t global_expert_id = idx_ptr[local_expert_id];
-    const uint32_t count_value = counts_ptr[global_expert_id];
-    const uint32_t count_tiles = (count_value + TILE_HEIGHT - 1) / TILE_HEIGHT;
-    // Runtime chunk layout from the actual count (same math as reader/compute so
-    // the row mapping agrees). per_core_M is per-chunk (see the loop).
-    const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, chunk_M_max);
-    const uint32_t effective_chunks =
-        effective_chunks_runtime < num_chunks_max ? effective_chunks_runtime : num_chunks_max;
 
-    // Destination tile-row offset for direct-write mode. In direct-write
-    // mode the output buffer is a SHARED buffer and this expert's slice
-    // begins at start[global_expert_id] (token row); convert to tile rows.
-    // Mirrors ttnn::insert's writer: start_tile_row = start_value / TILE.
-    uint32_t row_offset_tiles = 0;
+    // Fetch the region-offset vector once for the whole fused local-expert
+    // range. Each expert indexes its own global id below.
+    const volatile tt_l1_ptr uint32_t* start_ptr = nullptr;
     if constexpr (direct_write != 0) {
         const uint32_t start_l1 = cb_start_scratch_buf.get_write_ptr();
         const uint32_t start_page_size = start_acc.get_aligned_page_size();
         noc.async_read(start_acc, CoreLocalMem<uint32_t>(start_l1), start_page_size, {.page_id = 0}, {});
         noc.async_read_barrier();
-        const volatile tt_l1_ptr uint32_t* start_ptr = reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(start_l1);
-        const uint32_t start_value = start_ptr[global_expert_id];
-        row_offset_tiles = start_value / TILE_HEIGHT;
+        start_ptr = reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(start_l1);
     }
 
     // ---- UP_SPLIT up-weight read setup ----
-    // The writer reads `up` from DRAM on NoC 1 concurrent with the
-    // reader's NoC-0 `gate` read, into the gy=0 sender's cb_in1_up slot; the
-    // reader multicasts it on NoC 0. A local same-core (BRISC reader <-> NCRISC
-    // writer) handshake orders the two: up_go (reader: slot reserved) and
-    // up_done (writer: up landed in L1), monotonic counters.
+    // The handshake sequence stays monotonic across expert boundaries.
     Noc noc_up(1);
     const uint32_t up_tile_bytes = get_tile_size(cb_in1_up);
     Semaphore<> up_go_sem(up_go_sem_id);
     Semaphore<> up_done_sem(up_done_sem_id);
     uint32_t up_seq = 0;
 
-    for (uint32_t chunk = 0; chunk < effective_chunks; ++chunk) {
-        // ---- Phase 1/2 weight feed: writer reads `up` on NoC 1 (UP_SPLIT) ----
-        // Streams `up` from DRAM concurrent with the reader's NoC-0 `gate` read.
-        // Runs before the cb_out drain.
-        if constexpr (writer_split_up) {
-            // UP_SPLIT: only gy=0 in1-sender cores read `up`. Per K-block: wait
-            // for the reader to reserve the slot (up_go), read this column's
-            // `up` slice on NoC 1 into it, then signal up_done so the reader
-            // mcasts on NoC 0. Only a NoC-1 DRAM read here (fabric-safe); the
-            // reader owns cb_in1_up reserve/push.
-            if (is_up_sender) {
-                // The CB write pointer is PER-RISC and the reader owns push, so
-                // the writer's get_write_ptr never advances. Replicate the
-                // reader's cadence: cb_in1_up is double-buffered, one push per
-                // K-block, so the live slot is base + (up_seq-1)%2 * slot.
-                constexpr uint32_t kUpNumSlots = 2;
-                CircularBuffer cb_in1_up_buf(cb_in1_up);
-                const uint32_t up_cb_base = cb_in1_up_buf.get_write_ptr();
-                const uint32_t up_slot_bytes = g_in1_block_num_tiles * up_tile_bytes;
-                for (uint32_t kb = 0; kb < num_blocks_gu; ++kb) {
-                    ++up_seq;
-                    up_go_sem.wait_min(up_seq);
-                    uint32_t l1_w_up = up_cb_base + ((up_seq - 1) % kUpNumSlots) * up_slot_bytes;
-                    for (uint32_t k = 0; k < in0_block_w_gu; ++k) {
-                        for (uint32_t n = 0; n < per_core_N_gu; ++n) {
-                            const uint32_t row = kb * in0_block_w_gu + k;
-                            const uint32_t col = my_nt_gu * per_core_N_gu + n;
-                            if (col < N_gate_tiles_full) {
-                                const uint32_t tile_idx = row * N_gate_tiles_full + col;
-                                noc_up.async_read(
-                                    up_acc, CoreLocalMem<uint32_t>(l1_w_up), up_tile_bytes, {.page_id = tile_idx}, {});
-                            } else {
-                                // N-OOB hidden padding column: garbage up output feeds the
-                                // down matmul's K reduction, so keep it zero UNLESS the down
-                                // tail-skips the last block's padding (down_k_tail_skip) —
-                                // then this column is never reduced and the garbage is dropped.
-                                if constexpr (!down_k_tail_skip) {
-                                    volatile tt_l1_ptr uint64_t* p =
-                                        reinterpret_cast<volatile tt_l1_ptr uint64_t*>(l1_w_up);
-                                    for (uint32_t i = 0; i < up_tile_bytes / 8; ++i) {
-                                        p[i] = 0;
-                                    }
-                                }
-                            }
-                            l1_w_up += up_tile_bytes;
-                        }
-                    }
-                    noc_up.async_read_barrier();
-                    up_done_sem.set(up_seq);
-                }
-            }
+    for (uint32_t expert_offset = 0; expert_offset < num_local_experts; ++expert_offset) {
+        const uint32_t this_local_expert_id = local_expert_id + expert_offset;
+        const uint32_t global_expert_id = idx_ptr[this_local_expert_id];
+        const uint32_t count_value = counts_ptr[global_expert_id];
+        const uint32_t count_tiles = (count_value + TILE_HEIGHT - 1) / TILE_HEIGHT;
+        // Runtime chunk layout from the actual count (same math as reader/compute so
+        // the row mapping agrees). per_core_M is per-chunk (see the loop).
+        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, chunk_M_max);
+        const uint32_t effective_chunks =
+            effective_chunks_runtime < num_chunks_max ? effective_chunks_runtime : num_chunks_max;
+
+        // Destination tile-row offset for direct-write mode. In direct-write
+        // mode the output buffer is a SHARED buffer and this expert's slice
+        // begins at start[global_expert_id] (token row); convert to tile rows.
+        // Mirrors ttnn::insert's writer: start_tile_row = start_value / TILE.
+        uint32_t row_offset_tiles = 0;
+        if constexpr (direct_write != 0) {
+            const uint32_t start_value = start_ptr[global_expert_id];
+            row_offset_tiles = start_value / TILE_HEIGHT;
         }
 
-        // ---- Drain cb_out (down matmul output) to DRAM ----
-        // Per-chunk per_core_M (per_core_M_max for full chunks, a smaller divisor
-        // for the tail); chunk starts are uniform at chunk*chunk_M_max. Contiguous
-        // row map: this core owns rows [row0, row0 + per_core_M).
-        const uint32_t per_core_M = adaptive_chunk::per_core_M_for_chunk(chunk, count_tiles, chunk_M_max);
-        const uint32_t row0 = chunk * chunk_M_max + my_mt * per_core_M;
-        const uint32_t col0 = my_nt_d * per_core_N_d;
-        // The DOWN matmul packs and pushes the FULL compile-time-MAX ring (its
-        // L1_ACC needs full-ring cycling), so DRAIN all d_in1_num_subblocks_M
-        // rows to keep cb_out balanced — but only WRITE the first per_core_M
-        // (runtime) rows; the rest are MAC-skipped zeros that map onto other
-        // cores' rows and must not be emitted (the sb_m < per_core_M guard below).
-        const uint32_t sb_m_bound = d_in1_num_subblocks_M;
-        for (uint32_t sb_m = 0; sb_m < sb_m_bound; ++sb_m) {
-            for (uint32_t sb_n = 0; sb_n < d_in1_num_subblocks_N; ++sb_n) {
-                cb_out_buf.wait_front(d_out_subblock_num_tiles);
-                uint32_t subblock_tile_offset = 0;
-                for (uint32_t i = 0; i < d_out_subblock_h; ++i) {
-                    for (uint32_t j = 0; j < d_out_subblock_w; ++j) {
-                        const uint32_t row = row0 + sb_m * d_out_subblock_h + i;
-                        const uint32_t col = col0 + sb_n * d_out_subblock_w + j;
-                        // `row` indexes the FFN *input* (x) tile-rows; the
-                        // destination tile-row adds the per-expert region
-                        // offset (0 in non-direct mode).
-                        const uint32_t dst_row = row_offset_tiles + row;
-                        // Bounds that decide whether this is a real output tile
-                        // for this expert:
-                        //   * col < N_down_tiles_full: GRID_X=11 ceil_div
-                        //     produces phantom output cols past actual N.
-                        //   * row < M_tiles_full: ceil_div of M produces a
-                        //     last-chunk tail past actual M when
-                        //     M_tiles_full doesn't divide chunk_M_tiles.
-                        //   * row < count_tiles: the last chunk's per_core_M
-                        //     rows extend past count_tiles when count_tiles
-                        //     is not chunk-aligned.
-                        //   * sb_m < per_core_M: cb_out carries per_core_M_max
-                        //     rows (full ring); rows past the runtime per_core_M
-                        //     are zeros that belong to other cores — never write.
-                        if (sb_m < per_core_M && col < N_down_tiles_full && row < M_tiles_full && row < count_tiles) {
-                            // The destination tile-row must stay inside the
-                            // (possibly shared) output buffer. ttnn::insert
-                            // asserted the whole-slice fit
-                            // (start_tile_idx + num_tiles <= global_num_tiles);
-                            // assert the per-tile equivalent so an over-capacity
-                            // region offset fails loudly in watcher builds. The
-                            // guard below keeps Release builds safe (skip the OOB
-                            // write rather than corrupt DRAM, since ASSERT is a
-                            // no-op there).
-                            ASSERT(dst_row < dst_M_tiles);
-                            if (dst_row < dst_M_tiles) {
-                                const uint32_t tile_idx = dst_row * N_down_tiles_full + col;
-                                noc.async_write(
-                                    cb_out_buf,
-                                    out_acc,
-                                    out_tile_bytes,
-                                    {.offset_bytes = subblock_tile_offset},
-                                    {.page_id = tile_idx});
+        // Runtime up-weight address array starts after the nine fixed writer
+        // args. All tensors share the accessor descriptor validated host-side.
+        const uint32_t up_addr = get_arg_val<uint32_t>(9 + expert_offset);
+        const auto up_acc = TensorAccessor(up_args, up_addr, get_tile_size(cb_in1_up));
+
+        for (uint32_t chunk = 0; chunk < effective_chunks; ++chunk) {
+            // ---- Phase 1/2 weight feed: writer reads `up` on NoC 1 (UP_SPLIT) ----
+            // Streams `up` from DRAM concurrent with the reader's NoC-0 `gate` read.
+            // Runs before the cb_out drain.
+            if constexpr (writer_split_up) {
+                // UP_SPLIT: only gy=0 in1-sender cores read `up`. Per K-block: wait
+                // for the reader to reserve the slot (up_go), read this column's
+                // `up` slice on NoC 1 into it, then signal up_done so the reader
+                // mcasts on NoC 0. Only a NoC-1 DRAM read here (fabric-safe); the
+                // reader owns cb_in1_up reserve/push.
+                if (is_up_sender) {
+                    // The CB write pointer is PER-RISC and the reader owns push, so
+                    // the writer's get_write_ptr never advances. Replicate the
+                    // reader's cadence: cb_in1_up is double-buffered, one push per
+                    // K-block, so the live slot is base + (up_seq-1)%2 * slot.
+                    constexpr uint32_t kUpNumSlots = 2;
+                    CircularBuffer cb_in1_up_buf(cb_in1_up);
+                    const uint32_t up_cb_base = cb_in1_up_buf.get_write_ptr();
+                    const uint32_t up_slot_bytes = g_in1_block_num_tiles * up_tile_bytes;
+                    for (uint32_t kb = 0; kb < num_blocks_gu; ++kb) {
+                        ++up_seq;
+                        up_go_sem.wait_min(up_seq);
+                        uint32_t l1_w_up = up_cb_base + ((up_seq - 1) % kUpNumSlots) * up_slot_bytes;
+                        for (uint32_t k = 0; k < in0_block_w_gu; ++k) {
+                            for (uint32_t n = 0; n < per_core_N_gu; ++n) {
+                                const uint32_t row = kb * in0_block_w_gu + k;
+                                const uint32_t col = my_nt_gu * per_core_N_gu + n;
+                                if (col < N_gate_tiles_full) {
+                                    const uint32_t tile_idx = row * N_gate_tiles_full + col;
+                                    noc_up.async_read(
+                                        up_acc,
+                                        CoreLocalMem<uint32_t>(l1_w_up),
+                                        up_tile_bytes,
+                                        {.page_id = tile_idx},
+                                        {});
+                                } else {
+                                    // N-OOB hidden padding column: garbage up output feeds the
+                                    // down matmul's K reduction, so keep it zero UNLESS the down
+                                    // tail-skips the last block's padding (down_k_tail_skip) —
+                                    // then this column is never reduced and the garbage is dropped.
+                                    if constexpr (!down_k_tail_skip) {
+                                        volatile tt_l1_ptr uint64_t* p =
+                                            reinterpret_cast<volatile tt_l1_ptr uint64_t*>(l1_w_up);
+                                        for (uint32_t i = 0; i < up_tile_bytes / 8; ++i) {
+                                            p[i] = 0;
+                                        }
+                                    }
+                                }
+                                l1_w_up += up_tile_bytes;
                             }
                         }
-                        subblock_tile_offset += out_tile_bytes;
+                        noc_up.async_read_barrier();
+                        up_done_sem.set(up_seq);
                     }
                 }
-                // Wait for the writes to LEAVE this core (departed sender);
-                // doesn't wait for the DRAM round-trip. Safe to reuse the L1
-                // slot now — the NoC has captured the data. ~10x faster than
-                // noc_async_write_barrier per subblock at small per_core_M.
-                noc.async_writes_flushed();
-                cb_out_buf.pop_front(d_out_subblock_num_tiles);
+            }
+
+            // ---- Drain cb_out (down matmul output) to DRAM ----
+            // Per-chunk per_core_M (per_core_M_max for full chunks, a smaller divisor
+            // for the tail); chunk starts are uniform at chunk*chunk_M_max. Contiguous
+            // row map: this core owns rows [row0, row0 + per_core_M).
+            const uint32_t per_core_M = adaptive_chunk::per_core_M_for_chunk(chunk, count_tiles, chunk_M_max);
+            const uint32_t row0 = chunk * chunk_M_max + my_mt * per_core_M;
+            const uint32_t col0 = my_nt_d * per_core_N_d;
+            // The DOWN matmul packs and pushes the FULL compile-time-MAX ring (its
+            // L1_ACC needs full-ring cycling), so DRAIN all d_in1_num_subblocks_M
+            // rows to keep cb_out balanced — but only WRITE the first per_core_M
+            // (runtime) rows; the rest are MAC-skipped zeros that map onto other
+            // cores' rows and must not be emitted (the sb_m < per_core_M guard below).
+            const uint32_t sb_m_bound = d_in1_num_subblocks_M;
+            for (uint32_t sb_m = 0; sb_m < sb_m_bound; ++sb_m) {
+                for (uint32_t sb_n = 0; sb_n < d_in1_num_subblocks_N; ++sb_n) {
+                    cb_out_buf.wait_front(d_out_subblock_num_tiles);
+                    uint32_t subblock_tile_offset = 0;
+                    for (uint32_t i = 0; i < d_out_subblock_h; ++i) {
+                        for (uint32_t j = 0; j < d_out_subblock_w; ++j) {
+                            const uint32_t row = row0 + sb_m * d_out_subblock_h + i;
+                            const uint32_t col = col0 + sb_n * d_out_subblock_w + j;
+                            // `row` indexes the FFN *input* (x) tile-rows; the
+                            // destination tile-row adds the per-expert region
+                            // offset (0 in non-direct mode).
+                            const uint32_t dst_row = row_offset_tiles + row;
+                            // Bounds that decide whether this is a real output tile
+                            // for this expert:
+                            //   * col < N_down_tiles_full: GRID_X=11 ceil_div
+                            //     produces phantom output cols past actual N.
+                            //   * row < M_tiles_full: ceil_div of M produces a
+                            //     last-chunk tail past actual M when
+                            //     M_tiles_full doesn't divide chunk_M_tiles.
+                            //   * row < count_tiles: the last chunk's per_core_M
+                            //     rows extend past count_tiles when count_tiles
+                            //     is not chunk-aligned.
+                            //   * sb_m < per_core_M: cb_out carries per_core_M_max
+                            //     rows (full ring); rows past the runtime per_core_M
+                            //     are zeros that belong to other cores — never write.
+                            if (sb_m < per_core_M && col < N_down_tiles_full && row < M_tiles_full &&
+                                row < count_tiles) {
+                                // The destination tile-row must stay inside the
+                                // (possibly shared) output buffer. ttnn::insert
+                                // asserted the whole-slice fit
+                                // (start_tile_idx + num_tiles <= global_num_tiles);
+                                // assert the per-tile equivalent so an over-capacity
+                                // region offset fails loudly in watcher builds. The
+                                // guard below keeps Release builds safe (skip the OOB
+                                // write rather than corrupt DRAM, since ASSERT is a
+                                // no-op there).
+                                ASSERT(dst_row < dst_M_tiles);
+                                if (dst_row < dst_M_tiles) {
+                                    const uint32_t tile_idx = dst_row * N_down_tiles_full + col;
+                                    noc.async_write(
+                                        cb_out_buf,
+                                        out_acc,
+                                        out_tile_bytes,
+                                        {.offset_bytes = subblock_tile_offset},
+                                        {.page_id = tile_idx});
+                                }
+                            }
+                            subblock_tile_offset += out_tile_bytes;
+                        }
+                    }
+                    // Wait for the writes to LEAVE this core (departed sender);
+                    // doesn't wait for the DRAM round-trip. Safe to reuse the L1
+                    // slot now — the NoC has captured the data. ~10x faster than
+                    // noc_async_write_barrier per subblock at small per_core_M.
+                    noc.async_writes_flushed();
+                    cb_out_buf.pop_front(d_out_subblock_num_tiles);
+                }
             }
         }
     }

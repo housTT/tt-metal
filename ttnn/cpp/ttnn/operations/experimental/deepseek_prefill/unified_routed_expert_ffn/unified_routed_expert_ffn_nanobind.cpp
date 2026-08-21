@@ -36,17 +36,19 @@ void bind_unified_routed_expert_ffn(nb::module_& mod) {
         tokens tensor (rows start at 0); use ``unified_routed_expert_moe`` below
         if you need the extract/insert glue.
 
-        Tensor requirements (enforced in validate_on_program_cache_miss),
+        Tensor requirements (enforced on both program-cache misses and hits),
         conditional on ``x_is_row_major``:
             * x dtype/layout: default mode (x_is_row_major=False) => BFLOAT8_B,
               TILE (read as tile pages directly); row-major mode
               (x_is_row_major=True) => BFLOAT16, ROW_MAJOR (streamed as sticks
               and tilized + packed to bf8_b in-op before the matmul).
             * gate/up/down: TILE, any matmul-compatible weight dtype.
+            * counts/global_expert_idx_table: ROW_MAJOR, UINT32 vectors.
             * output: TILE. Its dtype must match x in the default mode, but in
               row-major mode x is BFLOAT16 while output is TILE (typically
               BFLOAT8_B) — the op packs its result to output's dtype regardless.
             * memory_config: all tensors DRAM-interleaved.
+            * ownership: all device tensors belong to x's MeshDevice.
             * Blackhole-only — host expects 11x8 compute grid.
 
         PCC target: >= 0.97 vs PyTorch reference (matches the sibling
@@ -60,8 +62,8 @@ void bind_unified_routed_expert_ffn(nb::module_& mod) {
             gate_proj (ttnn.Tensor): (K=emb, N=hidden).
             up_proj (ttnn.Tensor): (K=emb, N=hidden).
             down_proj (ttnn.Tensor): (K=hidden, N=emb).
-            counts (ttnn.Tensor): UINT32, per-global-expert token counts.
-            global_expert_idx_table (ttnn.Tensor): UINT32, maps local id -> global.
+            counts (ttnn.Tensor): ROW_MAJOR UINT32 per-global-expert token counts.
+            global_expert_idx_table (ttnn.Tensor): ROW_MAJOR UINT32, maps local id -> global.
             local_expert_id (int): index into global_expert_idx_table.
 
         Keyword Args:
@@ -121,14 +123,13 @@ void bind_unified_routed_expert_ffn(nb::module_& mod) {
         mod,
         R"doc(
         MoE-level composite: takes the full dispatched buffer + ALL local
-        experts' weights and loops over local experts in C++, launching one
-        ``unified_routed_expert_ffn`` device program per expert preceded by
-        ``ttnn::extract`` (input slice). The FFN runs in direct-write mode:
-        its writer places each expert's output straight into the shared
-        output buffer at the expert's region offset, so NO separate
-        ``ttnn::insert`` op (and no per-expert temp-buffer DRAM round-trip)
-        is needed. This is NOT a single fused device op across experts —
-        per-expert FFN entries still appear in tt-perf-report.
+        experts' weights. The bias-free path executes consecutive groups of up
+        to 64 local experts per device program, switching gate/up/down weight
+        addresses at expert boundaries. Larger lists are partitioned
+        transparently. Its writer places each expert's output straight into the
+        shared output buffer at the expert's region offset, so no separate
+        extract/insert operations or per-expert program launches are needed.
+        Calls with projection-bias lists retain the per-expert launch fallback.
 
         The unified FFN reads device-resident counts/idx and bounds its
         chunk loop to the actually-occupied chunks per expert. The host

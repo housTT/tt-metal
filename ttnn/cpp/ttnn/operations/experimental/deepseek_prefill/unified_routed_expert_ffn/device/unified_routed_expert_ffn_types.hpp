@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <tuple>
+#include <vector>
 
 #include <tt-metalium/constants.hpp>
 
@@ -29,6 +30,12 @@ namespace ttnn::operations::experimental::deepseek_prefill::unified_routed_exper
 // past TILE_HW would additionally require widening the device-op validation
 // below and re-checking the per-core L1 budget.
 inline constexpr uint32_t MAX_GLOBAL_EXPERTS = tt::constants::TILE_HW;  // 1024
+
+// Runtime weight addresses are passed to each data-movement kernel as three
+// arrays (gate/up/down). 64 covers the largest current local-expert shard while
+// keeping the reader's runtime-argument stream below the portable 341-word
+// limit (56 fixed words + 3 * 64 weight addresses = 248 words).
+inline constexpr uint32_t MAX_FUSED_LOCAL_EXPERTS = 64;
 
 // Per-expert FFN activation variant. Selected at the op boundary and baked into
 // the compute kernel via a compile-time define, so each variant caches as a
@@ -58,6 +65,12 @@ struct UnifiedRoutedExpertFfnParams {
     // (kernel reads global_id = idx_table[local_expert_id], then count =
     // counts[global_id]).
     uint32_t local_expert_id = 0;
+
+    // Number of consecutive local experts executed by this program. Standalone
+    // FFN calls use one; the bias-free MoE composite passes groups of up to
+    // MAX_FUSED_LOCAL_EXPERTS so the kernels amortize program launch and
+    // counts/start-table reads.
+    uint32_t num_local_experts = 1;
 
     // When true, x is a shared buffer and the reader offsets its x reads by this
     // expert's region start (expert_region_offsets[global_id]) — fusing what
@@ -89,13 +102,21 @@ struct UnifiedRoutedExpertFfnParams {
         "chunk_M_tiles",
         "m_tiles",
         "local_expert_id",
+        "num_local_experts",
         "read_x_at_offset",
         "x_is_row_major",
         "activation",
         "fuse_bias");
     auto attribute_values() const {
         return std::forward_as_tuple(
-            chunk_M_tiles, m_tiles, local_expert_id, read_x_at_offset, x_is_row_major, activation, fuse_bias);
+            chunk_M_tiles,
+            m_tiles,
+            local_expert_id,
+            num_local_experts,
+            read_x_at_offset,
+            x_is_row_major,
+            activation,
+            fuse_bias);
     }
 };
 
@@ -115,9 +136,9 @@ struct UnifiedRoutedExpertFfnParams {
 // kernel reads them at runtime to skip unused chunks.
 struct UnifiedRoutedExpertFfnInputs {
     Tensor x;
-    Tensor gate_proj;
-    Tensor up_proj;
-    Tensor down_proj;
+    std::vector<Tensor> gate_projs;
+    std::vector<Tensor> up_projs;
+    std::vector<Tensor> down_projs;
     Tensor counts;
     Tensor global_expert_idx_table;
     std::optional<Tensor> optional_output;

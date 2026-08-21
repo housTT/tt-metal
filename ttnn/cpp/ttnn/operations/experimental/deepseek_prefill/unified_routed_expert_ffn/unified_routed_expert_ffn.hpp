@@ -37,10 +37,12 @@ namespace ttnn::operations::experimental::deepseek_prefill::unified_routed_exper
 //   gate_proj: (K=emb, N=hidden), TILE, DRAM interleaved (any weights dtype).
 //   up_proj:   (K=emb, N=hidden), TILE, DRAM interleaved (any weights dtype).
 //   down_proj: (K=hidden, N=emb), TILE, DRAM interleaved (any weights dtype).
-//   counts: device-resident UINT32 vector, one entry per global expert id.
-//   global_expert_idx_table: device-resident UINT32 vector,
+//   counts: device-resident ROW_MAJOR UINT32 vector, one entry per global expert id.
+//   global_expert_idx_table: device-resident ROW_MAJOR UINT32 vector,
 //      counts[global_expert_idx_table[local_expert_id]] == this expert's
 //      actual token count.
+//   All device-resident inputs and an optional output must belong to x's
+//      MeshDevice; kernels consume their buffers as device-local raw addresses.
 //   local_expert_id: index into global_expert_idx_table.
 //   compute_kernel_config: optional matmul math fidelity / accumulator config.
 //   output: optional pre-allocated DRAM-interleaved, TILE-layout output tensor
@@ -89,13 +91,11 @@ ttnn::Tensor unified_routed_expert_ffn(
     const std::optional<ttnn::Tensor>& down_bias = std::nullopt);
 
 // MoE-level composite: takes the dispatched buffer + ALL local experts'
-// weights and loops over local experts in C++, calling
-//   extract -> unified_routed_expert_ffn (direct-write)
-// per expert. The FFN writer places each expert's output directly into the
-// shared output buffer at its region offset (the old per-expert ttnn::insert
-// is fused into the FFN writer — no temp buffer, no second DRAM round-trip).
-// NOT a single fused device op across experts (per-expert FFN entries still
-// appear in tt-perf-report); Python sees one call, the device sees N.
+// weights. The bias-free path executes consecutive groups of up to 64 local
+// experts per device program; reader/compute/writer switch projection addresses
+// at expert boundaries and write each result directly to its shared-buffer
+// region. Larger lists are partitioned transparently. The optional-bias path
+// retains one proven per-expert launch.
 //
 // The unified FFN reads counts on-device so each expert's work scales to its
 // actual count. No host-side counts/idx read, no per-expert Python loop.
