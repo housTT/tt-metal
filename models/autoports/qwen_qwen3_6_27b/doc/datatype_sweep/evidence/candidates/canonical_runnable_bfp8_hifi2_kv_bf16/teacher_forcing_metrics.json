@@ -1,0 +1,119 @@
+{
+  "aggregate": {
+    "decode_elapsed_s": 5.367744653020054,
+    "decode_setup_ms": 633.9828440104611,
+    "decode_t/s/u": 18.257202295355512,
+    "decode_tokens": 98.0,
+    "decode_with_capture_elapsed_s": 6.001727497030515,
+    "decode_with_capture_t/s/u": 16.495250750551804,
+    "decode_with_capture_tokens": 99.0,
+    "e2e_t/s/u": 14.33462061392153,
+    "elapsed_s": 6.976117659010924,
+    "k": 100,
+    "matches_top1": 98,
+    "matches_top100": 100,
+    "matches_top5": 100,
+    "top1": 0.98,
+    "top100": 1.0,
+    "top5": 1.0,
+    "total": 100,
+    "ttft_ms": 973.6336380010471
+  },
+  "check": "teacher_forcing",
+  "entries": [
+    {
+      "decode_elapsed_s": 5.367744653020054,
+      "decode_setup_ms": 633.9828440104611,
+      "decode_t/s/u": 18.257202295355512,
+      "decode_tokens": 98.0,
+      "decode_with_capture_elapsed_s": 6.001727497030515,
+      "decode_with_capture_t/s/u": 16.495250750551804,
+      "decode_with_capture_tokens": 99.0,
+      "e2e_t/s/u": 14.33462061392153,
+      "elapsed_s": 6.976117659010924,
+      "k": 100,
+      "matches_top1": 98,
+      "matches_top100": 100,
+      "matches_top5": 100,
+      "top1": 0.98,
+      "top100": 1.0,
+      "top5": 1.0,
+      "total": 100,
+      "ttft_ms": 973.6336380010471
+    }
+  ],
+  "model_dir": "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b",
+  "precision_summary": {
+    "activation_residual": {
+      "activations": "bf16",
+      "norm": "bf16",
+      "residual": "bf16"
+    },
+    "ccl": {
+      "full_attention_attention": "bf16",
+      "full_attention_mlp": "bf16",
+      "linear_attention_attention": "bf16",
+      "linear_attention_mlp": "bf16"
+    },
+    "compute_fidelities": {
+      "lm_head": "lofi",
+      "mlp_down": "hifi2",
+      "mlp_gate": "hifi2",
+      "mlp_up": "hifi2",
+      "projection": "hifi2"
+    },
+    "config_id": "canonical_runnable_bfp8_hifi2_kv_bf16",
+    "kv_cache": {
+      "dtype": "bf16",
+      "layout": "tile_dram_paged",
+      "page_block_size": 64
+    },
+    "layer_exceptions": {},
+    "logits_sampling": {
+      "greedy_accumulation": "local_bf16_max_argmax",
+      "lm_head_weight_dtype": "bfp8",
+      "logits_dtype": "bf16",
+      "sampling_dtype": "bf16",
+      "stochastic_assumption": "bf16_logits_with_fp32_probability_math_where_required"
+    },
+    "path": "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/doc/datatype_sweep/candidates/canonical_runnable_bfp8_hifi2_kv_bf16.json",
+    "runtime_loading": {},
+    "weight_groups": {
+      "attention_input": "bfp8",
+      "attention_output": "bfp8",
+      "embedding": "bf16",
+      "final_norm": "bf16",
+      "lm_head": "bfp8",
+      "mlp_down": {
+        "full_attention": "bfp8",
+        "linear_attention": "bfp4"
+      },
+      "mlp_gate": {
+        "full_attention": "bfp8",
+        "linear_attention": "bfp8"
+      },
+      "mlp_up": {
+        "full_attention": "bfp8",
+        "linear_attention": "bfp8"
+      }
+    }
+  },
+  "reference_path": "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/readiness_aime24_chat.refpt",
+  "runtime": {
+    "decode_trace_enabled": true,
+    "fabric_config": "FABRIC_1D_RING",
+    "generated_at_utc": "2026-08-20T23:24:00.284412+00:00",
+    "mesh_device": "P300",
+    "mesh_device_count": 4,
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "python_version": "3.12.3",
+    "torch_version": "2.11.0+cpu",
+    "trace_region_size": 1500000000,
+    "ttnn_version": null
+  },
+  "schema_version": 1,
+  "warmup_repeats": 1
+}

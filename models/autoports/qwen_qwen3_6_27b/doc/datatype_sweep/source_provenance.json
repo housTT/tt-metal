@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "git_branch": "agentic-research/hous/qwen3.8-27b",
+  "git_base_commit": "b7b52f83305e1e7c350bde15c7b648d43652e4e2",
+  "final_runtime_source_sha256": "72bf71adc0bf305858811fd31924cda25e36487379f8cad6dda3415d233c6add",
+  "final_runtime_source_files": [
+    "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/precision.py",
+    "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/model.py",
+    "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/generator.py",
+    "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/multichip_decoder.py",
+    "/home/ttuser/dev/qwen-perf/tt-metal/models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py",
+    "models/common/readiness_check/run_prefill_check.py",
+    "models/common/readiness_check/run_teacher_forcing.py"
+  ],
+  "cohorts": {
+    "final_runtime_v3": {
+      "row_config_ids": [
+        "baseline_optimized_mixed"
+      ],
+      "source_identifier": "sha256:6ab2b2093de4652e7e358cc2afda422f327b4cccf8a0778e85d52671bd46f2a7",
+      "exact_historical_dirty_patch_preserved": false,
+      "source_state": "the measured runtime source SHA-256 was recorded and independently recomputed before the later host-only canonical-spelling validation; the raw metric embeds the resolved precision policy",
+      "equivalence_to_final_runtime": "Measured after runtime and exact root/nested-schema remediation. It predates only canonical-lowercase rejection for datatype/fidelity strings; the embedded frozen baseline policy is entirely lowercase, so that validation-only change cannot alter construction or TT operations. The raw prefill and teacher-forcing metrics embed the resolved baseline policy."
+    },
+    "strict_policy_v2": {
+      "row_config_ids": [
+        "all_mlp_bfp4_hifi2"
+      ],
+      "source_identifier": "dirty-cohort:strict_policy_v2@b7b52f83305e1e7c350bde15c7b648d43652e4e2",
+      "exact_historical_dirty_patch_preserved": false,
+      "source_state": "stage-owned runtime changes were uncommitted at measurement time; the exact historical dirty patch was not preserved. This limitation is explicit and the row-to-final behavior-equivalence basis is recorded",
+      "equivalence_to_final_runtime": "Measured after KV layout/block and logits strict validation/propagation, before exact root/nested-key rejection. The candidate contains only known valid keys, so the final validation-only change does not alter construction or any TT operation."
+    },
+    "pre_strict_policy_v1": {
+      "row_config_ids": [
+        "canonical_runnable_bfp8_hifi2_kv_bf16",
+        "ccl_all_bfp8",
+        "full_down_bfp4_lofi",
+        "full_down_bfp8_hifi2",
+        "kv_bf16_control",
+        "projection_hifi2",
+        "canonical_bfp8_hifi2_kv_bf16"
+      ],
+      "source_identifier": "dirty-cohort:pre_strict_policy_v1@b7b52f83305e1e7c350bde15c7b648d43652e4e2",
+      "exact_historical_dirty_patch_preserved": false,
+      "source_state": "stage-owned runtime changes were uncommitted at measurement time; the exact historical dirty patch was not preserved. This limitation is explicit and the row-to-final behavior-equivalence basis is recorded",
+      "equivalence_to_final_runtime": "Measured before host-only exact-schema/KV-block propagation fixes. All recorded policies use page block 64 and valid known keys; replacing PAGE_BLOCK_SIZE with the validated value 64 is algebraically identical. The later HiFi4 projection dispatch branch is unreachable because no row uses projection HiFi4. Exact root/nested-key rejection changes invalid-input handling only. Thus measured TT operations are unchanged by final source."
+    }
+  },
+  "unrelated_dirty_state_excluded": [
+    "tt_metal/third_party/tracy",
+    "tt_metal/third_party/umd",
+    "tt_metal/third_party/tt-cluster-descriptors/"
+  ],
+  "limitation": "The exact pre-final uncommitted patch objects were not preserved. This manifest does not claim otherwise; it records row cohorts and the exact behavior-equivalence argument for host-only changes made after measurement."
+}

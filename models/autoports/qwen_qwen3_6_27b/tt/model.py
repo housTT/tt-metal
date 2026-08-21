@@ -35,6 +35,7 @@ from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import (
     _decode_l1_memory,
     _norm_l1_memory,
 )
+from models.autoports.qwen_qwen3_6_27b.tt.precision import PrecisionPolicy, load_precision_policy
 from models.common.sampling.generator import SamplingGenerator
 from models.common.modules.tt_ccl import get_tt_ccl
 from models.tt_transformers.tt.rope import HfRotarySetup
@@ -121,7 +122,16 @@ class VocabParallelLMHead:
     vocabulary are masked on device before sampling.
     """
 
-    def __init__(self, weight: torch.Tensor, mesh_device, *, hidden_size: int, vocab_size: int):
+    def __init__(
+        self,
+        weight: torch.Tensor,
+        mesh_device,
+        *,
+        hidden_size: int,
+        vocab_size: int,
+        precision_policy: PrecisionPolicy | None = None,
+    ):
+        precision_policy = precision_policy or load_precision_policy()
         if tuple(weight.shape) != (vocab_size, hidden_size):
             raise ValueError(f"Unexpected LM-head shape {tuple(weight.shape)}")
         self.mesh_device = mesh_device
@@ -141,7 +151,9 @@ class VocabParallelLMHead:
                     combined,
                     mesh_device,
                     shard_dim=-1,
-                    dtype=ttnn.bfloat8_b,
+                    dtype={"bfp8": ttnn.bfloat8_b, "bf16": ttnn.bfloat16}[
+                        precision_policy.weight_dtype("lm_head")
+                    ],
                     dram_sharded=True,
                     local_k=hidden_size,
                     local_n=LM_HEAD_SPLIT_SIZE,
@@ -159,8 +171,13 @@ class VocabParallelLMHead:
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
         )
+        lm_head_fidelity = precision_policy.fidelity("lm_head")
         self.compute_kernel_config = ttnn.WormholeComputeKernelConfig(
-            math_fidelity=ttnn.MathFidelity.LoFi,
+            math_fidelity={
+                "lofi": ttnn.MathFidelity.LoFi,
+                "hifi2": ttnn.MathFidelity.HiFi2,
+                "hifi4": ttnn.MathFidelity.HiFi4,
+            }[lm_head_fidelity],
             math_approx_mode=False,
             fp32_dest_acc_en=False,
             packer_l1_acc=True,
@@ -247,10 +264,13 @@ class QwenFullModel:
         max_seq_len: int | None = None,
         override_num_layers: int | None = None,
         override_layer_indices: list[int] | tuple[int, ...] | None = None,
+        precision_config_path: str | Path | None = None,
     ):
         if mesh_device.get_num_devices() != TP_SIZE or tuple(mesh_device.shape) != MESH_SHAPE:
             raise ValueError("QwenFullModel requires a 1x4 mesh; fallback meshes are not supported")
         self.mesh_device = mesh_device
+        self.precision_policy = load_precision_policy(precision_config_path)
+        self.precision_summary = self.precision_policy.summary()
         self.checkpoint_path = _resolve_checkpoint(checkpoint_path)
         root_config = AutoConfig.from_pretrained(self.checkpoint_path, local_files_only=True)
         self.config = root_config.text_config
@@ -273,7 +293,7 @@ class QwenFullModel:
         self.num_layers = len(self.layer_indices)
         self.vocab_size = self.config.vocab_size
         self.hidden_size = self.config.hidden_size
-        self.page_block_size = PAGE_BLOCK_SIZE
+        self.page_block_size = int(self.precision_policy.kv_cache["page_block_size"])
         self.max_batch_size = MAX_BATCH_SIZE
         # Kept as a model-local A/B switch for the optimized-full-model
         # benchmark.  Production always uses persistent state reuse.
@@ -284,7 +304,9 @@ class QwenFullModel:
         self.embedding_weight = ttnn.as_tensor(
             embedding,
             device=mesh_device,
-            dtype=ttnn.bfloat16,
+            dtype={"bf16": ttnn.bfloat16}[
+                self.precision_policy.weight_dtype("embedding")
+            ],
             layout=ttnn.ROW_MAJOR_LAYOUT,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
@@ -300,17 +322,28 @@ class QwenFullModel:
                     hf_config=self.config,
                     layer_idx=layer_idx,
                     mesh_device=mesh_device,
-                    page_block_size=PAGE_BLOCK_SIZE,
+                    page_block_size=self.page_block_size,
+                    precision_policy=self.precision_policy,
                 )
             )
             del layer_state
 
         norm = checkpoint.tensor("model.language_model.norm.weight").float() + 1.0
-        self.final_norm = _replicated_weight(norm.reshape(1, 1, 1, -1), mesh_device)
+        self.final_norm = _replicated_weight(
+            norm.reshape(1, 1, 1, -1),
+            mesh_device,
+            dtype={"bf16": ttnn.bfloat16}[
+                self.precision_policy.weight_dtype("final_norm")
+            ],
+        )
         del norm
         lm_head = checkpoint.tensor("lm_head.weight")
         self.lm_head = VocabParallelLMHead(
-            lm_head, mesh_device, hidden_size=self.hidden_size, vocab_size=self.vocab_size
+            lm_head,
+            mesh_device,
+            hidden_size=self.hidden_size,
+            vocab_size=self.vocab_size,
+            precision_policy=self.precision_policy,
         )
         del lm_head
 
@@ -377,7 +410,7 @@ class QwenFullModel:
     def allocate_state(self, *, batch_size: int, page_table: torch.Tensor | None = None) -> FullModelState:
         if not 1 <= batch_size <= MAX_BATCH_SIZE:
             raise ValueError(f"batch_size must be in [1, {MAX_BATCH_SIZE}]")
-        total_blocks = math.ceil(self.max_seq_len / PAGE_BLOCK_SIZE)
+        total_blocks = math.ceil(self.max_seq_len / self.page_block_size)
         owns_page_table = page_table is None
         if owns_page_table:
             # The context contract is a total physical KV-token budget, not
@@ -455,7 +488,7 @@ class QwenFullModel:
             raise ValueError("prompt lengths exceed token storage or supported context")
 
         if state.owns_page_table:
-            required_blocks = [math.ceil(length / PAGE_BLOCK_SIZE) for length in prompt_lens]
+            required_blocks = [math.ceil(length / self.page_block_size) for length in prompt_lens]
             if sum(required_blocks) > state.num_blocks:
                 raise ValueError(
                     "mixed prompts exceed the advertised total physical KV-cache token budget"

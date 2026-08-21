@@ -223,6 +223,53 @@
     "capability_reduction": null,
     "completion_status": "passed"
   },
+  "datatype_sweep": {
+    "status": "passed",
+    "target_hardware": "4x Blackhole P300c",
+    "mesh_shape": [1, 4],
+    "tensor_parallel_degree": 4,
+    "maximum_logical_sequence_length": 262144,
+    "maximum_active_batch_size": 32,
+    "capacity_semantics": "262144 is the total physical KV-token pool shared by the 32 fixed slots; no evaluated KV-cache policy requires reducing that advertised capability.",
+    "kv_cache_candidates": {
+      "bfp8": {
+        "config_ids": ["baseline_optimized_mixed", "full_down_bfp4_lofi", "all_mlp_bfp4_hifi2"],
+        "tile_payload_bytes": 1088,
+        "tile_count_per_device_for_16_full_attention_layers_at_max_context": 2097152,
+        "cache_bytes_per_device": 2281701376,
+        "selected": true,
+        "measured_runtime_status": "full-model traced teacher forcing, token-out, and non-aligned prompt checks passed",
+        "context_effect": "preserves the 262144-token shared physical pool"
+      },
+      "bf16": {
+        "config_ids": ["kv_bf16_control", "canonical_bfp8_hifi2_kv_bf16", "canonical_runnable_bfp8_hifi2_kv_bf16"],
+        "tile_payload_bytes": 2048,
+        "tile_count_per_device_for_16_full_attention_layers_at_max_context": 2097152,
+        "cache_bytes_per_device": 4294967296,
+        "increment_over_bfp8_bytes_per_device": 2013265920,
+        "kv_bf16_control_planned_total_bytes_per_device": 22988431360,
+        "kv_bf16_control_unreserved_dram_bytes_per_device": 11371307008,
+        "measured_runtime_status": "isolated kv_bf16_control full-model traced teacher forcing passed; compound canonical policy failed later in an HiFi2 MLP L1 program, not in cache allocation/fill/update",
+        "context_effect": "preserves the 262144-token shared physical pool with 10.59 GiB/device still outside the explicit plan"
+      }
+    },
+    "selected_capacity": {
+      "config_id": "full_down_bfp4_lofi",
+      "full_attention_down_weight_saving_bytes_per_device": 377487360,
+      "full_model_weight_bytes_per_device": 12558073856,
+      "planned_total_bytes_per_device": 20597678080,
+      "unreserved_dram_bytes_per_device": 13762060288,
+      "calculation_basis": "Sixteen full-attention down groups change two physical TP-local 4608x5120 tiled weight copies from 1088-byte BFP8 tiles to 576-byte BFP4 tiles; cache and all other capacity terms retain the optimized-full-model plan."
+    },
+    "capability_reduction": null,
+    "evidence": {
+      "kv_bf16_control": "datatype_sweep/evidence/candidates/kv_bf16_control/teacher_forcing_metrics.json",
+      "selected": "datatype_sweep/evidence/final/teacher_forcing_metrics.json",
+      "selected_token_out": "datatype_sweep/evidence/final/token_out_metrics.json",
+      "selected_non_aligned": "datatype_sweep/evidence/final/non_aligned.junit.xml",
+      "sweep_ledger": "datatype_sweep/sweep_results.json"
+    }
+  },
   "functional_decoder": {
     "layer_kinds": [
       "linear_attention",

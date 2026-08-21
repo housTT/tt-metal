@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "config_id": "baseline_optimized_mixed",
+  "model_id": "Qwen/Qwen3.6-27B",
+  "status": "frozen_optimized_full_model_baseline",
+  "weight_groups": {
+    "embedding": "bf16",
+    "attention_input": "bfp8",
+    "attention_output": "bfp8",
+    "mlp_gate": {"linear_attention": "bfp4", "full_attention": "bfp4"},
+    "mlp_up": {"linear_attention": "bfp4", "full_attention": "bfp4"},
+    "mlp_down": {"linear_attention": "bfp4", "full_attention": "bfp8"},
+    "final_norm": "bf16",
+    "lm_head": "bfp8"
+  },
+  "layer_exceptions": {},
+  "compute_fidelities": {
+    "projection": "lofi",
+    "mlp_gate": "lofi",
+    "mlp_up": "lofi",
+    "mlp_down": "lofi",
+    "lm_head": "lofi"
+  },
+  "activation_residual": {"activations": "bf16", "residual": "bf16", "norm": "bf16"},
+  "ccl": {
+    "linear_attention_attention": "bf16",
+    "linear_attention_mlp": "bfp8",
+    "full_attention_attention": "bf16",
+    "full_attention_mlp": "bf16"
+  },
+  "kv_cache": {"dtype": "bfp8", "layout": "tile_dram_paged", "page_block_size": 64},
+  "logits_sampling": {
+    "lm_head_weight_dtype": "bfp8",
+    "logits_dtype": "bf16",
+    "sampling_dtype": "bf16",
+    "greedy_accumulation": "local_bf16_max_argmax",
+    "stochastic_assumption": "bf16_logits_with_fp32_probability_math_where_required"
+  }
+}

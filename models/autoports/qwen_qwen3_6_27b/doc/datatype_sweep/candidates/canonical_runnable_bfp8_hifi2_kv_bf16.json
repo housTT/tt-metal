@@ -1,0 +1,22 @@
+{
+  "base_config": "baseline_optimized_mixed.json",
+  "config_id": "canonical_runnable_bfp8_hifi2_kv_bf16",
+  "weight_groups": {
+    "mlp_gate": {"linear_attention": "bfp8", "full_attention": "bfp8"},
+    "mlp_up": {"linear_attention": "bfp8", "full_attention": "bfp8"},
+    "mlp_down": {"linear_attention": "bfp4", "full_attention": "bfp8"}
+  },
+  "compute_fidelities": {
+    "projection": "hifi2",
+    "mlp_gate": "hifi2",
+    "mlp_up": "hifi2",
+    "mlp_down": "hifi2"
+  },
+  "ccl": {
+    "linear_attention_attention": "bf16",
+    "linear_attention_mlp": "bf16",
+    "full_attention_attention": "bf16",
+    "full_attention_mlp": "bf16"
+  },
+  "kv_cache": {"dtype": "bf16"}
+}

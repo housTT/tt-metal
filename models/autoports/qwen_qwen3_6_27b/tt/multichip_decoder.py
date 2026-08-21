@@ -31,6 +31,7 @@ from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import (
     _decode_l1_memory,
     _norm_l1_memory,
 )
+from models.autoports.qwen_qwen3_6_27b.tt.precision import PrecisionPolicy, load_precision_policy
 
 
 TP_SIZE = 4
@@ -183,9 +184,11 @@ class MultichipDecoder(OptimizedDecoder):
         layer_idx: int,
         mesh_device,
         page_block_size: int = 64,
+        precision_policy: PrecisionPolicy | None = None,
         **kwargs,
     ):
         del kwargs
+        precision_policy = precision_policy or load_precision_policy()
         config = getattr(hf_config, "text_config", hf_config)
         if mesh_device.get_num_devices() != TP_SIZE or tuple(mesh_device.shape) != MESH_SHAPE:
             raise ValueError("MultichipDecoder requires this machine's 1x4 mesh")
@@ -243,14 +246,9 @@ class MultichipDecoder(OptimizedDecoder):
             "bfp8": ttnn.bfloat8_b,
             "bfp4": ttnn.bfloat4_b,
         }
-        default_mlp_policies = (
-            {role: "bfp4" for role in ("gate", "up", "down")}
-            if layer_kind == "linear_attention"
-            else {"gate": "bfp4", "up": "bfp4", "down": "bfp8"}
-        )
         mlp_policies = {
-            role: os.environ.get(
-                f"QWEN36_MC_MLP_{role.upper()}_DTYPE", default_mlp_policies[role]
+            role: precision_policy.weight_dtype(
+                f"mlp_{role}", layer_kind=layer_kind, layer_idx=layer_idx
             )
             for role in ("gate", "up", "down")
         }
@@ -298,12 +296,12 @@ class MultichipDecoder(OptimizedDecoder):
         common["mlp_down_dram_prefill"] = decode
 
         if layer_kind == "full_attention":
-            input_projection_dtype = dtype_by_name[
-                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
-            ]
-            output_projection_dtype = dtype_by_name[
-                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
-            ]
+            input_projection_dtype = dtype_by_name[precision_policy.weight_dtype(
+                "attention_input", layer_kind=layer_kind, layer_idx=layer_idx
+            )]
+            output_projection_dtype = dtype_by_name[precision_policy.weight_dtype(
+                "attention_output", layer_kind=layer_kind, layer_idx=layer_idx
+            )]
             local_q_heads = config.num_attention_heads // TP_SIZE
             local_kv_heads = config.num_key_value_heads // TP_SIZE
             q_and_gate = state_dict[_state_key(state_dict, layer_idx, "self_attn.q_proj.weight")]
@@ -353,12 +351,12 @@ class MultichipDecoder(OptimizedDecoder):
                 ),
             )
         elif layer_kind == "linear_attention":
-            input_projection_dtype = dtype_by_name[
-                os.environ.get("QWEN36_MC_INPUT_PROJ_DTYPE", "bfp8")
-            ]
-            output_projection_dtype = dtype_by_name[
-                os.environ.get("QWEN36_MC_OUTPUT_PROJ_DTYPE", "bfp8")
-            ]
+            input_projection_dtype = dtype_by_name[precision_policy.weight_dtype(
+                "attention_input", layer_kind=layer_kind, layer_idx=layer_idx
+            )]
+            output_projection_dtype = dtype_by_name[precision_policy.weight_dtype(
+                "attention_output", layer_kind=layer_kind, layer_idx=layer_idx
+            )]
             qkv_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_qkv.weight")]
             z_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_z.weight")]
             beta_source = state_dict[_state_key(state_dict, layer_idx, "linear_attn.in_proj_b.weight")]
@@ -468,10 +466,13 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.mlp_compute_configs = {
             role: ttnn.WormholeComputeKernelConfig(
                 math_fidelity=(
-                    ttnn.MathFidelity.HiFi2
-                    if os.environ.get(f"QWEN36_MC_MLP_{role.upper()}_FIDELITY", "lofi")
-                    == "hifi2"
-                    else ttnn.MathFidelity.LoFi
+                    {
+                        "lofi": ttnn.MathFidelity.LoFi,
+                        "hifi2": ttnn.MathFidelity.HiFi2,
+                        "hifi4": ttnn.MathFidelity.HiFi4,
+                    }[precision_policy.fidelity(
+                        f"mlp_{role}", layer_kind=layer_kind, layer_idx=layer_idx
+                    )]
                 ),
                 math_approx_mode=False,
                 fp32_dest_acc_en=False,
@@ -506,30 +507,18 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.mlp_runtime_intermediate_size = local_intermediate
         decoder.mlp_runtime_output_size = hidden_size
         decoder.dram_sharded_projections = "both"
-        decoder.projection_fidelity = os.environ.get(
-            "QWEN36_MC_PROJECTION_FIDELITY", "auto"
+        decoder.projection_fidelity = precision_policy.fidelity(
+            "projection", layer_kind=layer_kind, layer_idx=layer_idx
         )
-        if decoder.projection_fidelity not in ("auto", "lofi", "hifi2"):
-            raise ValueError("QWEN36_MC_PROJECTION_FIDELITY must be auto, lofi, or hifi2")
         decoder.input_projection_weight_dtype = input_projection_dtype
         decoder.output_projection_weight_dtype = output_projection_dtype
-        decoder.ccl_payload_dtype = os.environ.get("QWEN36_MC_CCL_DTYPE", "bf16")
-        if decoder.ccl_payload_dtype not in ("bf16", "bfp8"):
-            raise ValueError("QWEN36_MC_CCL_DTYPE must be bf16 or bfp8")
-        def resolve_ccl_policy(layer, role, built_in):
-            layer_prefix = "QWEN36_MC_LINEAR" if layer == "linear_attention" else "QWEN36_MC_FULL"
-            return os.environ.get(
-                f"{layer_prefix}_{role.upper()}_CCL_DTYPE",
-                os.environ.get(
-                    f"QWEN36_MC_{role.upper()}_CCL_DTYPE",
-                    os.environ.get("QWEN36_MC_CCL_DTYPE", built_in),
-                ),
-            )
-
-        linear_attention_ccl_dtype = resolve_ccl_policy("linear_attention", "attention", "bf16")
-        full_attention_ccl_dtype = resolve_ccl_policy("full_attention", "attention", "bf16")
-        linear_mlp_ccl_dtype = resolve_ccl_policy("linear_attention", "mlp", "bfp8")
-        full_mlp_ccl_dtype = resolve_ccl_policy("full_attention", "mlp", "bf16")
+        linear_attention_ccl_dtype = precision_policy.ccl["linear_attention_attention"]
+        full_attention_ccl_dtype = precision_policy.ccl["full_attention_attention"]
+        linear_mlp_ccl_dtype = precision_policy.ccl["linear_attention_mlp"]
+        full_mlp_ccl_dtype = precision_policy.ccl["full_attention_mlp"]
+        decoder.ccl_payload_dtype = (
+            linear_attention_ccl_dtype if layer_kind == "linear_attention" else full_attention_ccl_dtype
+        )
         if layer_kind == "linear_attention":
             decoder.attention_ccl_payload_dtype = linear_attention_ccl_dtype
             decoder.mlp_ccl_payload_dtype = linear_mlp_ccl_dtype
@@ -558,6 +547,8 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.persistent_ccl_pool = None
         decoder.persistent_ccl_worker_id = None
         decoder.ccl_branch_provenance = {}
+        decoder.precision_policy = precision_policy
+        decoder.precision_summary = precision_policy.summary()
         decoder.gdn_decode_update_geometry = "reuse96m"
         decoder.gdn_prefill_geometry = "reuse"
         decoder.prefill_matmul_geometry = "auto"

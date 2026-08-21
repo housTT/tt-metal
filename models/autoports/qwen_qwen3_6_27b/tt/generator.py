@@ -39,6 +39,7 @@ class Generator(ReadinessGenerator):
         max_seq_len: int | None = None,
         override_num_layers: int | None = None,
         override_layer_indices: list[int] | tuple[int, ...] | None = None,
+        precision_config_path: str | Path | None = None,
         host_sampling_compatibility: bool = False,
     ):
         self.mesh_device = mesh_device
@@ -48,6 +49,7 @@ class Generator(ReadinessGenerator):
             max_seq_len=max_seq_len,
             override_num_layers=override_num_layers,
             override_layer_indices=override_layer_indices,
+            precision_config_path=precision_config_path,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model.checkpoint_path, local_files_only=True

@@ -214,6 +214,7 @@ def run_prefill_check(
     build_kwargs = build_kwargs or {}
     build_generator = _import_build_generator(model_dir)
     generator: Generator = build_generator(model_dir=model_dir, mesh_device=mesh_device, **build_kwargs)
+    precision_summary = getattr(getattr(generator, "model", None), "precision_summary", None)
 
     reference = load_reference(reference_path)
     per_entry: List[Dict[str, Any]] = []
@@ -235,9 +236,7 @@ def run_prefill_check(
         print(_format_row("AGGREGATE", agg))
 
     if output_json_path is not None:
-        write_metrics_json(
-            output_json_path,
-            {
+        report = {
                 "schema_version": 1,
                 "check": "prefill",
                 "model_dir": str(model_dir.resolve()),
@@ -245,8 +244,10 @@ def run_prefill_check(
                 "runtime": runtime_metadata(mesh_device, cli=runtime),
                 "entries": per_entry,
                 "aggregate": agg,
-            },
-        )
+            }
+        if precision_summary is not None:
+            report["precision_summary"] = precision_summary
+        write_metrics_json(output_json_path, report)
 
     return per_entry
 

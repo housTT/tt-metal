@@ -22,6 +22,7 @@ from models.autoports.qwen_qwen3_6_27b.tt.functional_decoder import (
     _state_key,
 )
 from models.autoports.qwen_qwen3_6_27b.tt.fused_decoder import FusedDecoder
+from models.autoports.qwen_qwen3_6_27b.tt.precision import load_precision_policy
 
 
 def _dram_sharded_weight(source, mesh_device, *, dtype):
@@ -502,11 +503,11 @@ class OptimizedDecoder(FusedDecoder):
         compute_kernel_config = None
         if self.projection_fidelity != "auto":
             compute_kernel_config = ttnn.WormholeComputeKernelConfig(
-                math_fidelity=(
-                    ttnn.MathFidelity.LoFi
-                    if self.projection_fidelity == "lofi"
-                    else ttnn.MathFidelity.HiFi2
-                ),
+                math_fidelity={
+                    "lofi": ttnn.MathFidelity.LoFi,
+                    "hifi2": ttnn.MathFidelity.HiFi2,
+                    "hifi4": ttnn.MathFidelity.HiFi4,
+                }[self.projection_fidelity],
                 math_approx_mode=False,
                 fp32_dest_acc_en=False,
                 packer_l1_acc=True,
@@ -573,11 +574,10 @@ class OptimizedDecoder(FusedDecoder):
     def allocate_paged_kv_cache(self, *, num_blocks: int, dtype=None):
         """Allocate the selected BFP8 cache unless a caller requests another dtype."""
         if dtype is None:
-            dtype = (
-                ttnn.bfloat8_b
-                if os.environ.get("QWEN36_OPT_KV_CACHE_DTYPE", "bfp8") == "bfp8"
-                else ttnn.bfloat16
-            )
+            policy = getattr(self, "precision_policy", None) or load_precision_policy()
+            dtype = {"bfp8": ttnn.bfloat8_b, "bf16": ttnn.bfloat16}[
+                policy.kv_cache["dtype"]
+            ]
         return super().allocate_paged_kv_cache(num_blocks=num_blocks, dtype=dtype)
 
     def _full_prefill(self, hidden_states, **kwargs):

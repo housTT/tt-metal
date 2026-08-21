@@ -250,6 +250,7 @@ def run_teacher_forcing(
     build_kwargs = build_kwargs or {}
     build_generator = _import_build_generator(model_dir)
     generator: Generator = build_generator(model_dir=model_dir, mesh_device=mesh_device, **build_kwargs)
+    precision_summary = getattr(getattr(generator, "model", None), "precision_summary", None)
 
     per_entry: List[Dict[str, Any]] = []
     try:
@@ -310,9 +311,7 @@ def run_teacher_forcing(
         print(_format_row("AGGREGATE", agg))
 
     if output_json_path is not None:
-        write_metrics_json(
-            output_json_path,
-            {
+        report = {
                 "schema_version": 1,
                 "check": "teacher_forcing",
                 "model_dir": str(model_dir.resolve()),
@@ -321,8 +320,10 @@ def run_teacher_forcing(
                 "warmup_repeats": warmup_repeats,
                 "entries": per_entry,
                 "aggregate": agg,
-            },
-        )
+            }
+        if precision_summary is not None:
+            report["precision_summary"] = precision_summary
+        write_metrics_json(output_json_path, report)
 
     return per_entry
 

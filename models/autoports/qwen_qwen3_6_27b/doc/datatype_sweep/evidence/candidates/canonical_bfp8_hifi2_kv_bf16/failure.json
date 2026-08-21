@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "config_id": "canonical_bfp8_hifi2_kv_bf16",
+  "command": "TT_METAL_HOME=/home/ttuser/dev/tt-metal PYTHONPATH=/home/ttuser/dev/qwen-perf/tt-metal:/home/ttuser/dev/tt-metal/ttnn:/home/ttuser/dev/tt-metal QWEN36_PRECISION_CONFIG=models/autoports/qwen_qwen3_6_27b/doc/datatype_sweep/candidates/canonical_bfp8_hifi2_kv_bf16.json python -m models.common.readiness_check.run_teacher_forcing --model-dir models/autoports/qwen_qwen3_6_27b --reference models/autoports/qwen_qwen3_6_27b/readiness_aime24_chat.refpt --mesh-device P300 --fabric-config FABRIC_1D_RING --trace-region-size 1500000000 --warmup-repeats 1 --output-json models/autoports/qwen_qwen3_6_27b/doc/datatype_sweep/evidence/candidates/canonical_bfp8_hifi2_kv_bf16/teacher_forcing_metrics.json",
+  "failure": {
+    "phase": "warmup traced decode before accuracy measurement",
+    "exception": "RuntimeError: TT_THROW",
+    "signature": "Statically allocated circular buffers in program 606 clash with L1 buffers on core range [0-0 - 7-9]. L1 buffer allocated at 928000 and static circular buffer region ends at 1333760",
+    "source": "models/autoports/qwen_qwen3_6_27b/tt/optimized_decoder.py:_mlp down ttnn.linear",
+    "status": "fixed_by_canonical_runnable_bfp8_hifi2_kv_bf16_candidate"
+  }
+}
