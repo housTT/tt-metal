@@ -72,6 +72,7 @@ never inside anything measured here.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, fields, replace
 
 from loguru import logger
@@ -479,6 +480,195 @@ DEFAULT_PAGE_BLOCK_SIZE = 64
 #: and tabulated in that stage's README. It also cuts the transient expert-activation footprint 8x.
 #: Decode is unaffected: its token count is one 32-row tile either way.
 DEFAULT_MOE_GROUP_TOKENS = 32
+
+#: Environment variable that selects the gathered routed-expert path. See :data:`MOE_GATHER_EXPERTS`.
+MOE_GATHER_ENV_VAR = "ORNITH_MOE_GATHER"
+
+
+def _read_bool_env(name: str) -> bool:
+    """Read a strict boolean environment variable without enabling on a typo."""
+
+    value = os.environ.get(name, "").strip().lower()
+    if value in ("", "0", "false", "off", "no"):
+        return False
+    if value in ("1", "true", "on", "yes"):
+        return True
+    raise ValueError(f"{name} must be one of 1/true/on/yes or 0/false/off/no; got {os.environ.get(name)!r}")
+
+
+#: Replace the two routed ``ttnn.sparse_matmul`` calls with a **gathered** per-expert FFN.
+#:
+#: ``ttnn.sparse_matmul`` is the single largest item of the prefill window: it computes, for every
+#: 32-token group and every expert that group activates, the *whole* 32-row product, so at the
+#: measured 41 active local experts per group it evaluates 64 x 41 x 32 = 83 968 row-expert products
+#: per layer per 2048-token chunk where the routing needs 2048 x 8 / 4 = 4096 — a 20.5x arithmetic
+#: overhead, and it runs on 32 of the 110 worker cores. The gathered path instead materialises, per
+#: expert, only the rows that expert was actually routed, and runs
+#: ``ttnn.experimental.deepseek_prefill.unified_routed_expert_moe`` over them: one device program for
+#: the 64 local experts that fuses gate+up+silu+down, switches weight addresses at expert boundaries,
+#: and reads token counts *on device*, so the arithmetic is exactly the 4096 rows routing asks for.
+#:
+#: **Off by default and selected by one environment variable**, :data:`MOE_GATHER_ENV_VAR`
+#: (``ORNITH_MOE_GATHER=1``). The value is read once at import into this module global, which is then
+#: read through the module at call time — the same contract :data:`DECODE_COMPACT_ROWS` documents, so
+#: a test or probe can flip it with ``monkeypatch.setattr(optimized_decoder, "MOE_GATHER_EXPERTS", …)``.
+#: With it cleared, every line below is unreachable and the sparse path runs byte for byte.
+#:
+#: **It is read at weight-load time as well as at forward time.** The gathered path needs per-expert
+#: ``gate_proj``/``up_proj``/``down_proj`` (the fused kernel's layout) while the sparse path needs the
+#: packed ``expert_gate_up``/``expert_down``, and the same bytes in two arrangements cannot alias, so
+#: the flag being set at load time makes :meth:`OptimizedDecoder._load_moe_weights` upload **both**.
+#: That is deliberate rather than wasteful: this switch is prefill-only, so decode still runs the
+#: sparse path and its weights have to be there. The cost is the routed-expert weight term twice —
+#: 113 MB per device per layer, i.e. about 4.5 GB per device across 40 layers, against the 25.9 GB
+#: ``doc/optimized_full_model/footprint.json`` records as free for activations. Sizeable, and the one
+#: number a device run should check first.
+#:
+#: :attr:`OptimizedMoE.gather_experts` records whether the per-expert layout was actually uploaded, so
+#: a flag flipped *after* construction can turn the path off (the sparse weights are always there) but
+#: never on (the gathered ones may not be). An in-process A/B — build once with the flag set, then
+#: flip it between forwards — is therefore valid in one direction only, which is the direction
+#: ``test_ccl_modes_agree`` uses: the shipped default is the reference arm.
+#:
+#: **Validated only with expert parallelism, and enforced.** The compact gathered buffer has the exact
+#: static capacity ``top_k * sub_chunk + (TILE - 1) * num_experts_local``: every real assignment plus
+#: the worst possible tile-rounding slack for every local expert. That removes the old
+#: ``num_experts_local * sub_chunk`` row movement. The fused operator can partition longer lists, but
+#: the surrounding permutation and duplicate-weight footprint have only been measured at 64 local
+#: experts. Above :data:`MOE_GATHER_MAX_LOCAL_EXPERTS` the path refuses — loudly, at setup, with the
+#: validated bound named — and the sparse path runs; see :func:`_gather_support_reason`.
+#:
+#: **Prefill only, deliberately.** At decode the whole call is one 32-row tile, so a gathered expert
+#: region is one tile whatever its real count: the gathered path would evaluate 64 x 32 = 2048 rows
+#: for the 256 the routing asks (an 8x overhead, *worse* than the sparse path's 5x at that shape), plus
+#: the dispatch/reverse-permutation graph. Decode is dispatch-bound even though the FFN itself is one
+#: fused program, so :data:`MOE_GATHER_MIN_TOKENS` is the floor; below it, and for every
+#: ``decode=True`` call, the sparse path runs unchanged.
+MOE_GATHER_EXPERTS = _read_bool_env(MOE_GATHER_ENV_VAR)
+
+#: Tokens per gathered-expert call.
+#:
+#: The gathered buffer tight-packs tile-aligned expert regions into
+#: ``top_k * sub_chunk + (TILE - 1) * num_experts_local`` rows. This is an exact upper bound, not a
+#: capacity factor: the local assignment count is at most ``top_k * sub_chunk`` and rounding each of
+#: ``num_experts_local`` counts to a tile adds at most ``TILE - 1`` rows. Device-side counts and an
+#: exclusive cumsum provide the dynamic region starts; no assignment is dropped and no host sync is
+#: needed. At the shipped 1024-token / 64-expert / top-8 shape this is 10,176 rows instead of 65,536.
+#:
+#: 1024 is the smallest value at which the *arithmetic* is already optimal: the mean rows per expert
+#: is ``sub_chunk * top_k / num_experts`` = ``sub_chunk / 32``, so at 1024 that is exactly one 32-row
+#: tile and the FFN's tile rounding costs nothing, while at 512 it is 16 rows rounded to 32 (a 2x
+#: overhead). Larger values do not improve the arithmetic and do grow the compact transient linearly
+#: in ``top_k * sub_chunk``. Its bfloat16 input is 39.8 MiB at the admitted 1024-token / 64-expert
+#: shape, before the fused FFN's block-float output.
+MOE_GATHER_SUB_CHUNK = 1024
+
+#: Smallest whole-call token count that takes the gathered path. Below it the sparse path runs.
+#:
+#: Two reasons for a floor rather than "any prefill". Arithmetically, 1024 rows give each of 64 local
+#: experts one full 32-row tile on average; shorter spans increasingly pay for padded expert tiles.
+#: Operationally, 1024 is the only profitable sub-chunk measured in the real layer and full stack.
+#: Smaller aligned tails stay sparse instead of silently broadening the production shape contract.
+MOE_GATHER_MIN_TOKENS = 1024
+
+#: Most experts **per device** the gathered path will accept. Above this it refuses, loudly.
+#:
+#: The compact buffer is no longer linear in ``num_experts_local * sub_chunk`` and the fused operator
+#: runs 64 experts in one program, but the duplicate per-expert weight layout and permutation tables
+#: still scale with the expert count. EP=4 divides 256 experts into 64 per device, the only geometry
+#: this experimental path has run.
+#:
+#: Without EP — the single-device mesh the unit tests use, where ``num_experts`` is the full 256 — the
+#: superseded full-region permutation failed to launch on Blackhole 2026-08-20 with a 2,225,360-byte
+#: circular-buffer request against 1,572,864 bytes of L1. Compact dispatch removes that exact forward
+#: sort/buffer shape, so the old failure is no longer proof that 256 cannot launch; nevertheless four
+#: fused operator partitions and the surrounding glue plus duplicate weight layout remain unmeasured.
+#: The guard therefore stays at the only geometry with correctness evidence instead of silently
+#: broadening the experiment.
+#:
+#: 64 rather than a larger round number because 64 is the only per-device expert count that has been
+#: run: it is what EP=4 produces on the shipped ``(1, 4)`` mesh, and the value the equivalence,
+#: permutation and zero-local-expert tests all measure. A tp=2 deployment (128 per device) may well be
+#: fine and is not permitted here, because nothing has measured it.
+MOE_GATHER_MAX_LOCAL_EXPERTS = 64
+
+#: Largest gathered sub-chunk the path will accept, i.e. the cap on :data:`MOE_GATHER_SUB_CHUNK`.
+#:
+#: Equal to the shipped sub-chunk, so the shipped configuration *is* the largest permitted one. That is
+#: deliberate: the compact scatter operands and buffer still grow with the sub-chunk, and 1024 is the
+#: only value the surrounding fused-FFN path has launched on device. Raising it is a re-validation, not
+#: a tuning knob, which is why it is enforced rather than merely documented.
+MOE_GATHER_MAX_SUB_CHUNK = 1024
+
+
+def _gather_support_reason(num_experts: int, sub_chunk: int | None = None) -> str | None:
+    """Why the gathered routed-expert path cannot run at this geometry, or ``None`` if it can.
+
+    One predicate, three callers — the weight loader (which skips uploading the per-expert layout when
+    the path cannot run, so an unsupported build does not pay 453 MB per layer for weights nothing will
+    read), :meth:`OptimizedMoE.prepare_gather_experts` (which logs the reason once at setup) and
+    :meth:`OptimizedMoE._gather_ok` (which carries it per call). Keeping it in one place is what stops
+    the three from disagreeing and turning a refusal into a ``KeyError`` mid-forward.
+
+    Returns a sentence, not a flag, because every one of these refusals is a fallback to a *slower*
+    path and the log has to say which bound was hit and what the measured consequence of exceeding it
+    was. ``sub_chunk=None`` checks only the geometry the weight loader knows about.
+    """
+    if num_experts > MOE_GATHER_MAX_LOCAL_EXPERTS:
+        return (
+            f"{num_experts} experts per device exceeds MOE_GATHER_MAX_LOCAL_EXPERTS "
+            f"({MOE_GATHER_MAX_LOCAL_EXPERTS}); only that EP=4 geometry has run. The fused operator "
+            f"can partition a longer list, but the surrounding permutation and duplicate weight "
+            f"layout have not been validated above this local-expert count"
+        )
+    if num_experts % 64:
+        # The reverse permutation sorts the expert axis, and `ttnn.sort` needs that axis to be a
+        # multiple of 64. True at both 256 and the 64 of an EP shard, but checked, not assumed.
+        return f"num_experts ({num_experts}) must be a multiple of 64 for ttnn.sort's sorted axis"
+    if sub_chunk is None:
+        return None
+    if sub_chunk > MOE_GATHER_MAX_SUB_CHUNK:
+        return (
+            f"sub-chunk {sub_chunk} exceeds MOE_GATHER_MAX_SUB_CHUNK ({MOE_GATHER_MAX_SUB_CHUNK}); "
+            f"every permutation-glue L1 footprint grows with it and only {MOE_GATHER_MAX_SUB_CHUNK} "
+            f"has been launched on device"
+        )
+    if sub_chunk % PREFILL_ALIGN or sub_chunk < MOE_GATHER_MIN_TOKENS:
+        return (
+            f"sub-chunk {sub_chunk} must be a multiple of PREFILL_ALIGN ({PREFILL_ALIGN}) and at "
+            f"least MOE_GATHER_MIN_TOKENS ({MOE_GATHER_MIN_TOKENS})"
+        )
+    return None
+
+
+def _gather_compact_capacity(tokens: int, num_experts: int, top_k: int) -> int:
+    """Exact static row capacity for tile-aligned, tightly packed expert regions.
+
+    A device can own at most ``tokens * top_k`` assignments. Expert ``e`` occupies
+    ``TILE * ceil(count[e] / TILE)`` rows, whose padding is at most ``TILE - 1``. Summing the two
+    bounds gives this capacity; unlike a probabilistic capacity factor it covers adversarial routing.
+
+    The gathered path additionally requires tile-aligned ``tokens`` and an expert count divisible by
+    64, so the returned row count is tile-aligned at every admitted geometry. Keep the assertion here:
+    ``unified_routed_expert_moe`` rejects an input whose M dimension is not tile-aligned.
+    """
+    tokens = int(tokens)
+    num_experts = int(num_experts)
+    top_k = int(top_k)
+    if tokens <= 0 or num_experts <= 0 or top_k <= 0:
+        raise ValueError(
+            f"compact gathered capacity requires positive tokens/experts/top_k; got " f"{tokens}/{num_experts}/{top_k}"
+        )
+    if top_k > num_experts:
+        raise ValueError(f"top_k ({top_k}) cannot exceed num_experts ({num_experts})")
+    capacity = tokens * top_k + (TILE - 1) * num_experts
+    if capacity % TILE:
+        raise ValueError(
+            f"compact gathered capacity ({capacity}) must be tile-aligned; "
+            f"tokens={tokens}, num_experts={num_experts}, top_k={top_k}"
+        )
+    return capacity
+
 
 #: ``chunk_gated_delta_rule`` internal chunk. 32 is the only value that enables the flat
 #: (rank-3 token-major) q/k contract, which is what carries the in-kernel L2 norm.
@@ -1589,6 +1779,28 @@ class OptimizedMoE:
         #: Persistent all-zero scatter targets for the router, keyed by decode shape. See `_router_zeros_for`.
         self._router_zeros: dict[tuple, object] = {}
         self.output_tile = ttnn.Tile([TILE, TILE])
+        #: Whether the gathered routed-expert path is *available* — i.e. whether the weight loader
+        #: built the per-expert ``gate``/``up``/``down`` triples the fused kernel needs. Recorded here,
+        #: at construction, rather than re-read from :data:`MOE_GATHER_EXPERTS` in the forward: the two
+        #: paths carry different weights and only one set exists, so flipping the module flag after the
+        #: layer is built must not move the forward onto weights that were never uploaded.
+        self.gather_experts = all(
+            isinstance(weights.get(key), (list, tuple)) and len(weights[key]) == config.num_experts
+            for key in ("expert_gate_list", "expert_up_list", "expert_down_list")
+        )
+        #: Per-token-count constants for the gathered path (token ramp, expert ramp, compact-scatter
+        #: zero base, local-expert index table). Built on the host, so built at *setup* — the first
+        #: gathered call for a given sub-chunk size allocates them and every later call reuses them.
+        #: Dynamic expert region offsets are deliberately *not* here: they are derived on device from
+        #: this call's counts. Prefill is not trace-captured, so a first-use build is legal here in a
+        #: way it would not be at decode; the dict is keyed by row count and the tensors are held for
+        #: the layer's lifetime.
+        self._gather_const: dict[int, tuple] = {}
+        #: Whether :meth:`prepare_gather_experts` has run and populated the sub-chunk ladder.
+        self._gather_ready = False
+        #: The setup-time reason the gathered path is unavailable, or ``None`` when it is available.
+        #: Set by :meth:`prepare_gather_experts`; read by :meth:`_gather_reason` and by the tests.
+        self.gather_refusal: str | None = "prepare_gather_experts has not run for this layer"
 
     def _expert_mem(self, tokens: int):
         """Memory config for this call's ``num_experts``-wide intermediates.
@@ -1905,6 +2117,421 @@ class OptimizedMoE:
         ttnn.deallocate(down)
         return ttnn.reshape(ttnn.unsqueeze_to_4D(reduced), [1, 1, tokens, H])
 
+    # ---------------- gathered experts ----------------
+    def prepare_gather_experts(self, prefill_chunk: int) -> bool:
+        """Build the gathered path's host-side constants. Setup, not forward.
+
+        Returns whether the path is available. Called from
+        :meth:`OptimizedDecoder.allocate_state`, which is the module's one documented not-host-free
+        entry point, because :meth:`_gather_consts` needs ``ttnn.from_torch`` and the module docstring
+        promises the forward paths make no host call on an allocated layer.
+
+        A call whose token count was never prepared keeps the sparse path — slower and correct, the
+        same rule ``MultichipMoE.prepare_decode_gate`` states for an unprepared decode row count.
+        """
+        if not MOE_GATHER_EXPERTS:
+            self.gather_refusal = f"{MOE_GATHER_ENV_VAR} is not set"
+            return False
+        largest = min(MOE_GATHER_SUB_CHUNK, int(prefill_chunk))
+        reason = _gather_support_reason(self.cfg.num_experts, largest)
+        if reason is None and not self.gather_experts:
+            reason = "the per-expert weight layout was not uploaded (the switch was clear at load time)"
+        if reason is not None:
+            # Loud, once, at setup — never a silent fallback. The sparse path is correct and slower, so
+            # a run that meant to measure the gathered path and quietly did not must be visible in the
+            # log rather than only in the numbers.
+            logger.warning(f"gathered routed experts unavailable: {reason}; keeping ttnn.sparse_matmul")
+            self.gather_refusal = reason
+            return False
+        self.gather_refusal = None
+        # Every admitted gathered sub-chunk length, not just the full one. A chunk's token count is a
+        # multiple of :data:`PREFILL_ALIGN`, so :meth:`forward`'s ragged last sub-chunk is too. A tail
+        # below :data:`MOE_GATHER_MIN_TOKENS` stays on sparse MoE, because one-tile gathered regions
+        # lose the arithmetic advantage. The largest compact scatter base is about 40 KiB.
+        for rows in range(MOE_GATHER_MIN_TOKENS, largest + 1, PREFILL_ALIGN):
+            self._gather_consts(rows)
+        self._gather_ready = True
+        return True
+
+    def _gather_consts(self, rows: int):
+        """Host-built constants the gathered path needs at a ``rows``-token sub-chunk.
+
+        Four tensors, none of them data-dependent, so all four are built once per distinct sub-chunk
+        size and then never touched by the host again:
+
+        * ``ramp`` — ``arange(rows)`` as ``[1, 1, 1, rows]`` float32. Transposed to
+          ``[1, 1, rows, 1]``, it supplies token ids to the compact scatter.
+        * ``eramp`` — ``arange(num_experts)`` as ``[1, 1, 1, E]`` float32, the same trick on the other
+          axis for the per-token expert list.
+        * ``scatter_zeros`` — persistent UINT32 ROW_MAJOR zeros of length ``capacity + 1``. The first
+          ``capacity`` entries are the compact dispatch table and the last entry is a dump slot for
+          inactive ``(token, expert)`` pairs. Region starts are data-dependent and computed on device;
+          the capacity itself is the exact static bound from :func:`_gather_compact_capacity`.
+        * ``idx_table`` — the identity ``arange(E)``. ``unified_routed_expert_ffn`` reads
+          ``counts[idx_table[local_expert_id]]``, i.e. it indirects a *local* expert id into a global
+          count vector. This model's routing is already narrowed to the device's own experts before it
+          gets here, so the local and global index spaces coincide and the table is the identity; the
+          op asserts only ``local_expert_id < len(idx_table)``.
+        """
+        cached = self._gather_const.get(rows)
+        if cached is None:
+            # Inside the miss branch, not at the top: a cache hit must reach no `torch` call at all,
+            # which is what `test_no_host_fallback_in_forward`'s TorchFunctionMode guard checks when the
+            # suite is run with the switch set.
+            import torch
+
+            if rows % PREFILL_ALIGN or rows < MOE_GATHER_MIN_TOKENS:
+                # Only measured, profitable gathered shapes are prepared. A smaller or unaligned
+                # caller is a bug in sub-chunking, not a shape to allocate during forward.
+                raise ValueError(
+                    f"gathered-expert sub-chunk {rows} must be a multiple of PREFILL_ALIGN "
+                    f"({PREFILL_ALIGN}) and at least MOE_GATHER_MIN_TOKENS ({MOE_GATHER_MIN_TOKENS})"
+                )
+            E = self.cfg.num_experts
+            capacity = _gather_compact_capacity(rows, E, self.cfg.num_experts_per_tok)
+
+            def upload(host, dtype, layout):
+                return ttnn.from_torch(
+                    host,
+                    dtype=dtype,
+                    layout=layout,
+                    device=self.device,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    mesh_mapper=ttnn.replicate_tensor_to_mesh_mapper(self.device),
+                )
+
+            cached = (
+                upload(torch.arange(rows, dtype=torch.float32).reshape(1, 1, 1, rows), ttnn.float32, ttnn.TILE_LAYOUT),
+                upload(torch.arange(E, dtype=torch.float32).reshape(1, 1, 1, E), ttnn.float32, ttnn.TILE_LAYOUT),
+                upload(
+                    torch.zeros(1, 1, 1, capacity + 1, dtype=torch.int32),
+                    ttnn.uint32,
+                    ttnn.ROW_MAJOR_LAYOUT,
+                ),
+                upload(torch.arange(E, dtype=torch.int32).reshape(1, E), ttnn.uint32, ttnn.ROW_MAJOR_LAYOUT),
+            )
+            self._gather_const[rows] = cached
+        return cached
+
+    def _gather_routed_experts(self, x, dense_routing, tokens):
+        """Routed-expert output ``[1, 1, tokens, hidden]``, gathered per expert.
+
+        Same quantity as :meth:`_routed_experts` — the router-weighted sum over each token's selected
+        experts, restricted to the experts this device owns — computed the other way round. Instead of
+        evaluating every activated expert against every token of a 32-row group and letting the score
+        zero the ones it did not select, this materialises each expert's *own* rows and evaluates only
+        those.
+
+        The permutation, built entirely on device:
+
+        1. ``mask[t, e]`` is 1 where token ``t`` selected local expert ``e`` (the router already wrote
+           exact zeros everywhere else, so ``gtz`` is the selection).
+        2. ``counts[e] = Σ_t mask[t, e]`` is the expert's real token count — the number the fused FFN
+           reads on device to size its work.
+        3. ``rank[t, e]``, the exclusive prefix sum of ``mask`` down the token axis, is *where in
+           expert e's region token t goes*: the number of earlier tokens that also chose ``e``.
+        4. ``aligned[e] = 32 * ceil(counts[e] / 32)`` and an exclusive cumsum over ``aligned`` give
+           expert ``e``'s tight-packed, tile-aligned ``region_offset[e]``. Their sum is bounded exactly
+           by ``tokens * top_k + 31 * num_experts``; the persistent buffer is sized to that bound.
+        5. A UINT32 ROW_MAJOR ``ttnn.scatter`` writes token id ``t`` at
+           ``region_offset[e] + rank[t, e]``. Inactive pairs write zero to a one-element dump slot, so
+           all real destinations are unique and no reduction is needed. ``ttnn.embedding`` then
+           gathers exactly the compact buffer's token rows from ``x``.
+
+        The reverse is the same identity read backwards. Sorting ``mask[t, e] ? e : BIG`` along the
+        *expert* axis gives each token its selected local experts in increasing order — at most
+        ``num_experts_per_tok`` of them, because a token has that many experts in total — and a second
+        ``embedding`` gathers row ``region_offset[e] + rank[t, e]`` of the FFN output back to slot
+        ``j`` of token ``t``. The router score multiplies there. The reverse slot is the same
+        ``region_offset[e] + rank[t, e]`` built for dispatch; no second token-axis sort is needed.
+
+        Contract notes, each pinned by a test in ``tests/test_multichip_decoder.py``:
+
+        * **Only the selected experts contribute.** A token has at most ``num_experts_per_tok`` valid
+          slots; the trailing ones hold the sort's ``BIG`` sentinel. Their gathered FFN rows are
+          selected to an exact zero with ``where`` *before arithmetic*, and their score is separately
+          multiplied by the ``valid`` indicator. This matters because the fused FFN deliberately
+          leaves undispatched output rows uninitialized: ``0 * NaN`` would not be zero.
+        * **Score placement.** The score multiplies the FFN's *output* row rather than the down
+          projection's input. Identical by linearity — the same argument :meth:`_routed_experts` uses
+          to move the multiply the other way — and here it is also 8 rows per token instead of 64.
+        * **Region padding cannot reach the output.** The FFN evaluates ``ceil(counts[e] / 32)`` tiles,
+          so rows in ``[counts[e], 32·ceil(counts[e]/32))`` are computed from the scatter base's exact
+          zeros; rows past that are never written at all. Neither is ever read back, because every
+          valid reverse slot has ``rank[t, e] < counts[e]``.
+        * **No collective.** Every op here is per-device. The result is this device's partial sum over
+          its own experts, exactly what :meth:`_routed_experts` returns, so ``MultichipDecoder._block``
+          closes it with the same single all-reduce and nothing about the expert-parallel invariant
+          moves. A device that owns none of the call's selected experts gets an all-zero ``mask``: zero
+          counts (the FFN launches and evaluates nothing), an all-sentinel expert list, every score
+          zeroed, every uninitialized gathered row selected away, and an exactly-zero result. It needs
+          no floored expert — there is no sparsity argument to keep non-empty.
+        """
+        E = self.cfg.num_experts
+        H = self.cfg.dim
+        K = self.cfg.num_experts_per_tok
+        ramp, eramp, scatter_zeros, idx_table = self._gather_consts(tokens)
+        capacity = _gather_compact_capacity(tokens, E, K)
+        # Where the two per-slot tensors live. They are the only ones small enough to consider for L1:
+        # the compact gathered buffer is still much larger and belongs in DRAM at every shape. The
+        # factor of two is because the gathered slots and the scored copy are live at the same time,
+        # which is the same peak rule :meth:`_expert_mem` applies to the sparse chain. Both are
+        # bfloat16: the slots come out of `ttnn.embedding`, whose table dtype the op fixes at bfloat16.
+        expert_mem = self._fits_l1(2.0 * K * tokens * H * 2.0)
+        # Above every token index and every expert index, and exactly representable in float32 (which
+        # also represents every index below 2**24 exactly, so `rank` and `sorted` are integers, not
+        # roundings). `ttnn.sort` takes float32 natively, which is why the keys never go through a
+        # narrow integer dtype: bfloat16 stops being integral at 256, well inside a 2048-token chunk.
+        big = float(1 << 20)
+
+        mask = ttnn.typecast(ttnn.gtz(dense_routing), ttnn.float32)  # [1, 1, tokens, E]
+        # `counts` is what the FFN reads on device to bound each expert's work. float32 sums exactly at
+        # these magnitudes; the op wants UINT32 ROW_MAJOR DRAM, so untilize then narrow.
+        counts_f = ttnn.sum(mask, dim=-2, keepdim=True)  # [1, 1, 1, E]
+        counts_rm = ttnn.to_layout(counts_f, ttnn.ROW_MAJOR_LAYOUT)
+        counts = ttnn.typecast(
+            ttnn.reshape(counts_rm, [1, E]),
+            ttnn.uint32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(counts_rm)
+
+        # Tile-align each expert's real count, then exclusive-cumsum the aligned sizes. All values are
+        # exact in float32 at the admitted shapes: counts <= 1024, 1/32 is an exact binary fraction,
+        # and the final capacity is 10,176 rows. The UINT32 copy is what the fused FFN's reader/writer
+        # consumes; the tiled float copy broadcasts into `packed_slot` below without a round trip.
+        scaled_counts = ttnn.multiply(counts_f, 1.0 / TILE)
+        count_tiles = ttnn.ceil(scaled_counts)
+        ttnn.deallocate(scaled_counts)
+        aligned_counts = ttnn.multiply(count_tiles, float(TILE))  # [1, 1, 1, E]
+        ttnn.deallocate(count_tiles)
+        ttnn.deallocate(counts_f)
+        region_ends = ttnn.cumsum(aligned_counts, -1, dtype=ttnn.float32)
+        region_offsets_f = ttnn.subtract(region_ends, aligned_counts)  # exclusive cumsum
+        ttnn.deallocate(region_ends)
+        ttnn.deallocate(aligned_counts)
+        region_offsets_rm = ttnn.to_layout(region_offsets_f, ttnn.ROW_MAJOR_LAYOUT)
+        region_offsets = ttnn.typecast(
+            ttnn.reshape(region_offsets_rm, [1, E]),
+            ttnn.uint32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(region_offsets_rm)
+
+        # Exclusive prefix sum down the token axis: rank[t, e] = #{t' < t : mask[t', e]}.
+        inclusive = ttnn.cumsum(mask, -2, dtype=ttnn.float32)
+        rank = ttnn.subtract(inclusive, mask)  # [1, 1, tokens, E]
+        ttnn.deallocate(inclusive)
+        packed_slot = ttnn.add(rank, region_offsets_f)  # [1, 1, tokens, E]
+        ttnn.deallocate(rank)
+        ttnn.deallocate(region_offsets_f)
+
+        # ---- forward permutation: each expert's tokens, in order ----
+        # Scatter token id `t` directly into its unique compact slot. Inactive pairs all target the
+        # extra dump element at `capacity` and all write zero, so their write/write collision is benign;
+        # selected pairs have unique (expert, rank) and never collide. ROW_MAJOR is the scatter op's
+        # native layout and, importantly, avoids its >256-element restriction for *tiled* int32.
+        slot_from_dump = ttnn.subtract(packed_slot, float(capacity))
+        selected_dst = ttnn.multiply(mask, slot_from_dump)
+        ttnn.deallocate(slot_from_dump)
+        dispatch_dst_f = ttnn.add(selected_dst, float(capacity))
+        ttnn.deallocate(selected_dst)
+        token_ramp = ttnn.transpose(ramp, -2, -1)  # [1, 1, tokens, 1]
+        dispatch_src_f = ttnn.multiply(mask, token_ramp)  # inactive pairs write zero to the dump slot
+        ttnn.deallocate(token_ramp)
+
+        dispatch_dst_rm = ttnn.to_layout(dispatch_dst_f, ttnn.ROW_MAJOR_LAYOUT)
+        dispatch_dst = ttnn.typecast(
+            ttnn.reshape(dispatch_dst_rm, [1, 1, 1, E * tokens]),
+            ttnn.uint32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(dispatch_dst_rm)
+        ttnn.deallocate(dispatch_dst_f)
+        dispatch_src_rm = ttnn.to_layout(dispatch_src_f, ttnn.ROW_MAJOR_LAYOUT)
+        dispatch_src = ttnn.typecast(
+            ttnn.reshape(dispatch_src_rm, [1, 1, 1, E * tokens]),
+            ttnn.uint32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(dispatch_src_rm)
+        ttnn.deallocate(dispatch_src_f)
+
+        dispatched_with_dump = ttnn.scatter(
+            scatter_zeros,
+            dim=-1,
+            index=dispatch_dst,
+            src=dispatch_src,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )  # [1, 1, 1, capacity + 1] ROW_MAJOR uint32
+        ttnn.deallocate(dispatch_dst)
+        ttnn.deallocate(dispatch_src)
+        gather_idx = ttnn.slice(
+            dispatched_with_dump,
+            [0, 0, 0, 0],
+            [1, 1, 1, capacity],
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        _free_unless_aliased(dispatched_with_dump, gather_idx)
+
+        # `ttnn.embedding`'s table must be ROW_MAJOR bfloat16 with two leading unit dims; the MoE input
+        # is TILE bfloat16 (`NORM_OUTPUT_DTYPE`), so this is an untilize and not a cast.
+        x_rm = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
+        x_buf = ttnn.embedding(
+            gather_idx, x_rm, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )  # [1, 1, capacity, H] ROW_MAJOR bf16
+        ttnn.deallocate(gather_idx)
+        ttnn.deallocate(x_rm)
+
+        # ---- the experts ----
+        # One device program per local expert, each fusing gate+up+silu+down and reading counts[e] to
+        # skip the chunks past its real token count. `max_dispatched_tokens_per_expert` is the region
+        # size, i.e. the worst case; it sizes the grid, not the work.
+        y_buf = ttnn.experimental.deepseek_prefill.unified_routed_expert_moe(
+            x_buf,
+            region_offsets,
+            counts,
+            idx_table,
+            self.w["expert_gate_list"],
+            self.w["expert_up_list"],
+            self.w["expert_down_list"],
+            max_dispatched_tokens_per_expert=tokens,
+            compute_kernel_config=self.expert_ckc,
+            activation=ttnn.RoutedExpertActivation.Silu,
+        )  # [1, 1, capacity, H], TILE block-float
+        ttnn.deallocate(x_buf)
+        ttnn.deallocate(counts)
+        ttnn.deallocate(region_offsets)
+
+        # ---- reverse permutation: each token's slots ----
+        # keys[t, e] = mask ? e : big, sorted along the expert axis -> this token's local experts.
+        shifted_e = ttnn.subtract(eramp, big)  # [1, 1, 1, E]
+        keys_t = ttnn.add(ttnn.multiply(mask, shifted_e), big)
+        ttnn.deallocate(shifted_e)
+        expert_of_slot, sort_aux = ttnn.sort(keys_t, dim=-1)  # [1, 1, tokens, E], ascending
+        ttnn.deallocate(sort_aux)
+        ttnn.deallocate(keys_t)
+        # A slot is real iff its sorted key is a genuine expert index. `ltz(x - E)` is `x < E`.
+        # Narrowed to the score dtype here so the score multiply below has one dtype on both sides.
+        valid = ttnn.typecast(ttnn.ltz(ttnn.subtract(expert_of_slot, float(E))), dense_routing.dtype)
+        expert_sel = ttnn.clamp(expert_of_slot, 0.0, float(E - 1))
+        ttnn.deallocate(expert_of_slot)
+        # `ttnn.gather` wants index and input at the same rank and layout, and every dim but the
+        # gathered one no larger than the input's, so both stay [1, 1, tokens, E] and the top-k prefix
+        # is sliced off the *results*.
+        expert_idx = ttnn.typecast(expert_sel, ttnn.uint32)
+        gathered_slot = ttnn.gather(packed_slot, -1, expert_idx)
+        # An invalid sentinel clamps its expert id to E-1. If all of that expert's real occurrences
+        # precede this token, its exclusive rank can equal the expert count and point one row past its
+        # region (equal to `capacity` in the tight adversarial case). Embedding requires an in-range
+        # index, so clamp those dead slots before the top-k slice; their possibly-uninitialized values
+        # are selected away with `where` below rather than relying on unsafe `0 * NaN` arithmetic.
+        slot_sel = ttnn.clamp(gathered_slot, 0.0, float(capacity - 1))
+        ttnn.deallocate(gathered_slot)
+        score_sel = ttnn.gather(dense_routing, -1, expert_idx)
+        ttnn.deallocate(expert_idx)
+        ttnn.deallocate(packed_slot)
+        ttnn.deallocate(mask)
+
+        # `slot_sel[t, j]` is the exact compact row used by the forward scatter for this
+        # (token, expert) pair. Sentinel expert slots gather an arbitrary in-range expert's slot and are
+        # selected to zero by `valid` below, so no read can escape the compact buffer or propagate an
+        # uninitialized value from the fused FFN's output.
+        ttnn.deallocate(expert_sel)
+        slot_k = ttnn.slice(slot_sel, [0, 0, 0, 0], [1, 1, tokens, K])
+        ttnn.deallocate(slot_sel)
+        score_top = ttnn.slice(score_sel, [0, 0, 0, 0], [1, 1, tokens, K])
+        valid_top = ttnn.slice(valid, [0, 0, 0, 0], [1, 1, tokens, K])
+        ttnn.deallocate(score_sel)
+        ttnn.deallocate(valid)
+        # The score of a sentinel slot is multiplied by exactly zero here. This keeps arbitrary
+        # non-selected scores out of the sum; a separate `where` below protects the value side from
+        # uninitialized non-finite rows before any arithmetic touches them.
+        score_k = ttnn.multiply(score_top, valid_top)
+        valid_rows = ttnn.permute(valid_top, (0, 3, 2, 1))  # [1, K, tokens, 1]
+        ttnn.deallocate(score_top)
+        ttnn.deallocate(valid_top)
+
+        # Slot-major so the gathered rows reshape into [1, K, tokens, H] as a view: the reduction below
+        # is over the slot axis, and in TILE layout only the last two axes are the tile axes, so a
+        # token-major [1, 1, tokens, K] would put K on a tile axis and pad 8 rows out to 32.
+        slot_kt = ttnn.transpose(slot_k, -2, -1)  # [1, 1, K, tokens]
+        ttnn.deallocate(slot_k)
+        slot_flat = ttnn.typecast(
+            ttnn.reshape(ttnn.to_layout(slot_kt, ttnn.ROW_MAJOR_LAYOUT), [1, 1, 1, K * tokens]),
+            ttnn.uint32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(slot_kt)
+        # The fused FFN emits a TILE block-float buffer; `ttnn.embedding`'s table must be ROW_MAJOR
+        # bfloat16, and a block-float tensor has no row-major form, so the widen and the untilize are
+        # two separate ops rather than one `to_layout(..., dtype=...)`.
+        y_wide = ttnn.typecast(y_buf, ttnn.bfloat16)
+        ttnn.deallocate(y_buf)
+        y_rm = ttnn.to_layout(y_wide, ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.deallocate(y_wide)
+        y_sel = ttnn.embedding(slot_flat, y_rm, layout=ttnn.TILE_LAYOUT, memory_config=expert_mem)
+        ttnn.deallocate(slot_flat)
+        ttnn.deallocate(y_rm)
+        y_sel = ttnn.reshape(ttnn.unsqueeze_to_4D(y_sel), [1, K, tokens, H])
+
+        # The shared TILE output allocated by `unified_routed_expert_moe` is intentionally uninitialized
+        # outside the expert tiles it writes. Invalid reverse slots can legally point at those rows.
+        # Select them away before scoring: multiplying by the zero score is insufficient when the read
+        # happens to be NaN or Inf (`0 * NaN` and `0 * Inf` are NaN).
+        selected_y = ttnn.where(valid_rows, y_sel, 0.0, memory_config=expert_mem)
+        ttnn.deallocate(valid_rows)
+        ttnn.deallocate(y_sel)
+
+        # Score placement, and the reduction over the slot axis. `deepseek_moe_fast_reduce_nc` is the
+        # same op `_routed_experts` reduces its expert axis with, and takes the same dtypes.
+        scores = ttnn.permute(score_k, (0, 3, 2, 1))  # [1, K, tokens, 1]
+        ttnn.deallocate(score_k)
+        scaled = ttnn.multiply(selected_y, scores, memory_config=expert_mem)
+        ttnn.deallocate(selected_y)
+        ttnn.deallocate(scores)
+        if scaled.dtype not in _MOE_REDUCE_DTYPES:
+            widened = ttnn.typecast(scaled, MOE_REDUCE_FALLBACK_DTYPE, memory_config=scaled.memory_config())
+            ttnn.deallocate(scaled)
+            scaled = widened
+        reduced = ttnn.experimental.deepseek_moe_fast_reduce_nc(scaled, dim=1, split_size=H)[0]
+        ttnn.deallocate(scaled)
+        return ttnn.reshape(ttnn.unsqueeze_to_4D(reduced), [1, 1, tokens, H])
+
+    def _gather_ok(self, tokens: int, decode: bool, valid_tokens) -> bool:
+        """Whether this call takes the gathered path. See :meth:`_gather_reason` for why it does not."""
+        return self._gather_reason(tokens, decode, valid_tokens) is None
+
+    def _gather_reason(self, tokens: int, decode: bool, valid_tokens) -> str | None:
+        """Why this call keeps ``sparse_matmul``, or ``None`` if it takes the gathered path.
+
+        A reason rather than a bool so the refusal is never silent: :meth:`prepare_gather_experts` logs
+        the setup-time ones and a test can assert on the exact clause that fired, which is what stops a
+        "the gathered arm agreed with the sparse arm" result from passing because both arms were sparse.
+        """
+        if not MOE_GATHER_EXPERTS:
+            return f"{MOE_GATHER_ENV_VAR} is not set"
+        if not self.gather_experts:
+            return "the per-expert weight layout was not uploaded (the switch was clear at load time)"
+        if self.gather_refusal is not None:
+            return self.gather_refusal
+        if decode:
+            return (
+                "decode keeps sparse_matmul: a 32-row call gives every expert a one-tile region, so the "
+                "gathered path would evaluate num_experts_local x 32 rows for the 32 x top_k / tp the "
+                "routing asks and add the dispatch/reverse-permutation graph; the FFN launch is fused, "
+                "but the arithmetic and glue remain worse than sparse decode"
+            )
+        if tokens < MOE_GATHER_MIN_TOKENS:
+            return f"{tokens} tokens is below MOE_GATHER_MIN_TOKENS ({MOE_GATHER_MIN_TOKENS})"
+        if valid_tokens is not None:
+            return "a tile-padded call (valid_tokens set) is refused rather than handled"
+        if not self._gather_ready:
+            return "prepare_gather_experts has not run for this layer"
+        if tokens % PREFILL_ALIGN:
+            return f"{tokens} tokens is not a multiple of PREFILL_ALIGN ({PREFILL_ALIGN})"
+        return _gather_support_reason(self.cfg.num_experts, min(MOE_GATHER_SUB_CHUNK, tokens))
+
     # ---------------- shared expert ----------------
     def _shared_expert(self, x):
         """``sigmoid(router(x)) * down(silu(gate(x)) * up(x))`` in one packed matmul + two ops."""
@@ -1980,7 +2607,65 @@ class OptimizedMoE:
         # last dim), so 64 group-sized routers cost 64x what one whole-call router does. Slicing the
         # dense score vector per group is tile-aligned and nearly free.
         dense = self.routing_weights(x)
-        if tokens <= self.group_tokens:
+        if self._gather_ok(tokens, self._decode_phase, valid_tokens):
+            # The gathered path (:data:`MOE_GATHER_EXPERTS`). It replaces the whole expert-group loop
+            # below, not one group of it: the permutation it builds is over the sub-chunk's tokens, and
+            # a 32-token group would give every expert a one-tile region — which is the sparse path's
+            # geometry with much worse arithmetic and glue. Its own sub-chunking is
+            # `MOE_GATHER_SUB_CHUNK`.
+            E = self.cfg.num_experts
+            parts = []
+            start = 0
+            while start < tokens:
+                # A ragged last sub-chunk is allowed: chunk token counts are multiples of PREFILL_ALIGN,
+                # so the remainder is too. Tails below MOE_GATHER_MIN_TOKENS use sparse MoE; that avoids
+                # paying a one-tile region for every expert while retaining gathered execution for the
+                # profitable prefix. Slicing is skipped for a call that fits one sub-chunk.
+                span = min(MOE_GATHER_SUB_CHUNK, tokens - start)
+                whole = span == tokens
+                chunk = x if whole else ttnn.slice(x, [0, 0, start, 0], [1, 1, start + span, self.cfg.dim])
+                routing = dense if whole else ttnn.slice(dense, [0, 0, start, 0], [1, 1, start + span, E])
+                if span < MOE_GATHER_MIN_TOKENS:
+                    part = self._routed_experts(chunk, routing, span)
+                    # The sparse path returns the policy's block-float expert-output dtype; gathered
+                    # combine is bfloat16 because `ttnn.embedding` requires a row-major bfloat16 table.
+                    # Match the profitable prefix before concat, using the same memory placement too.
+                    prefix = parts[0]
+                    if part.dtype != prefix.dtype:
+                        converted = ttnn.typecast(part, prefix.dtype, memory_config=prefix.memory_config())
+                        ttnn.deallocate(part)
+                        part = converted
+                    elif part.memory_config() != prefix.memory_config():
+                        converted = ttnn.to_memory_config(part, prefix.memory_config())
+                        ttnn.deallocate(part)
+                        part = converted
+                else:
+                    part = self._gather_routed_experts(chunk, routing, span)
+                parts.append(part)
+                if chunk is not x:
+                    ttnn.deallocate(chunk)
+                if routing is not dense:
+                    ttnn.deallocate(routing)
+                start += span
+            ttnn.deallocate(dense)
+            routed = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=2)
+            if len(parts) > 1:
+                for part in parts:
+                    ttnn.deallocate(part)
+            # Reverse gather needs a ROW_MAJOR bfloat16 embedding table, so its reduction naturally
+            # returns bfloat16. Restore the precision policy at the branch boundary: otherwise the
+            # gathered experiment silently doubles the expert-parallel all-reduce payload and changes
+            # the selected routed-output contract. One cast after concat is cheaper than one per
+            # gathered sub-chunk and also normalizes a mixed sparse tail.
+            if routed.dtype != self.policy.expert_act_dtype:
+                contracted = ttnn.typecast(
+                    routed,
+                    self.policy.expert_act_dtype,
+                    memory_config=routed.memory_config(),
+                )
+                ttnn.deallocate(routed)
+                routed = contracted
+        elif tokens <= self.group_tokens:
             routed = self._routed_experts(x, dense, tokens, valid_tokens=valid_tokens)
             ttnn.deallocate(dense)
         else:
@@ -2374,21 +3059,46 @@ class OptimizedDecoder(LightweightModule):
             dim=1,
         )
 
-        return {
+        weights = {
             "router": upload(
                 get("gate.weight").float().transpose(0, 1).reshape(1, 1, config.dim, config.num_experts),
                 policy.router_dtype,
             ),
-            # [1, E, hidden, 2*moe_intermediate] with the gate half first: one shared-LHS sparse
-            # matmul per group instead of two half-width ones (see OptimizedMoE._routed_experts).
-            "expert_gate_up": upload(fused.transpose(-2, -1).unsqueeze(0), policy.expert_gate_up_dtype),
-            "expert_down": upload(get("experts.down_proj").transpose(-2, -1).unsqueeze(0), policy.expert_down_dtype),
             "shared_in": upload(shared_in.reshape(1, 1, config.dim, 2 * shared_inter + TILE), policy.shared_dtype),
             "shared_down": upload(
                 get("shared_expert.down_proj.weight").float().transpose(0, 1).reshape(1, 1, shared_inter, config.dim),
                 policy.shared_dtype,
             ),
         }
+        # [1, E, hidden, 2*moe_intermediate] with the gate half first: one shared-LHS sparse
+        # matmul per group instead of two half-width ones (see OptimizedMoE._routed_experts).
+        weights["expert_gate_up"] = upload(fused.transpose(-2, -1).unsqueeze(0), policy.expert_gate_up_dtype)
+        weights["expert_down"] = upload(
+            get("experts.down_proj").transpose(-2, -1).unsqueeze(0), policy.expert_down_dtype
+        )
+        # `_gather_support_reason`: skip the upload entirely when the path cannot run at this geometry
+        # (a single-device mesh, where `num_experts` is the full 256). Otherwise an unsupported build
+        # would pay 453 MB per layer for a weight layout nothing will ever read, and
+        # `OptimizedMoE.gather_experts` would claim the path is available when it is not.
+        if MOE_GATHER_EXPERTS and _gather_support_reason(config.num_experts) is None:
+            # The gathered path's layout: one 2D tensor per expert per projection, oriented the way
+            # `unified_routed_expert_ffn` reads them — gate/up as (K=hidden, N=moe_intermediate) and
+            # down as (K=moe_intermediate, N=hidden), i.e. the transpose of the HF `[out, in]` rows.
+            # Uploaded *alongside* the packed pair above, because the switch is prefill-only and decode
+            # keeps the sparse path; see MOE_GATHER_EXPERTS for what that costs.
+            down = get("experts.down_proj")
+            weights["expert_gate_list"] = [
+                upload(fused[e, :inter].float().transpose(0, 1), policy.expert_gate_up_dtype)
+                for e in range(config.num_experts)
+            ]
+            weights["expert_up_list"] = [
+                upload(fused[e, inter : 2 * inter].float().transpose(0, 1), policy.expert_gate_up_dtype)
+                for e in range(config.num_experts)
+            ]
+            weights["expert_down_list"] = [
+                upload(down[e].float().transpose(0, 1), policy.expert_down_dtype) for e in range(config.num_experts)
+            ]
+        return weights
 
     # ------------------------------------------------------------------ state
     def allocate_kv_cache(self, num_blocks: int, dtype=None):
@@ -2426,6 +3136,10 @@ class OptimizedDecoder(LightweightModule):
         calls and every subsequent one does not. Call it explicitly before capturing a trace or before
         any measurement, as this stage's tests and benchmarks do.
         """
+        # The gathered routed-expert path's constants (:data:`MOE_GATHER_EXPERTS`). Here rather than in
+        # the forward for the same reason as everything else in this method: they need
+        # ``ttnn.from_torch``. A no-op when the path is off, and idempotent across re-entry.
+        self.moe.prepare_gather_experts(self.prefill_chunk)
         # Freed before being replaced: prefill_forward/decode_forward re-enter here when a
         # full_attention layer is handed a larger batch than it was allocated for.
         if self.batch_idxs is not None:

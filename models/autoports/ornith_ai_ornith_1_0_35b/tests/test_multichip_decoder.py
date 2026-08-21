@@ -50,6 +50,7 @@ from loguru import logger
 import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.reference import hf_reference as R
 from models.autoports.ornith_ai_ornith_1_0_35b.tt import multichip_decoder as MC
+from models.autoports.ornith_ai_ornith_1_0_35b.tt import optimized_decoder as OD
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model_config import OrnithDecoderConfig
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.multichip_decoder import (
     DEFAULT_CCL_TOPOLOGY,
@@ -145,6 +146,31 @@ pytestmark = [
     pytest.mark.parametrize("mesh_device", [DEFAULT_MESH_SHAPE], indirect=True),
     pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True),
 ]
+
+
+class _OpRecorder:
+    """Count selected ``ttnn`` entry points during one measured forward pass."""
+
+    def __init__(self, monkeypatch, names):
+        self.calls: dict[str, int] = {}
+        for name in names:
+            module, _, attr = name.rpartition(".")
+            target = ttnn
+            for part in module.split(".") if module else []:
+                target = getattr(target, part)
+            original = getattr(target, attr)
+
+            def wrapper(*args, _name=name, _original=original, **kwargs):
+                self.calls[_name] = self.calls.get(_name, 0) + 1
+                return _original(*args, **kwargs)
+
+            monkeypatch.setattr(target, attr, wrapper)
+
+    def count(self, name):
+        return self.calls.get(name, 0)
+
+    def reset(self):
+        self.calls.clear()
 
 
 # --------------------------------------------------------------------------------------
@@ -2018,3 +2044,503 @@ def test_multichip_beats_single_chip_traced_decode(mesh_device, layer_idx):
     assert (
         speedup > DECODE_SPEEDUP_BAR
     ), f"multichip traced decode speedup {speedup:.2f}x is below the {DECODE_SPEEDUP_BAR}x bar: {timings}"
+
+
+# ---------------------------------------------------------------------------------------------
+# gathered routed experts on the mesh (optimized_decoder.MOE_GATHER_EXPERTS)
+# ---------------------------------------------------------------------------------------------
+#
+# The gathered path is entirely device-local: it replaces this device's two routed sparse matmuls with
+# one fused FFN program over its 64 local experts' gathered rows. Nothing about the expert-parallel
+# decomposition moves — the result is still this device's partial sum over its own experts, and
+# `MultichipDecoder._block` still closes it with the same single all-reduce. The tests below pin exactly
+# that: the same answer, no extra collective, and the zero-local-expert case that the sparse path needs
+# a floored mask for and this path does not.
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("tokens", [1024, 2048], ids=lambda t: f"tok{t}")
+def test_gathered_experts_match_sparse_multichip(mesh_device, layer_idx, tokens, monkeypatch):
+    """On the 4-chip mesh the gathered routed experts must reproduce the sparse ones.
+
+    Same layer, same weights, same activation; the reference arm is the shipped sparse path and runs
+    first. The bar is :data:`BASELINE_BAR` rather than an exact one because the fused kernel keeps
+    gate/up/down inside a single program while the sparse chain round-trips through DRAM at
+    ``expert_act_dtype``, and because it evaluates each expert's real row count rather than a whole
+    32-row group per activated expert.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)  # before the build: uploads both layouts
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    assert decoder.moe.gather_experts, "the per-expert weights were not built; the flag was read too late"
+    x = to_device(mesh_device, make_activations(1, tokens, seed=1300 + tokens))
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", False)
+    assert decoder.moe._gather_reason(tokens, False, None) is not None, "the reference arm must be the sparse path"
+    want = to_host(mesh_device, decoder.prefill_forward(x, page_table=page_table))
+    decoder.reset_state()
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    engaged = decoder.moe._gather_reason(tokens, False, None)
+    assert engaged is None, f"the gathered arm was refused at {tokens} tokens, so both arms are sparse: {engaged}"
+    got = to_host(mesh_device, decoder.prefill_forward(x, page_table=page_table))
+
+    value = pcc(want, got)
+    logger.info(
+        f"multichip gathered vs sparse routed experts layer={layer_idx} ({LAYER_IDS[layer_idx]}) "
+        f"tokens={tokens} PCC={value:.6f}"
+    )
+    assert torch.isfinite(got.float()).all(), "the gathered path produced a non-finite layer output"
+    assert value > BASELINE_BAR, f"multichip gathered vs sparse PCC {value} <= {BASELINE_BAR}"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_zero_local_active_experts(mesh_device, layer_idx, monkeypatch):
+    """A device whose expert block wins none of the global top-8 must contribute exactly zero.
+
+    The gathered counterpart of ``test_zero_local_active_experts``, and it needs no floored expert to
+    get there. Under the sparse path :data:`MC.MOE_MASK_FLOOR` keeps local expert 0 in the sparsity so
+    ``ttnn.sparse_matmul`` is never handed an all-zero mask, and the argument that it contributes
+    nothing rests on its routing score being zero. The gathered path has no sparsity mask at all: an
+    all-zero routing vector gives every local expert a count of zero — the fused FFN launches and
+    evaluates nothing — and marks every reverse slot invalid, so every score is multiplied by exactly
+    zero. This checks both halves, that the counts are zero and that the output is.
+
+    With 8 experts drawn from 256 over four blocks this happens for about one device in ten per token,
+    so it is routine; the routing is forced by hand rather than waited for, exactly as the sparse test
+    does, by synthesising the per-device dense routing vector instead of running the router.
+    """
+    source = default_weight_source()
+    rows = OD.MOE_GATHER_SUB_CHUNK  # the one admitted, measured compact-dispatch shape
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, _, _ = build_decoder(mesh_device, layer_idx, source, max_context=1024)
+    moe = decoder.moe
+    assert moe.gather_experts, "the per-expert weights were not built; the flag was read too late"
+    moe._gather_consts(rows)  # setup, exactly as prepare_gather_experts does
+    e_local = decoder.cfg.num_experts
+
+    # Routing that puts every selected expert on device 0's block, so devices 1..3 get none.
+    host = torch.zeros(1, 1, rows, e_local)
+    per_device = [host.clone() for _ in range(mesh_device.get_num_devices())]
+    per_device[0][..., :8] = 1.0 / 8
+    dense = ttnn.from_torch(
+        torch.cat(per_device, dim=0).to(torch.bfloat16),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=mesh_device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.shard_tensor_to_mesh_mapper(mesh_device, dim=0),
+    )
+
+    # Record the per-expert counts the fused kernel is handed, per device.
+    counts_seen: list = []
+    real_ffn = ttnn.experimental.deepseek_prefill.unified_routed_expert_moe
+
+    def spy(dispatched_buffer, expert_region_offsets, expert_token_counts, *args, **kwargs):
+        counts_seen.append([t.flatten() for t in shards(mesh_device, expert_token_counts)])
+        return real_ffn(dispatched_buffer, expert_region_offsets, expert_token_counts, *args, **kwargs)
+
+    monkeypatch.setattr(ttnn.experimental.deepseek_prefill, "unified_routed_expert_moe", spy)
+
+    x = to_device(mesh_device, make_activations(1, rows, seed=83).reshape(1, 1, rows, hf_config().hidden_size))
+    moe._decode_phase = False
+    moe._call_tokens = rows
+    routed = moe._gather_routed_experts(x, dense, rows)
+    parts = shards(mesh_device, routed)
+    ttnn.deallocate(routed)
+    ttnn.deallocate(dense)
+
+    assert len(counts_seen) == 1, f"expected one fused-FFN call, saw {len(counts_seen)}"
+    counts = counts_seen[0]
+    assert int(counts[0].sum()) == 8 * rows, f"device 0 should hold every assignment, saw {int(counts[0].sum())}"
+    for d in range(1, len(counts)):
+        assert int(counts[d].sum()) == 0, f"device {d} was handed {int(counts[d].sum())} token assignments"
+    for d in range(1, len(parts)):
+        assert torch.count_nonzero(parts[d]) == 0, f"device {d} contributed {torch.count_nonzero(parts[d])} non-zeros"
+    assert torch.count_nonzero(parts[0]) > 0, "device 0 should have produced the whole routed output"
+    logger.info(
+        f"gathered zero-local-expert case layer={layer_idx}: devices 1-3 saw zero counts and contributed "
+        f"exactly zero with no mask floor; device 0 carried all {8 * rows} assignments"
+    )
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_add_no_collective(mesh_device, layer_idx, monkeypatch):
+    """The gathered path adds no cross-device traffic and never touches the sparsity mask.
+
+    Two invariants in one forward, because they are the same invariant seen from two sides:
+
+    * the layer still performs exactly the two all-reduces it always did — one on the token mixer's
+      row-parallel output, one on the MoE's partial — so a token's contribution from a non-local
+      expert still arrives only through that collective and nowhere else;
+    * ``_active_expert_mask`` is never called, so :data:`MC.MOE_MASK_FLOOR` and its floored local
+      expert 0 play no part. There is no sparsity to keep non-empty, which is why the zero-local case
+      above needs no floor.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    reduces: list = []
+    masks: list = []
+    real_reduce = MC.MultichipDecoder._all_reduce
+    real_mask = MC.MultichipMoE._active_expert_mask
+
+    def spy_reduce(self, tensor, _real=real_reduce):
+        reduces.append(_physical_rows(tensor.shape))
+        return _real(self, tensor)
+
+    def spy_mask(self, dense_routing, groups, valid_tokens, _real=real_mask):
+        masks.append(groups)
+        return _real(self, dense_routing, groups, valid_tokens)
+
+    monkeypatch.setattr(MC.MultichipDecoder, "_all_reduce", spy_reduce)
+    monkeypatch.setattr(MC.MultichipMoE, "_active_expert_mask", spy_mask)
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 2048, seed=84)), page_table=page_table)
+    )
+    logger.info(f"gathered prefill collectives={len(reduces)} rows={reduces} sparsity_mask_calls={len(masks)}")
+    assert len(reduces) == 2, f"the gathered prefill performed {len(reduces)} collectives, expected 2"
+    assert len(masks) == 0, f"the gathered path built the sparsity mask {len(masks)} times"
+
+
+# ---------------------------------------------------------------------------------------------
+# gathered routed experts: the tests that need real expert parallelism
+# ---------------------------------------------------------------------------------------------
+#
+# These live here rather than in tests/test_optimized_decoder.py because the gathered path is validated
+# only under expert parallelism. Compact dispatch removes the old `num_experts_local * sub_chunk`
+# buffer, but its surrounding permutation and duplicate weight layout are only validated at 64 local experts.
+# `optimized_decoder.MOE_GATHER_MAX_LOCAL_EXPERTS` therefore keeps the admitted shape at EP=4's 64
+# experts/device — the deployment geometry and the only one with device correctness evidence.
+
+
+def _assert_gather_engaged(moe, tokens):
+    """The gathered path must be *taken* at this shape, with the reason surfaced when it is not."""
+    reason = moe._gather_reason(tokens, False, None)
+    assert reason is None, f"the gathered path was refused at {tokens} tokens: {reason}"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+@pytest.mark.parametrize("rows", [1024], ids=lambda r: f"rows{r}")
+def test_gathered_experts_dispatch_combine_is_a_permutation(mesh_device, layer_idx, rows, monkeypatch):
+    """``combine(dispatch(x))`` is a permutation: with an identity FFN the round trip returns ``x``.
+
+    The gathered path is a scatter of token rows into per-expert regions, a per-expert FFN, and a gather
+    of those rows back weighted by the router score. Replace the FFN with the identity and the whole
+    thing collapses to ``out[t] = (Σ_e score[t, e]) · x[t]`` over this device's experts — checkable in
+    closed form on the host from the routing vector alone.
+
+    That one comparison pins three contract items at once, which is why it is worth doing in isolation
+    rather than only through the layer:
+
+    * **The permutation.** Any mis-derived rank, region offset or inverse index sends some token's row
+      to the wrong slot, and the value that comes back stops being a multiple of that token's own row.
+    * **Score placement.** The scale each row returns with is exactly its router score, applied once.
+    * **Padding exclusion.** Each tight-packed expert region is rounded to one tile. Its padding is
+      exact zero from the scatter base and is never read back; if the reverse slot were one row off,
+      the per-token ratio would stop being constant.
+
+    Checked per device, not just on device 0: the permutation is built from each device's own local
+    routing, so a bug that only mis-indexed a non-zero expert block would be invisible in the
+    all-reduced layer output.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, _, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    moe = decoder.moe
+    assert moe.gather_experts, "the per-expert weights were not built; the flag was read too late"
+    moe._gather_consts(rows)  # setup, exactly as prepare_gather_experts does
+
+    # The identity FFN. `unified_routed_expert_moe` returns a TILE tensor and its input here is the
+    # ROW_MAJOR gathered buffer, so the identity is the layout conversion and nothing else.
+    def identity_ffn(dispatched_buffer, *args, **kwargs):
+        return ttnn.to_layout(dispatched_buffer, ttnn.TILE_LAYOUT)
+
+    monkeypatch.setattr(ttnn.experimental.deepseek_prefill, "unified_routed_expert_moe", identity_ffn)
+
+    x_host = make_activations(1, rows, seed=85).reshape(1, 1, rows, hf_config().hidden_size)
+    x = to_device(mesh_device, x_host)
+    moe._decode_phase = False
+    moe._call_tokens = rows
+    dense = moe.routing_weights(x)
+    dense_parts = shards(mesh_device, dense)
+    routed = moe._gather_routed_experts(x, dense, rows)
+    got_parts = shards(mesh_device, routed)
+    ttnn.deallocate(routed)
+    ttnn.deallocate(dense)
+
+    worst = 1.0
+    for d, (dense_d, got_d) in enumerate(zip(dense_parts, got_parts)):
+        # out[t] = (sum over device d's experts of score[t, e]) * x[t]
+        scale = dense_d.float().reshape(rows, -1).sum(dim=-1).reshape(rows, 1)
+        want = x_host.float().reshape(rows, -1) * scale
+        value = pcc(want, got_d.float().reshape(rows, -1))
+        worst = min(worst, value)
+        logger.info(
+            f"gathered permutation device {d} rows={rows}: local score mass in "
+            f"[{float(scale.min()):.4f}, {float(scale.max()):.4f}] PCC={value:.8f}"
+        )
+    # Liveness: with 8 experts drawn from 256 over four blocks, some device must hold a partial share —
+    # if every device saw the same uniform mass the comparison would be nearly vacuous.
+    masses = [float(p.float().reshape(rows, -1).sum(dim=-1).max()) for p in dense_parts]
+    assert max(masses) - min(masses) > 1e-3, f"local score mass is uniform across devices ({masses}); test is inert"
+    assert worst > 0.9999, f"combine(dispatch(x)) is not a permutation of x (worst per-device PCC {worst})"
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_prefill_uses_the_fused_kernel(mesh_device, layer_idx, monkeypatch):
+    """A prefill above the floor dispatches the fused kernel once per sub-chunk and no sparse matmul.
+
+    The inverse of the decode test below: without it, a silent fallback to the sparse path would make
+    every equivalence assertion in this file pass trivially.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    _assert_gather_engaged(decoder.moe, 2048)
+    reduce_input_dtypes = []
+    real_all_reduce = MC.MultichipDecoder._all_reduce
+
+    def record_all_reduce_dtype(self, tensor):
+        reduce_input_dtypes.append(tensor.dtype)
+        return real_all_reduce(self, tensor)
+
+    monkeypatch.setattr(MC.MultichipDecoder, "_all_reduce", record_all_reduce_dtype)
+    recorder = _OpRecorder(
+        monkeypatch,
+        [
+            "sparse_matmul",
+            "experimental.deepseek_prefill.unified_routed_expert_moe",
+            "scatter",
+            "sort",
+            "embedding",
+            "where",
+        ],
+    )
+    recorder.reset()
+    out = decoder.prefill_forward(
+        to_device(mesh_device, make_activations(1, 2048, seed=86)),
+        page_table=page_table,
+    )
+    ttnn.deallocate(out)
+    sub_chunks = 2048 // min(OD.MOE_GATHER_SUB_CHUNK, 2048)
+    fused = recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe")
+    logger.info(
+        f"gathered prefill layer={layer_idx}: sparse_matmul={recorder.count('sparse_matmul')} fused_ffn={fused} "
+        f"scatter={recorder.count('scatter')} sort={recorder.count('sort')} "
+        f"embedding={recorder.count('embedding')} where={recorder.count('where')} sub_chunks={sub_chunks}"
+    )
+    assert recorder.count("sparse_matmul") == 0, "the gathered prefill still dispatched a sparse matmul"
+    assert fused == sub_chunks, f"expected one fused-FFN call per sub-chunk ({sub_chunks}), saw {fused}"
+    # Compact dispatch contributes one scatter per sub-chunk. The complete decoder layer may issue
+    # another scatter outside the MoE (currently one at both layer kinds), so this is a lower bound;
+    # the exact fused/sort/embedding/where counts below pin the gathered branch itself.
+    assert recorder.count("scatter") >= sub_chunks, "compact dispatch did not scatter once per sub-chunk"
+    assert recorder.count("sort") == sub_chunks, "only the reverse expert sort should remain per sub-chunk"
+    assert recorder.count("embedding") == 2 * sub_chunks
+    assert recorder.count("where") == sub_chunks, "invalid reverse rows were not selected away before scoring"
+    assert len(reduce_input_dtypes) == 2, "one attention and one MoE all-reduce must run"
+    assert decoder.moe.policy.expert_act_dtype == ttnn.bfloat8_b, "this regression pins C25's routed-output policy"
+    assert (
+        reduce_input_dtypes[-1] == decoder.moe.policy.expert_act_dtype == ttnn.bfloat8_b
+    ), "gathered MoE must restore the BF8 routed-output contract before the expert-parallel all-reduce"
+
+
+@pytest.mark.parametrize("layer_idx", [LINEAR_LAYER], ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_batch8_times_128_is_one_safe_subchunk(mesh_device, layer_idx, monkeypatch):
+    """Batch 8 by 128 tokens flattens to the one admitted 1024-row gathered shape.
+
+    This is the short-prompt geometry in the requested batch-8 latency sweep. The MoE is tokenwise, so
+    folding the batch and sequence axes must give the same layer result as sparse routing, while the op
+    census proves the comparison did not pass because both arms silently used the sparse fallback.
+    """
+    batch, seq_len = 8, 128
+    flattened = batch * seq_len
+    assert flattened == OD.MOE_GATHER_SUB_CHUNK == OD.MOE_GATHER_MIN_TOKENS
+
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(
+        mesh_device,
+        layer_idx,
+        source,
+        batch=batch,
+        max_context=1024,
+    )
+    _assert_gather_engaged(decoder.moe, flattened)
+    x = to_device(mesh_device, make_activations(batch, seq_len, seed=91))
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", False)
+    sparse_out = decoder.prefill_forward(x, page_table=page_table)
+    want = to_host(mesh_device, sparse_out)
+    ttnn.deallocate(sparse_out)
+    decoder.reset_state()
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    recorder = _OpRecorder(
+        monkeypatch,
+        ["sparse_matmul", "experimental.deepseek_prefill.unified_routed_expert_moe"],
+    )
+    recorder.reset()
+    gathered_out = decoder.prefill_forward(x, page_table=page_table)
+    got = to_host(mesh_device, gathered_out)
+    ttnn.deallocate(gathered_out)
+    ttnn.deallocate(x)
+
+    value = pcc(want, got)
+    logger.info(f"gathered batch={batch} seq={seq_len} flattened={flattened} vs sparse PCC={value:.9f}")
+    assert torch.isfinite(got.float()).all()
+    assert value > BASELINE_BAR, f"batch-8 flattened gathered vs sparse PCC {value} <= {BASELINE_BAR}"
+    assert recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe") == 1
+    assert recorder.count("sparse_matmul") == 0
+
+
+@pytest.mark.parametrize("layer_idx", [LINEAR_LAYER], ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_nonaligned_logical_padding_stays_sparse_and_matches_reference(
+    mesh_device, layer_idx, monkeypatch
+):
+    """A non-aligned logical prompt remains on the safe sparse path and matches its reference.
+
+    The final 127 rows are prefill padding, not real tokens. They can change device-side expert counts
+    and adaptive chunk geometry, but must not change any of the 897 returned logical rows. Gathered MoE
+    deliberately refuses ``valid_tokens`` today, so this A/B pins that refusal instead of accidentally
+    claiming the fused kernel handled logical padding.
+    """
+    logical_tokens = OD.MOE_GATHER_MIN_TOKENS - PREFILL_ALIGN + 1
+    physical_tokens = ((logical_tokens + PREFILL_ALIGN - 1) // PREFILL_ALIGN) * PREFILL_ALIGN
+    assert (logical_tokens, physical_tokens) == (897, OD.MOE_GATHER_SUB_CHUNK)
+
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=2048)
+    reason = decoder.moe._gather_reason(physical_tokens, False, logical_tokens)
+    assert reason is not None and "tile-padded call" in reason
+    x = to_device(mesh_device, make_activations(1, logical_tokens, seed=92))
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", False)
+    sparse_out = decoder.prefill_forward(x, page_table=page_table)
+    want = to_host(mesh_device, sparse_out)
+    ttnn.deallocate(sparse_out)
+    decoder.reset_state()
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    recorder = _OpRecorder(
+        monkeypatch,
+        ["sparse_matmul", "experimental.deepseek_prefill.unified_routed_expert_moe"],
+    )
+    recorder.reset()
+    gathered_out = decoder.prefill_forward(x, page_table=page_table)
+    got = to_host(mesh_device, gathered_out)
+    ttnn.deallocate(gathered_out)
+    ttnn.deallocate(x)
+
+    value = pcc(want, got)
+    logger.info(
+        f"gathered logical={logical_tokens} physical={physical_tokens} padding="
+        f"{physical_tokens - logical_tokens} vs sparse PCC={value:.9f}"
+    )
+    assert tuple(got.shape[:2]) == (1, logical_tokens)
+    assert torch.isfinite(got.float()).all()
+    assert value > BASELINE_BAR, f"non-aligned gathered vs sparse PCC {value} <= {BASELINE_BAR}"
+    assert recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe") == 0
+    assert recorder.count("sparse_matmul") == 2 * (physical_tokens // OD.DEFAULT_MOE_GROUP_TOKENS)
+
+
+@pytest.mark.parametrize("layer_idx", [LINEAR_LAYER], ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_small_tail_uses_sparse_fallback(mesh_device, layer_idx, monkeypatch):
+    """A profitable gathered prefix may coexist with a sub-minimum sparse tail.
+
+    At 1152 rows the 1024-row prefix should use one fused gathered program. The remaining 128 rows
+    are below ``MOE_GATHER_MIN_TOKENS`` and therefore use the two sparse projections without building
+    gathered constants for that losing shape.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    _assert_gather_engaged(decoder.moe, 1152)
+    assert 128 not in decoder.moe._gather_const
+    recorder = _OpRecorder(
+        monkeypatch,
+        ["sparse_matmul", "experimental.deepseek_prefill.unified_routed_expert_moe"],
+    )
+
+    x = to_device(mesh_device, make_activations(1, 1152, seed=90))
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", False)
+    sparse_out = decoder.prefill_forward(x, page_table=page_table)
+    want = to_host(mesh_device, sparse_out)
+    ttnn.deallocate(sparse_out)
+    decoder.reset_state()
+
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    recorder.reset()
+    out = decoder.prefill_forward(
+        x,
+        page_table=page_table,
+    )
+    got = to_host(mesh_device, out)
+    ttnn.deallocate(out)
+    ttnn.deallocate(x)
+    assert torch.isfinite(got.float()).all()
+    value = pcc(want, got)
+    logger.info(f"mixed gathered/sparse tail: rows=1152 gathered=1024 sparse=128 PCC={value:.9f}")
+    assert value > BASELINE_BAR, f"mixed gathered/sparse tail PCC {value} <= {BASELINE_BAR}"
+    assert recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe") == 1
+    assert recorder.count("sparse_matmul") == 2
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_decode_keeps_sparse_matmul(mesh_device, layer_idx, monkeypatch):
+    """Decode keeps ``sparse_matmul`` even with the switch on, and the op counts prove it.
+
+    A decode call is one 32-row tile, so a gathered expert region is one tile whatever its real count:
+    the gathered path would evaluate ``num_experts_local * 32`` rows for the ``32 * top_k / tp`` the
+    routing asks and add the dispatch/reverse-permutation graph. The FFN itself is fused, but the
+    arithmetic and glue are still worse, so the switch is scoped to prefill; this pins the scoping
+    rather than trusting it, and checks that the reason says so.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 1024, seed=87)), page_table=page_table)
+    )
+    reason = decoder.moe._gather_reason(TILE, True, None)
+    assert reason is not None and "decode keeps sparse_matmul" in reason, f"decode was admitted (reason={reason!r})"
+    recorder = _OpRecorder(monkeypatch, ["sparse_matmul", "experimental.deepseek_prefill.unified_routed_expert_moe"])
+    recorder.reset()
+    x = to_device(mesh_device, make_activations(1, 1, seed=88))
+    current_pos, rot_idxs = decode_inputs(mesh_device, torch.tensor([1024]))
+    ttnn.deallocate(decoder.decode_forward(x, current_pos=current_pos, rot_idxs=rot_idxs, page_table=page_table))
+    fused = recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe")
+    sparse = recorder.count("sparse_matmul")
+    logger.info(f"decode with the switch set: sparse_matmul={sparse} fused_ffn={fused}")
+    assert fused == 0, f"decode dispatched the gathered path {fused} times"
+    assert sparse == 2, f"decode dispatched {sparse} sparse matmuls, expected the shipped 2"
+
+
+@pytest.mark.parametrize("layer_idx", [LAYERS[0]], ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_refuse_untested_sub_chunk(mesh_device, layer_idx, monkeypatch):
+    """A sub-chunk above the validated cap refuses at setup rather than being launched untested.
+
+    Every L1 circular-buffer footprint in the permutation glue grows with the sub-chunk, and 1024 is
+    the only value that has been launched. This is the guard that bounds the reachable shape space on
+    this mesh to the one that was measured, so it is enforced rather than documented — and it refuses
+    loudly at setup, leaving the correct-and-slower sparse path running.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    monkeypatch.setattr(OD, "MOE_GATHER_SUB_CHUNK", OD.MOE_GATHER_MAX_SUB_CHUNK * 2)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source, max_context=TEST_CONTEXT)
+    moe = decoder.moe
+    assert moe.gather_experts, "the per-expert layout should still be uploaded; only the sub-chunk is out of range"
+    assert (
+        moe.gather_refusal is not None and "MOE_GATHER_MAX_SUB_CHUNK" in moe.gather_refusal
+    ), f"an oversized sub-chunk was accepted (refusal={moe.gather_refusal!r})"
+    recorder = _OpRecorder(monkeypatch, ["sparse_matmul", "experimental.deepseek_prefill.unified_routed_expert_moe"])
+    recorder.reset()
+    ttnn.deallocate(
+        decoder.prefill_forward(to_device(mesh_device, make_activations(1, 2048, seed=89)), page_table=page_table)
+    )
+    assert recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe") == 0
+    assert recorder.count("sparse_matmul") > 0, "the fallback did not run the sparse path"
+    logger.info(f"oversized sub-chunk refused at setup: {moe.gather_refusal}")

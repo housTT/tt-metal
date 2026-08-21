@@ -60,6 +60,7 @@ from typing import Any
 import torch
 from loguru import logger
 
+from models.autoports.ornith_ai_ornith_1_0_35b.tt import optimized_decoder as _optimized
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.generator import OrnithGenerator
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model import (
     MAX_SAMPLING_BATCH,
@@ -111,6 +112,53 @@ def _hashable(value):
 def _env_int(name: str) -> int | None:
     raw = os.environ.get(name)
     return int(raw) if raw not in (None, "") else None
+
+
+def _gathered_moe_prefill_capability(model) -> dict:
+    """Describe the gathered-MoE path from the live layers that would execute it.
+
+    The environment variable alone is not evidence: it is read at module import, the per-expert
+    weight layout is uploaded later, and setup can still refuse the path for an unsupported model
+    geometry.  ``OptimizedMoE`` records each of those later decisions.  Summarising those live
+    objects here lets a serving artifact prove that every layer both loaded and prepared the path,
+    rather than merely repeating the launch environment.
+    """
+
+    layers = list(getattr(model, "layers", ()))
+    selected = bool(_optimized.MOE_GATHER_EXPERTS)
+    weights_loaded_layers = 0
+    ready_layers = 0
+    enabled_layers = 0
+    refusal_reasons = set()
+
+    for layer in layers:
+        moe = getattr(layer, "moe", None)
+        weights_loaded = bool(getattr(moe, "gather_experts", False))
+        ready = bool(getattr(moe, "_gather_ready", False))
+        refusal = getattr(moe, "gather_refusal", "layer has no gathered-MoE capability state")
+        weights_loaded_layers += int(weights_loaded)
+        ready_layers += int(ready)
+        enabled_layers += int(selected and weights_loaded and ready and refusal is None)
+        if refusal is not None:
+            refusal_reasons.add(str(refusal))
+
+    total_layers = len(layers)
+    weights_loaded = total_layers > 0 and weights_loaded_layers == total_layers
+    setup_ready = total_layers > 0 and ready_layers == total_layers and not refusal_reasons
+    return {
+        "selected_at_import": selected,
+        "weights_loaded": weights_loaded,
+        "setup_ready": setup_ready,
+        "enabled": selected and weights_loaded and setup_ready and enabled_layers == total_layers,
+        "layers_total": total_layers,
+        "layers_with_weights": weights_loaded_layers,
+        "layers_ready": ready_layers,
+        "layers_enabled": enabled_layers,
+        "refusal_reasons": sorted(refusal_reasons),
+        "prefill_only": True,
+        "min_tokens": int(_optimized.MOE_GATHER_MIN_TOKENS),
+        "sub_chunk": int(_optimized.MOE_GATHER_SUB_CHUNK),
+    }
 
 
 def _resolve_snapshot(hf_config) -> Any:
@@ -1055,6 +1103,8 @@ class TTQwen3_5MoeForConditionalGeneration:
     def serving_capability(self) -> dict:
         """What this serving build actually is. Written to the stage's evidence."""
         gen = self.generator
+        capability = self.model.capability()
+        capability["gathered_moe_prefill"] = _gathered_moe_prefill_capability(self.model)
         report = {
             "adapter": type(self).__name__,
             "architecture": "TTQwen3_5MoeForConditionalGeneration",
@@ -1065,7 +1115,7 @@ class TTQwen3_5MoeForConditionalGeneration:
             "model_capabilities": dict(self.model_capabilities),
             "kv_cache_owner": "vllm",
             "recurrent_state_owner": "model",
-            "capability": self.model.capability(),
+            "capability": capability,
         }
         if gen is not None:
             report["generator"] = {

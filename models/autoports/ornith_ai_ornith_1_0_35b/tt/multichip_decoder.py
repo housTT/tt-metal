@@ -92,6 +92,7 @@ from dataclasses import replace
 from loguru import logger
 
 import ttnn
+from models.autoports.ornith_ai_ornith_1_0_35b.tt import optimized_decoder as _optimized
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model_config import OrnithDecoderConfig
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     _DTYPE_BYTES,
@@ -1410,6 +1411,9 @@ class MultichipDecoder(OptimizedDecoder):
         capture, and this is the one setup entry point that knows the batch.
         """
         self.moe.prepare_decode_gate(_align_up(batch_size, TILE))
+        # And the gathered routed-expert path's prefill constants, for the same reason: host work, so
+        # setup. A no-op unless `optimized_decoder.MOE_GATHER_EXPERTS` selected that path at load time.
+        self.moe.prepare_gather_experts(self.prefill_chunk)
         # Only when a mode that uses them can be selected: three global semaphores per layer is
         # nothing here, but a 40-layer stack should not allocate 120 of them for a path it never
         # takes. The shipped CCL_MODE is `all_reduce`, which needs none.
@@ -1737,7 +1741,7 @@ class MultichipDecoder(OptimizedDecoder):
         e_local = cfg.num_experts
         select = torch.eye(gcfg.num_experts, dtype=torch.float32).reshape(1, 1, gcfg.num_experts, gcfg.num_experts)
 
-        return {
+        weights = {
             "router": upload(
                 get("gate.weight").float().transpose(0, 1).reshape(1, 1, gcfg.dim, gcfg.num_experts),
                 policy.router_dtype,
@@ -1746,19 +1750,6 @@ class MultichipDecoder(OptimizedDecoder):
                 [select[:, :, :, d * e_local : (d + 1) * e_local] for d in range(tp)],
                 dim=-1,
                 tensor_dtype=ttnn.bfloat16,
-            ),
-            "expert_gate_up": upload_sharded(
-                [fused[d * e_local : (d + 1) * e_local].transpose(-2, -1).unsqueeze(0).float() for d in range(tp)],
-                dim=1,
-                tensor_dtype=policy.expert_gate_up_dtype,
-            ),
-            "expert_down": upload_sharded(
-                [
-                    get("experts.down_proj")[d * e_local : (d + 1) * e_local].transpose(-2, -1).unsqueeze(0).float()
-                    for d in range(tp)
-                ],
-                dim=1,
-                tensor_dtype=policy.expert_down_dtype,
             ),
             "shared_in": upload_sharded(
                 [p.reshape(1, 1, gcfg.dim, 2 * local_shared + TILE) for p in shared_parts],
@@ -1774,6 +1765,53 @@ class MultichipDecoder(OptimizedDecoder):
                 tensor_dtype=policy.shared_dtype,
             ),
         }
+        down_all = get("experts.down_proj")
+        weights["expert_gate_up"] = upload_sharded(
+            [fused[d * e_local : (d + 1) * e_local].transpose(-2, -1).unsqueeze(0).float() for d in range(tp)],
+            dim=1,
+            tensor_dtype=policy.expert_gate_up_dtype,
+        )
+        weights["expert_down"] = upload_sharded(
+            [down_all[d * e_local : (d + 1) * e_local].transpose(-2, -1).unsqueeze(0).float() for d in range(tp)],
+            dim=1,
+            tensor_dtype=policy.expert_down_dtype,
+        )
+        # The support predicate as well as the switch: at tp=1 `cfg.num_experts` is the full 256 and the
+        # path refuses, so uploading the per-expert layout there would be 453 MB per layer for weights
+        # nothing reads. See `optimized_decoder._gather_support_reason`.
+        if _optimized.MOE_GATHER_EXPERTS and _optimized._gather_support_reason(cfg.num_experts) is None:
+            # The gathered path's per-expert layout, expert-parallel: local expert ``i`` on device
+            # ``d`` is global expert ``d * e_local + i``, so each list entry is that local slot's four
+            # shards, one per device. Orientation is the fused kernel's — gate/up (K=dim, N=inter),
+            # down (K=inter, N=dim) — i.e. the transpose of the HF ``[out, in]`` rows.
+            #
+            # Uploaded *alongside* the packed `expert_gate_up`/`expert_down` pair above: the switch is
+            # prefill-only and decode keeps the sparse path, so both layouts have to be resident. That
+            # doubles the 113 MB-per-device-per-layer routed-expert term; see
+            # `optimized_decoder.MOE_GATHER_EXPERTS`.
+            #
+            # Read through the module (`_optimized.`) rather than imported by name, so that the flag a
+            # test flips with `monkeypatch.setattr(optimized_decoder, ...)` is the one this reads.
+            def per_expert(slot, rows, tensor_dtype):
+                """One local-expert slot as a device-sharded 2D weight. ``rows(e) -> [K, N]`` host."""
+                parts = [rows(d * e_local + slot).unsqueeze(0) for d in range(tp)]
+                return ttnn.squeeze(upload_sharded(parts, dim=0, tensor_dtype=tensor_dtype), 0)
+
+            def gate_rows(e):
+                return fused[e, :inter].float().transpose(0, 1)  # [dim, inter]
+
+            def up_rows(e):
+                return fused[e, inter : 2 * inter].float().transpose(0, 1)  # [dim, inter]
+
+            def down_rows(e):
+                return down_all[e].float().transpose(0, 1)  # [inter, dim]
+
+            weights["expert_gate_list"] = [
+                per_expert(i, gate_rows, policy.expert_gate_up_dtype) for i in range(e_local)
+            ]
+            weights["expert_up_list"] = [per_expert(i, up_rows, policy.expert_gate_up_dtype) for i in range(e_local)]
+            weights["expert_down_list"] = [per_expert(i, down_rows, policy.expert_down_dtype) for i in range(e_local)]
+        return weights
 
 
 # --------------------------------------------------------------------------------------

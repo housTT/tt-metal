@@ -61,6 +61,7 @@ from loguru import logger
 
 import ttnn
 from models.autoports.ornith_ai_ornith_1_0_35b.reference import hf_reference as R
+from models.autoports.ornith_ai_ornith_1_0_35b.tt import optimized_decoder as OD
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     CONV1D_CHANNELS,
     DECODE_MATMUL_GEOMETRY,
@@ -2684,3 +2685,178 @@ def test_optimized_beats_fused_traced_decode(mesh_device, layer_idx):
         f"before={before:.3f} ms after={after:.3f} ms speedup={before / after:.2f}x"
     )
     assert after < before, f"optimized traced decode {after:.3f} ms is not faster than fused {before:.3f} ms"
+
+
+# ---------------------------------------------------------------------------------------------
+# gathered routed experts (MOE_GATHER_EXPERTS) — the single-device refusal
+# ---------------------------------------------------------------------------------------------
+#
+# On this mesh there is no expert parallelism, so `cfg.num_experts` is the full 256 and the gathered
+# path REFUSES. That is the whole of its single-device behaviour and it is what these tests pin.
+#
+# Why it still refuses: compact dispatch removes the old `num_experts_local * sub_chunk` buffer, but
+# the surrounding permutation and duplicate weight layout are unmeasured above 64 local experts. The
+# superseded full-region implementation failed at 256 experts; compact dispatch removes that exact
+# failure shape, so 256 is now *unvalidated*, not proven impossible. The guard stays at the only
+# measured geometry rather than silently turning that unknown into support.
+#
+# The equivalence, permutation, fused-kernel-is-used and decode-scoping tests therefore live in
+# tests/test_multichip_decoder.py, on the (1, 4) mesh where EP gives 64 experts per device — which is
+# both the deployment geometry and the only per-device expert count that has been run.
+
+
+@pytest.mark.parametrize("layer_idx", LAYERS, ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_refused_without_expert_parallelism(mesh_device, layer_idx, monkeypatch):
+    """Without expert parallelism the gathered path refuses, says why, and the sparse path runs.
+
+    Three things, because a refusal that is not observable is indistinguishable from a silent fallback:
+
+    * the refusal happens at **setup** and names the bound it hit, so a run that meant to measure the
+      gathered path and quietly did not is visible in the log and in ``moe.gather_refusal``;
+    * ``_gather_reason`` carries the same sentence per call, at every shape, including the 2048-token
+      unvalidated one;
+    * the forward still works and is still the shipped graph — 2 sparse matmuls per 32-token group over
+      64 groups, and zero fused-FFN launches.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
+    moe = decoder.moe
+
+    e_local = decoder.cfg.num_experts
+    assert e_local > OD.MOE_GATHER_MAX_LOCAL_EXPERTS, (
+        f"this test is about the unsupported geometry, but num_experts is {e_local} <= "
+        f"MOE_GATHER_MAX_LOCAL_EXPERTS ({OD.MOE_GATHER_MAX_LOCAL_EXPERTS})"
+    )
+    # The weight layout is not uploaded either: 453 MB per layer for tensors nothing would read.
+    assert not moe.gather_experts, "the per-expert layout was uploaded for a geometry that cannot use it"
+    assert moe.gather_refusal is not None, "the path claims to be available at 256 experts per device"
+    for tokens in (OD.MOE_GATHER_MIN_TOKENS - PREFILL_ALIGN, OD.MOE_GATHER_MIN_TOKENS, 2048):
+        reason = moe._gather_reason(tokens, False, None)
+        assert reason is not None, f"the gathered path was admitted at {tokens} tokens with {e_local} experts"
+    logger.info(f"gathered path refused at {e_local} experts/device: {moe.gather_refusal}")
+
+    recorder = _OpRecorder(monkeypatch, ["sparse_matmul", "experimental.deepseek_prefill.unified_routed_expert_moe"])
+    recorder.reset()
+    out = decoder.prefill_forward(to_device(mesh_device, make_activations(1, 2048, seed=78)), page_table=page_table)
+    assert torch.isfinite(ttnn.to_torch(out).float()).all()
+    ttnn.deallocate(out)
+    gathered = recorder.count("experimental.deepseek_prefill.unified_routed_expert_moe")
+    sparse = recorder.count("sparse_matmul")
+    logger.info(f"single-device prefill with the switch set: sparse_matmul={sparse} fused_ffn={gathered}")
+    assert gathered == 0, f"the refused path still launched the fused FFN {gathered} times"
+    assert sparse == 2 * (2048 // OD.DEFAULT_MOE_GROUP_TOKENS), f"expected the shipped sparse graph, saw {sparse}"
+
+
+@pytest.mark.parametrize("layer_idx", [LINEAR_LAYER], ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_late_enable_is_refused(mesh_device, layer_idx, monkeypatch):
+    """Turning the switch on *after* a layer is built cannot move the forward onto absent weights.
+
+    A layer built with the switch clear holds only the packed pair, so the gathered path has nothing to
+    run on. ``_gather_reason`` reports exactly that, rather than the forward raising a ``KeyError``
+    halfway through. Independent of the expert count, which is why it stays on this mesh.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", False)
+    decoder, page_table, _ = build_decoder(mesh_device, layer_idx, source)
+    assert not decoder.moe.gather_experts
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    reason = decoder.moe._gather_reason(2048, False, None)
+    assert reason is not None and "not uploaded" in reason, f"late enable was admitted (reason={reason!r})"
+    out = decoder.prefill_forward(
+        to_device(mesh_device, make_activations(1, OD.MOE_GATHER_MIN_TOKENS, seed=79)),
+        page_table=page_table,
+    )
+    assert torch.isfinite(ttnn.to_torch(out).float()).all()
+    ttnn.deallocate(out)
+    logger.info(f"late enable refused: {reason}")
+
+
+def test_gathered_support_bounds_are_host_only(mesh_device):
+    """The support predicate's clauses, exercised without a device.
+
+    ``_gather_support_reason`` is the single thing the weight loader, the setup hook and the per-call
+    guard all consult, so its clauses are worth pinning directly rather than only through whichever
+    geometry a fixture happens to provide. Pure arithmetic on host ints — no mesh, no allocation.
+    """
+    # The module-level parametrization requires this fixture argument even though the body does not
+    # touch it. The truly fixture-free version lives in test_gathered_dispatch_static.py.
+    del mesh_device
+    ok = OD.MOE_GATHER_MAX_LOCAL_EXPERTS
+    assert OD.MOE_GATHER_MIN_TOKENS == OD.MOE_GATHER_SUB_CHUNK == OD.MOE_GATHER_MAX_SUB_CHUNK == 1024
+    assert OD._gather_support_reason(ok, OD.MOE_GATHER_SUB_CHUNK) is None, "the shipped geometry must be supported"
+    too_many = OD._gather_support_reason(ok * 4, OD.MOE_GATHER_MAX_SUB_CHUNK)
+    assert too_many is not None and "only that EP=4 geometry has run" in too_many
+    assert "duplicate weight" in too_many and "not been validated" in too_many
+    # Below the bound but not a multiple of 64: the reverse permutation sorts the expert axis, and
+    # ttnn.sort requires that axis to be a 64-multiple. A distinct clause from the bound above, so it
+    # needs a value the bound does not already reject.
+    unsortable = OD._gather_support_reason(ok // 2)
+    assert unsortable is not None and "ttnn.sort" in unsortable, f"a non-multiple of 64 was accepted: {unsortable}"
+    over = OD._gather_support_reason(ok, OD.MOE_GATHER_MAX_SUB_CHUNK * 2)
+    assert over is not None and "MOE_GATHER_MAX_SUB_CHUNK" in over
+    for below in (PREFILL_ALIGN, 512, OD.MOE_GATHER_MIN_TOKENS - PREFILL_ALIGN):
+        reason = OD._gather_support_reason(ok, below)
+        assert (
+            reason is not None and "MOE_GATHER_MIN_TOKENS (1024)" in reason
+        ), f"sub-minimum gathered shape {below} was accepted: {reason}"
+    # The shipped constants must satisfy their own bounds, or the shipped path refuses itself.
+    assert OD.MOE_GATHER_SUB_CHUNK <= OD.MOE_GATHER_MAX_SUB_CHUNK
+    assert OD.MOE_GATHER_SUB_CHUNK % PREFILL_ALIGN == 0
+    assert OD.MOE_GATHER_MIN_TOKENS % PREFILL_ALIGN == 0
+    logger.info(f"gathered support bounds: experts<={ok}, sub_chunk<={OD.MOE_GATHER_MAX_SUB_CHUNK}")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, False),
+        ("", False),
+        ("0", False),
+        (" false ", False),
+        ("OFF", False),
+        ("No", False),
+        ("1", True),
+        (" true ", True),
+        ("ON", True),
+        ("Yes", True),
+    ],
+)
+def test_gathered_expert_env_parser_is_strict_boolean(mesh_device, monkeypatch, value, expected):
+    """Documented boolean spellings are accepted case-insensitively; an unset value is false."""
+    del mesh_device
+    name = "ORNITH_TEST_MOE_GATHER_BOOL"
+    if value is None:
+        monkeypatch.delenv(name, raising=False)
+    else:
+        monkeypatch.setenv(name, value)
+    assert OD._read_bool_env(name) is expected
+
+
+@pytest.mark.parametrize("value", ["2", "enabled", "tru", "false-ish"])
+def test_gathered_expert_env_parser_rejects_typos(mesh_device, monkeypatch, value, expect_error):
+    """An unknown non-empty value must fail startup instead of accidentally enabling gathered MoE."""
+    del mesh_device
+    name = "ORNITH_TEST_MOE_GATHER_BOOL"
+    monkeypatch.setenv(name, value)
+    with expect_error(ValueError, rf"{name} must be one of"):
+        OD._read_bool_env(name)
+
+
+@pytest.mark.parametrize("layer_idx", [LINEAR_LAYER], ids=lambda i: LAYER_IDS[i])
+def test_gathered_experts_reject_unvalidated_sub_chunk(mesh_device, layer_idx, monkeypatch, expect_error):
+    """A sub-chunk below 1024 or outside physical alignment is an error, not a hidden allocation.
+
+    Compact dispatch preallocates only the measured 1024-row scatter base at setup. This guards both
+    halves of the production contract: an aligned-but-too-small span and a ragged span must fail loudly
+    rather than allocating an unvalidated constant from forward. Raised before any upload, so it does
+    not depend on the geometry being supported.
+    """
+    source = default_weight_source()
+    monkeypatch.setattr(OD, "MOE_GATHER_EXPERTS", True)
+    decoder, _, _ = build_decoder(mesh_device, layer_idx, source)
+    expected = r"at least MOE_GATHER_MIN_TOKENS \(1024\)"
+    for rows in (0, 96, OD.MOE_GATHER_MIN_TOKENS - PREFILL_ALIGN):
+        with expect_error(ValueError, expected):
+            decoder.moe._gather_consts(rows)
+    logger.info("_gather_consts rejects unaligned and aligned-below-1024 sub-chunks")
