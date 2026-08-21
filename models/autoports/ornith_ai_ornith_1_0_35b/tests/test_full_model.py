@@ -310,9 +310,11 @@ def test_chunked_prefill_continuation_matches_a_single_call(mesh_device, expect_
     ), "chunked prefill must predict what a single-call prefill predicts"
     assert torch.allclose(chunked, single, atol=1e-2), "chunked prefill logits diverged from the single call"
 
-    # And the boundary is enforced rather than silently wrong.
+    # One shared batch-1 pack can preserve one paused request across an interleaved decode. Several
+    # continuing rows would need several snapshots (their inactive decode rows still advance), so the
+    # low-level batched surface refuses that ambiguous case; serving schedules one partial at a time.
     batched = probe_generator(mesh_device, batch=4)
-    with expect_error(ValueError, "batch-1 only"):
+    with expect_error(ValueError, "one-request-at-a-time"):
         batched.prefill_forward(
             torch.zeros(4, 8, dtype=torch.int64),
             page_table=None,

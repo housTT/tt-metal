@@ -505,8 +505,9 @@ class OrnithGenerator(Generator):
 
         ``continue_from_state`` chunks one long prompt across several calls: pass the chunk's
         absolute ``start_pos`` and ``continue_from_state=True`` for every chunk after the first, and
-        the DeltaNet state carries over instead of being zeroed. Batch 1 only - see
-        :meth:`OrnithModel.prefill_forward`.
+        the DeltaNet state carries over instead of being zeroed. This low-level batched surface accepts
+        one continuing request at a time; serving supplies its explicit persistent slot through
+        :meth:`OrnithModel.prefill_request_into_slot`.
 
         Cache ownership is explicit: pass ``kv_cache`` (and the matching ``page_table``) to drive the
         generator's model against caller-owned state, or leave both ``None`` to use the cache and
@@ -1132,10 +1133,17 @@ class OrnithGenerator(Generator):
             start = starts[user]
             if end <= start:
                 raise ValueError(f"request {user} has an empty chunk [{start}, {end})")
-            page_row = self._page_row_tensor(table[user : user + 1])
+            host_page_row = table[user : user + 1]
+            page_row = self._page_row_tensor(host_page_row)
+            prefill_inputs = self.model.prepare_prefill_chunk_inputs(
+                page_table=page_row,
+                host_page_table=host_page_row,
+                start_pos=start,
+                logical_len=end - start,
+            )
             logits = self.model.prefill_request_into_slot(
                 tokens[user : user + 1, start:end],
-                page_table=page_row,
+                page_table=prefill_inputs,
                 slot=slot,
                 start_pos=start,
                 return_logits="device" if sample_on_device else True,

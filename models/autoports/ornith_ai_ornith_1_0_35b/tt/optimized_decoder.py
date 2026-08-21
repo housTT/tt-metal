@@ -83,6 +83,71 @@ from models.common.lightweightmodule import LightweightModule
 TILE = 32
 
 
+# ---------------------------------------------------------------------------- prefill inputs
+@dataclass(frozen=True)
+class PrefillChunkInputs:
+    """Offset-stable device metadata shared by every full-attention layer in one prefill chunk.
+
+    The legacy decoder surface accepts a page-table tensor plus a Python ``start_pos``.  That is a
+    useful low-level fallback, but three operations then bake the absolute offset into their program
+    key: RoPE's static table slice, the fill page-table slice, and chunked SDPA's scalar start.  The
+    serving path stages these four tensors once per scheduler chunk instead:
+
+    ``full_page_table``
+        The request's complete page-table row, still needed by flexible chunked SDPA.
+    ``fill_page_table``
+        A fixed-width row whose first entries are the physical blocks for this chunk.  Paged fill
+        consumes only as many entries as the physical token row needs, so the unused suffix is zero.
+    ``position_idxs``
+        A ``[1, physical_len]`` uint32 row used to gather RoPE values with ``ttnn.embedding``.
+    ``chunk_start_idx_tensor``
+        A device ``[1]`` int32 value read by flexible chunked SDPA at runtime.
+
+    All four device tensors have persistent addresses allocated before decode trace capture.  Only
+    their contents are refreshed between eager prefill chunks; every layer reads the same buffers.
+    ``start_pos`` and ``physical_len`` are host metadata used solely to reject a stale/mismatched
+    bundle and to select the already-existing shape-dependent SDPA program config.
+    """
+
+    full_page_table: object
+    fill_page_table: object
+    position_idxs: object
+    chunk_start_idx_tensor: object
+    start_pos: int
+    physical_len: int
+
+    def validate_for(self, *, start_pos: int, physical_len: int, batch: int, page_block_size: int) -> None:
+        """Reject reuse after a caller refreshed the wrong staging shape or chunk."""
+
+        if int(self.start_pos) != int(start_pos) or int(self.physical_len) != int(physical_len):
+            raise ValueError(
+                "staged prefill metadata is for "
+                f"[{self.start_pos}, {self.start_pos + self.physical_len}), not "
+                f"[{start_pos}, {start_pos + physical_len})"
+            )
+
+        full_shape = tuple(int(d) for d in self.full_page_table.shape)
+        fill_shape = tuple(int(d) for d in self.fill_page_table.shape)
+        pos_shape = tuple(int(d) for d in self.position_idxs.shape)
+        start_shape = tuple(int(d) for d in self.chunk_start_idx_tensor.shape)
+        if len(full_shape) != 2 or full_shape[0] != batch:
+            raise ValueError(f"full prefill page table shape {full_shape} != [{batch}, blocks]")
+        if len(fill_shape) != 2 or fill_shape[0] != batch or fill_shape[1] * page_block_size < physical_len:
+            raise ValueError(
+                f"fill prefill page table shape {fill_shape} cannot address {batch} x {physical_len} tokens "
+                f"at page_block_size {page_block_size}"
+            )
+        if pos_shape != (1, physical_len):
+            raise ValueError(f"prefill position row shape {pos_shape} != [1, {physical_len}]")
+        if start_shape != (1,):
+            raise ValueError(f"prefill chunk-start tensor shape {start_shape} != [1]")
+        if full_shape[1] * page_block_size < start_pos + physical_len:
+            raise ValueError(
+                f"full prefill page table has {full_shape[1]} blocks, but chunk end "
+                f"{start_pos + physical_len} needs more at page_block_size {page_block_size}"
+            )
+
+
 # ---------------------------------------------------------------------------- precision policy
 @dataclass(frozen=True)
 class PrecisionPolicy:
@@ -641,6 +706,21 @@ class OrnithFusedRope(LightweightModule):
             out.append(ttnn.to_layout(t, ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG))
         return out[0], out[1]
 
+    def indexed_forward(self, position_idxs):
+        """Gather cos/sin at device-resident positions, with no value in the program key.
+
+        ``position_idxs`` is a ROW_MAJOR uint32 ``[1, rows]`` tensor. Decode refreshes one row per
+        user; the serving prefill path refreshes one row per physical token. Both use the same
+        embedding programs, keyed by tensor shape rather than by the position values.
+        """
+
+        cos = ttnn.embedding(position_idxs, self.cos_table, layout=ttnn.TILE_LAYOUT)
+        sin = ttnn.embedding(position_idxs, self.sin_table, layout=ttnn.TILE_LAYOUT)
+        rows = int(position_idxs.shape[-1])
+        cos = ttnn.reshape(cos, [1, 1, rows, self.width])
+        sin = ttnn.reshape(sin, [1, 1, rows, self.width])
+        return cos, sin
+
     def decode_forward(self, rot_idxs):
         """cos/sin ``[1, 1, batch, width]`` gathered at the per-user positions in ``rot_idxs``.
 
@@ -651,12 +731,7 @@ class OrnithFusedRope(LightweightModule):
         `is_sharded()` and HEIGHT_SHARDED); it asks only that cos/sin be sharded, not height-sharded, so
         the reason the mode is unreachable here is neither of those. See :meth:`_rope_decode`.
         """
-        cos = ttnn.embedding(rot_idxs, self.cos_table, layout=ttnn.TILE_LAYOUT)
-        sin = ttnn.embedding(rot_idxs, self.sin_table, layout=ttnn.TILE_LAYOUT)
-        batch = int(rot_idxs.shape[-1])
-        cos = ttnn.reshape(cos, [1, 1, batch, self.width])
-        sin = ttnn.reshape(sin, [1, 1, batch, self.width])
-        return cos, sin
+        return self.indexed_forward(rot_idxs)
 
 
 #: How many cores each routed-expert sparse matmul should run on, as a function of how many experts
@@ -2735,6 +2810,19 @@ class OptimizedDecoder(LightweightModule):
             raise ValueError("full_attention prefill requires a page_table")
         cfg = self.cfg
         b, t = x.shape[0], x.shape[1]
+        staged = page_table if isinstance(page_table, PrefillChunkInputs) else None
+        if staged is not None:
+            staged.validate_for(
+                start_pos=chunk_start_idx,
+                physical_len=t,
+                batch=b,
+                page_block_size=self.page_block_size,
+            )
+            full_page_table = staged.full_page_table
+        else:
+            # Public low-level compatibility path: static RoPE/page-table slices and the scalar
+            # chunked-SDPA overload retain their original behaviour and program keys.
+            full_page_table = page_table
         q_width = cfg.n_heads * cfg.head_dim
         kv_width = 2 * cfg.n_kv_heads * cfg.head_dim
 
@@ -2754,15 +2842,24 @@ class OptimizedDecoder(LightweightModule):
 
         q = self._norm(q, self.w["q_norm"])
         k = self._norm(k, self.w["k_norm"])
-        cos, sin = self.rope.prefill_forward(chunk_start_idx, t)
+        cos, sin = (
+            self.rope.indexed_forward(staged.position_idxs)
+            if staged is not None
+            else self.rope.prefill_forward(chunk_start_idx, t)
+        )
         q = self._rope_prefill(q, cos, sin)
         k = self._rope_prefill(k, cos, sin)
         ttnn.deallocate(cos)
         ttnn.deallocate(sin)
 
-        blk0 = chunk_start_idx // self.page_block_size
-        blk_n = _align_up(chunk_start_idx + t, self.page_block_size) // self.page_block_size
-        chunk_page_table, pt_owned = _slice_owned(page_table, [0, blk0], [int(page_table.shape[0]), blk_n])
+        if staged is not None:
+            chunk_page_table, pt_owned = staged.fill_page_table, False
+        else:
+            blk0 = chunk_start_idx // self.page_block_size
+            blk_n = _align_up(chunk_start_idx + t, self.page_block_size) // self.page_block_size
+            chunk_page_table, pt_owned = _slice_owned(
+                full_page_table, [0, blk0], [int(full_page_table.shape[0]), blk_n]
+            )
         # One batched fill per cache: `batch_idx_tensor` writes row u of the input into
         # page_table[batch_idxs[u]], so a batch-32 prefill costs 2 launches, not 64.
         batch_idxs, idx_owned = _slice_owned(self.batch_idxs, [0], [b])
@@ -2785,16 +2882,32 @@ class OptimizedDecoder(LightweightModule):
         ttnn.deallocate(k)
         ttnn.deallocate(v)
 
-        attn = ttnn.transformer.chunked_scaled_dot_product_attention(
-            q,
-            self.k_cache,
-            self.v_cache,
-            page_table,
-            chunk_start_idx,
+        sdpa_kwargs = dict(
             scale=cfg.head_dim**-0.5,
             program_config=self._prefill_sdpa_config(chunk_start_idx, t),
             compute_kernel_config=self.sdpa_compute_kernel_config,
         )
+        if staged is not None:
+            # Flexible chunked SDPA reads the offset from this persistent device scalar, so one
+            # program serves every 2048-token scheduler boundary. It compiles against the complete
+            # page-table width; the serving A/B must therefore price that max-prefix geometry.
+            attn = ttnn.transformer.chunked_scaled_dot_product_attention(
+                q,
+                self.k_cache,
+                self.v_cache,
+                full_page_table,
+                chunk_start_idx_tensor=staged.chunk_start_idx_tensor,
+                **sdpa_kwargs,
+            )
+        else:
+            attn = ttnn.transformer.chunked_scaled_dot_product_attention(
+                q,
+                self.k_cache,
+                self.v_cache,
+                full_page_table,
+                chunk_start_idx,
+                **sdpa_kwargs,
+            )
         ttnn.deallocate(q)
         merged = ttnn.experimental.nlp_concat_heads(attn)
         ttnn.deallocate(attn)

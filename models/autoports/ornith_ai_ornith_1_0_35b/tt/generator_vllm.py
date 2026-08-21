@@ -493,13 +493,13 @@ class TTQwen3_5MoeForConditionalGeneration:
         first decode step. Compiling them here, before the capture, moves all of it into server
         start-up (``doc/optimized_vllm/README.md`` section 3).
 
-        **What this set does not cover.** These prompts all start at position 0, so they compile only
-        the ``chunk_start_idx == 0`` variants. A prompt longer than one ``prefill_chunk`` presents
-        further chunks at ``start_pos`` 2048, 4096, ... and the page-table slice those chunks take is
-        keyed by the absolute position, so each new chunk index still compiles a few programs and
-        pays one re-capture (measured: ``doc/optimized_vllm/candidates/prefill_chunk_offsets.json``).
-        Covering that class here would mean prefilling up to the advertised context at start-up; it
-        is named follow-up work in ``doc/optimized_vllm/work_log.md`` section 6.
+        Absolute chunk offsets are not another warm-up dimension. Serving refreshes persistent
+        device position/start tensors and a fixed-width fill page-table row once per scheduler chunk;
+        RoPE gathers by those positions and flexible chunked SDPA reads the start at runtime. Thus a
+        warmed physical shape is reused at 0, 2048, 4096, ... without the offset-keyed programs and
+        re-capture measured in ``doc/optimized_vllm/candidates/prefill_chunk_offsets.json``. Flexible
+        SDPA compiles against the complete page-table width, however, so its steady prefill latency at
+        the advertised 262K context remains a hardware A/B criterion rather than an assumed win.
 
         Longest first so the largest activation footprint is allocated when the heap is least
         fragmented.
@@ -525,7 +525,7 @@ class TTQwen3_5MoeForConditionalGeneration:
         the request's latency.
 
         One prompt at each of :meth:`prefill_warmup_lengths` covers every *physical block shape* the
-        path can produce. Two classes remain, both measured:
+        path can produce. One measured class remains:
 
         * programs keyed by the **logical** length - ``ttnn.embedding`` on the unpadded token row, the
           tail pad/trim, the last-token slice, the DeltaNet gate ramp and the conv tail. A request at a
@@ -535,10 +535,10 @@ class TTQwen3_5MoeForConditionalGeneration:
           to 13). ``ttnn.slice`` does
           have a runtime-bounds overload, so this class is an open candidate rather than an op-contract
           blocker - see ``doc/optimized_vllm/README.md`` section 3.3 A for what it can and cannot
-          express;
-        * programs keyed by the **chunk offset** of a multi-chunk prompt, which these position-0
-          warm-up prompts never reach
-          (``doc/optimized_vllm/candidates/prefill_chunk_offsets.json``).
+          express. Chunk offset is no longer a second class: the serving path stages positions, the
+          rebased fill table and the flexible-SDPA start in persistent device tensors, all allocated
+          before decode capture. The tradeoff is that flexible SDPA compiles against the complete
+          page-table prefix; a hardware A/B must reject it if that raises warmed prefill latency.
         """
         del kwargs
         gen = self._require_generator()
@@ -569,6 +569,21 @@ class TTQwen3_5MoeForConditionalGeneration:
             )
             logger.info(
                 f"warm-up: prefill {length} token(s) compiled "
+                f"{self.mesh_device.num_program_cache_entries() - before} program(s)"
+            )
+        if self.max_batch_size > 1:
+            # A continuation restores its recurrent row from the persistent decode pack before it
+            # resumes. Compile that slice/copy path before decode trace capture, just like the eager
+            # prefill programs above, so the first interleaved long prompt does not discover it while
+            # a captured trace is live and force an otherwise avoidable re-capture.
+            before = self.mesh_device.num_program_cache_entries()
+            # Slice program hashes include their static begin/end coordinates, so warming slot 0
+            # alone does not cover a request assigned slot 1..B-1. Shapes deduplicate across layers;
+            # coordinates do not. Exercise every serving slot before capture.
+            for slot in range(self.max_batch_size):
+                self.model._restore_prefill_state_from_slot(slot, force=True)
+            logger.info(
+                f"warm-up: prefill restore for {self.max_batch_size} slot(s) compiled "
                 f"{self.mesh_device.num_program_cache_entries() - before} program(s)"
             )
         shortest = lengths[-1]

@@ -76,6 +76,7 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import (
     DEFAULT_PAGE_BLOCK_SIZE,
     DEFAULT_PREFILL_CHUNK,
     PrecisionPolicy,
+    PrefillChunkInputs,
     num_blocks_for_context,
 )
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.precision_config import resolve_policy
@@ -479,6 +480,17 @@ class OrnithModel(LightweightModule):
         self.max_batch_size = None
         self._packs: dict[int, list[dict]] = {}
         self._active_pack: int | None = None
+        # Which persistent decode slot the shared batch-1 prefill pack mirrors. A partial prefill
+        # keeps this pack as its authority while other decode rows run: inactive decode rows still
+        # execute DeltaNet and therefore cannot safely hold a paused prompt on their own.
+        self._prefill_pack_slot: int | None = None
+        # Serving-prefill metadata buffers. They are allocated as part of allocate_state(), before
+        # a generator can capture decode, and then refreshed in place once per scheduler chunk.
+        # Position rows are shape-specific because their embedding output has that physical shape;
+        # all absolute offsets reuse the same row for a given shape.
+        self._prefill_position_rows: dict[int, object] = {}
+        self._prefill_chunk_start = None
+        self._prefill_fill_page_table = None
         self.kv_cache = None
         self.num_blocks = None
 
@@ -758,6 +770,136 @@ class OrnithModel(LightweightModule):
             self.num_blocks = int(first[0].shape[0])
         return kv_cache
 
+    def _allocate_prefill_staging(self) -> None:
+        """Allocate all offset-stable serving-prefill metadata before decode trace capture.
+
+        The buffers are deliberately persistent. Allocating one lazily after a decode trace exists
+        is unsafe: trace intermediates have been returned to the allocator even though replay still
+        writes their addresses. The generator calls :meth:`allocate_state` during construction, so
+        placing this setup there gives the staging tensors the same lifetime guarantee as the slot
+        masks and recurrent-state packs.
+        """
+
+        if not any(layer.is_full_attention for layer in self.layers) or self._prefill_chunk_start is not None:
+            return
+        import torch
+
+        mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
+
+        def upload(host, dtype):
+            return ttnn.from_torch(
+                host,
+                dtype=dtype,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                device=self.mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=mapper,
+            )
+
+        self._prefill_position_rows = {
+            physical_len: upload(torch.zeros(1, physical_len, dtype=torch.int32), ttnn.uint32)
+            for physical_len in range(MC.PREFILL_ALIGN, self.prefill_chunk + 1, MC.PREFILL_ALIGN)
+        }
+        self._prefill_chunk_start = upload(torch.zeros(1, dtype=torch.int32), ttnn.int32)
+        blocks_per_chunk = self.prefill_chunk // self.page_block_size
+        self._prefill_fill_page_table = upload(torch.zeros(1, blocks_per_chunk, dtype=torch.int32), ttnn.int32)
+
+    def _prefill_chunk_host_inputs(self, host_page_table, *, start_pos: int, logical_len: int):
+        """Build the three fixed-shape host values copied into prefill staging buffers.
+
+        The fill table is rebased: entry zero names the physical block at ``start_pos``. Its suffix
+        stays zero because ``paged_fill_cache`` reads entries according to the input sequence length,
+        not according to page-table width. Keeping the row at ``prefill_chunk/page_block_size``
+        entries makes its program shape independent of both absolute offset and tail length.
+        """
+
+        import torch
+
+        start_pos = int(start_pos)
+        logical_len = int(logical_len)
+        if start_pos < 0:
+            raise ValueError(f"prefill start_pos must be non-negative, got {start_pos}")
+        if start_pos % self.prefill_chunk:
+            raise ValueError(f"start_pos {start_pos} must be a multiple of prefill_chunk {self.prefill_chunk}")
+        if not 1 <= logical_len <= self.prefill_chunk:
+            raise ValueError(f"one staged prefill chunk must have 1..{self.prefill_chunk} tokens, got {logical_len}")
+        if start_pos + logical_len > self.max_context:
+            raise ValueError(
+                f"prefill window [{start_pos}, {start_pos + logical_len}) exceeds supported context "
+                f"{self.max_context}"
+            )
+
+        table = torch.as_tensor(host_page_table).to(torch.int32)
+        if table.dim() == 1:
+            table = table.unsqueeze(0)
+        if table.dim() != 2 or int(table.shape[0]) != 1:
+            raise ValueError(f"offset-stable prefill stages exactly one page-table row, got {tuple(table.shape)}")
+
+        physical_len = min(self.prefill_chunk, _align_up(logical_len, MC.PREFILL_ALIGN))
+        block0 = start_pos // self.page_block_size
+        used_blocks = _align_up(physical_len, self.page_block_size) // self.page_block_size
+        block1 = block0 + used_blocks
+        if block1 > int(table.shape[1]):
+            raise ValueError(
+                f"page table has {int(table.shape[1])} blocks, but staged chunk "
+                f"[{start_pos}, {start_pos + physical_len}) needs block {block1 - 1}"
+            )
+
+        positions = torch.arange(start_pos, start_pos + physical_len, dtype=torch.int32).reshape(1, physical_len)
+        chunk_start = torch.tensor([start_pos], dtype=torch.int32)
+        fill_page_table = torch.zeros(1, self.prefill_chunk // self.page_block_size, dtype=torch.int32)
+        fill_page_table[:, :used_blocks] = table[:, block0:block1]
+        return positions, chunk_start, fill_page_table, physical_len
+
+    def prepare_prefill_chunk_inputs(
+        self,
+        *,
+        page_table,
+        host_page_table,
+        start_pos: int,
+        logical_len: int,
+    ):
+        """Refresh and return the shared device metadata for one serving prefill chunk.
+
+        This is a host-side request-boundary operation, never a layer forward. The three copies are
+        enqueued once; all full-attention layers consume the returned buffers without slicing or
+        refreshing them. Stacks with no full-attention layer keep the raw page table unchanged.
+        """
+
+        if not any(layer.is_full_attention for layer in self.layers):
+            return page_table
+        if self._prefill_chunk_start is None:
+            raise RuntimeError("call allocate_state() before preparing persistent prefill inputs")
+
+        positions, chunk_start, fill_page_table, physical_len = self._prefill_chunk_host_inputs(
+            host_page_table,
+            start_pos=start_pos,
+            logical_len=logical_len,
+        )
+        position_buffer = self._prefill_position_rows[physical_len]
+        mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
+
+        def host_tensor(value, dtype):
+            return ttnn.from_torch(
+                value.contiguous(),
+                device=None,
+                dtype=dtype,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                mesh_mapper=mapper,
+            )
+
+        ttnn.copy_host_to_device_tensor(host_tensor(positions, ttnn.uint32), position_buffer)
+        ttnn.copy_host_to_device_tensor(host_tensor(chunk_start, ttnn.int32), self._prefill_chunk_start)
+        ttnn.copy_host_to_device_tensor(host_tensor(fill_page_table, ttnn.int32), self._prefill_fill_page_table)
+        return PrefillChunkInputs(
+            full_page_table=page_table,
+            fill_page_table=self._prefill_fill_page_table,
+            position_idxs=position_buffer,
+            chunk_start_idx_tensor=self._prefill_chunk_start,
+            start_pos=int(start_pos),
+            physical_len=physical_len,
+        )
+
     def allocate_state(self, max_batch_size: int):
         """Allocate the per-batch decoder state for both the prefill and the decode batch.
 
@@ -780,6 +922,7 @@ class OrnithModel(LightweightModule):
             raise ValueError(f"max_batch_size {max_batch_size} must be in [1, {MAX_SAMPLING_BATCH}]")
         self.max_batch_size = max_batch_size
         self._packs = {}
+        self._prefill_pack_slot = None
         for batch in dict.fromkeys((1, max_batch_size)):
             for layer in self.layers:
                 layer.allocate_state(batch)
@@ -794,6 +937,7 @@ class OrnithModel(LightweightModule):
                 layer.batch_idxs = None
         self._share_fused_gate_buffers()
         self._prebuild_slot_masks(max_batch_size)
+        self._allocate_prefill_staging()
         self._active_pack = max_batch_size
         self._apply_pack(max_batch_size)
 
@@ -890,6 +1034,7 @@ class OrnithModel(LightweightModule):
     def reset_state(self, *, zero_kv_cache: bool = True):
         """Wipe every per-prompt state: DeltaNet recurrent/conv rows in both packs, and the cache."""
         self.state_is_live = False
+        self._prefill_pack_slot = None
         for batch in self._packs:
             self._apply_pack(batch)
             for layer in self.layers:
@@ -1374,12 +1519,11 @@ class OrnithModel(LightweightModule):
         The default (``False``) starts each user from a clean DeltaNet state, which is what a fresh
         request wants.
 
-        Continuation is **batch 1 only**, and it raises rather than silently doing the wrong thing
-        above that. Per-user prefill runs on one shared batch-1 state pack and copies the finished
-        state *into* the user's decode slot (:meth:`_merge_prefill_state_into_slot`); there is no
-        inverse copy, so at batch > 1 the second chunk of user 1 would continue from the state user 0
-        left in the shared pack. Restoring slot -> pack before each user is the missing piece and
-        belongs with the serving adapter that needs it.
+        Per-user prefill runs on one shared batch-1 state pack. Continuation through this *batched*
+        surface is therefore restricted to one request per call. The serving surface carries that
+        request's explicit persistent slot and keeps the shared pack as its authoritative paused
+        snapshot while decode is interleaved; supporting several paused requests would need several
+        such snapshots, not merely slot restoration from inactive decode rows that DeltaNet advances.
 
         Returns torch logits ``[B, 1, vocab]``, or ``[B, P, vocab]`` when ``return_all_logits`` is
         set (positions past a user's prompt length are zero-filled).
@@ -1401,9 +1545,8 @@ class OrnithModel(LightweightModule):
         starts = [int(start_pos)] * batch if isinstance(start_pos, int) else [int(v) for v in start_pos]
         if continue_from_state and batch > 1:
             raise ValueError(
-                "continue_from_state is batch-1 only: per-user prefill shares one batch-1 state pack and "
-                "there is no slot -> pack restore, so continuing user u would resume from user u-1's state. "
-                "Chunk one user per call, or add the inverse copy first."
+                "continue_from_state is one-request-at-a-time: interleaved decode advances inactive "
+                "DeltaNet rows, and one shared batch-1 prefill pack can preserve only one paused request"
             )
 
         # Validate against the PHYSICAL extent, not the logical one: each prefill block is padded up
@@ -1420,7 +1563,7 @@ class OrnithModel(LightweightModule):
         width = int(tokens.shape[1])
         for user in range(batch):
             if continue_from_state:
-                self._use_pack(1)
+                self._restore_prefill_state_from_slot(user)
             else:
                 self._reset_prefill_pack()
             user_logits = self.prefill_forward_single(
@@ -1488,6 +1631,7 @@ class OrnithModel(LightweightModule):
         ]
 
     def _reset_prefill_pack(self):
+        self._prefill_pack_slot = None
         self._use_pack(1)
         for layer in self.layers:
             layer.reset_state()
@@ -1513,7 +1657,7 @@ class OrnithModel(LightweightModule):
         for the single-request path so the two cannot drift.
         """
         if continue_from_state:
-            self._use_pack(1)
+            self._restore_prefill_state_from_slot(slot)
         else:
             self._reset_prefill_pack()
         out = self.prefill_forward_single(
@@ -1523,6 +1667,57 @@ class OrnithModel(LightweightModule):
         self._use_pack(self.max_batch_size)
         return out
 
+    def _restore_prefill_state_from_slot(self, slot: int, *, force: bool = False):
+        """Copy decode row ``slot`` into the shared batch-1 prefill state pack.
+
+        A serving prefill chunk always finishes by merging its batch-1 DeltaNet state into the
+        request's persistent decode slot. The batch-1 pack stays authoritative for that same slot
+        until another prefill replaces it; this matters because an interleaved fixed-batch decode
+        still advances inactive DeltaNet rows. When another prefill did replace the pack, restoring
+        from the slot makes continuation independent of that call ordering and is the inverse of
+        :meth:`_merge_prefill_state_into_slot`.
+
+        The sliced rows are transient and deallocated before returning. Both destination packs were
+        allocated during setup, so this changes their contents without changing any buffer address a
+        captured decode trace is bound to.
+        """
+        batch = self.max_batch_size
+        if batch is None:
+            raise RuntimeError("call allocate_state() before restoring a prefill slot")
+        if not 0 <= int(slot) < batch:
+            raise ValueError(f"state slot {slot} is outside [0, {batch})")
+        slot = int(slot)
+        if not force and self._prefill_pack_slot == slot:
+            self._use_pack(1)
+            return
+        if batch == 1:
+            self._prefill_pack_slot = 0
+            self._use_pack(1)
+            return
+
+        src_pack = self._packs[batch]
+        dst_pack = self._packs[1]
+        for src, dst in zip(src_pack, dst_pack):
+            if src["recurrent_state"] is None:
+                continue
+            self._copy_state_slot(src["recurrent_state"], dst["recurrent_state"], slot, batch)
+            for src_buf, dst_buf in zip(src["conv_state"], dst["conv_state"]):
+                self._copy_state_slot(src_buf, dst_buf, slot, batch)
+        self._prefill_pack_slot = slot
+        self._use_pack(1)
+
+    def _copy_state_slot(self, src, dst, slot: int, batch: int):
+        """Copy one slot of ``src`` into the same-shaped batch-1 ``dst`` buffer."""
+        shape = [int(d) for d in src.shape]
+        axis = self._slot_axis(src, batch)
+        begins, ends = [0] * len(shape), list(shape)
+        begins[axis], ends[axis] = int(slot), int(slot) + 1
+        row = ttnn.slice(src, begins, ends)
+        try:
+            ttnn.copy(row, dst)
+        finally:
+            ttnn.deallocate(row)
+
     def _merge_prefill_state_into_slot(self, slot: int):
         """Copy the batch-1 prefill DeltaNet state into row ``slot`` of the decode-batch state.
 
@@ -1531,6 +1726,7 @@ class OrnithModel(LightweightModule):
         """
         batch = self.max_batch_size
         if batch == 1:
+            self._prefill_pack_slot = 0
             return
         import torch
 
@@ -1546,6 +1742,7 @@ class OrnithModel(LightweightModule):
                 # The slot axis is read off the *destination*: the batch-1 source has extent 1 on
                 # every candidate axis, so it cannot name the axis itself.
                 self._merge_rows(src_buf, dst_buf, mask["c"], batch, self._slot_axis(dst_buf, batch))
+        self._prefill_pack_slot = int(slot)
         del torch
 
     def remap_state_slots(self, remap) -> int:
@@ -1587,6 +1784,10 @@ class OrnithModel(LightweightModule):
             for buf in layer.conv_state:
                 self._remap_rows(buf, moves, batch, "c")
             moved += 1
+        if self._prefill_pack_slot is not None:
+            # ``values[new] == old``. The batch-1 pack still holds the state that was at ``old``;
+            # after the permutation that request owns the corresponding ``new`` slot.
+            self._prefill_pack_slot = values.index(self._prefill_pack_slot)
         logger.info(f"remapped {len(moves)} recurrent state row(s) across {moved} layer(s)")
         return moved
 

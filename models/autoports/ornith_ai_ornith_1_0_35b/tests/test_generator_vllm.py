@@ -566,6 +566,134 @@ def test_prefill_writes_the_slot_vllm_assigned_not_the_row_order(mesh_device):
 
 
 @on_mesh
+def test_chunked_prefill_restores_its_slot_after_another_request_overwrites_the_shared_pack(mesh_device):
+    """A continuation resumes from its serving slot, not from the last user to prefill.
+
+    The model executes every prefill at batch 1, but decode state is persistent at the serving batch.
+    A long request therefore has to round-trip each completed chunk through its assigned slot. This
+    deliberately inserts another request between the two chunks; without slot -> pack restoration the
+    second half continues from that other request's DeltaNet state and disagrees with the single call.
+    """
+    adapter = serving_adapter(mesh_device)
+    chunk = int(adapter.model.prefill_chunk)
+    target_slot, interloper_slot = 2, 0
+    torch.manual_seed(2048)
+    prompt = torch.randint(0, adapter.model.vocab_size, (1, 2 * chunk), dtype=torch.int64)
+
+    # Give the target every block in the reduced test pool. The interloper writes only the reserved
+    # null block, so it can replace the shared recurrent pack without touching the target's paged KV.
+    table = torch.zeros(adapter.max_batch_size, adapter.page_table_blocks, dtype=torch.int32)
+    table[target_slot] = torch.arange(1, adapter.page_table_blocks + 1, dtype=torch.int32)
+
+    # Build the reference through the same one-scheduler-chunk serving surface. Passing all 4096
+    # tokens in one call is deliberately illegal now: the scheduler/model contract is one exact
+    # 2048-token boundary per call so decode can run between calls.
+    adapter.prefill_forward(
+        tokens=prompt[:, :chunk],
+        page_table=table[target_slot : target_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[chunk],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[target_slot],
+    )
+    expected = adapter.prefill_forward(
+        tokens=prompt,
+        page_table=table[target_slot : target_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[2 * chunk],
+        start_pos=[chunk],
+        sampling_params=None,
+        empty_slots=[target_slot],
+    )[0]
+
+    adapter.generator.reset()
+    adapter._reset_serving_state()
+    adapter.prefill_forward(
+        tokens=prompt[:, :chunk],
+        page_table=table[target_slot : target_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[chunk],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[target_slot],
+    )
+    adapter.prefill_forward(
+        tokens=torch.tensor([[7, 77, 777, 7777]], dtype=torch.int64),
+        page_table=table[interloper_slot : interloper_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[4],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[interloper_slot],
+    )
+    resumed = adapter.prefill_forward(
+        tokens=prompt,
+        page_table=table[target_slot : target_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[2 * chunk],
+        start_pos=[chunk],
+        sampling_params=None,
+        empty_slots=[target_slot],
+    )[0]
+
+    assert int(torch.argmax(resumed)) == int(torch.argmax(expected))
+    assert torch.allclose(resumed, expected, atol=1e-2), "interleaving changed the continued prompt logits"
+
+    # A decode step is subtler than another prefill: fixed-batch DeltaNet advances even rows whose
+    # position is -1. The target's persistent decode slot is therefore scratch while it is paused;
+    # its still-owned batch-1 pack must win on the next continuation.
+    adapter.generator.reset()
+    adapter._reset_serving_state()
+    decoder_logits = adapter.prefill_forward(
+        tokens=torch.tensor([[7, 77, 777, 7777]], dtype=torch.int64),
+        page_table=table[interloper_slot : interloper_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[4],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[interloper_slot],
+    )[0]
+    adapter.prefill_forward(
+        tokens=prompt[:, :chunk],
+        page_table=table[target_slot : target_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[chunk],
+        start_pos=[0],
+        sampling_params=None,
+        empty_slots=[target_slot],
+    )
+    decode_tokens = torch.zeros(adapter.max_batch_size, dtype=torch.int64)
+    decode_positions = torch.full((adapter.max_batch_size,), -1, dtype=torch.int64)
+    decode_tokens[interloper_slot] = int(torch.argmax(decoder_logits))
+    decode_positions[interloper_slot] = 4
+    adapter.decode_forward(
+        tokens=decode_tokens,
+        page_table=table,
+        kv_cache=adapter._test_kv_cache,
+        start_pos=decode_positions,
+        enable_trace=True,
+        read_from_device=True,
+        sampling_params=None,
+        reset_batch=True,
+    )
+    resumed_after_decode = adapter.prefill_forward(
+        tokens=prompt,
+        page_table=table[target_slot : target_slot + 1],
+        kv_cache=adapter._test_kv_cache,
+        prompt_lens=[2 * chunk],
+        start_pos=[chunk],
+        sampling_params=None,
+        empty_slots=[target_slot],
+    )[0]
+
+    assert int(torch.argmax(resumed_after_decode)) == int(torch.argmax(expected))
+    assert torch.allclose(
+        resumed_after_decode, expected, atol=1e-2
+    ), "an interleaved decode step changed the paused prompt state"
+
+
+@on_mesh
 def test_the_steady_state_decode_copies_nothing_to_the_device(mesh_device):
     """The async-decode contract, at the adapter's own API.
 
