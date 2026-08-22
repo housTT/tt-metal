@@ -127,7 +127,7 @@ void TopkLocalDispatchDeviceOperation::validate_on_program_cache_miss(
     const uint32_t topk = tensors.topk_indices.logical_shape()[-1];
     constexpr uint32_t tile_height = tt::constants::TILE_HEIGHT;
     constexpr uint32_t face_width = 16;
-    constexpr uint32_t max_tokens = 1024;
+    constexpr uint32_t max_tokens = 2048;
     TT_FATAL(tokens == topk_tokens, "x token count ({}) must equal topk_indices token count ({})", tokens, topk_tokens);
     TT_FATAL(tokens > 0 && tokens % tile_height == 0, "token count ({}) must be positive and tile-aligned", tokens);
     TT_FATAL(

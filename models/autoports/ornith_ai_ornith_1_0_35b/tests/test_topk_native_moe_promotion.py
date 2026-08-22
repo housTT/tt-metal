@@ -46,17 +46,18 @@ NATIVE_GATHERED_PCC_BAR = 0.9999
 
 PROMOTION_BATCHES = (1, 2, 4)
 PROMOTION_TOKENS_PER_USER = 2048
+REDUCED_STACK_LAYERS = (0, 1, 3)
 EXPECTED_LAYERS = 40
-EXPECTED_CALLS_PER_LAYER = sum(
-    batch * PROMOTION_TOKENS_PER_USER // OD.MOE_TOPK_NATIVE_SUB_CHUNK for batch in PROMOTION_BATCHES
-)
+SELECTED_SUB_CHUNK = OD._topk_native_sub_chunk()
+EXPECTED_CALLS_PER_LAYER = sum(batch * PROMOTION_TOKENS_PER_USER // SELECTED_SUB_CHUNK for batch in PROMOTION_BATCHES)
 EXPECTED_LAYER_CALLS_PER_LAYER = len(PROMOTION_BATCHES)
 EXPECTED_AGGREGATE_CALLS = EXPECTED_LAYERS * EXPECTED_CALLS_PER_LAYER
 EXPECTED_AGGREGATE_LAYER_CALLS = EXPECTED_LAYERS * EXPECTED_LAYER_CALLS_PER_LAYER
 
-assert EXPECTED_CALLS_PER_LAYER == 14
+assert SELECTED_SUB_CHUNK in OD.MOE_TOPK_NATIVE_SUPPORTED_SUB_CHUNKS
+assert EXPECTED_CALLS_PER_LAYER == (14 if SELECTED_SUB_CHUNK == 1024 else 7)
 assert EXPECTED_LAYER_CALLS_PER_LAYER == 3
-assert EXPECTED_AGGREGATE_CALLS == 560
+assert EXPECTED_AGGREGATE_CALLS == (560 if SELECTED_SUB_CHUNK == 1024 else 280)
 assert EXPECTED_AGGREGATE_LAYER_CALLS == 120
 assert NATIVE_LAYER_MS_BAR == round(GATHERED_LAYER_BASELINE_MS * NATIVE_LAYER_RELATIVE_BAR, 2)
 
@@ -81,6 +82,47 @@ def _counter_fields(moe) -> dict[str, int]:
         "layer_calls": status["layer_calls"],
         "subchunks": status["subchunks"],
     }
+
+
+def _dram_state(mesh_device) -> dict[str, int]:
+    view = ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM)
+    banks = int(view.num_banks)
+    allocated = int(view.total_bytes_allocated_per_bank) * banks
+    total = int(view.total_bytes_per_bank) * banks
+    return {"allocated": allocated, "free": total - allocated, "total": total}
+
+
+def _instrument_layer_stages(model, mesh_device, monkeypatch, events: list[str]) -> None:
+    """Synchronize stage boundaries so the final event identifies a device-side stall."""
+
+    for layer in model.layers:
+        real_moe = layer.moe.forward
+        real_reduce = layer._all_reduce
+
+        def logged_moe(*args, _real=real_moe, _layer=layer.layer_idx, **kwargs):
+            events.append(f"layer={_layer}:moe:start")
+            logger.info(events[-1])
+            result = _real(*args, **kwargs)
+            ttnn.synchronize_device(mesh_device)
+            events.append(f"layer={_layer}:moe:finish")
+            logger.info(events[-1])
+            return result
+
+        reduce_calls = {"count": 0}
+
+        def logged_reduce(*args, _real=real_reduce, _layer=layer.layer_idx, _calls=reduce_calls, **kwargs):
+            _calls["count"] += 1
+            label = "attention" if _calls["count"] % 2 else "moe"
+            events.append(f"layer={_layer}:{label}-all-reduce:start")
+            logger.info(events[-1])
+            result = _real(*args, **kwargs)
+            ttnn.synchronize_device(mesh_device)
+            events.append(f"layer={_layer}:{label}-all-reduce:finish")
+            logger.info(events[-1])
+            return result
+
+        monkeypatch.setattr(layer.moe, "forward", logged_moe)
+        monkeypatch.setattr(layer, "_all_reduce", logged_reduce)
 
 
 def _mesh_tensor_record(mesh_device, tensor) -> dict:
@@ -169,13 +211,14 @@ def _assert_native_ready(moe) -> None:
 def test_topk_native_matches_gathered_layer_and_counts_exact_composites(mesh_device, layer_idx, monkeypatch):
     """Native BF8 output matches gathered output and records only real composite invocations.
 
-    A 2048-token layer is exactly two admitted 1024-token native subchunks.  The invocation spy and
-    the adjacent model counters must therefore agree on two composite calls, two completed
-    subchunks, one public MoE layer call, and zero fallback.  Running the gathered oracle first must
-    leave every native counter at zero.
+    A 2048-token layer is exactly ``2048 / selected_sub_chunk`` native invocations. The accepted
+    default remains two 1024-token calls; the guarded 2048-token experiment is one. The invocation
+    spy and adjacent counters must agree exactly, while the gathered oracle leaves them at zero.
     """
 
     _select_native_and_gathered_weights(monkeypatch)
+    sub_chunk = OD._topk_native_sub_chunk()
+    expected_composites = PROMOTION_TOKENS_PER_USER // sub_chunk
     source = MULTI.default_weight_source()
     decoder, page_table, _ = MULTI.build_decoder(mesh_device, layer_idx, source)
     _assert_native_ready(decoder.moe)
@@ -242,8 +285,72 @@ def test_topk_native_matches_gathered_layer_and_counts_exact_composites(mesh_dev
     assert (
         value >= NATIVE_GATHERED_PCC_BAR
     ), f"top-k-native vs gathered PCC {value} is below the {NATIVE_GATHERED_PCC_BAR} promotion bar"
-    assert composite_spans == [OD.MOE_TOPK_NATIVE_SUB_CHUNK] * 2
-    assert _counter_fields(decoder.moe) == {"calls": 2, "fallbacks": 0, "layer_calls": 1, "subchunks": 2}
+    assert composite_spans == [sub_chunk] * expected_composites
+    assert _counter_fields(decoder.moe) == {
+        "calls": expected_composites,
+        "fallbacks": 0,
+        "layer_calls": 1,
+        "subchunks": expected_composites,
+    }
+
+
+@pytest.mark.long
+@pytest.mark.timeout(600)
+def test_topk_native_reduced_stack_2048_completes_collectives(mesh_device, monkeypatch):
+    """The native 2K path survives cache reuse and both collectives across real layer kinds.
+
+    The per-layer oracle tests build one decoder at a time. Serving instead drives multiple decoder
+    objects through one model, reusing native-op programs while patching every layer's expert weights
+    and output addresses before the routed-expert all-reduce. Keep a reduced real-weight stack here
+    so a cache-hit or collective deadlock is caught without paying for all 40 layers.
+    """
+
+    if not FULL._snapshot_available():
+        pytest.skip("Ornith-1.0-35B checkpoint snapshot not available")
+    monkeypatch.setenv("ORNITH_MOE_TOPK_NATIVE_SUB_CHUNK", "2048")
+    assert OD._topk_native_sub_chunk() == 2048
+    _select_native_and_gathered_weights(monkeypatch)
+    generator = build_generator(
+        model_dir=FULL.MODEL_DIR,
+        mesh_device=mesh_device,
+        layer_indices=REDUCED_STACK_LAYERS,
+        max_batch_size=1,
+        cache_context=4096,
+        prefill_chunk=PROMOTION_TOKENS_PER_USER,
+    )
+    events: list[str] = []
+    try:
+        _instrument_layer_stages(generator.model, mesh_device, monkeypatch, events)
+
+        prompt_gen = torch.Generator().manual_seed(6350)
+        prompt = torch.randint(
+            0,
+            generator.model.vocab_size,
+            (1, PROMOTION_TOKENS_PER_USER),
+            generator=prompt_gen,
+        )
+        logits = generator.prefill_requests_into_slots(
+            prompt,
+            [PROMOTION_TOKENS_PER_USER],
+            [0],
+            page_table=None,
+            kv_cache=None,
+            sample_on_device=False,
+            ensure_traces=False,
+        )
+        assert tuple(logits.shape) == (1, 1, generator.model.vocab_size)
+        assert torch.isfinite(logits.float()).all()
+        expected = PROMOTION_TOKENS_PER_USER // OD._topk_native_sub_chunk()
+        for layer in generator.model.layers:
+            assert _counter_fields(layer.moe) == {
+                "calls": expected,
+                "fallbacks": 0,
+                "layer_calls": 1,
+                "subchunks": expected,
+            }
+        assert all(f"layer={index}:moe-all-reduce:finish" in events for index in REDUCED_STACK_LAYERS)
+    finally:
+        generator.teardown()
 
 
 @pytest.mark.parametrize("layer_idx", MULTI.LAYERS, ids=lambda i: MULTI.LAYER_IDS[i])
@@ -279,7 +386,13 @@ def test_topk_native_decode_keeps_sparse_path_and_does_not_move_counters(mesh_de
     )
     ttnn.deallocate(prefill)
     before = _counter_fields(decoder.moe)
-    assert before == {"calls": 2, "fallbacks": 0, "layer_calls": 1, "subchunks": 2}
+    expected_composites = PROMOTION_TOKENS_PER_USER // OD._topk_native_sub_chunk()
+    assert before == {
+        "calls": expected_composites,
+        "fallbacks": 0,
+        "layer_calls": 1,
+        "subchunks": expected_composites,
+    }
     reason = decoder.moe._topk_native_geometry_reason(OD.TILE, True, None)
     assert reason == "decode intentionally keeps sparse MoE"
 
@@ -312,14 +425,14 @@ def test_topk_native_decode_keeps_sparse_path_and_does_not_move_counters(mesh_de
 @pytest.mark.long
 @pytest.mark.timeout(7200)
 def test_full_stack_b1_b2_b4_prefill_has_exact_native_counters(mesh_device, monkeypatch):
-    """All 40 layers record exactly 14/14/3 calls/subchunks/layer-calls and no fallback.
+    """All 40 layers record the selected exact calls/subchunks/layer-calls and no fallback.
 
     This is the isolated promotion evidence workload, and nothing else runs after construction:
     B1, B2 and B4 each receive 2048 synchronized tokens per user.  Correct device batching flattens
-    those three model calls to 2048, 4096 and 8192 rows, hence 2 + 4 + 8 native composites in every
-    layer.  Serializing users would preserve the aggregate composite count but inflate layer-calls,
-    so both arrays are exact gates.  A scoped op wrapper separately proves that the aggregate counter
-    of 560 corresponds to 560 public native composite invocations.
+    those three model calls to 2048, 4096 and 8192 rows, hence 14 native composites per layer at the
+    accepted 1K span or seven at the guarded 2K span. Serializing users would preserve the aggregate
+    composite count but inflate layer-calls, so both arrays are exact gates. A scoped op wrapper
+    separately proves that the aggregate counter corresponds to public native composite invocations.
     """
 
     if not FULL._snapshot_available():
@@ -338,11 +451,14 @@ def test_full_stack_b1_b2_b4_prefill_has_exact_native_counters(mesh_device, monk
     generator = build_generator(
         model_dir=FULL.MODEL_DIR,
         mesh_device=mesh_device,
-        max_batch_size=max(PROMOTION_BATCHES),
+        max_batch_size=8,
         cache_context=4096,
         prefill_chunk=PROMOTION_TOKENS_PER_USER,
     )
+    events: list[str] = []
     try:
+        logger.info(f"full-stack native gate after build DRAM={_dram_state(mesh_device)}")
+        _instrument_layer_stages(generator.model, mesh_device, monkeypatch, events)
         initial = _topk_native_moe_prefill_capability(generator.model)
         assert initial["total_layers"] == initial["expected_layers"] == EXPECTED_LAYERS
         assert initial["enabled"] is True and initial["refusal"] is None
@@ -353,22 +469,34 @@ def test_full_stack_b1_b2_b4_prefill_has_exact_native_counters(mesh_device, monk
 
         for batch in PROMOTION_BATCHES:
             generator.reset()
-            prompt_gen = torch.Generator().manual_seed(6400 + batch)
-            prompts = torch.randint(
-                0,
-                generator.model.vocab_size,
-                (batch, PROMOTION_TOKENS_PER_USER),
-                generator=prompt_gen,
-            )
+            logger.info(f"full-stack native gate before B{batch} DRAM={_dram_state(mesh_device)}")
+            if batch == 1:
+                # Serving warmup deliberately uses one repeated token. Preserve that skew-prone
+                # routing shape here: random prompts failed to exercise expert counts above 1024.
+                prompts = torch.ones((batch, PROMOTION_TOKENS_PER_USER), dtype=torch.int64)
+            else:
+                prompt_gen = torch.Generator().manual_seed(6400 + batch)
+                prompts = torch.randint(
+                    0,
+                    generator.model.vocab_size,
+                    (batch, PROMOTION_TOKENS_PER_USER),
+                    generator=prompt_gen,
+                )
             logits = generator.prefill_requests_into_slots(
                 prompts,
                 [PROMOTION_TOKENS_PER_USER] * batch,
                 list(range(batch)),
                 page_table=None,
                 kv_cache=None,
+                sample_on_device=False,
+                ensure_traces=False,
             )
             assert tuple(logits.shape) == (batch, 1, generator.model.vocab_size)
             assert torch.isfinite(logits.float()).all()
+            logger.info(
+                f"full-stack native gate after B{batch} DRAM={_dram_state(mesh_device)} "
+                f"last_stage={events[-1] if events else None}"
+            )
 
         final = _topk_native_moe_prefill_capability(generator.model)
         logger.info(

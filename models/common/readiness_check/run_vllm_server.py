@@ -158,6 +158,21 @@ _FATAL_LOG_PATTERNS = (
     "Failed core proc",
 )
 
+
+def _stream_choice_is_token_event(choice: Any) -> bool:
+    """Return true for streamed completion chunks that represent output tokens.
+
+    Retained for the readiness helper's focused token-accounting contract even
+    though the current benchmark delegates streaming to ``vllm bench serve``.
+    """
+
+    text = getattr(choice, "text", None)
+    finish_reason = getattr(choice, "finish_reason", None)
+    if text is None:
+        return False
+    return text != "" or finish_reason is None
+
+
 # Named mesh presets. The value is only documentation here: `MESH_DEVICE` is passed through to the
 # TT vLLM plugin, which owns the name -> grid table (`vllm_tt_plugin.worker.get_mesh_grid`).
 _MESH_SHAPES: dict[str, tuple[int, int]] = {
@@ -256,6 +271,63 @@ def _check_port_available(port: int) -> None:
         sock.close()
 
 
+def _server_command(
+    *,
+    hf_model: str,
+    max_num_seqs: int,
+    block_size: int,
+    port: int,
+    max_model_len: Optional[int],
+    tt_config: dict[str, Any],
+    additional_args: List[str],
+    api_server_count: int = 1,
+) -> List[str]:
+    """Build the paired vLLM launch command.
+
+    ``vllm.entrypoints.openai.api_server`` always calls its single-worker
+    ``run_server`` entry point, even though its parser accepts
+    ``--api-server-count``.  The supported multi-frontend path lives behind
+    ``vllm serve``.  Keep the historical entry point for one frontend and
+    select the CLI orchestrator only when the caller explicitly requests more;
+    this makes the throughput experiment real without changing established
+    readiness launches.
+    """
+
+    if api_server_count < 1:
+        raise ValueError(f"api_server_count must be >= 1, got {api_server_count}")
+    if api_server_count == 1:
+        cmd: List[str] = [
+            sys.executable,
+            "-m",
+            "vllm.entrypoints.openai.api_server",
+            "--model",
+            hf_model,
+        ]
+    else:
+        cmd = [
+            sys.executable,
+            "-m",
+            "vllm.entrypoints.cli.main",
+            "serve",
+            hf_model,
+            "--api-server-count",
+            str(api_server_count),
+        ]
+    cmd += [
+        "--block_size",
+        str(block_size),
+        "--max_num_seqs",
+        str(max_num_seqs),
+        "--port",
+        str(port),
+    ]
+    if max_model_len is not None:
+        cmd += ["--max_model_len", str(max_model_len)]
+    cmd += [_tt_config_flag(), json.dumps({"tt": tt_config})]
+    cmd += additional_args
+    return cmd
+
+
 def _launch_server(
     *,
     hf_model: str,
@@ -267,6 +339,7 @@ def _launch_server(
     max_model_len: Optional[int],
     tt_config: dict[str, Any],
     additional_args: List[str],
+    api_server_count: int = 1,
 ) -> subprocess.Popen:
     """
     Launch vLLM via `python -m vllm.entrypoints.openai.api_server`.
@@ -274,26 +347,16 @@ def _launch_server(
     Mirrors `vllm-tt-plugin/examples/server_example_tt.py` (which is what the
     nightly CI runs) but inlined — the example is just argv-munging + runpy.
     """
-    cmd: List[str] = [
-        sys.executable,
-        "-m",
-        "vllm.entrypoints.openai.api_server",
-        "--model",
-        hf_model,
-        "--block_size",
-        str(block_size),
-        "--max_num_seqs",
-        str(max_num_seqs),
-        "--port",
-        str(port),
-    ]
-    if max_model_len is not None:
-        cmd += ["--max_model_len", str(max_model_len)]
-    # Pass TT plugin config as a single JSON dict so JSON quoting can't be
-    # mangled by intermediate shells. The dict already has
-    # `sample_on_device_mode` enforced; callers extend via `tt_config`.
-    cmd += [_tt_config_flag(), json.dumps({"tt": tt_config})]
-    cmd += additional_args
+    cmd = _server_command(
+        hf_model=hf_model,
+        max_num_seqs=max_num_seqs,
+        block_size=block_size,
+        port=port,
+        max_model_len=max_model_len,
+        tt_config=tt_config,
+        additional_args=additional_args,
+        api_server_count=api_server_count,
+    )
 
     env = {
         **os.environ,
@@ -831,6 +894,16 @@ def _main() -> None:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--max-num-seqs", type=int, default=DEFAULT_MAX_NUM_SEQS)
     parser.add_argument(
+        "--api-server-count",
+        type=int,
+        default=1,
+        help=(
+            "Number of HTTP/API frontend processes. Values above one use the "
+            "vLLM CLI orchestrator; the historical direct API entry point is "
+            "single-worker even though it accepts the flag. Default: 1."
+        ),
+    )
+    parser.add_argument(
         "--sampling-profile",
         type=str,
         choices=(SAMPLING_PROFILE_FULL, SAMPLING_PROFILE_SMOKE),
@@ -993,6 +1066,8 @@ def _main() -> None:
         parser.error("--server-url is required when `serve` is not in --stages")
     if serve_locally and args.mesh_device is None:
         parser.error("--mesh-device is required when `serve` is in --stages")
+    if args.api_server_count < 1:
+        parser.error("--api-server-count must be >= 1")
 
     try:
         tt_config = json.loads(args.tt_config)
@@ -1026,6 +1101,7 @@ def _main() -> None:
                 max_model_len=args.max_model_len,
                 tt_config=merged_tt_config,
                 additional_args=additional_server_args,
+                api_server_count=args.api_server_count,
             )
             _wait_for_server(
                 proc=server_proc,

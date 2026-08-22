@@ -93,8 +93,10 @@ void bind_unified_routed_expert_ffn(nb::module_& mod) {
             activation (ttnn.RoutedExpertActivation, optional):
                 Silu (default, DeepSeek) or SwiGluOai (clamped, MiniMax-M3 / gpt-oss).
 
-        The kernel picks chunk_M_tiles / per_core_M / num_chunks at RUNTIME from
-        the device-resident token count, so there is no chunk-sizing argument.
+        The program picks one launch-wide chunk_M_tiles / per_core_M at RUNTIME
+        from the maximum device-resident token count in its fused expert group
+        (one expert for this entry point). The number of chunks remains specific
+        to each expert's actual count, so there is no chunk-sizing argument.
 
         Returns:
             ttnn.Tensor: (M_max, K=emb).
@@ -150,9 +152,11 @@ void bind_unified_routed_expert_ffn(nb::module_& mod) {
             activation (ttnn.RoutedExpertActivation, optional):
                 Silu (default, DeepSeek) or SwiGluOai (clamped, MiniMax-M3 / gpt-oss).
 
-        Each per-expert FFN picks its chunk_M_tiles / per_core_M / num_chunks at
-        RUNTIME from the device-resident token count, so there is no expected-token
-        argument — the work scales to each expert's actual load automatically.
+        Each fused program picks one launch-wide chunk_M_tiles / per_core_M at
+        RUNTIME from the maximum device-resident count in its local-expert group.
+        Every expert uses that shared geometry to keep the reader, compute, and
+        writer circular-buffer cadence aligned; only num_chunks remains specific
+        to each expert's actual count. There is no expected-token argument.
 
         Returns:
             ttnn.Tensor: expert outputs, same shape as dispatched_buffer.

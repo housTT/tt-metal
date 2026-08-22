@@ -2672,6 +2672,22 @@ class OrnithModel(LightweightModule):
                     ),
                     None,
                 ),
+                "prefill_sdpa_q_chunk": next(
+                    (
+                        layer._prefill_sdpa_config(0, 4096).q_chunk_size
+                        for layer in self.layers
+                        if layer.is_full_attention
+                    ),
+                    None,
+                ),
+                "prefill_sdpa_k_chunk": next(
+                    (
+                        layer._prefill_sdpa_config(0, 4096).k_chunk_size
+                        for layer in self.layers
+                        if layer.is_full_attention
+                    ),
+                    None,
+                ),
             },
             "per_layer": per_layer,
         }

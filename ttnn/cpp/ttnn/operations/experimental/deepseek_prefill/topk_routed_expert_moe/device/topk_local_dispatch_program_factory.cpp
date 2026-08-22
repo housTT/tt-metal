@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include <tt-metalium/allocator.hpp>
 #include <tt-metalium/hal.hpp>
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/tensor_accessor_args.hpp>
@@ -107,7 +108,8 @@ TopkLocalDispatchProgramFactory::cached_program_t TopkLocalDispatchProgramFactor
     const uint32_t capacity = outputs[4].logical_shape()[-1];
     const uint32_t slots = tokens * topk;
 
-    const auto grid = tensors.x.device()->compute_with_storage_grid_size();
+    auto* device = tensors.x.device();
+    const auto grid = device->compute_with_storage_grid_size();
     const CoreRangeSet all_cores(CoreRange(CoreCoord(0, 0), CoreCoord(grid.x - 1, grid.y - 1)));
     const uint32_t num_cores = all_cores.num_cores();
     auto worker_cores = tt::tt_metal::corerange_to_cores(all_cores, num_cores, true);
@@ -115,12 +117,27 @@ TopkLocalDispatchProgramFactory::cached_program_t TopkLocalDispatchProgramFactor
     const CoreCoord planner_core = worker_cores.front();
     const CoreRangeSet planner_core_set{CoreRange(planner_core)};
 
+    uint64_t planner_cb_bytes =
+        aligned_page_size(tensors.global_to_local_expert) + aligned_page_size(tensors.topk_indices);
+    for (uint32_t output_index = 1; output_index < TOPK_LOCAL_DISPATCH_OUTPUTS; ++output_index) {
+        planner_cb_bytes += aligned_page_size(outputs[output_index]);
+    }
+    const uint32_t l1_reserved = device->allocator()->get_base_allocator_addr(tt::tt_metal::HalMemType::L1);
+    constexpr uint32_t l1_margin = 32 * 1024;
+    TT_FATAL(
+        device->l1_size_per_core() > l1_reserved + l1_margin &&
+            planner_cb_bytes <= device->l1_size_per_core() - l1_reserved - l1_margin,
+        "top-k planner CB footprint ({} bytes) exceeds per-core L1 budget (size {}, reserved {}, margin {})",
+        planner_cb_bytes,
+        device->l1_size_per_core(),
+        l1_reserved,
+        l1_margin);
+
     const auto uint32_format = tt::tt_metal::datatype_to_dataformat_converter(tt::tt_metal::DataType::UINT32);
 
-    // Planner-only L1 arena. The largest three buffers are compact integer
-    // maps (about 104 KiB total at the admitted T=1024/K=8/E_local=64), not
-    // activations. Device-op validation rejects larger token spans; callers
-    // retain the accepted 1024-token sub-chunk/fallback contract.
+    // Planner-only L1 arena. The largest buffers are compact integer maps, not
+    // activations. Device-op validation and the budget guard above admit only
+    // token spans whose complete planner footprint fits on the planner core.
     create_cb(
         program,
         planner_core_set,

@@ -65,10 +65,10 @@ void kernel_main() {
     const uint32_t assignment_addr = get_arg_val<uint32_t>(9);
 
     constexpr uint32_t cb_out = get_compile_time_arg_val(1);
-    // per_core_M_max: CB-sized max per-core M. The runtime per_core_M is picked
-    // from the device count below; the down matmul packs the full max ring (so
-    // cb_out carries per_core_M_max rows) and this writer emits only the first
-    // (runtime) per_core_M of them.
+    // per_core_M_max: CB-sized max per-core M. One launch-wide runtime
+    // per_core_M is picked from the maximum local count below; the down matmul
+    // packs the full max ring (so cb_out carries per_core_M_max rows) and this
+    // writer emits only the first runtime per_core_M rows.
     constexpr uint32_t per_core_M_max = get_compile_time_arg_val(2);
     constexpr uint32_t per_core_N_gu = get_compile_time_arg_val(3);
     constexpr uint32_t per_core_N_d = get_compile_time_arg_val(4);
@@ -162,6 +162,20 @@ void kernel_main() {
     const uint32_t idx_l1 = cb_idx_scratch_buf.get_read_ptr();
     const volatile tt_l1_ptr uint32_t* idx_ptr = reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(idx_l1);
 
+    // Match the reader and compute kernels' launch-wide CB cadence. Every core
+    // sees the same counts/index pages, so this independent scan derives the
+    // same geometry without another handshake.
+    uint32_t max_count_tiles = 0;
+    for (uint32_t expert_offset = 0; expert_offset < num_local_experts; ++expert_offset) {
+        const uint32_t global_expert_id = idx_ptr[local_expert_id + expert_offset];
+        const uint32_t count_value = counts_ptr[global_expert_id];
+        const uint32_t count_tiles = (count_value + TILE_HEIGHT - 1) / TILE_HEIGHT;
+        max_count_tiles = count_tiles > max_count_tiles ? count_tiles : max_count_tiles;
+    }
+    const auto runtime_geometry = adaptive_chunk::shared_runtime_geometry(max_count_tiles, chunk_M_max);
+    const uint32_t runtime_per_core_M = runtime_geometry.per_core_M;
+    const uint32_t runtime_chunk_M = runtime_geometry.chunk_M_tiles;
+
     // Fetch the region-offset vector once for the whole fused local-expert
     // range. Each expert indexes its own global id below.
     const volatile tt_l1_ptr uint32_t* start_ptr = nullptr;
@@ -192,9 +206,9 @@ void kernel_main() {
         const uint32_t global_expert_id = idx_ptr[this_local_expert_id];
         const uint32_t count_value = counts_ptr[global_expert_id];
         const uint32_t count_tiles = (count_value + TILE_HEIGHT - 1) / TILE_HEIGHT;
-        // Runtime chunk layout from the actual count (same math as reader/compute so
-        // the row mapping agrees). per_core_M is per-chunk (see the loop).
-        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, chunk_M_max);
+        // Runtime chunk count from this expert's actual count and the shared
+        // launch geometry (same math as reader/compute, so CB cadence and rows agree).
+        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, runtime_chunk_M);
         const uint32_t effective_chunks =
             effective_chunks_runtime < num_chunks_max ? effective_chunks_runtime : num_chunks_max;
 
@@ -274,11 +288,10 @@ void kernel_main() {
             }
 
             // ---- Drain cb_out (down matmul output) to DRAM ----
-            // Per-chunk per_core_M (per_core_M_max for full chunks, a smaller divisor
-            // for the tail); chunk starts are uniform at chunk*chunk_M_max. Contiguous
-            // row map: this core owns rows [row0, row0 + per_core_M).
-            const uint32_t per_core_M = adaptive_chunk::per_core_M_for_chunk(chunk, count_tiles, chunk_M_max);
-            const uint32_t row0 = chunk * chunk_M_max + my_mt * per_core_M;
+            // Fixed launch-wide per_core_M; chunk starts use the matching runtime
+            // chunk width. This core owns rows [row0, row0 + per_core_M).
+            const uint32_t per_core_M = runtime_per_core_M;
+            const uint32_t row0 = chunk * runtime_chunk_M + my_mt * per_core_M;
             const uint32_t col0 = my_nt_d * per_core_N_d;
             // The DOWN matmul packs and pushes the FULL compile-time-MAX ring (its
             // L1_ACC needs full-ring cycling), so DRAIN all d_in1_num_subblocks_M

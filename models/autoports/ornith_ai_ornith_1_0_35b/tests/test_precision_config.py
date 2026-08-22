@@ -102,3 +102,16 @@ def test_layer_exceptions_resolve_per_layer_and_leave_other_layers_identical(exp
     assert excepted.exception_layers() == (0, 39)
     with expect_error(ValueError, "unknown policy field"):
         plain.replace(layer_exceptions=((0, "not_a_field", 1),)).for_layer(0)
+
+
+def test_prefill_sdpa_k_chunk_override_is_strict_and_opt_in(expect_error):
+    """The cache-read experiment cannot silently turn a malformed value into a new program shape."""
+
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt.optimized_decoder import _parse_prefill_sdpa_k_chunk
+
+    assert _parse_prefill_sdpa_k_chunk(None) is None
+    assert _parse_prefill_sdpa_k_chunk("") is None
+    assert _parse_prefill_sdpa_k_chunk(" 256 ") == 256
+    for raw in ("31", "96", "255", "nope"):
+        with expect_error(ValueError, "must be"):
+            _parse_prefill_sdpa_k_chunk(raw)

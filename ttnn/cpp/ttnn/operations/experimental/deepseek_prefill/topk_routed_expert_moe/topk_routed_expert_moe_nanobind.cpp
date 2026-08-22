@@ -84,7 +84,7 @@ void bind_topk_routed_expert_moe(::nanobind::module_& mod) {
         Consequently, every valid token's index row must contain unique expert
         ids; malformed duplicate rows fail closed in the device planner.
         The admitted primitive span
-        is at most 1024 tokens; callers sub-chunk a larger flattened prefill and
+        is at most 2048 tokens; callers sub-chunk a larger flattened prefill and
         preserve token order when concatenating its returned parts.
         )doc",
         &topk_routed_expert_moe::topk_routed_expert_moe,

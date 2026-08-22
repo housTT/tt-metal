@@ -104,7 +104,7 @@ def test_serving_l1_small_reservation_covers_grouped_prefill_warmup_cache():
     assert M.DEFAULT_L1_SMALL_SIZE == 32 * 1024
 
 
-def test_prefill_warmup_compiles_grouped_batches_once_at_the_largest_configured_shape():
+def test_prefill_warmup_compiles_grouped_batches_at_the_largest_and_shortest_shapes():
     calls = []
 
     class _Mesh:
@@ -144,8 +144,53 @@ def test_prefill_warmup_compiles_grouped_batches_once_at_the_largest_configured_
         ("prefill", (2, 2048), (2048, 2048), (0, 1)),
         ("prefill", (4, 2048), (2048, 2048, 2048, 2048), (0, 1, 2, 3)),
         ("prefill", (1, 128), (128,), (0,)),
+        ("prefill", (2, 128), (128, 128), (0, 1)),
+        ("prefill", (4, 128), (128, 128, 128, 128), (0, 1, 2, 3)),
     ]
     assert calls[-3:] == [("reset",), ("reset-serving",), ("reset-counters",)]
+
+
+def test_decode_warmup_compiles_nonidentity_slot_remap_before_trace_capture():
+    calls = []
+
+    class _Mesh:
+        def num_program_cache_entries(self):
+            return 0
+
+    class _Model:
+        def reset_state(self):
+            calls.append(("reset-model",))
+
+    class _Generator:
+        def decode_forward(self, tokens, positions, **kwargs):
+            calls.append(("decode", tuple(tokens.shape), tuple(positions.shape), kwargs["enable_trace"]))
+
+        def remap_serving_slots(self, remap):
+            calls.append(("remap", tuple(int(value) for value in remap)))
+            return 1
+
+        def reset(self):
+            calls.append(("reset-generator",))
+
+    adapter = TTQwen3_5MoeForConditionalGeneration.__new__(TTQwen3_5MoeForConditionalGeneration)
+    adapter.model = _Model()
+    adapter.generator = _Generator()
+    adapter.mesh_device = _Mesh()
+    adapter.max_batch_size = 4
+    adapter.page_table_blocks = 64
+    adapter._warmup_page_table = lambda: torch.zeros(4, 64, dtype=torch.int32)
+    adapter._reset_serving_state = lambda: calls.append(("reset-serving",))
+
+    adapter.warmup_model_decode(enable_trace=False, can_sample_on_device=False)
+
+    assert calls == [
+        ("decode", (4,), (4,), False),
+        ("remap", (1, 2, 3, 0)),
+        ("remap", (3, 0, 1, 2)),
+        ("reset-generator",),
+        ("reset-model",),
+        ("reset-serving",),
+    ]
 
 
 def test_the_plugin_registers_this_adapter_for_both_architectures():
@@ -256,6 +301,7 @@ def test_topk_native_capability_aggregates_exactly_forty_live_layer_statuses():
                 "fallbacks": 0,
                 "layer_calls": 2,
                 "subchunks": 2 * (layer + 1),
+                "sub_chunk": 1024,
             }
 
         def topk_native_status(self):
@@ -280,6 +326,7 @@ def test_topk_native_capability_aggregates_exactly_forty_live_layer_statuses():
     assert ready["calls"] == sum(range(1, 41))
     assert ready["layer_calls"] == 80
     assert ready["subchunks"] == 2 * sum(range(1, 41))
+    assert ready["sub_chunk"] == 1024
 
     model.layers[17].moe.status.update(ready=False, enabled=False, refusal="native constants missing", fallbacks=3)
     refused = _topk_native_moe_prefill_capability(model)

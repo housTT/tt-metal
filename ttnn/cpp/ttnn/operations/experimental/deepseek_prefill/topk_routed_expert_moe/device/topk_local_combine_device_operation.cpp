@@ -132,7 +132,8 @@ void TopkLocalCombineDeviceOperation::validate_on_program_cache_miss(
         y_shape[-2],
         tensors.packed_y.buffer()->num_pages());
 
-    TT_FATAL(op.tokens > 0 && op.tokens <= 1024, "tokens ({}) must be in [1,1024]", op.tokens);
+    constexpr uint32_t max_tokens = 2048;
+    TT_FATAL(op.tokens > 0 && op.tokens <= max_tokens, "tokens ({}) must be in [1,{}]", op.tokens, max_tokens);
     TT_FATAL(
         op.tokens % tt::constants::TILE_HEIGHT == 0,
         "tokens ({}) must be divisible by {}",

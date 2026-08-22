@@ -20,12 +20,13 @@ from models.autoports.ornith_ai_ornith_1_0_35b.tt import optimized_decoder as OD
 
 REPO = Path(OD.__file__).resolve().parents[4]
 OP = REPO / "ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/topk_routed_expert_moe"
+UNIFIED_FFN = REPO / "ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/unified_routed_expert_ffn"
 PROMOTION_TEST = REPO / ("models/autoports/ornith_ai_ornith_1_0_35b/tests/test_topk_native_moe_promotion.py")
 
 
 def test_native_chunk_decomposition_covers_b1_and_b4_prefill():
-    assert OD._topk_native_chunk_ranges(2048) == ((0, 1024), (1024, 2048))
-    assert OD._topk_native_chunk_ranges(8192) == tuple((i, i + 1024) for i in range(0, 8192, 1024))
+    assert OD._topk_native_chunk_ranges(2048, sub_chunk=1024) == ((0, 1024), (1024, 2048))
+    assert OD._topk_native_chunk_ranges(8192, sub_chunk=1024) == tuple((i, i + 1024) for i in range(0, 8192, 1024))
 
 
 def test_native_chunk_decomposition_rejects_ragged_tail():
@@ -35,6 +36,27 @@ def test_native_chunk_decomposition_rejects_ragged_tail():
         assert "divisible" in str(error)
     else:
         raise AssertionError("ragged native sub-chunk was admitted")
+
+
+def test_topk_native_sub_chunk_selector_is_strict(monkeypatch, expect_error):
+    monkeypatch.delenv(OD.MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR, raising=False)
+    assert OD._topk_native_sub_chunk() == 1024
+    for value in ("1024", "2048"):
+        monkeypatch.setenv(OD.MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR, value)
+        assert OD._topk_native_sub_chunk() == int(value)
+    for value in ("0", "512", "4096", "2k", "+2048", "01024"):
+        monkeypatch.setenv(OD.MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR, value)
+        with expect_error(ValueError, OD.MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR):
+            OD._topk_native_sub_chunk()
+
+
+def test_topk_native_2048_candidate_halves_composite_count(monkeypatch, expect_error):
+    monkeypatch.setenv(OD.MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR, "2048")
+    assert OD._topk_native_chunk_ranges(2048) == ((0, 2048),)
+    assert OD._topk_native_chunk_ranges(4096) == ((0, 2048), (2048, 4096))
+    assert OD._topk_native_chunk_ranges(8192) == tuple((start, start + 2048) for start in range(0, 8192, 2048))
+    with expect_error(ValueError, "divisible"):
+        OD._topk_native_chunk_ranges(1024)
 
 
 def test_promotion_topology_gate_requires_exact_replicate_placement_rank():
@@ -91,6 +113,20 @@ def test_cpp_composite_orders_dispatch_experts_combine_without_dense_routing():
     assert "ttnn::sort(" not in source
     assert "ttnn::embedding(" not in source
     assert "deepseek_moe_fast_reduce_nc" not in source
+
+
+def test_cpp_candidate_admits_2048_only_with_explicit_core_and_l1_guards():
+    dispatch_validation = (OP / "device/topk_local_dispatch_device_operation.cpp").read_text()
+    combine_validation = (OP / "device/topk_local_combine_device_operation.cpp").read_text()
+    dispatch_factory = (OP / "device/topk_local_dispatch_program_factory.cpp").read_text()
+    combine_factory = (OP / "device/topk_local_combine_program_factory.cpp").read_text()
+
+    assert "constexpr uint32_t max_tokens = 2048;" in dispatch_validation
+    assert "constexpr uint32_t max_tokens = 2048;" in combine_validation
+    assert "planner_cb_bytes" in dispatch_factory
+    assert "l1_size_per_core()" in dispatch_factory
+    assert "num_chunks <= available_cores" in combine_factory
+    assert "one core per {}-token chunk" in combine_factory
 
 
 def test_public_composite_has_unambiguous_compute_policy_and_replacement_output():
@@ -230,6 +266,56 @@ def test_assignment_plan_capacity_is_validated_before_kernel_launch():
     ).read_text()
     assert "required_assignment_capacity = tokens * op.topk + (tile_height - 1) * idx_table_size" in validation
     assert "assignment_shape[-1]) >= required_assignment_capacity" in validation
+
+
+def test_fused_experts_share_one_runtime_geometry_from_hottest_local_count():
+    adaptive = (UNIFIED_FFN / "device/kernels/adaptive_chunk.hpp").read_text()
+    assert "inline RuntimeGeometry shared_runtime_geometry(uint32_t max_count_tiles, uint32_t max_chunk)" in adaptive
+    assert "const uint32_t bounded_count = max_count_tiles < max_chunk ? max_count_tiles : max_chunk" in adaptive
+    assert "for (uint32_t d = need; d <= per_core_M_max; ++d)" in adaptive
+    assert "if ((per_core_M_max % d) == 0)" in adaptive
+    assert "return RuntimeGeometry{d, d * kGridY};" in adaptive
+    assert "inline uint32_t num_chunks(uint32_t count_tiles, uint32_t chunk_M_tiles)" in adaptive
+    assert "if (count_tiles < 1)" in adaptive
+
+    kernel_paths = {
+        "reader": UNIFIED_FFN / "device/kernels/dataflow/unified_routed_expert_ffn_reader.cpp",
+        "compute": UNIFIED_FFN / "device/kernels/compute/fused_swiglu.cpp",
+        "writer": UNIFIED_FFN / "device/kernels/dataflow/unified_routed_expert_ffn_writer.cpp",
+    }
+    geometry_call = "adaptive_chunk::shared_runtime_geometry(max_count_tiles, chunk_M_max)"
+    expert_loop = "for (uint32_t expert_offset = 0; expert_offset < num_local_experts; ++expert_offset)"
+    per_expert_chunks = "adaptive_chunk::num_chunks(count_tiles, runtime_chunk_M)"
+    for role, path in kernel_paths.items():
+        source = path.read_text()
+        assert "adaptive_chunk.hpp" in source, f"{role} bypassed the shared geometry source"
+        assert source.count(geometry_call) == 1, f"{role} must derive geometry exactly once per launch"
+        assert source.count(per_expert_chunks) == 1, f"{role} must derive chunk count exactly once per expert"
+        scan = source.index("uint32_t max_count_tiles = 0;")
+        scan_loop = source.index(expert_loop, scan)
+        max_update = source.index(
+            "max_count_tiles = count_tiles > max_count_tiles ? count_tiles : max_count_tiles;", scan_loop
+        )
+        geometry = source.index(geometry_call, scan)
+        per_core_declaration = source.index(
+            "const uint32_t runtime_per_core_M = runtime_geometry.per_core_M;", geometry
+        )
+        chunk_declaration = source.index(
+            "const uint32_t runtime_chunk_M = runtime_geometry.chunk_M_tiles;", per_core_declaration
+        )
+        execution = source.index(expert_loop, geometry)
+        chunks = source.index(per_expert_chunks, execution)
+        per_core_use = source.index("runtime_per_core_M", execution)
+        assert scan < scan_loop < max_update < geometry < per_core_declaration < chunk_declaration < execution
+        assert execution < chunks < per_core_use
+        assert "shared_runtime_geometry(count_tiles" not in source, f"{role} restored unsafe per-expert geometry"
+
+
+def test_nanobind_docs_distinguish_shared_geometry_from_per_expert_chunk_counts():
+    binding = (UNIFIED_FFN / "unified_routed_expert_ffn_nanobind.cpp").read_text()
+    assert "Each per-expert FFN picks its chunk_M_tiles / per_core_M / num_chunks" not in binding
+    assert binding.count("one launch-wide chunk_M_tiles / per_core_M") == 2
+    assert "only num_chunks remains specific\n        to each expert's actual count" in binding
 
 
 def test_native_multichunk_returns_routed_and_frees_concat_parts():

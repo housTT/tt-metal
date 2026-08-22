@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import pytest
 import torch
 import torch.nn.functional as F
+from loguru import logger
 
 import ttnn
 from models.common.utility_functions import is_blackhole
@@ -31,6 +32,26 @@ TWO_CHIP_MESH_PARAMS = [
 
 FOUR_CHIP_MESH_PARAMS = [
     pytest.param((1, 4), {"fabric_config": ttnn.FabricConfig.DISABLED}, id="1x4"),
+]
+
+
+def _production_ring_router_config():
+    router = ttnn.FabricRouterConfig()
+    router.max_packet_payload_size_bytes = 8192
+    return router
+
+
+FOUR_CHIP_PRODUCTION_RING_PARAMS = [
+    pytest.param(
+        (1, 4),
+        {
+            "l1_small_size": 32768,
+            "trace_region_size": 200_000_000,
+            "fabric_config": ttnn.FabricConfig.FABRIC_1D_RING,
+            "fabric_router_config": _production_ring_router_config(),
+        },
+        id="1x4-production-fabric-ring",
+    ),
 ]
 
 UINT32_MAX = (1 << 32) - 1
@@ -720,6 +741,578 @@ def _explicit_native_device_oracle(
         output=output,
     )
     return combined, dispatch, workspace
+
+
+def _production_ring_native_assets(
+    mesh_device,
+    generator,
+    *,
+    hidden=2048,
+    expert_dim=512,
+    num_global_experts=256,
+    num_local_experts=64,
+    num_devices=4,
+):
+    """Create the production EP map and shared synthetic weight triplet."""
+
+    maps = torch.stack(
+        [
+            _mapping_from_local_order(
+                num_global_experts, range(device * num_local_experts, (device + 1) * num_local_experts)
+            )
+            for device in range(num_devices)
+        ]
+    )
+    mapping_tt = _to_device(
+        mesh_device,
+        maps.to(torch.int32),
+        dtype=ttnn.uint32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=0),
+    )
+
+    def sharded_weight(rows, columns):
+        # Production stores local slot i as one mesh tensor whose shard d is global expert d*64+i.
+        # Sharing this synthetic triplet across the 64 list entries preserves that mesh placement and
+        # the fused-64 address-table/control flow without allocating checkpoint-sized distinct weights.
+        joined = torch.randn(num_devices, rows, columns, generator=generator) * 0.025
+        sharded = _to_device(
+            mesh_device,
+            joined,
+            dtype=ttnn.bfloat8_b,
+            layout=ttnn.TILE_LAYOUT,
+            mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=0),
+        )
+        return ttnn.squeeze(sharded, 0)
+
+    gate_tt = sharded_weight(hidden, expert_dim)
+    up_tt = sharded_weight(hidden, expert_dim)
+    down_tt = sharded_weight(expert_dim, hidden)
+    return (
+        maps,
+        mapping_tt,
+        gate_tt,
+        up_tt,
+        down_tt,
+        [gate_tt] * num_local_experts,
+        [up_tt] * num_local_experts,
+        [down_tt] * num_local_experts,
+    )
+
+
+def _count_histogram(num_global_experts, counts_by_expert):
+    counts = torch.zeros(num_global_experts, dtype=torch.int64)
+    for expert, count in counts_by_expert.items():
+        counts[expert] = count
+    return counts
+
+
+def _captured_layer0_t2048_route():
+    """Return the captured layer-0 route and its independently specified histogram."""
+
+    num_global_experts = 256
+    base = torch.tensor([51, 58, 67, 91, 130, 179, 189, 197], dtype=torch.int64)
+    indices = base.repeat(2048, 1)
+    indices[0, 1] = 57
+    indices[:3, 2] = torch.tensor([88, 104, 104], dtype=torch.int64)
+    indices[:27, 4] = torch.tensor([108, 112] + [168] * 23 + [238] * 2, dtype=torch.int64)
+    indices[0, 6] = 238
+    indices[1, 7] = 238
+    assert int(torch.count_nonzero(indices != base)) == 33
+
+    expected_counts = _count_histogram(
+        num_global_experts,
+        {
+            51: 2048,
+            57: 1,
+            58: 2047,
+            67: 2045,
+            88: 1,
+            91: 2048,
+            104: 2,
+            108: 1,
+            112: 1,
+            130: 2021,
+            168: 23,
+            179: 2048,
+            189: 2047,
+            197: 2047,
+            238: 4,
+        },
+    )
+    return base, indices, expected_counts
+
+
+def _minimal_t2048_hot_tail_route(case):
+    """Build one independently runnable route-count discriminator.
+
+    The first three cases isolate device 0's local count vector while retaining eight unique top-k
+    experts per token.  Their filler experts are owned by devices 1--3, so ``one-hot-local`` really
+    means one 2,048-row expert plus 63 zero-count experts on device 0.  The final two cases restore
+    the captured dominant 2/2/3/1 distribution and then all captured tails.
+    """
+
+    tokens, topk, num_global_experts = 2048, 8, 256
+    captured_base, captured, captured_expected = _captured_layer0_t2048_route()
+    one_hot_local_base = torch.tensor([51, 67, 91, 130, 179, 189, 197, 238], dtype=torch.int64)
+
+    if case == "one-hot-local":
+        indices = one_hot_local_base.repeat(tokens, 1)
+        expected_counts = _count_histogram(
+            num_global_experts,
+            {51: 2048, 67: 2048, 91: 2048, 130: 2048, 179: 2048, 189: 2048, 197: 2048, 238: 2048},
+        )
+    elif case == "one-hot-2047-tail1-same-device":
+        indices = one_hot_local_base.repeat(tokens, 1)
+        indices[0, 0] = 57
+        expected_counts = _count_histogram(
+            num_global_experts,
+            {51: 2047, 57: 1, 67: 2048, 91: 2048, 130: 2048, 179: 2048, 189: 2048, 197: 2048, 238: 2048},
+        )
+    elif case == "two-hot-tail1-between-local-ids":
+        indices = captured_base.repeat(tokens, 1)
+        indices[0, 1] = 57
+        expected_counts = _count_histogram(
+            num_global_experts,
+            {51: 2048, 57: 1, 58: 2047, 67: 2048, 91: 2048, 130: 2048, 179: 2048, 189: 2048, 197: 2048},
+        )
+    elif case == "captured-dominant-base-2-2-3-1":
+        indices = captured_base.repeat(tokens, 1)
+        expected_counts = _count_histogram(
+            num_global_experts,
+            {51: 2048, 58: 2048, 67: 2048, 91: 2048, 130: 2048, 179: 2048, 189: 2048, 197: 2048},
+        )
+    elif case == "captured-exact":
+        indices = captured
+        expected_counts = captured_expected
+    else:
+        raise AssertionError(f"unknown T=2048 hot-tail route case {case}")
+
+    assert tuple(indices.shape) == (tokens, topk)
+    assert torch.all(torch.diff(torch.sort(indices, dim=-1).values, dim=-1) != 0)
+    actual_counts = torch.bincount(indices.reshape(-1), minlength=num_global_experts)
+    assert torch.equal(actual_counts, expected_counts)
+    assert int(expected_counts.sum()) == tokens * topk
+    return indices, expected_counts
+
+
+@pytest.mark.skipif(not is_blackhole(), reason="topk_routed_expert_moe is Blackhole-only")
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize(
+    "mesh_device, device_params", SINGLE_CHIP_MESH_PARAMS, indirect=["mesh_device", "device_params"]
+)
+def test_topk_native_t2048_hot_expert_crosses_1024_count_boundary_by_stage(mesh_device, device_params):
+    """Localize the first native stage that cannot cross the 1K hot-expert boundary.
+
+    Production's 1K sub-chunks can give one expert at most 1,024 rows.  At 2K, a repeated-token
+    warm-up can give one expert 1,025--2,048 rows, which changes the unified FFN's adaptive
+    ``per_core_M`` from 4 to 8.  Keep every tensor shape fixed at the Ornith production geometry and
+    change only expert 0's runtime count from 1,024 to 1,025.  Explicit synchronization after
+    dispatch, FFN, and combine makes the last emitted stage marker decisive if the device stalls.
+
+    The 1,024 case runs first and primes the same three program-cache entries used by the 1,025 case.
+    All 64 local expert runtime addresses are present, as in production, but share one synthetic
+    weight triplet; only local expert 0 receives assignments.  This preserves the fused 64-expert
+    control flow without loading a checkpoint or allocating 64 distinct weight triplets.
+    """
+
+    tokens, hidden, expert_dim = 2048, 2048, 512
+    topk, num_global_experts, num_local_experts = 8, 256, 64
+
+    generator = torch.Generator().manual_seed(173)
+    x = torch.randn(tokens, hidden, generator=generator) * 0.08
+    x_rm_tt = _to_device(
+        mesh_device,
+        x.reshape(1, 1, tokens, hidden),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
+    mapping = _mapping_from_local_order(num_global_experts, list(range(num_local_experts)))
+    mapping_tt = _to_device(
+        mesh_device,
+        mapping.reshape(1, -1).to(torch.int32),
+        dtype=ttnn.uint32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
+
+    gate_tt = _to_device(
+        mesh_device,
+        torch.randn(hidden, expert_dim, generator=generator) * 0.025,
+        dtype=ttnn.bfloat8_b,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    up_tt = _to_device(
+        mesh_device,
+        torch.randn(hidden, expert_dim, generator=generator) * 0.025,
+        dtype=ttnn.bfloat8_b,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    down_tt = _to_device(
+        mesh_device,
+        torch.randn(expert_dim, hidden, generator=generator) * 0.025,
+        dtype=ttnn.bfloat8_b,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    gate_list = [gate_tt] * num_local_experts
+    up_list = [up_tt] * num_local_experts
+    down_list = [down_tt] * num_local_experts
+
+    routing_weights = torch.full((tokens, topk), 1.0 / topk)
+    routing_weights_tt = _to_device(
+        mesh_device,
+        routing_weights.reshape(1, 1, tokens, topk),
+        dtype=ttnn.float32,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    routing_weights_bf16_tt = ttnn.typecast(routing_weights_tt, ttnn.bfloat16)
+    routing_weights_rm_tt = ttnn.to_layout(
+        routing_weights_bf16_tt,
+        ttnn.ROW_MAJOR_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    ttnn.synchronize_device(mesh_device)
+
+    for hot_count, expected_per_core_m in ((1024, 4), (1025, 8)):
+        # Every row has eight unique global experts. Only expert 0 is local, and only in the leading
+        # ``hot_count`` rows; the other ids are outside this chip's [0, 64) local shard.
+        indices = torch.arange(num_local_experts, num_local_experts + topk).repeat(tokens, 1)
+        indices[:hot_count, 0] = 0
+        indices_tt = _to_device(
+            mesh_device,
+            indices.reshape(1, 1, tokens, topk).to(torch.int32),
+            dtype=ttnn.uint32,
+            layout=ttnn.TILE_LAYOUT,
+        )
+
+        logger.info(f"top-k-native T=2048 hot_count={hot_count} per_core_M={expected_per_core_m}: dispatch start")
+        dispatch = ttnn.experimental.deepseek_prefill.topk_local_dispatch(
+            x_rm_tt,
+            indices_tt,
+            mapping_tt,
+            num_local_experts,
+            valid_tokens=tokens,
+            materialize_x=False,
+        )
+        ttnn.synchronize_device(mesh_device)
+        logger.info(f"top-k-native T=2048 hot_count={hot_count}: dispatch finish")
+
+        counts = _as_u32(_device_shards(dispatch[1])[0])
+        assert int(counts[0]) == hot_count
+        assert int(torch.count_nonzero(counts)) == 1
+        assert int(counts.sum()) == hot_count
+
+        logger.info(f"top-k-native T=2048 hot_count={hot_count}: unified FFN start")
+        workspace_tt = ttnn.experimental.deepseek_prefill.unified_routed_expert_moe(
+            x_rm_tt,
+            dispatch[2],
+            dispatch[1],
+            dispatch[3],
+            gate_list,
+            up_list,
+            down_list,
+            tokens,
+            packed_assignment_ids=dispatch[4],
+            topk=topk,
+        )
+        ttnn.synchronize_device(mesh_device)
+        logger.info(f"top-k-native T=2048 hot_count={hot_count}: unified FFN finish")
+        assert tuple(workspace_tt.shape) == (1, 1, tokens * topk, hidden)
+        assert workspace_tt.dtype == ttnn.bfloat16
+        assert workspace_tt.layout == ttnn.ROW_MAJOR_LAYOUT
+
+        logger.info(f"top-k-native T=2048 hot_count={hot_count}: combine start")
+        output_tt = ttnn.experimental.deepseek_prefill.topk_local_combine(
+            workspace_tt,
+            routing_weights_rm_tt,
+            dispatch[5],
+            dispatch[6],
+            tokens=tokens,
+            topk=topk,
+            assignment_addressed=True,
+        )
+        ttnn.synchronize_device(mesh_device)
+        logger.info(f"top-k-native T=2048 hot_count={hot_count}: combine finish")
+
+        output = _device_shards(output_tt)[0].reshape(tokens, hidden).float()
+        assert torch.isfinite(output).all()
+        assert int(torch.count_nonzero(output[:hot_count])) > 0
+        assert int(torch.count_nonzero(output[hot_count:])) == 0
+
+        ttnn.deallocate(output_tt)
+        ttnn.deallocate(workspace_tt)
+        for tensor in dispatch:
+            ttnn.deallocate(tensor)
+        ttnn.deallocate(indices_tt)
+
+    for tensor in (
+        routing_weights_rm_tt,
+        routing_weights_bf16_tt,
+        routing_weights_tt,
+        down_tt,
+        up_tt,
+        gate_tt,
+        mapping_tt,
+        x_rm_tt,
+    ):
+        ttnn.deallocate(tensor)
+
+
+@pytest.mark.skipif(not is_blackhole(), reason="topk_routed_expert_moe is Blackhole-only")
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize(
+    "mesh_device, device_params", FOUR_CHIP_PRODUCTION_RING_PARAMS, indirect=["mesh_device", "device_params"]
+)
+def test_topk_native_production_hot_routes_feed_immediate_all_reduce_on_1x4_ring(mesh_device, device_params):
+    """Reproduce the native-MoE-to-CCL boundary with production EP geometry.
+
+    The repeated balanced route makes local expert slots 0 and 63 hot on every device.  Running it at
+    1K and then 2K crosses the unified FFN's adaptive ``per_core_M`` boundary on all four ranks.  The
+    third 2K route puts all eight experts on device 0, maximizing rank skew.  The fourth reproduces
+    the exact captured layer-0 expert counts.  In every case the public native composite feeds the
+    production ring all-reduce without an intervening synchronization; the final sync therefore
+    covers the exact hot-rank-FFN/light-rank-CCL overlap under investigation.
+    """
+
+    hidden, expert_dim = 2048, 512
+    topk, num_global_experts, num_local_experts = 8, 256, 64
+    num_devices = 4
+    generator = torch.Generator().manual_seed(181)
+
+    (
+        maps,
+        mapping_tt,
+        gate_tt,
+        up_tt,
+        down_tt,
+        gate_list,
+        up_list,
+        down_list,
+    ) = _production_ring_native_assets(
+        mesh_device,
+        generator,
+        hidden=hidden,
+        expert_dim=expert_dim,
+        num_global_experts=num_global_experts,
+        num_local_experts=num_local_experts,
+        num_devices=num_devices,
+    )
+    ttnn.synchronize_device(mesh_device)
+
+    for device, actual in enumerate(_device_shards(mapping_tt)):
+        torch.testing.assert_close(_as_u32(actual), _as_u32(maps[device]), rtol=0, atol=0)
+
+    balanced = torch.tensor([0, 63, 64, 127, 128, 191, 192, 255], dtype=torch.int64)
+    skewed = torch.arange(topk, dtype=torch.int64)
+    _, captured, captured_expected_counts = _captured_layer0_t2048_route()
+
+    cases = (
+        (1024, "balanced", balanced),
+        (2048, "balanced", balanced),
+        (2048, "device0-skew", skewed),
+        (2048, "captured-layer0", captured),
+    )
+
+    for tokens, route_name, route in cases:
+        indices = route.repeat(tokens, 1) if route.ndim == 1 else route
+        assert tuple(indices.shape) == (tokens, topk)
+        assert torch.all(torch.diff(torch.sort(indices, dim=-1).values, dim=-1) != 0)
+        counts = torch.bincount(indices.reshape(-1), minlength=num_global_experts)
+        if route_name == "balanced":
+            assert torch.equal(counts[route], torch.full((topk,), tokens, dtype=counts.dtype))
+        elif route_name == "device0-skew":
+            assert int(counts[:topk].min()) == int(counts[:topk].max()) == tokens
+            assert int(counts[topk:].sum()) == 0
+        else:
+            assert route_name == "captured-layer0"
+            assert torch.equal(counts, captured_expected_counts)
+
+        x_tt = _to_device(
+            mesh_device,
+            (torch.randn(tokens, hidden, generator=generator) * 0.08).reshape(1, 1, tokens, hidden),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+        )
+        indices_tt = _to_device(
+            mesh_device,
+            indices.reshape(1, 1, tokens, topk).to(torch.int32),
+            dtype=ttnn.uint32,
+            layout=ttnn.TILE_LAYOUT,
+        )
+        weights_tt = _to_device(
+            mesh_device,
+            torch.full((1, 1, tokens, topk), 1.0 / topk),
+            dtype=ttnn.float32,
+            layout=ttnn.TILE_LAYOUT,
+        )
+
+        logger.info(f"top-k-native 1x4 ring T={tokens} route={route_name}: composite start")
+        partial_tt = ttnn.experimental.deepseek_prefill.topk_routed_expert_moe(
+            x_tt,
+            indices_tt,
+            weights_tt,
+            mapping_tt,
+            gate_list,
+            up_list,
+            down_list,
+            num_local_experts=num_local_experts,
+            valid_tokens=tokens,
+            max_dispatched_tokens_per_expert=tokens,
+            activation=ttnn.RoutedExpertActivation.Silu,
+        )
+        logger.info(f"top-k-native 1x4 ring T={tokens} route={route_name}: composite returned; all-reduce start")
+        reduced_tt = ttnn.all_reduce(
+            partial_tt,
+            topology=ttnn.Topology.Ring,
+            num_links=2,
+            memory_config=partial_tt.memory_config(),
+        )
+        ttnn.deallocate(partial_tt)
+        ttnn.synchronize_device(mesh_device)
+        logger.info(f"top-k-native 1x4 ring T={tokens} route={route_name}: all-reduce finish")
+
+        assert tuple(reduced_tt.shape) == (1, 1, tokens, hidden)
+        assert reduced_tt.dtype == ttnn.bfloat8_b
+        assert reduced_tt.layout == ttnn.TILE_LAYOUT
+        reduced = [shard.reshape(tokens, hidden) for shard in _device_shards(reduced_tt)]
+        assert all(torch.isfinite(shard.float()).all() for shard in reduced)
+        assert int(torch.count_nonzero(reduced[0])) > 0
+        assert all(torch.equal(reduced[0], shard) for shard in reduced[1:])
+
+        ttnn.deallocate(reduced_tt)
+        ttnn.deallocate(weights_tt)
+        ttnn.deallocate(indices_tt)
+        ttnn.deallocate(x_tt)
+
+    for tensor in (down_tt, up_tt, gate_tt, mapping_tt):
+        ttnn.deallocate(tensor)
+
+
+@pytest.mark.skipif(not is_blackhole(), reason="topk_routed_expert_moe is Blackhole-only")
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize(
+    "mesh_device, device_params", FOUR_CHIP_PRODUCTION_RING_PARAMS, indirect=["mesh_device", "device_params"]
+)
+@pytest.mark.parametrize(
+    "route_case",
+    [
+        pytest.param("one-hot-local", id="one-hot-local"),
+        pytest.param("one-hot-2047-tail1-same-device", id="one-hot-2047-tail1-same-device"),
+        pytest.param("two-hot-tail1-between-local-ids", id="two-hot-tail1-between-local-ids"),
+        pytest.param("captured-dominant-base-2-2-3-1", id="captured-dominant-base-2-2-3-1"),
+        pytest.param("captured-exact", id="captured-exact"),
+    ],
+)
+def test_topk_native_minimal_t2048_hot_tail_route_completes_and_feeds_all_reduce_on_1x4_ring(
+    mesh_device, device_params, route_case
+):
+    """Run one selected hot/tail distribution without priming it with earlier cases.
+
+    Each pytest parameter owns a fresh production-ring device fixture and executes exactly one
+    native composite.  A synchronization immediately after the composite isolates fused-MoE
+    completion from the subsequent ring all-reduce; the production-boundary regression above keeps
+    the unsynchronized composite-to-CCL coverage.
+    """
+
+    tokens, hidden, expert_dim = 2048, 2048, 512
+    topk, num_global_experts, num_local_experts = 8, 256, 64
+    num_devices = 4
+    generator = torch.Generator().manual_seed(191)
+    indices, expected_counts = _minimal_t2048_hot_tail_route(route_case)
+    actual_counts = torch.bincount(indices.reshape(-1), minlength=num_global_experts)
+    assert torch.equal(actual_counts, expected_counts)
+
+    per_device_counts = expected_counts.reshape(num_devices, num_local_experts)
+    active_histogram = {
+        device: {
+            device * num_local_experts + local_expert: int(count)
+            for local_expert, count in enumerate(per_device_counts[device])
+            if count
+        }
+        for device in range(num_devices)
+    }
+    logger.info(f"top-k-native minimal 1x4 ring route={route_case}: exact histogram={active_histogram}")
+
+    (
+        _,
+        mapping_tt,
+        gate_tt,
+        up_tt,
+        down_tt,
+        gate_list,
+        up_list,
+        down_list,
+    ) = _production_ring_native_assets(
+        mesh_device,
+        generator,
+        hidden=hidden,
+        expert_dim=expert_dim,
+        num_global_experts=num_global_experts,
+        num_local_experts=num_local_experts,
+        num_devices=num_devices,
+    )
+    x_tt = _to_device(
+        mesh_device,
+        (torch.randn(tokens, hidden, generator=generator) * 0.08).reshape(1, 1, tokens, hidden),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    indices_tt = _to_device(
+        mesh_device,
+        indices.reshape(1, 1, tokens, topk).to(torch.int32),
+        dtype=ttnn.uint32,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    weights_tt = _to_device(
+        mesh_device,
+        torch.full((1, 1, tokens, topk), 1.0 / topk),
+        dtype=ttnn.float32,
+        layout=ttnn.TILE_LAYOUT,
+    )
+    # Match the production-ring discriminator above: finish all host-to-device
+    # asset uploads before measuring the native composite -> CCL boundary.
+    # Without this sync a cold standalone parameter can enter all-reduce while
+    # the per-device uploads are still skewed, which is a different hazard from
+    # the fused-FFN hot/tail route geometry this test isolates.
+    ttnn.synchronize_device(mesh_device)
+
+    logger.info(f"top-k-native minimal 1x4 ring route={route_case}: composite start")
+    partial_tt = ttnn.experimental.deepseek_prefill.topk_routed_expert_moe(
+        x_tt,
+        indices_tt,
+        weights_tt,
+        mapping_tt,
+        gate_list,
+        up_list,
+        down_list,
+        num_local_experts=num_local_experts,
+        valid_tokens=tokens,
+        max_dispatched_tokens_per_expert=tokens,
+        activation=ttnn.RoutedExpertActivation.Silu,
+    )
+    logger.info(f"top-k-native minimal 1x4 ring route={route_case}: composite returned; synchronize start")
+    ttnn.synchronize_device(mesh_device)
+    logger.info(f"top-k-native minimal 1x4 ring route={route_case}: composite synchronize finish; all-reduce start")
+    reduced_tt = ttnn.all_reduce(
+        partial_tt,
+        topology=ttnn.Topology.Ring,
+        num_links=2,
+        memory_config=partial_tt.memory_config(),
+    )
+    ttnn.deallocate(partial_tt)
+    logger.info(f"top-k-native minimal 1x4 ring route={route_case}: all-reduce returned; synchronize start")
+    ttnn.synchronize_device(mesh_device)
+    logger.info(f"top-k-native minimal 1x4 ring route={route_case}: synchronize finish")
+
+    assert tuple(reduced_tt.shape) == (1, 1, tokens, hidden)
+    assert reduced_tt.dtype == ttnn.bfloat8_b
+    assert reduced_tt.layout == ttnn.TILE_LAYOUT
+    reduced = [shard.reshape(tokens, hidden) for shard in _device_shards(reduced_tt)]
+    assert all(torch.isfinite(shard.float()).all() for shard in reduced)
+    assert int(torch.count_nonzero(reduced[0])) > 0
+    assert all(torch.equal(reduced[0], shard) for shard in reduced[1:])
+
+    for tensor in (reduced_tt, weights_tt, indices_tt, x_tt, down_tt, up_tt, gate_tt, mapping_tt):
+        ttnn.deallocate(tensor)
 
 
 def _composite_case_inputs(

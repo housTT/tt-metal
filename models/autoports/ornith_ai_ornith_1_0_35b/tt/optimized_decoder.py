@@ -503,12 +503,55 @@ def _read_bool_env(name: str) -> bool:
 MOE_TOPK_NATIVE_ENV_VAR = "ORNITH_MOE_TOPK_NATIVE"
 MOE_TOPK_NATIVE = _read_bool_env(MOE_TOPK_NATIVE_ENV_VAR)
 
-#: Largest native planner/combine span. Real flattened prefill calls are split on this boundary:
-#: B1x2048 -> two composite invocations and B4x2048 -> eight, always in token order.
+
+#: Experimental prefill-only K-tile override for paged chunked SDPA.  The selected C25 policy keeps
+#: its measured Q=K=128 default; this switch exists so long-context cache-read geometry can be A/B'd
+#: without creating a precision-policy artifact before the hardware gate passes.  Q remains owned by
+#: the selected policy because it determines query/core occupancy.  K is an independent
+#: SDPAProgramConfig field; both axes are clamped to divide a resumed chunk's start offset because
+#: chunked SDPA currently requires that workaround for paged reads.
+PREFILL_SDPA_K_CHUNK_ENV_VAR = "ORNITH_PREFILL_SDPA_K_CHUNK"
+
+
+def _parse_prefill_sdpa_k_chunk(raw: str | None) -> int | None:
+    """Parse an opt-in K tile; ``None``/empty preserves the selected policy's Q=K contract."""
+
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{PREFILL_SDPA_K_CHUNK_ENV_VAR} must be an integer multiple of 32; got {raw!r}") from exc
+    if value < TILE or value % TILE:
+        raise ValueError(f"{PREFILL_SDPA_K_CHUNK_ENV_VAR} must be an integer multiple of 32; got {raw!r}")
+    if value & (value - 1):
+        raise ValueError(f"{PREFILL_SDPA_K_CHUNK_ENV_VAR} must be a power of two; got {raw!r}")
+    return value
+
+
+PREFILL_SDPA_K_CHUNK_OVERRIDE = _parse_prefill_sdpa_k_chunk(os.environ.get(PREFILL_SDPA_K_CHUNK_ENV_VAR))
+
+#: Largest native planner/combine span. The accepted production default remains 1024; 2048 is a
+#: strict opt-in hardware candidate that halves composite launches for every full prefill block.
+MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR = "ORNITH_MOE_TOPK_NATIVE_SUB_CHUNK"
 MOE_TOPK_NATIVE_SUB_CHUNK = 1024
+MOE_TOPK_NATIVE_SUPPORTED_SUB_CHUNKS = (1024, 2048)
 
 
-def _topk_native_chunk_ranges(tokens: int, sub_chunk: int = MOE_TOPK_NATIVE_SUB_CHUNK) -> tuple[tuple[int, int], ...]:
+def _topk_native_sub_chunk() -> int:
+    """Resolve the live native span without binding an import-time default argument."""
+
+    raw = os.environ.get(MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR, "").strip()
+    if not raw:
+        return MOE_TOPK_NATIVE_SUB_CHUNK
+    accepted = {str(value): value for value in MOE_TOPK_NATIVE_SUPPORTED_SUB_CHUNKS}
+    if raw not in accepted:
+        choices = ", ".join(str(value) for value in MOE_TOPK_NATIVE_SUPPORTED_SUB_CHUNKS)
+        raise ValueError(f"{MOE_TOPK_NATIVE_SUB_CHUNK_ENV_VAR} must be one of {choices}; got {raw!r}")
+    return accepted[raw]
+
+
+def _topk_native_chunk_ranges(tokens: int, sub_chunk: int | None = None) -> tuple[tuple[int, int], ...]:
     """Exact token-order decomposition for the native primitive's bounded L1 planner.
 
     Production calls are deliberately all-native or not-native: a ragged tail would mix routing
@@ -516,6 +559,8 @@ def _topk_native_chunk_ranges(tokens: int, sub_chunk: int = MOE_TOPK_NATIVE_SUB_
     caller uses the accepted gathered fallback for the whole layer call.
     """
 
+    if sub_chunk is None:
+        sub_chunk = _topk_native_sub_chunk()
     tokens, sub_chunk = int(tokens), int(sub_chunk)
     if tokens <= 0 or sub_chunk <= 0:
         raise ValueError(f"native top-k chunking needs positive tokens/sub_chunk; got {tokens}/{sub_chunk}")
@@ -1876,6 +1921,7 @@ class OptimizedMoE:
             "fallbacks": int(self.topk_native_fallbacks),
             "layer_calls": int(self.topk_native_layer_calls),
             "subchunks": int(self.topk_native_subchunks),
+            "sub_chunk": _topk_native_sub_chunk(),
         }
 
     def _expert_mem(self, tokens: int):
@@ -2240,6 +2286,7 @@ class OptimizedMoE:
             self.topk_native_refusal = f"{MOE_TOPK_NATIVE_ENV_VAR} is not set"
             return False
         reasons = []
+        sub_chunk = _topk_native_sub_chunk()
         if self.cfg.num_experts > MOE_GATHER_MAX_LOCAL_EXPERTS:
             reasons.append(
                 f"{self.cfg.num_experts} local experts exceeds the validated native bound "
@@ -2253,8 +2300,17 @@ class OptimizedMoE:
             reasons.append(
                 f"expert output policy {self.policy.expert_act_dtype} is not BFLOAT8_B at the collective boundary"
             )
-        if int(prefill_chunk) < MOE_TOPK_NATIVE_SUB_CHUNK:
-            reasons.append(f"prefill chunk {prefill_chunk} is below native sub-chunk {MOE_TOPK_NATIVE_SUB_CHUNK}")
+        if sub_chunk % TILE:
+            reasons.append(f"native sub-chunk {sub_chunk} is not tile-aligned")
+        required_cores = sub_chunk // TILE
+        available_cores = int(self.grid.x) * int(self.grid.y)
+        if required_cores > available_cores:
+            reasons.append(
+                f"native sub-chunk {sub_chunk} needs {required_cores} combine cores but grid "
+                f"{self.grid.x}x{self.grid.y} has {available_cores}"
+            )
+        if int(prefill_chunk) < sub_chunk:
+            reasons.append(f"prefill chunk {prefill_chunk} is below native sub-chunk {sub_chunk}")
         if not self.topk_native_weights_loaded:
             reasons.append("the per-expert gate/up/down weight lists were not uploaded")
         if self.topk_native_global_to_local is None:
@@ -2276,9 +2332,10 @@ class OptimizedMoE:
             return "decode intentionally keeps sparse MoE"
         if valid_tokens is not None:
             return "tile-padded calls intentionally keep the accepted fallback"
-        if tokens < MOE_TOPK_NATIVE_SUB_CHUNK:
-            return f"{tokens} tokens is below {MOE_TOPK_NATIVE_SUB_CHUNK}"
-        if tokens % MOE_TOPK_NATIVE_SUB_CHUNK:
+        sub_chunk = _topk_native_sub_chunk()
+        if tokens < sub_chunk:
+            return f"{tokens} tokens is below {sub_chunk}"
+        if tokens % sub_chunk:
             return f"{tokens} tokens has a ragged native sub-chunk"
         if self.cfg.num_experts > MOE_GATHER_MAX_LOCAL_EXPERTS:
             return f"{self.cfg.num_experts} local experts exceeds {MOE_GATHER_MAX_LOCAL_EXPERTS}"
@@ -2291,7 +2348,7 @@ class OptimizedMoE:
         return None
 
     def _topk_native_routed_experts(self, x, topk_weights, topk_indices, tokens: int):
-        """Run the exact public native composite over <=1024-token slices in token order."""
+        """Run the exact public native composite over the selected bounded slices in token order."""
 
         parts = []
         for start, end in _topk_native_chunk_ranges(tokens):
@@ -3875,7 +3932,7 @@ class OptimizedDecoder(LightweightModule):
         return ttnn.typecast(t, cache_dtype), True
 
     def _prefill_sdpa_config(self, chunk_start_idx: int, phys_len: int):
-        """Chunked-SDPA tiling. ``q_chunk`` must divide ``chunk_start_idx`` when it is non-zero.
+        """Chunked-SDPA tiling. Q and K chunks divide non-zero ``chunk_start_idx`` values.
 
         The cap is `PREFILL_SDPA_CHUNK`, measured rather than inherited. This config was the one knob the stage
         shipped unswept - README §9 item 7 disclosed it as a real gap and review round 14 called that deferred
@@ -3893,18 +3950,28 @@ class OptimizedDecoder(LightweightModule):
         question now answer it the same way.
         """
         cache_dtype = self.k_cache.dtype if self.k_cache is not None else self.policy.kv_cache_dtype
-        qk = self.policy.prefill_sdpa_chunk
-        if qk is None:
-            qk = PREFILL_SDPA_CHUNK.get(self.policy.base_name, PREFILL_SDPA_CHUNK_DEFAULT)
+        q_chunk = self.policy.prefill_sdpa_chunk
+        if q_chunk is None:
+            q_chunk = PREFILL_SDPA_CHUNK.get(self.policy.base_name, PREFILL_SDPA_CHUNK_DEFAULT)
+        k_chunk = PREFILL_SDPA_K_CHUNK_OVERRIDE
+        if k_chunk is None:
+            k_chunk = q_chunk
         if DTYPE_BYTES.get(cache_dtype, 4.0) > DTYPE_BYTES[ttnn.bfloat8_b]:
-            qk = min(qk, PREFILL_SDPA_CHUNK_WIDE_CACHE)
+            q_chunk = min(q_chunk, PREFILL_SDPA_CHUNK_WIDE_CACHE)
+            k_chunk = min(k_chunk, PREFILL_SDPA_CHUNK_WIDE_CACHE)
         if chunk_start_idx:
-            qk = min(qk, chunk_start_idx & -chunk_start_idx)
-        qk = min(qk, phys_len)
+            start_alignment = chunk_start_idx & -chunk_start_idx
+            q_chunk = min(q_chunk, start_alignment)
+            k_chunk = min(k_chunk, start_alignment)
+        q_chunk = min(q_chunk, phys_len)
+        # A short physical tail should not allocate a larger K tile than it contains.  Long resumed
+        # chunks still read the complete paged prefix; the K tile only changes how that prefix is
+        # traversed inside SDPA.
+        k_chunk = min(k_chunk, phys_len)
         return ttnn.SDPAProgramConfig(
             compute_with_storage_grid_size=self.device.compute_with_storage_grid_size(),
-            q_chunk_size=qk,
-            k_chunk_size=qk,
+            q_chunk_size=q_chunk,
+            k_chunk_size=k_chunk,
             exp_approx_mode=False,
         )
 

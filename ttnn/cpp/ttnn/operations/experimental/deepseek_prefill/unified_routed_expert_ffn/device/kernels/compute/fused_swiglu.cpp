@@ -39,11 +39,10 @@
 //                                     up) via two matmul subblocks per pass.
 //   multiply_phase         (~L346) — elementwise silu(gate) * up, producing
 //                                     the activated CB.
-//   kernel_main            (~L384) — chunk loop: read counts/idx from scratch
-//                                     CBs, decide effective_chunks via the
-//                                     UNPACK→{MATH,PACK} mailbox handshake,
-//                                     then per-chunk dispatch the fused-GU
-//                                     phase, multiply phase, and down phase.
+//   kernel_main            (~L384) — scan counts/idx once for one shared runtime
+//                                     geometry, then read each expert count via
+//                                     the UNPACK→{MATH,PACK} mailbox handshake
+//                                     and dispatch fused-GU, multiply, and down.
 //
 // Thread-private symbols `mailbox_write`/`mailbox_read` live in the
 // `ckernel` namespace (one mailbox slot per (sender, receiver) thread
@@ -767,16 +766,14 @@ void kernel_main() {
     constexpr uint32_t d_out_subblock_w = get_compile_time_arg_val(28);
     constexpr uint32_t d_out_subblock_num_tiles = d_out_subblock_h * d_out_subblock_w;
     constexpr uint32_t d_out_block_num_tiles = get_compile_time_arg_val(29);
-    // Multi-chunk: the number of chunks is chosen at RUNTIME from the device
-    // token count (see the picker below). num_chunks_max is the compile-time
-    // upper bound (host = ceil(M_tiles_full / min_chunk)) used only to clamp the
-    // runtime chunk count defensively. chunk_M_max is the CB-sized maximum
-    // chunk (per_core_M_max * GRID_Y); the picker never returns more than this.
+    // Multi-chunk: the number of chunks is chosen at runtime from each device
+    // token count and one launch-wide geometry (see the picker below).
+    // num_chunks_max is the compile-time upper bound used only to clamp the
+    // runtime chunk count defensively. chunk_M_max is the CB-sized maximum.
     constexpr uint32_t num_chunks_max = get_compile_time_arg_val(30);
     constexpr uint32_t local_expert_id = get_compile_time_arg_val(31);
-    // chunk_M_max is the CB-sized MAXIMUM chunk (per_core_M_max * GRID_Y). The
-    // runtime picker (adaptive_chunk::num_chunks) sizes the actual chunk to the
-    // device token count and never exceeds this.
+    // chunk_M_max is the CB-sized maximum chunk (per_core_M_max * GRID_Y). The
+    // launch-wide runtime geometry never exceeds this.
     constexpr uint32_t chunk_M_max = get_compile_time_arg_val(32);
     // x_is_row_major: tilize cb_x_rm -> cb_in0_x before the gate/up matmul.
     // 0 => x already TILE in cb_in0_x.
@@ -851,6 +848,33 @@ void kernel_main() {
 
     compute_kernel_hw_startup<SrcOrder::Reverse>(cb_in0_x, cb_in1_gate, cb_partials_gu);
 
+    // Derive one per-device geometry from the hottest local expert. Variable
+    // per-expert block sizes are not safe in these shared circular buffers: a
+    // small block can leave the FIFO pointer off-base before a later full-ring
+    // request. UNPACK owns the scratch-CB reads and broadcasts the maximum to
+    // MATH and PACK, exactly like the per-expert count mailbox below.
+    uint32_t max_count_tiles = 0;
+    UNPACK(({
+        const uint32_t counts_l1_addr = get_local_cb_interface(cb_counts_scratch).fifo_rd_ptr << 4;
+        const uint32_t idx_l1_addr = get_local_cb_interface(cb_idx_scratch).fifo_rd_ptr << 4;
+        const volatile tt_l1_ptr uint32_t* counts_ptr =
+            reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(counts_l1_addr);
+        const volatile tt_l1_ptr uint32_t* idx_ptr = reinterpret_cast<const volatile tt_l1_ptr uint32_t*>(idx_l1_addr);
+        for (uint32_t expert_offset = 0; expert_offset < num_local_experts; ++expert_offset) {
+            const uint32_t global_expert_id = idx_ptr[local_expert_id + expert_offset];
+            const uint32_t count_value = counts_ptr[global_expert_id];
+            const uint32_t count_tiles = (count_value + 31) / 32;
+            max_count_tiles = count_tiles > max_count_tiles ? count_tiles : max_count_tiles;
+        }
+        ckernel::mailbox_write(ckernel::ThreadId::MathThreadId, max_count_tiles);
+        ckernel::mailbox_write(ckernel::ThreadId::PackThreadId, max_count_tiles);
+    }));
+    MATH(max_count_tiles = ckernel::mailbox_read(ckernel::ThreadId::UnpackThreadId);)
+    PACK(max_count_tiles = ckernel::mailbox_read(ckernel::ThreadId::UnpackThreadId);)
+    const auto runtime_geometry = adaptive_chunk::shared_runtime_geometry(max_count_tiles, chunk_M_max);
+    const uint32_t runtime_per_core_M = runtime_geometry.per_core_M;
+    const uint32_t runtime_chunk_M = runtime_geometry.chunk_M_tiles;
+
     for (uint32_t expert_offset = 0; expert_offset < num_local_experts; ++expert_offset) {
         const uint32_t this_local_expert_id = local_expert_id + expert_offset;
         uint32_t count_value = 0;
@@ -869,18 +893,19 @@ void kernel_main() {
         MATH(count_value = ckernel::mailbox_read(ckernel::ThreadId::UnpackThreadId);)
         PACK(count_value = ckernel::mailbox_read(ckernel::ThreadId::UnpackThreadId);)
         const uint32_t count_tiles = (count_value + 31) / 32;
-        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, chunk_M_max);
+        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, runtime_chunk_M);
         const uint32_t effective_chunks =
             effective_chunks_runtime < num_chunks_max ? effective_chunks_runtime : num_chunks_max;
 
         for (uint32_t chunk = 0; chunk < effective_chunks; ++chunk) {
-            // Per-chunk per_core_M (per_core_M_max for full chunks, a smaller divisor
-            // for the tail). The gate/up + multiply phases do per_core_M rows of real
-            // work; the down matmul keeps its full compile-time ring and MAC-skips
-            // rows >= per_core_M (see matmul_phase). re_eff_out_gu = per_core_M *
+            // One launch-wide per_core_M keeps every variable-sized CB request on
+            // the same divisor-aligned cadence. The gate/up + multiply phases do
+            // that many rows; row/count guards drop phantom tail rows. The down
+            // matmul keeps its full compile-time ring and MAC-skips rows >=
+            // per_core_M (see matmul_phase). re_eff_out_gu = per_core_M *
             // per_core_N_gu (g_in1_num_subblocks * gu_out_subblock_num_tiles ==
             // per_core_N_gu since gu_out_subblock_h == 1).
-            const uint32_t re_m_valid = adaptive_chunk::per_core_M_for_chunk(chunk, count_tiles, chunk_M_max);
+            const uint32_t re_m_valid = runtime_per_core_M;
             const uint32_t re_eff_out_gu = re_m_valid * g_in1_num_subblocks * gu_out_subblock_num_tiles;
             //
             // matmul_block_init only re-programs addressing, not SrcA/SrcB formats. On

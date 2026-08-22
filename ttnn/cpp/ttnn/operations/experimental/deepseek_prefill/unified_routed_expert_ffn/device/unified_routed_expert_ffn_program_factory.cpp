@@ -114,11 +114,10 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
     // kernel picker (adaptive_chunk.hpp) already shrinks per_core_M for small
     // token counts, so no host-side small-M grid tuning is needed.
     //
-    // chunk_M_tiles here is the CB-sized MAXIMUM chunk (op.chunk_M_tiles, default
-    // 64 => per_core_M_max 8). All three kernels pick the ACTUAL chunk_M /
-    // per_core_M / num_chunks at runtime from the device token count, never
-    // exceeding this max; the CBs below are sized to the max so a smaller pick
-    // simply uses fewer of the reserved tiles.
+    // chunk_M_tiles here is the CB-sized maximum chunk (op.chunk_M_tiles, default
+    // 64 => per_core_M_max 8). All three kernels independently scan the same
+    // local counts and pick one shared runtime chunk_M/per_core_M for the whole
+    // launch, never exceeding this max. The CBs below stay sized to the max.
     uint32_t GRID_X = kMaxGridX;
     uint32_t GRID_Y = MAX_GRID_Y;
     uint32_t chunk_M_tiles = op.chunk_M_tiles;
@@ -365,14 +364,12 @@ UnifiedRoutedExpertFfnProgramFactory::cached_program_t UnifiedRoutedExpertFfnPro
         K_gate_tiles,
         in0_block_w_gu);
 
-    // num_chunks is the compile-time UPPER BOUND on the runtime chunk count used
-    // only to clamp the kernels' loop defensively. The runtime picker may choose
-    // a chunk as small as min(16, chunk_M_tiles) (per_core_M 2), so the worst
-    // case is ceil(M_tiles_full / that min). Matches adaptive_chunk.hpp's
-    // kMinChunkMTiles = 16.
-    constexpr uint32_t kMinChunkMTiles = 16;
-    const uint32_t min_chunk = (chunk_M_tiles < kMinChunkMTiles) ? chunk_M_tiles : kMinChunkMTiles;
-    const uint32_t num_chunks = (M_tiles_full + min_chunk - 1) / min_chunk;
+    // num_chunks is the compile-time upper bound used only to clamp the device
+    // loops defensively. If the hottest local count reaches chunk_M_tiles, the
+    // shared runtime geometry uses this maximum chunk. Otherwise every local
+    // expert fits in one smaller shared chunk. Therefore ceil(M/max_chunk) is a
+    // sufficient bound under the validated per-expert M capacity.
+    const uint32_t num_chunks = (M_tiles_full + chunk_M_tiles - 1) / chunk_M_tiles;
 
     // Phase-level numbers.
     const uint32_t gu_in0_num_subblocks = per_core_M / gu_out_subblock_h;

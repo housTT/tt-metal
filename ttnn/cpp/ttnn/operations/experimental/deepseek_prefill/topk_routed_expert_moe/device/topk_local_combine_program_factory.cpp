@@ -87,6 +87,14 @@ TopkLocalCombineProgramFactory::cached_program_t TopkLocalCombineProgramFactory:
     auto* device = tensors.packed_y.device();
     const auto grid = device->compute_with_storage_grid_size();
     const uint32_t num_chunks = op.tokens / TOKENS_PER_CHUNK;
+    const uint32_t available_cores = grid.x * grid.y;
+    TT_FATAL(
+        num_chunks <= available_cores,
+        "top-k combine needs one core per {}-token chunk ({} cores for {} tokens), but the device grid has {}",
+        TOKENS_PER_CHUNK,
+        num_chunks,
+        op.tokens,
+        available_cores);
     const CoreRangeSet all_cores = tt::tt_metal::num_cores_to_corerangeset(num_chunks, grid, true);
     auto cores = tt::tt_metal::corerange_to_cores(all_cores, num_chunks, true);
     TT_FATAL(cores.size() == num_chunks, "fused top-k combine needs one core per 32-token chunk");

@@ -98,8 +98,9 @@ void kernel_main() {
 
     constexpr uint32_t local_expert_id = get_compile_time_arg_val(7);
     // per_core_M_max: the CB-sized maximum per-core M (= chunk_M_max / GRID_Y).
-    // The RUNTIME per_core_M is picked from the device token count below and is
-    // <= this. CBs are allocated to the max; a smaller runtime pick uses fewer.
+    // One launch-wide runtime per_core_M is picked from the maximum local count
+    // below and is <= this. CBs are allocated to the max; a smaller launch uses
+    // fewer tiles with one fixed block cadence across all active experts.
     constexpr uint32_t per_core_M_max = get_compile_time_arg_val(8);
     constexpr uint32_t per_core_N_gu = get_compile_time_arg_val(9);
     constexpr uint32_t per_core_N_d = get_compile_time_arg_val(10);
@@ -111,8 +112,8 @@ void kernel_main() {
     constexpr uint32_t N_down_tiles_full = get_compile_time_arg_val(16);
     constexpr uint32_t M_tiles_full = get_compile_time_arg_val(17);
     // num_chunks_max: compile-time upper bound on the runtime chunk count (clamp).
-    // chunk_M_max: CB-sized maximum chunk (per_core_M_max * GRID_Y); the runtime
-    // picker never exceeds it.
+    // chunk_M_max: CB-sized maximum chunk (per_core_M_max * GRID_Y); the shared
+    // launch geometry never exceeds it.
     constexpr uint32_t num_chunks_max = get_compile_time_arg_val(18);
     constexpr uint32_t chunk_M_max = get_compile_time_arg_val(19);
     constexpr uint32_t cb_activated = get_compile_time_arg_val(20);
@@ -298,6 +299,21 @@ void kernel_main() {
     const volatile tt_l1_ptr uint32_t* counts_ptr = reinterpret_cast<volatile tt_l1_ptr uint32_t*>(counts_l1);
     const volatile tt_l1_ptr uint32_t* idx_ptr = reinterpret_cast<volatile tt_l1_ptr uint32_t*>(idx_l1);
 
+    // All variable-sized CB blocks in this fused program must use one cadence
+    // for the whole launch. Scan the local range once and derive that cadence
+    // from its hottest expert. Using per-expert/tail sizes would let a small
+    // block leave a FIFO pointer off-base before a later full-sized block.
+    uint32_t max_count_tiles = 0;
+    for (uint32_t expert_offset = 0; expert_offset < num_local_experts; ++expert_offset) {
+        const uint32_t global_expert_id = idx_ptr[local_expert_id + expert_offset];
+        const uint32_t count_value = counts_ptr[global_expert_id];
+        const uint32_t count_tiles = (count_value + TILE_HEIGHT - 1) / TILE_HEIGHT;
+        max_count_tiles = count_tiles > max_count_tiles ? count_tiles : max_count_tiles;
+    }
+    const auto runtime_geometry = adaptive_chunk::shared_runtime_geometry(max_count_tiles, chunk_M_max);
+    const uint32_t runtime_per_core_M = runtime_geometry.per_core_M;
+    const uint32_t runtime_chunk_M = runtime_geometry.chunk_M_tiles;
+
     // Fetch the shared region-offset vector once. The fused loop below indexes
     // it once per local expert rather than re-reading the page E times.
     const volatile tt_l1_ptr uint32_t* start_ptr = nullptr;
@@ -343,7 +359,7 @@ void kernel_main() {
         const uint32_t count_value = counts_ptr[global_expert_id];
         // count_value is in TOKEN rows. Convert to tile rows (ceil) then to chunks.
         const uint32_t count_tiles = (count_value + 31) / 32;
-        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, chunk_M_max);
+        const uint32_t effective_chunks_runtime = adaptive_chunk::num_chunks(count_tiles, runtime_chunk_M);
         const uint32_t effective_chunks =
             effective_chunks_runtime < num_chunks_max ? effective_chunks_runtime : num_chunks_max;
 
@@ -420,18 +436,15 @@ void kernel_main() {
         }
 #endif
 
-        // Bound the chunk loop by effective_chunks (= ceil_div(count, chunk_M_tiles))
+        // Bound the chunk loop by effective_chunks (= ceil_div(count, runtime_chunk_M))
         // so this expert only does work proportional to its actual token count,
-        // not the max-tokens-padded shape of the input. chunk_M_tiles / per_core_M
-        // were picked from the count above; the row mapping is contiguous (core gy
-        // owns rows [chunk*chunk_M + gy*per_core_M, + per_core_M)).
+        // not the max-tokens-padded shape of the input. The launch-wide geometry
+        // keeps the CB cadence fixed; the row mapping is contiguous (core gy owns
+        // rows [chunk*runtime_chunk_M + gy*runtime_per_core_M, +per_core_M)).
         for (uint32_t chunk = 0; chunk < effective_chunks; ++chunk) {
-            // Per-chunk per_core_M: per_core_M_max for full chunks, a smaller divisor
-            // for the tail. Chunk starts are UNIFORM at chunk*chunk_M_max (full chunks
-            // are max_chunk; the tail is last, so its start is num_full*max_chunk too).
-            const uint32_t per_core_M = adaptive_chunk::per_core_M_for_chunk(chunk, count_tiles, chunk_M_max);
+            const uint32_t per_core_M = runtime_per_core_M;
             const uint32_t g_in0_block_num_tiles = per_core_M * in0_block_w_gu;
-            const uint32_t this_core_first_row = chunk * chunk_M_max + my_mt * per_core_M;
+            const uint32_t this_core_first_row = chunk * runtime_chunk_M + my_mt * per_core_M;
 
             // -------- PHASES 1+2 fused — push x ONCE per K-block, then gate then up.
             //

@@ -185,6 +185,7 @@ def _topk_native_moe_prefill_capability(model) -> dict:
                 "fallbacks": 0,
                 "layer_calls": 0,
                 "subchunks": 0,
+                "sub_chunk": _optimized._topk_native_sub_chunk(),
             }
         rows.append(
             {
@@ -198,6 +199,7 @@ def _topk_native_moe_prefill_capability(model) -> dict:
                 "fallbacks": int(raw.get("fallbacks", 0)),
                 "layer_calls": int(raw.get("layer_calls", 0)),
                 "subchunks": int(raw.get("subchunks", 0)),
+                "sub_chunk": int(raw.get("sub_chunk", _optimized._topk_native_sub_chunk())),
             }
         )
 
@@ -223,6 +225,9 @@ def _topk_native_moe_prefill_capability(model) -> dict:
         "fallbacks": sum(row["fallbacks"] for row in rows),
         "layer_calls": sum(row["layer_calls"] for row in rows),
         "subchunks": sum(row["subchunks"] for row in rows),
+        "sub_chunk": rows[0]["sub_chunk"]
+        if rows and all(row["sub_chunk"] == rows[0]["sub_chunk"] for row in rows)
+        else None,
         "selected_layers": selected_layers,
         "weights_loaded_layers": weights_loaded_layers,
         "enabled_layers": enabled_layers,
@@ -683,14 +688,15 @@ class TTQwen3_5MoeForConditionalGeneration:
         started = time.perf_counter()
         entries = self.mesh_device.num_program_cache_entries()
         grouped_batches = [batch for batch in self.model.DEVICE_PREFILL_BATCHES if batch <= self.max_batch_size]
+        grouped_lengths = {lengths[0], lengths[-1]}
         for length in lengths:
-            # Preserve the established B1 coverage of every physical tail. Grouped serving is
-            # compiled at the largest configured shape (2048 in production); any later B2/B4 tail
-            # remains supported, and the generator's program-cache guard safely recaptures decode
-            # before replay if that new shape compiles a program. Compiling every tail at all three
-            # batches would triple an already substantial server start-up with no batch-8 sweep
-            # benefit.
-            physical_batches = [1, *grouped_batches] if length == lengths[0] else [1]
+            # Preserve B1 coverage of every physical tail. Grouped serving compiles both the largest
+            # block and the shortest configured tail (2048 and 128 in production): the former covers
+            # steady long-prefill chunks, while the latter is the exact 128-token latency-sweep shape.
+            # Warming only the largest shape left B2/B4 x 128 to compile after decode trace capture,
+            # forcing a re-capture inside the first short request. Compiling every intermediate tail
+            # at every batch would still triple an already substantial server start-up.
+            physical_batches = [1, *grouped_batches] if length in grouped_lengths else [1]
             for batch in physical_batches:
                 tokens = torch.ones(batch, length, dtype=torch.int32)
                 before = self.mesh_device.num_program_cache_entries()
@@ -796,6 +802,21 @@ class TTQwen3_5MoeForConditionalGeneration:
                 _, greedy = _warmup_sampling_variants()[0]
                 gen.sampling.apply_decode_state([greedy], reset_batch=True)
                 gen.invalidate_sampling_params_cache()
+            if self.max_batch_size > 1:
+                # vLLM condenses a partially occupied batch by permuting recurrent-state rows. The
+                # slice/merge programs behind that remap used to compile only when the first request
+                # completed out of order, after the decode traces were live, and therefore forced an
+                # in-request trace re-capture. Rotate every row and immediately apply the inverse so
+                # all row shapes compile before capture while the warmed state is restored exactly.
+                rotation = torch.roll(torch.arange(self.max_batch_size, dtype=torch.int32), shifts=-1)
+                inverse = torch.argsort(rotation).to(torch.int32)
+                before = self.mesh_device.num_program_cache_entries()
+                gen.remap_serving_slots(rotation)
+                gen.remap_serving_slots(inverse)
+                logger.info(
+                    "warm-up: compiled recurrent-state slot remap and inverse "
+                    f"({self.mesh_device.num_program_cache_entries() - before} program(s))"
+                )
             gen.reset()
             self.model.reset_state()
             self._reset_serving_state()

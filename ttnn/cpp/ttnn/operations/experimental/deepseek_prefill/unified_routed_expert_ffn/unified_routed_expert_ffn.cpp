@@ -36,15 +36,14 @@ ttnn::Tensor unified_routed_expert_ffn(
     const std::optional<ttnn::Tensor>& down_bias) {
     // Single-op fused per-expert FFN. One device Program runs gate matmul,
     // up matmul, silu, multiply, down matmul as four phases inside the same
-    // kernel. The kernel reads counts[global_expert_idx_table[local_expert_id]]
-    // device-side at entry and, from that runtime count, PICKS chunk_M_tiles /
-    // per_core_M / num_chunks itself (adaptive_chunk.hpp) — sizing the per-core
-    // work to the actual token count with no expected-token argument. chunks
-    // past the count are skipped entirely (no matmul, no mcast).
+    // kernel. The kernels read the local count range device-side at entry and
+    // pick one shared runtime chunk_M_tiles/per_core_M from its hottest expert
+    // (adaptive_chunk.hpp). Per-expert chunk counts still come from the actual
+    // counts; zero-count experts are skipped entirely.
     //
     // The host only sets the CB-sized MAXIMUM chunk (kMaxChunkMTiles => per_core_M
     // 8). The program factory's L1 guard may lower it for large models; the
-    // device picker never exceeds whatever max the CBs were sized to.
+    // shared device geometry never exceeds whatever max the CBs were sized to.
     constexpr uint32_t kMaxChunkMTiles = 64;  // per_core_M_max = 8 (L1 cap)
     // This expert's M in tiles. Defaults to x's allocated M; a caller passing a
     // shared x buffer (wider than one region) supplies the per-expert value.

@@ -1093,6 +1093,32 @@ def test_every_shipped_policy_prefills_at_the_shipped_chunk(mesh_device, layer_i
         f"policy {policy_name} prefilled {DEFAULT_PREFILL_CHUNK} tokens on layer={layer_idx} "
         f"({LAYER_IDS[layer_idx]}): finite, non-degenerate"
     )
+
+
+def test_prefill_sdpa_k_chunk_can_be_swept_independently(mesh_device, monkeypatch):
+    """The long-context cache-read candidate changes K tiling without moving C25's Q geometry."""
+
+    from models.autoports.ornith_ai_ornith_1_0_35b.tt.precision_config import load_selected_policy
+
+    source = default_weight_source()
+    decoder, page_table, _ = build_decoder(mesh_device, FULL_LAYER, source, policy=load_selected_policy())
+    baseline = decoder._prefill_sdpa_config(0, DEFAULT_PREFILL_CHUNK)
+    assert baseline.q_chunk_size == baseline.k_chunk_size == 128, "the experiment is specific to selected C25"
+    monkeypatch.setattr(OD, "PREFILL_SDPA_K_CHUNK_OVERRIDE", 256)
+    candidate = decoder._prefill_sdpa_config(0, DEFAULT_PREFILL_CHUNK)
+    resumed = decoder._prefill_sdpa_config(128, DEFAULT_PREFILL_CHUNK)
+
+    assert candidate.q_chunk_size == baseline.q_chunk_size
+    assert candidate.k_chunk_size == 256
+    assert resumed.q_chunk_size <= 128 and 128 % resumed.q_chunk_size == 0
+    assert resumed.k_chunk_size <= 128 and 128 % resumed.k_chunk_size == 0
+
+    out = decoder.prefill_forward(
+        to_device(mesh_device, make_activations(1, DEFAULT_PREFILL_CHUNK, seed=139)), page_table=page_table
+    )
+    values = ttnn.to_torch(out)
+    ttnn.deallocate(out)
+    assert torch.isfinite(values).all()
     del decoder
 
 
