@@ -678,9 +678,15 @@ in the full model as in the layer.
 | trace capture | happens inside `prefill_forward` (and `generate`, after its reset), before any prompt state exists, because capture warm-compiles a real decode step and then wipes the state — §5.3. Liveness is tracked on the **model** (`OrnithModel.state_is_live`), so it covers every write path including `prefill_forward_single`, which `generate` uses; a capture attempted with live state raises | `test_low_level_prefill_then_decode_sees_the_prompt`, `test_the_eager_debug_path_does_not_poison_the_traced_one` |
 | eager decode via `generate(enable_trace=False)` | writes state without capturing, and does not poison the traced path: the next `generate()` resets before it captures, and the two agree token for token | `test_the_eager_debug_path_does_not_poison_the_traced_one` |
 | `sample_on_device` in host mode | refused with a `ValueError`; the host compatibility mode builds no sampler graph, so there is nothing to replay | `test_host_sampling_mode_refuses_device_sampling` |
-| chunked prefill continuation | `prefill_forward(..., continue_from_state=True)` carries the DeltaNet state across calls at batch 1 and **raises** above it rather than resuming from another slot's state. Each continuation's `start_pos` must be a multiple of the 2048-token prefill chunk — the decoder layer's own `start_pos % chunk_size == 0` requirement, raised as a `ValueError` rather than silently mis-positioned | `test_chunked_prefill_continuation_matches_a_single_call` |
+| chunked prefill continuation | `prefill_forward(..., continue_from_state=True)` carries DeltaNet state across calls one request at a time. The serving adapter supplies its explicit persistent slot and keeps the untouched batch-1 pack authoritative while decode is interleaved, because inactive fixed-batch decode rows still execute DeltaNet. Several simultaneous continuations are refused: one shared pack cannot preserve several paused requests. Each continuation's `start_pos` must be a multiple of the 2048-token prefill chunk — the decoder layer's own requirement, raised as a `ValueError` rather than silently mis-positioned | `test_chunked_prefill_continuation_matches_a_single_call`, `test_chunked_prefill_restores_its_slot_after_another_request_overwrites_the_shared_pack` |
 | page-table validation | rows are checked against the decode batch **and** blocks-per-user against the highest position the call addresses; a short row would make the paged SDPA kernel read past the row's end | `test_a_page_table_too_narrow_for_the_position_is_rejected` |
 | high-level `generate()` at `max_batch_size > 1` | prefills **slot 0 only** — one page-table row, one merged state — then broadcasts the position (and, in teacher forcing, the token) to every row and returns slot 0. Slots 1..B-1 decode from a zeroed state and their tokens are discarded; `batch_slots.json` measures that they do not affect slot 0. It **merges the prefill state into slot 0 first** (`prefill_request_into_slot`) — prefill runs on the batch-1 state pack and the decode trace is bound to the batch-B pack, so without the merge the recurrent layers would decode from a zeroed state. It is a single-request convenience; the **batched** surface is the low-level `prefill_forward`/`decode_forward` pair, which takes per-row prompts, positions and inactive rows | `test_batch_four_generate_agrees_with_batch_one`, `test_the_batched_prefill_state_reaches_every_decode_slot`, `test_batched_prefill_and_decode_with_mixed_prompt_lengths` |
+
+The serving scheduler's prefill/decode chunk interleave is a **DP1 contract**. This adapter rejects
+`tt_data_parallel != 1` during construction; gathered-DP and in-process lane coordinators choose one
+forced mode for all ranks/lanes and do not yet consume an individual scheduler's decode-after-chunk
+debt. Supporting those modes would also require a global one-partial-prefill limit so the model's one
+authoritative batch-1 snapshot cannot be claimed by two ranks or lanes.
 
 `sampling_mode="host"` is the explicit host-sampling compatibility mode the goal asks for: it reads
 the full logits and argmaxes on host. `test_host_sampling_compatibility_mode_agrees_with_device_sampling`
@@ -762,9 +768,10 @@ to stderr as well as to its own file, and there are none in either.
    `prefill_forward` maps row `u` of `tokens` to page-table row `u` and merges that user's DeltaNet
    state into decode slot `u`, so a scheduler that wants to prefill *only* slot 2 has to pass three
    rows. Fixed slots, mixed lengths and inactive rows all work (§3), and the paged KV half is
-   already per-row through the page table; what is missing is a `slot`/`request_id` argument and the
-   slot → prefill-pack restore that `continue_from_state` would need above batch 1. It belongs with
-   the serving adapter, and the vLLM stage will want it on day one.
+   already per-row through the page table. The serving adapter now exposes the assigned slot and the
+   model restores slot → prefill-pack when a continuation no longer owns the shared pack. The generic
+   batched API still refuses several simultaneous continuations: inactive decode rows advance, so
+   safely pausing several requests would require one authoritative snapshot per request.
 10. **Greedy trajectories at batch 4 and batch 1 separate after the first decoded token.**
    The prompt token and the first decoded token are identical; from the third token the two runs
    pick different near-ties. `logs/probe_batch_slots.py` →
