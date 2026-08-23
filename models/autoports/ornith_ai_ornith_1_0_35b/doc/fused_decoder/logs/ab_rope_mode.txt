@@ -1,6 +1,0 @@
-# Partial-RoPE lowering: 'partial' = slice + rotary_embedding_hf + slice + concat (4 ops, 64-wide
-# table); 'full' = head-dim permutation + one full-width rotate-half (1 op, 256-wide table).
-BENCH impl=fused moe_group_tokens=default rope_mode=partial layer=3 (full_attention) prefill seq_len=2048 wall=243.65 ms tok/s=8405.4
-BENCH impl=fused moe_group_tokens=default rope_mode=partial layer=3 (full_attention) decode(traced) iters=32 wall/iter=1.832 ms steps/s=545.9 finite=True
-BENCH impl=fused moe_group_tokens=default rope_mode=full layer=3 (full_attention) prefill seq_len=2048 wall=243.44 ms tok/s=8412.6
-BENCH impl=fused moe_group_tokens=default rope_mode=full layer=3 (full_attention) decode(traced) iters=32 wall/iter=1.856 ms steps/s=538.7 finite=True

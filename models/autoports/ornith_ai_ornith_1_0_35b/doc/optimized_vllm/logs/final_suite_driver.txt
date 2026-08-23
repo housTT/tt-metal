@@ -1,8 +1,0 @@
-+ timeout 5400 python -m models.common.readiness_check.run_vllm_server --stages sampling --model-dir models/autoports/ornith_ai_ornith_1_0_35b --hf-model ornith-ai/Ornith-1.0-35B --max-num-seqs 1 --sampling-profile full --server-url http://localhost:8100
-+ echo SAMPLING_EXIT=1
-+ timeout 2400 python -m models.common.readiness_check.run_vllm_server --stages qualitative --model-dir models/autoports/ornith_ai_ornith_1_0_35b --hf-model ornith-ai/Ornith-1.0-35B --max-num-seqs 1 --server-url http://localhost:8100
-+ timeout 1800 python -m models.common.readiness_check.run_vllm_server --stages benchmark --model-dir models/autoports/ornith_ai_ornith_1_0_35b --hf-model ornith-ai/Ornith-1.0-35B --max-num-seqs 1 --no-benchmark-ci-serving --server-url http://localhost:8100
-+ cp models/autoports/ornith_ai_ornith_1_0_35b/readiness_vllm/vllm_benchmark.json models/autoports/ornith_ai_ornith_1_0_35b/doc/optimized_vllm/after/vllm_benchmark_final_cold.json
-+ cp models/autoports/ornith_ai_ornith_1_0_35b/readiness_vllm/vllm_result.json models/autoports/ornith_ai_ornith_1_0_35b/doc/optimized_vllm/after/vllm_result_final_cold.json
-+ timeout 1800 python -m models.common.readiness_check.run_vllm_server --stages benchmark --model-dir models/autoports/ornith_ai_ornith_1_0_35b --hf-model ornith-ai/Ornith-1.0-35B --max-num-seqs 1 --no-benchmark-ci-serving --server-url http://localhost:8100
-+ echo FINAL_SUITE_DONE
