@@ -68,6 +68,11 @@ def test_full_model_static_contracts():
     snapshot_source = inspect.getsource(Generator._snapshot_linear_state)
     assert snapshot_source.count("ttnn.clone(item[0]") == 1
     assert snapshot_source.count("ttnn.clone(item[1]") == 1
+    state_write_source = inspect.getsource(QwenFullModel._write_linear_state_slots)
+    assert "_splice_device_slots" in state_write_source
+    prefill_source = inspect.getsource(QwenFullModel.prefill)
+    assert "ttnn.indexed_fill" not in prefill_source
+    assert "_splice_device_slots" in prefill_source
 
     # A physical four-device P300c ring must not be treated like a logical
     # submesh sliced from a larger Galaxy topology.
@@ -85,6 +90,51 @@ def test_full_model_static_contracts():
     assert sampler._get_sampling_all_gather_config(None, 1) == (1, ttnn.Topology.Ring)
     sampler.allow_small_ring_sampling = False
     assert sampler._get_sampling_all_gather_config(None, 1) == (1, ttnn.Topology.Linear)
+
+
+def test_vllm_output_history_mirror_preserves_penalty_state() -> None:
+    output_tokens = torch.tensor(
+        [[11, 12, -1, -1], [21, -1, -1, -1], [-1, -1, -1, -1]],
+        dtype=torch.long,
+    )
+    assert Generator._history_rows_from_vllm(output_tokens, 3) == [[11, 12], [21], []]
+    assert Generator._history_rows_from_vllm(None, 2) == [[], []]
+
+
+def test_device_slot_splice_algorithm_preserves_identity(monkeypatch) -> None:
+    class FakeTensor:
+        def __init__(self, value):
+            self.value = value.clone()
+            self.shape = self.value.shape
+
+    def fake_slice(tensor, starts, ends):
+        slices = tuple(slice(begin, end) for begin, end in zip(starts, ends))
+        return FakeTensor(tensor.value[slices])
+
+    def fake_concat(tensors, dim):
+        return FakeTensor(torch.cat([tensor.value for tensor in tensors], dim=dim))
+
+    def fake_copy(source, destination):
+        destination.value.copy_(source.value)
+        return destination
+
+    monkeypatch.setattr(ttnn, "slice", fake_slice)
+    monkeypatch.setattr(ttnn, "concat", fake_concat)
+    monkeypatch.setattr(ttnn, "copy", fake_copy)
+
+    destination = FakeTensor(torch.arange(32).reshape(32, 1, 1, 1))
+    identity = id(destination)
+    source = FakeTensor(torch.tensor([700, 100, 2900]).reshape(3, 1, 1, 1))
+    result = QwenFullModel._splice_device_slots(
+        destination, source, (7, 1, 29), dim=0
+    )
+
+    assert id(result) == identity
+    assert destination.value[1].item() == 100
+    assert destination.value[7].item() == 700
+    assert destination.value[29].item() == 2900
+    assert destination.value[0].item() == 0
+    assert destination.value[31].item() == 31
 
 
 def test_small_ring_full_logits_gather_uses_proven_async_protocol(monkeypatch):

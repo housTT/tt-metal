@@ -158,9 +158,19 @@ _FATAL_LOG_PATTERNS = (
 _MESH_SHAPES: dict[str, tuple[int, int]] = {
     "N150": (1, 1),
     "N300": (1, 2),
+    "P300x2": (1, 4),
     "T3K": (1, 8),
     "TG": (8, 4),
 }
+
+
+def _stream_choice_is_token_event(choice: Any) -> bool:
+    """Count token chunks, including tokens that decode to an empty string."""
+
+    text = getattr(choice, "text", None)
+    if text is None:
+        return False
+    return bool(text) or getattr(choice, "finish_reason", None) is None
 
 
 def _find_plugin_tests_dir() -> Path:
@@ -235,7 +245,10 @@ def _launch_server(
     # Pass TT plugin config as a single JSON dict so JSON quoting can't be
     # mangled by intermediate shells. The dict already has
     # `sample_on_device_mode` enforced; callers extend via `tt_config`.
-    cmd += ["--plugin-config", json.dumps({"tt": tt_config})]
+    # vLLM 0.24 exposes the generic backend payload as
+    # ``--additional-config``.  The TT plugin reads its namespaced object from
+    # ``VllmConfig.additional_config``.
+    cmd += ["--additional-config", json.dumps({"tt": tt_config})]
     cmd += additional_args
 
     env = {
@@ -809,7 +822,7 @@ def _main() -> None:
         default="",
         help=(
             "Catch-all for other vLLM CLI args not covered by the typed flags. "
-            'Quoted, e.g. "--async-scheduling --tokenizer X". Avoid --plugin-config / '
+            'Quoted, e.g. "--async-scheduling --tokenizer X". Avoid --additional-config / '
             "--max_model_len here; use --tt-config / --max-model-len."
         ),
     )

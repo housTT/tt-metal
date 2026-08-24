@@ -270,6 +270,24 @@ class Generator(ReadinessGenerator):
                 padded[slot, : len(row)] = torch.tensor(row, dtype=torch.long)
         self.model.sampling.reset_output_state(padded)
 
+    @staticmethod
+    def _history_rows_from_vllm(
+        output_tokens: torch.Tensor | None, active_batch: int
+    ) -> List[List[int]]:
+        """Mirror vLLM's reset-time output history for trace warmup restore."""
+
+        if output_tokens is None:
+            return [[] for _ in range(active_batch)]
+        rows = output_tokens.detach().cpu().to(torch.long)
+        if rows.ndim == 1:
+            rows = rows.unsqueeze(1)
+        if rows.ndim != 2 or rows.shape[0] < active_batch:
+            raise ValueError("output_tokens must contain one row per active request")
+        return [
+            [int(token) for token in rows[row].tolist() if int(token) >= 0]
+            for row in range(active_batch)
+        ]
+
     def _advance_device_sampling_seed(self) -> None:
         if not self._device_sampling_request_active:
             raise RuntimeError(
@@ -407,6 +425,9 @@ class Generator(ReadinessGenerator):
         return_all_logits: bool = False,
         state: FullModelState | None = None,
         page_table_changed: bool | None = None,
+        state_slots: Sequence[int] | None = None,
+        sampling_mode: str = "host",
+        sampling_params: SamplingParams | None = None,
         **kwargs: Any,
     ) -> torch.Tensor:
         del kwargs
@@ -416,12 +437,61 @@ class Generator(ReadinessGenerator):
             batch_size=tokens.shape[0], page_table=page_table, kv_cache=kv_cache, state=state
         )
         self._refresh_page_table(resolved, page_table, changed=page_table_changed)
-        return self.model.prefill(
+        if sampling_mode not in ("device", "host"):
+            raise ValueError("sampling_mode must be 'device' or 'host'")
+        device_sampling = sampling_mode == "device"
+        logits = self.model.prefill(
             tokens.to(torch.long),
             prompt_lens=prompt_lens,
             state=resolved,
             return_all_logits=return_all_logits,
+            state_slots=state_slots,
+            return_device_last_logits=device_sampling,
         )
+        if not device_sampling:
+            return logits
+        if return_all_logits:
+            raise ValueError("device prefill sampling requires last-token logits")
+        if sampling_params is None:
+            raise ValueError("device prefill sampling requires sampling_params")
+        formatted = self._configure_sampling(sampling_params)
+        active_batch = tokens.shape[0]
+        slots = tuple(range(active_batch)) if state_slots is None else tuple(int(slot) for slot in state_slots)
+        prompt_tokens = torch.full(
+            (MAX_BATCH_SIZE, tokens.shape[1]), -1, dtype=torch.long
+        )
+        prompt_tokens[list(slots)] = tokens.to(torch.long)
+        self.model.sampling.apply_prefill_state(
+            sampling_params=formatted,
+            prompt_tokens=prompt_tokens,
+            empty_slots=list(slots),
+            replicate_seeds=False,
+        )
+        self._device_sampling_slots = slots
+        self._device_output_history_by_slot = [[] for _ in range(active_batch)]
+        self._device_output_history = []
+        self._device_sampling_request_active = True
+        sampled = self.model.sampling.sample(logits, enable_trace=False)
+        # Stateful prefills can occupy non-contiguous persistent slots while
+        # vLLM consumes prefill results in request order.  Pack only the
+        # already-sampled compact token tensor; logits never leave the device.
+        def pack_slots(value):
+            if value is None or slots == tuple(range(active_batch)):
+                return value
+            rank = len(value.shape)
+            rows = [
+                ttnn.slice(
+                    value,
+                    [0] * (rank - 1) + [slot],
+                    list(value.shape[:-1]) + [slot + 1],
+                )
+                for slot in slots
+            ]
+            return rows[0] if len(rows) == 1 else ttnn.concat(rows, dim=-1)
+
+        if isinstance(sampled, tuple):
+            return pack_slots(sampled[0]), pack_slots(sampled[1])
+        return pack_slots(sampled)
 
     def _snapshot_linear_state(self, state: FullModelState):
         snapshots = []
@@ -546,6 +616,11 @@ class Generator(ReadinessGenerator):
         output_token_history: Sequence[int] | Sequence[Sequence[int]] | torch.Tensor | None = None,
         page_table_changed: bool | None = None,
         read_from_device: bool = True,
+        reset_batch: bool | None = None,
+        slot_remap: torch.Tensor | Sequence[int] | None = None,
+        prompt_tokens: torch.Tensor | None = None,
+        output_tokens: torch.Tensor | None = None,
+        serving_mode: bool = False,
         **kwargs: Any,
     ) -> torch.Tensor:
         del kwargs
@@ -553,10 +628,57 @@ class Generator(ReadinessGenerator):
             batch_size=tokens.shape[0], page_table=page_table, kv_cache=kv_cache, state=state
         )
         self._refresh_page_table(resolved, page_table, changed=page_table_changed)
-        self.model.prepare_decode_state(resolved, tokens.reshape(-1), positions=start_pos)
+        if serving_mode:
+            reset_batch = bool(reset_batch) or resolved.token_buffer is None
+            if slot_remap is not None:
+                self.model.remap_linear_state_slots(resolved, slot_remap)
+                self.model.sampling.seed_manager.apply_slot_remap(slot_remap)
+            # Under async scheduling the host token and position supplied for
+            # a steady decode may be one step stale.  The sampler has already
+            # written the authoritative next token into token_buffer and the
+            # model trace advanced current/rotary positions in place, so only
+            # a real layout reset is allowed to refresh those tensors.
+            if bool(reset_batch):
+                self.model.prepare_decode_state(
+                    resolved,
+                    tokens.reshape(-1),
+                    positions=start_pos,
+                )
+        else:
+            self.model.prepare_decode_state(resolved, tokens.reshape(-1), positions=start_pos)
         if sampling_mode not in ("device", "host"):
             raise ValueError("sampling_mode must be 'device' or 'host'")
-        if sampling_request_start:
+        if serving_mode and sampling_mode == "device":
+            if sampling_params is None:
+                raise ValueError("serving device sampling requires sampling_params")
+            self.model.sampling.apply_decode_state(
+                [sampling_params],
+                reset_batch=bool(reset_batch),
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+            )
+            active_batch = int((start_pos.reshape(-1) >= 0).sum().item())
+            if active_batch < 1 or active_batch > MAX_BATCH_SIZE:
+                raise ValueError("serving decode requires an active prefix of 1..32 rows")
+            if not torch.all(start_pos.reshape(-1)[:active_batch] >= 0) or not torch.all(
+                start_pos.reshape(-1)[active_batch:] < 0
+            ):
+                raise ValueError("serving decode active rows must be a contiguous prefix")
+            self._device_sampling_slots = tuple(range(active_batch))
+            if bool(reset_batch):
+                # Trace warmup/capture restores sampler output history twice.
+                # Mirror the authoritative vLLM history first so those
+                # restores cannot erase presence/frequency/repetition state.
+                self._device_output_history_by_slot = self._history_rows_from_vllm(
+                    output_tokens, active_batch
+                )
+                self._device_output_history = (
+                    list(self._device_output_history_by_slot[0])
+                    if active_batch == 1
+                    else []
+                )
+            self._device_sampling_request_active = True
+        elif sampling_request_start:
             if sampling_mode != "device":
                 raise ValueError("sampling request state applies only to device sampling")
             if sampling_params is None:
@@ -588,7 +710,9 @@ class Generator(ReadinessGenerator):
         sampled = self.model.sampling.sample(
             logits, enable_trace=enable_trace, tt_out_tok=resolved.token_buffer
         )
-        self._last_decode_batch_size = tokens.shape[0]
+        self._last_decode_batch_size = (
+            int((start_pos.reshape(-1) >= 0).sum().item()) if serving_mode else tokens.shape[0]
+        )
         if not read_from_device:
             return sampled
         sampled_host = self._tokens_to_host(sampled)[: tokens.shape[0]]
@@ -604,14 +728,43 @@ class Generator(ReadinessGenerator):
         introduced here.
         """
 
+        def read_one(value):
+            if value is None:
+                return None
+            if isinstance(value, ttnn.Tensor):
+                # Sampled tokens (and supported sampled-token logprobs) are
+                # replicated.  Select one authoritative device before the
+                # deferred CPU transfer so the host handle is not a
+                # distributed MeshTensor requiring a logits-style composer.
+                value = self._first_device_tensor(value)
+            if hasattr(value, "cpu"):
+                return value.cpu(blocking=not async_read)
+            return value
+
         if isinstance(tt_out, tuple):
-            tt_out = tt_out[0]
-        return self._first_device_tensor(tt_out).cpu(blocking=not async_read)
+            host = tuple(read_one(value) for value in tt_out)
+        else:
+            host = read_one(tt_out)
+        if async_read:
+            return host, [ttnn.record_event(self.mesh_device, 0)]
+        return host
 
     def process_decode_output_host(self, tt_out, is_tokens: bool = True) -> torch.Tensor:
         """Format a deferred compact-token read without submitting device work."""
 
         del is_tokens
+        if (
+            isinstance(tt_out, tuple)
+            and len(tt_out) == 2
+            and isinstance(tt_out[1], list)
+        ):
+            # AsyncDecodeManager normally removes this
+            # ``(host_handles, read_events)`` envelope.  Accept it here too so
+            # direct runner checks use the identical host formatter.
+            tt_out, _read_events = tt_out
+        log_probs = None
+        if isinstance(tt_out, tuple):
+            tt_out, log_probs = tt_out
         batch = getattr(self, "_last_decode_batch_size", MAX_BATCH_SIZE)
         tokens = ttnn.to_torch(tt_out).reshape(-1).to(torch.long)[:batch]
         if self._device_sampling_request_active:
@@ -619,7 +772,11 @@ class Generator(ReadinessGenerator):
             # state.  Keep the host mirror coherent only when the scheduler
             # elects to consume the deferred compact-token read.
             self._record_device_sampled_tokens(tokens)
-        return tokens
+        if log_probs is None:
+            return tokens
+        if isinstance(log_probs, ttnn.Tensor):
+            log_probs = ttnn.to_torch(log_probs).reshape(-1)[:batch]
+        return tokens, log_probs
 
     def generate(
         self,

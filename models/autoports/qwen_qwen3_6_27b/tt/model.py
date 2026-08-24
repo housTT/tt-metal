@@ -106,6 +106,7 @@ class FullModelState:
     linear_state: list[Any]
     num_blocks: int
     owns_page_table: bool
+    linear_state_capacity: int | None = None
     current_positions: ttnn.Tensor | None = None
     rotary_positions: ttnn.Tensor | None = None
     token_buffer: ttnn.Tensor | None = None
@@ -407,10 +408,39 @@ class QwenFullModel:
             mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
         )
 
-    def allocate_state(self, *, batch_size: int, page_table: torch.Tensor | None = None) -> FullModelState:
+    def allocate_state(
+        self,
+        *,
+        batch_size: int,
+        page_table: torch.Tensor | None = None,
+        external_kv_cache: list[Any] | tuple[Any, ...] | None = None,
+        num_blocks: int | None = None,
+        linear_state_capacity: int | None = None,
+    ) -> FullModelState:
+        """Allocate model-owned state or bind vLLM-owned attention caches.
+
+        ``external_kv_cache`` is layer-aligned (64 entries for the complete
+        model).  Its tensors remain owned by vLLM; this method only binds the
+        handles used by full-attention layers.  ``linear_state_capacity=32``
+        opts serving into persistent fixed-physical-batch recurrent state.
+        Both options are deliberately opt-in so standalone readiness keeps
+        its compact lazy allocations.
+        """
         if not 1 <= batch_size <= MAX_BATCH_SIZE:
             raise ValueError(f"batch_size must be in [1, {MAX_BATCH_SIZE}]")
         total_blocks = math.ceil(self.max_seq_len / self.page_block_size)
+        if (
+            linear_state_capacity is not None
+            and not batch_size <= linear_state_capacity <= MAX_BATCH_SIZE
+        ):
+            raise ValueError(
+                f"linear_state_capacity must be in [batch_size, {MAX_BATCH_SIZE}]"
+            )
+        if external_kv_cache is not None and len(external_kv_cache) != self.num_layers:
+            raise ValueError(
+                "external_kv_cache must contain one layer-aligned entry per model layer "
+                f"({self.num_layers})"
+            )
         owns_page_table = page_table is None
         if owns_page_table:
             # The context contract is a total physical KV-token budget, not
@@ -418,7 +448,9 @@ class QwenFullModel:
             # into this pool immediately before prefill.
             page_table_host = torch.zeros((MAX_BATCH_SIZE, total_blocks), dtype=torch.int32)
             page_table_host[0] = torch.arange(total_blocks, dtype=torch.int32)
-            num_blocks = total_blocks
+            resolved_num_blocks = total_blocks if num_blocks is None else int(num_blocks)
+            if resolved_num_blocks != total_blocks:
+                raise ValueError("standalone state must allocate the full context KV block pool")
         else:
             if (
                 page_table.ndim != 2
@@ -427,29 +459,154 @@ class QwenFullModel:
                 raise ValueError("page_table must have shape [active_batch, blocks]")
             if page_table.shape[1] <= 0 or torch.any(page_table < 0):
                 raise ValueError("page_table must contain non-negative physical block IDs")
-            page_table_host = torch.zeros((MAX_BATCH_SIZE, page_table.shape[1]), dtype=torch.int32)
-            page_table_host[:batch_size] = page_table[:batch_size].to(torch.int32)
-            num_blocks = int(page_table_host[:batch_size].max().item()) + 1
-            if num_blocks > total_blocks:
-                raise ValueError("external page table exceeds the total physical KV-token budget")
+            if page_table.shape[1] > total_blocks:
+                raise ValueError("external page table is wider than the supported context")
+            # The persistent device tensor always has the full-context width.
+            # vLLM may submit a shorter logical table, but later requests must
+            # not force a reallocation and invalidate a captured trace.
+            page_table_host = torch.zeros((MAX_BATCH_SIZE, total_blocks), dtype=torch.int32)
+            page_table_host[:batch_size, : page_table.shape[1]] = page_table[:batch_size].to(
+                torch.int32
+            )
+            inferred_num_blocks = int(page_table[:batch_size].max().item()) + 1
+            resolved_num_blocks = inferred_num_blocks if num_blocks is None else int(num_blocks)
+            if inferred_num_blocks > resolved_num_blocks:
+                raise ValueError("page table references a block outside the external KV cache")
+            # The worker reserves one guard page per admitted request in the
+            # vLLM-owned allocation.  Those pages do not widen the logical
+            # page table or advertised context, but the bound cache handle
+            # must retain its real physical block count.
         tt_page_table = self._to_replicated(
             page_table_host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
         )
-        kv_cache = []
-        for layer in self.layers:
-            kv_cache.append(
-                layer.allocate_paged_kv_cache(num_blocks=num_blocks)
+        if external_kv_cache is None:
+            kv_cache = [
+                layer.allocate_paged_kv_cache(num_blocks=resolved_num_blocks)
                 if layer.layer_kind == "full_attention"
                 else None
-            )
+                for layer in self.layers
+            ]
+        else:
+            kv_cache = list(external_kv_cache)
+            for layer_idx, (layer, cache) in enumerate(zip(self.layers, kv_cache)):
+                if layer.layer_kind == "full_attention" and (
+                    not isinstance(cache, (list, tuple)) or len(cache) != 2
+                ):
+                    raise ValueError(
+                        f"external_kv_cache[{layer_idx}] must be a (key, value) pair"
+                    )
+        linear_state = [None] * self.num_layers
+        if linear_state_capacity is not None:
+            linear_state = [
+                layer.allocate_linear_state(batch_size=linear_state_capacity)
+                if layer.layer_kind == "linear_attention"
+                else None
+                for layer in self.layers
+            ]
         return FullModelState(
             page_table_host=page_table_host,
             page_table=tt_page_table,
             kv_cache=kv_cache,
-            linear_state=[None] * self.num_layers,
-            num_blocks=num_blocks,
+            linear_state=linear_state,
+            num_blocks=resolved_num_blocks,
             owns_page_table=owns_page_table,
+            linear_state_capacity=linear_state_capacity,
         )
+
+    def _write_linear_state_slots(
+        self,
+        destination: tuple[ttnn.Tensor, ttnn.Tensor],
+        source: tuple[ttnn.Tensor, ttnn.Tensor],
+        slots: tuple[int, ...],
+    ) -> None:
+        """Write recurrent rows on device while preserving destination identities."""
+
+        for target, replacement in zip(destination, source):
+            self._splice_device_slots(target, replacement, slots, dim=0)
+
+    @staticmethod
+    def _splice_device_slots(
+        destination: ttnn.Tensor,
+        source: ttnn.Tensor,
+        slots: tuple[int, ...],
+        *,
+        dim: int,
+    ) -> ttnn.Tensor:
+        """Replace selected device rows and retain ``destination`` identity."""
+
+        extent = int(destination.shape[dim])
+        source_extent = int(source.shape[dim])
+        slots = tuple(int(slot) for slot in slots)
+        if len(slots) != source_extent or len(set(slots)) != len(slots):
+            raise ValueError("slots must contain one unique destination per source row")
+        if any(slot < 0 or slot >= extent for slot in slots):
+            raise ValueError(f"slots must be in [0, {extent})")
+        if source_extent == extent and slots == tuple(range(extent)):
+            ttnn.copy(source, destination)
+            return destination
+
+        def take(tensor: ttnn.Tensor, begin: int, end: int) -> ttnn.Tensor:
+            starts = [0] * len(tensor.shape)
+            ends = list(tensor.shape)
+            starts[dim] = begin
+            ends[dim] = end
+            return ttnn.slice(tensor, starts, ends)
+
+        source_at = {slot: source_row for source_row, slot in enumerate(slots)}
+        pieces = []
+        destination_row = 0
+        while destination_row < extent:
+            source_row = source_at.get(destination_row)
+            run = 1
+            if source_row is None:
+                while (
+                    destination_row + run < extent
+                    and destination_row + run not in source_at
+                ):
+                    run += 1
+                pieces.append(take(destination, destination_row, destination_row + run))
+            else:
+                while source_at.get(destination_row + run) == source_row + run:
+                    run += 1
+                pieces.append(take(source, source_row, source_row + run))
+            destination_row += run
+
+        updated = pieces[0] if len(pieces) == 1 else ttnn.concat(pieces, dim=dim)
+        ttnn.copy(updated, destination)
+        return destination
+
+    def remap_linear_state_slots(
+        self, state: FullModelState, slot_remap: Iterable[int]
+    ) -> None:
+        """Apply ``new_slot -> old_slot`` recurrent-state remapping on device.
+
+        The persistent recurrent buffers retain their identities, which makes
+        this helper safe between trace replays.  Fixed-capacity serving state
+        requires a complete permutation so no live row is implicitly dropped.
+        """
+
+        if state.linear_state_capacity is None:
+            raise ValueError("slot remapping requires fixed-capacity linear state")
+        remap = tuple(int(slot) for slot in slot_remap)
+        capacity = state.linear_state_capacity
+        if len(remap) != capacity or any(source < 0 or source >= capacity for source in remap):
+            raise ValueError(
+                f"slot_remap must contain {capacity} source rows in [0, {capacity})"
+            )
+        for layer_state in state.linear_state:
+            if layer_state is None:
+                continue
+            for tensor in layer_state:
+                rows = [
+                    ttnn.slice(
+                        tensor,
+                        [source, *([0] * (len(tensor.shape) - 1))],
+                        [source + 1, *list(tensor.shape[1:])],
+                    )
+                    for source in remap
+                ]
+                remapped = ttnn.concat(rows, dim=0)
+                ttnn.copy(remapped, tensor)
 
     def _embed_host_tokens(self, tokens: torch.Tensor) -> ttnn.Tensor:
         tt_tokens = self._to_replicated(
@@ -479,13 +636,32 @@ class QwenFullModel:
         prompt_lens: Iterable[int],
         state: FullModelState,
         return_all_logits: bool,
-    ) -> torch.Tensor:
+        return_device_last_logits: bool = False,
+        state_slots: Iterable[int] | None = None,
+        empty_slots: Iterable[int] | None = None,
+    ) -> torch.Tensor | ttnn.Tensor:
         prompt_lens = tuple(int(length) for length in prompt_lens)
         batch = len(prompt_lens)
         if tokens.ndim != 2 or tokens.shape[0] != batch:
             raise ValueError("tokens must have shape [batch, padded_prompt_len]")
         if any(length <= 0 or length > self.max_seq_len or length > tokens.shape[1] for length in prompt_lens):
             raise ValueError("prompt lengths exceed token storage or supported context")
+        if return_device_last_logits and return_all_logits:
+            raise ValueError("device last-token logits and all host logits are mutually exclusive")
+        if state_slots is not None and empty_slots is not None:
+            if tuple(int(slot) for slot in state_slots) != tuple(int(slot) for slot in empty_slots):
+                raise ValueError("state_slots and empty_slots disagree")
+        requested_slots = state_slots if state_slots is not None else empty_slots
+        slots = (
+            tuple(range(batch))
+            if requested_slots is None
+            else tuple(int(slot) for slot in requested_slots)
+        )
+        if len(slots) != batch or len(set(slots)) != batch:
+            raise ValueError("state slots must contain one unique slot per prompt")
+        capacity = state.linear_state_capacity or MAX_BATCH_SIZE
+        if any(slot < 0 or slot >= capacity for slot in slots):
+            raise ValueError(f"state slots must be in [0, {capacity})")
 
         if state.owns_page_table:
             required_blocks = [math.ceil(length / self.page_block_size) for length in prompt_lens]
@@ -495,11 +671,23 @@ class QwenFullModel:
                 )
             state.page_table_host.zero_()
             next_block = 0
-            for user, count in enumerate(required_blocks):
-                state.page_table_host[user, :count] = torch.arange(
+            for slot, count in zip(slots, required_blocks):
+                state.page_table_host[slot, :count] = torch.arange(
                     next_block, next_block + count, dtype=torch.int32
                 )
                 next_block += count
+            page_source = self._to_replicated(
+                state.page_table_host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+            )
+            ttnn.copy(page_source, state.page_table)
+        elif slots != tuple(range(batch)):
+            # Allocation accepts request-order page tables because vLLM does
+            # not know model recurrent slots at cache construction time.
+            # Move those rows into their scheduler-designated persistent slots
+            # before the layer loop, preserving the device table's identity.
+            submitted_rows = state.page_table_host[:batch].clone()
+            for request, slot in enumerate(slots):
+                state.page_table_host[slot] = submitted_rows[request]
             page_source = self._to_replicated(
                 state.page_table_host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
             )
@@ -514,11 +702,11 @@ class QwenFullModel:
         rope_by_len: dict[int, tuple[ttnn.Tensor, ttnn.Tensor]] = {}
         page_rows = [
             self._to_replicated(
-                state.page_table_host[user : user + 1],
+                state.page_table_host[slot : slot + 1],
                 dtype=ttnn.int32,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
             )
-            for user in range(batch)
+            for slot in slots
         ]
 
         for layer_idx, layer in enumerate(self.layers):
@@ -553,7 +741,8 @@ class QwenFullModel:
                     user_state = (
                         state.linear_state[layer_idx]
                         if (
-                            self.reuse_prefill_state
+                            state.linear_state_capacity is None
+                            and self.reuse_prefill_state
                             and batch == 1
                             and state.linear_state[layer_idx] is not None
                         )
@@ -566,18 +755,54 @@ class QwenFullModel:
                 outputs.append(output)
             hidden_by_user = outputs
             if layer.layer_kind == "linear_attention":
-                if batch == 1:
+                if state.linear_state_capacity is not None:
+                    packed_state = (
+                        user_linear_states[0]
+                        if batch == 1
+                        else (
+                            ttnn.concat([item[0] for item in user_linear_states], dim=0),
+                            ttnn.concat([item[1] for item in user_linear_states], dim=0),
+                        )
+                    )
+                    self._write_linear_state_slots(
+                        state.linear_state[layer_idx], packed_state, slots
+                    )
+                elif batch == 1:
                     packed_state = user_linear_states[0]
                 else:
                     packed_state = (
                         ttnn.concat([item[0] for item in user_linear_states], dim=0),
                         ttnn.concat([item[1] for item in user_linear_states], dim=0),
                     )
-                if state.linear_state[layer_idx] is None:
-                    state.linear_state[layer_idx] = packed_state
-                elif state.linear_state[layer_idx] is not packed_state:
-                    ttnn.copy(packed_state[0], state.linear_state[layer_idx][0])
-                    ttnn.copy(packed_state[1], state.linear_state[layer_idx][1])
+                if state.linear_state_capacity is None:
+                    if state.linear_state[layer_idx] is None:
+                        state.linear_state[layer_idx] = packed_state
+                    elif state.linear_state[layer_idx] is not packed_state:
+                        ttnn.copy(packed_state[0], state.linear_state[layer_idx][0])
+                        ttnn.copy(packed_state[1], state.linear_state[layer_idx][1])
+
+        if return_device_last_logits:
+            last_hidden = [
+                ttnn.slice(hidden, [0, 0, length - 1, 0], [1, 1, length, self.hidden_size])
+                for hidden, length in zip(hidden_by_user, prompt_lens)
+            ]
+            sampling_hidden = (
+                last_hidden[0] if batch == 1 else ttnn.concat(last_hidden, dim=2)
+            )
+            resident_rows = ttnn.zeros(
+                [1, 1, MAX_BATCH_SIZE, self.hidden_size],
+                dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+                device=self.mesh_device,
+            )
+            self._splice_device_slots(resident_rows, sampling_hidden, slots, dim=2)
+            sampling_hidden = resident_rows
+            normalized = ttnn.rms_norm(
+                sampling_hidden, epsilon=self.config.rms_norm_eps, weight=self.final_norm
+            )
+            state.prompt_lens = prompt_lens
+            state.active_slots = slots
+            return self.lm_head(normalized, decode=True, mask_invalid=True)
 
         host_logits = []
         composer = ttnn.ConcatMeshToTensor(self.mesh_device, dim=-1)
@@ -604,7 +829,7 @@ class QwenFullModel:
                     host = host[:public_rows]
             host_logits.append(host)
         state.prompt_lens = prompt_lens
-        state.active_slots = tuple(range(batch))
+        state.active_slots = slots
         return torch.stack(host_logits, dim=0)
 
     def prepare_decode_state(
@@ -612,6 +837,8 @@ class QwenFullModel:
         state: FullModelState,
         first_tokens: torch.Tensor,
         positions: torch.Tensor | None = None,
+        *,
+        state_slots: Iterable[int] | None = None,
     ) -> None:
         """Initialize or refresh persistent decode inputs without changing tensor identity."""
 
@@ -626,20 +853,54 @@ class QwenFullModel:
             if positions.numel() != batch:
                 raise ValueError("positions must match first_tokens")
             state.prompt_lens = tuple(int(value) for value in positions.tolist())
-        if torch.any(positions < 0) or torch.any(positions >= self.max_seq_len):
+        fixed_capacity = state.linear_state_capacity
+        padded_physical_inputs = (
+            fixed_capacity is not None
+            and state_slots is None
+            and batch == fixed_capacity
+            and bool(torch.any(positions == -1))
+        )
+        if torch.any(positions >= self.max_seq_len) or torch.any(positions < -1):
             raise ValueError("decode positions exceed the supported context")
-        state.active_slots = tuple(range(batch))
+        if torch.any(positions < 0) and not padded_physical_inputs:
+            raise ValueError("-1 decode positions are only valid as fixed-batch padding")
+        slots = (
+            tuple(index for index, position in enumerate(positions.tolist()) if position >= 0)
+            if padded_physical_inputs
+            else (
+                tuple(range(batch))
+                if state_slots is None
+                else tuple(int(slot) for slot in state_slots)
+            )
+        )
+        logical_batch = len(slots)
+        capacity = state.linear_state_capacity or batch
+        if (
+            (not padded_physical_inputs and len(slots) != batch)
+            or len(set(slots)) != logical_batch
+            or any(slot < 0 or slot >= capacity for slot in slots)
+        ):
+            raise ValueError(
+                f"state_slots must contain {logical_batch} unique rows in [0, {capacity})"
+            )
+        if state.linear_state_capacity is None and slots != tuple(range(batch)):
+            raise ValueError("sparse decode slots require fixed-capacity linear state")
+        state.active_slots = slots
+        state.prompt_lens = tuple(int(positions[slot]) for slot in slots)
 
         for layer_idx, layer in enumerate(self.layers):
             if layer.layer_kind == "linear_attention" and state.linear_state[layer_idx] is None:
                 state.linear_state[layer_idx] = layer.allocate_linear_state(batch_size=batch)
 
         tokens = torch.zeros((1, 1, 1, MAX_BATCH_SIZE), dtype=torch.int32)
-        tokens[0, 0, 0, :batch] = first_tokens.to(torch.int32)
+        if padded_physical_inputs:
+            tokens[0, 0, 0, :capacity] = first_tokens.to(torch.int32)
+        else:
+            tokens[0, 0, 0, list(slots)] = first_tokens.to(torch.int32)
         current = torch.full((MAX_BATCH_SIZE,), -1, dtype=torch.int32)
-        current[:batch] = positions
+        current[list(slots)] = positions[list(slots)] if padded_physical_inputs else positions
         rotary = torch.zeros((1, MAX_BATCH_SIZE), dtype=torch.int32)
-        rotary[0, :batch] = current[:batch]
+        rotary[0, list(slots)] = current[list(slots)]
         values = (
             ("token_buffer", tokens, ttnn.uint32),
             ("current_positions", current, ttnn.int32),
@@ -666,8 +927,11 @@ class QwenFullModel:
             hidden = ttnn.unsqueeze_to_4D(hidden)
         cos, sin = self.rope.get_rot_mats(state.rotary_positions)
         active_batch = len(state.active_slots)
-        if not active_batch or state.active_slots != tuple(range(active_batch)):
-            raise ValueError("decode currently requires stable contiguous slots [0, active_batch)")
+        if not active_batch:
+            raise ValueError("decode requires at least one active slot")
+        fixed_physical_batch = state.linear_state_capacity is not None
+        if not fixed_physical_batch and state.active_slots != tuple(range(active_batch)):
+            raise ValueError("compact decode requires stable contiguous slots [0, active_batch)")
         for layer_idx, layer in enumerate(self.layers):
             if layer.layer_kind == "full_attention":
                 if hidden.shape[2] != MAX_BATCH_SIZE:
@@ -685,7 +949,7 @@ class QwenFullModel:
                     kv_cache=state.kv_cache[layer_idx],
                 )
             else:
-                if hidden.shape[2] != active_batch:
+                if not fixed_physical_batch and hidden.shape[2] != active_batch:
                     hidden = ttnn.slice(
                         hidden,
                         [0, 0, 0, 0],
