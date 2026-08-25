@@ -5,6 +5,10 @@ device-side prefill batches of 1, 2, and 4 users, and adds the opt-in top-k-nati
 path. C25 preserves every arithmetic, activation, KV-cache, and sampling choice from the selected
 C06 datatype policy. Its only default-policy change is `prefill.sdpa_q_k_chunk: 256 -> 128`.
 
+For an end-to-end serving setup, use the [vLLM quickstart](QUICKSTART.md). The compact
+[post-optimization evaluation](../post_optimization_eval/RESULTS.md) is the current functional,
+quality-subset, and performance handoff for downstream release tooling.
+
 The selected production profile runs the native routed-MoE path over a **2,048-token sub-chunk span**
 with `ORNITH_MOE_TOPK_NATIVE=1`, `ORNITH_MOE_TOPK_NATIVE_SUB_CHUNK=2048`, `ORNITH_MOE_GATHER` unset,
 and `TT_MAX_PREFILLS_PER_STEP=4`. The concurrency-8 server additionally runs **four API-server
@@ -39,6 +43,24 @@ matching compiled `max_num_seqs` of 1 or 8.
   validation confirms exact request lengths, concurrency, token totals, median aliases, policy,
   capability state, native invocation counters, runtime binaries, source revisions, and immutable
   run inputs: `validated_cells: 10`, `strict_latency_provenance: pass`.
+
+## Post-optimization functional and quality check
+
+The 2026-08-25 current-head evaluation is a **functional pass with warnings**. All 7 OpenAI API
+checks passed, including reasoning/tool parsing, streaming, and eight concurrent requests. The
+current production path also passed 6 device tests and 186 host/static tests; the full 40-layer
+B1/B2/B4 proof recorded 280 native calls/subchunks, 120 layer calls, and zero fallbacks.
+
+On fixed CI subsets, IFEval's four-metric mean was 85.88% (28/541 samples), while GPQA-Diamond was
+20% ± 13.33 points (10/198). Eight GPQA responses exhausted the reasoning budget without parsed
+final content. The earlier same-document results used different sampling and max-seqs settings, so
+the apparent IFEval improvement and GPQA decline are context, not a controlled A/B. No full-suite or
+GPU-reference quality result is claimed.
+
+See [`../post_optimization_eval/RESULTS.md`](../post_optimization_eval/RESULTS.md) for the concise
+summary. [`../post_optimization_eval/results.json`](../post_optimization_eval/results.json) is the
+canonical machine-readable handoff for downstream packaging; it contains aggregate results and raw
+artifact hashes, not prompts or generations.
 
 ## Final vLLM latency sweep
 
@@ -151,8 +173,9 @@ Setting the profile alone is sufficient, since `throughput` resolves to the same
 ## Provenance
 
 - Selected run ID: `final-topk-native-2k-throughput-shared-geometry-20260822T191635Z`
-- C25 candidate: `../datatype_sweep/candidates/C25-prefill-sdpa-qk128.json`
-- C25 full-model run: `../datatype_sweep/runs/C25-prefill-sdpa-qk128.json`
+- Selected C25 policy: [`../datatype_sweep/selected_precision_config.json`](../datatype_sweep/selected_precision_config.json)
+- The original C25 candidate and full-model evidence are retained in git history at promotion commit
+  [`7d98d1414b7`](https://github.com/housTT/tt-metal/commit/7d98d1414b7), before the raw-artifact cleanup.
 - Paired source revisions: tt-metal
   [`824072e81e99af0cacb36adb6a33e271cd66c47f`](https://github.com/housTT/tt-metal/commit/824072e81e99af0cacb36adb6a33e271cd66c47f);
   vLLM

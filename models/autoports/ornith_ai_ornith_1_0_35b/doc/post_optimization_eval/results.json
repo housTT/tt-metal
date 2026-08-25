@@ -1,0 +1,460 @@
+{
+  "correctness": {
+    "api": {
+      "base_url": "http://127.0.0.1:8100",
+      "checks": [
+        {
+          "elapsed_s": 0.002,
+          "http_status": 200,
+          "name": "health",
+          "passed": true
+        },
+        {
+          "elapsed_s": 0.001,
+          "http_status": 200,
+          "max_model_len": 262144,
+          "model_id": "ornith-ai/Ornith-1.0-35B",
+          "name": "model_discovery",
+          "passed": true
+        },
+        {
+          "completion_tokens": [
+            5,
+            5,
+            5
+          ],
+          "elapsed_s": [
+            2.294,
+            0.321,
+            0.318
+          ],
+          "name": "short_greedy_reproducibility",
+          "passed": true,
+          "repeats": 3,
+          "unique_output_hashes": 1
+        },
+        {
+          "elapsed_s": 18.704,
+          "final_answer_has_323": true,
+          "finish_reason": "stop",
+          "name": "reasoning_parser",
+          "passed": true,
+          "reasoning_chars": 1564,
+          "reasoning_present": true,
+          "usage": {
+            "completion_tokens": 596,
+            "prompt_tokens": 30,
+            "total_tokens": 626
+          }
+        },
+        {
+          "elapsed_s": 10.278,
+          "finish_reason": "tool_calls",
+          "name": "tool_call_parser",
+          "passed": true,
+          "reasoning_present": true,
+          "tool_call_count": 1,
+          "tool_names": [
+            "get_weather"
+          ],
+          "usage": {
+            "completion_tokens": 323,
+            "prompt_tokens": 282,
+            "total_tokens": 605
+          }
+        },
+        {
+          "elapsed_s": 0.325,
+          "http_status": 200,
+          "name": "streaming_sse",
+          "passed": true,
+          "reassembled_content_matches": true,
+          "saw_done": true
+        },
+        {
+          "completion_tokens": [
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "name": "concurrency_8",
+          "passed": true,
+          "request_elapsed_s": [
+            0.883,
+            0.883,
+            0.883,
+            0.883,
+            0.883,
+            0.882,
+            0.882,
+            0.882
+          ],
+          "requests": 8,
+          "successful_exact_outputs": 8,
+          "wall_elapsed_s": 0.885
+        }
+      ],
+      "diagnostics": {
+        "long_greedy_reproducibility": {
+          "classification": "known_decode_reproducibility_limitation",
+          "completion_tokens": [
+            256,
+            256,
+            256
+          ],
+          "repeats": 3,
+          "reproducible": false,
+          "unique_output_hashes": 3
+        }
+      },
+      "generated_at": "2026-08-25T02:04:09.402893+00:00",
+      "model": "ornith-ai/Ornith-1.0-35B",
+      "schema": "ornith-api-gates/1",
+      "summary": {
+        "passed": 7,
+        "status": "pass",
+        "total": 7
+      }
+    },
+    "device": [
+      {
+        "elapsed_s": 56.881,
+        "errors": 0,
+        "failures": 0,
+        "label": "ornith-device-focused.junit",
+        "raw_sha256": "95347735aba6228b9dba9dd7c072352ca2e082013f09c15c5f4af18491e9e773",
+        "skipped": 0,
+        "status": "pass",
+        "tests": 5
+      },
+      {
+        "elapsed_s": 317.993,
+        "errors": 0,
+        "failures": 0,
+        "label": "ornith-device-full.junit",
+        "raw_sha256": "704d4ed5b0abcc362561013488e36929634e73f2e06efa1aa847b86a90a4091f",
+        "skipped": 0,
+        "status": "pass",
+        "tests": 1
+      }
+    ],
+    "full_device_contract": {
+      "fallbacks": 0,
+      "layers": 40,
+      "native_calls": 280,
+      "native_layer_calls": 120,
+      "native_subchunks": 280,
+      "physical_prefill_batches": [
+        1,
+        2,
+        4
+      ],
+      "source": "passing test_full_stack_b1_b2_b4_prefill_has_exact_native_counters",
+      "tokens_per_user": 2048
+    },
+    "host": [
+      {
+        "elapsed_s": 4.229,
+        "errors": 0,
+        "failures": 0,
+        "label": "ornith-host-tt-metal.junit",
+        "raw_sha256": "0fa70eb76fb015c26694ba506a2e34eedac6b0e716bedca58fdde7ac3d58b872",
+        "skipped": 0,
+        "status": "pass",
+        "tests": 29
+      },
+      {
+        "elapsed_s": 3.453,
+        "errors": 0,
+        "failures": 0,
+        "label": "ornith-host-finalization.junit",
+        "raw_sha256": "a5007532cd233d18e06844f7a5080a3bf3d0781972fd9fda81ab181e882c55d7",
+        "skipped": 0,
+        "status": "pass",
+        "tests": 65
+      },
+      {
+        "elapsed_s": 0.03,
+        "errors": 0,
+        "failures": 0,
+        "label": "ornith-host-runtime-evidence.junit",
+        "raw_sha256": "236e67bff240b7e7373b8995bc1581a8ca2407142ccc673a288c92824825ff28",
+        "skipped": 0,
+        "status": "pass",
+        "tests": 23
+      },
+      {
+        "elapsed_s": 6.788,
+        "errors": 0,
+        "failures": 0,
+        "label": "ornith-host-vllm-plugin.junit",
+        "raw_sha256": "5c12f4f3898fbe267db4cb752a28fd61f824a743f0bf16ead8260b202cb13c9a",
+        "skipped": 0,
+        "status": "pass",
+        "tests": 69
+      }
+    ],
+    "production_static_contract": {
+      "raw_sha256": "246ed40fd2969c6bd3b9b5bdfbb9591f75c711b72721699f5c757b18b5402b9f",
+      "schema": "ornith-prefill-static-evidence-contract/1",
+      "status": "pass"
+    }
+  },
+  "generated_at": "2026-08-25T02:55:03.072742+00:00",
+  "limitations": [
+    "IFEval and GPQA-Diamond are fixed 5% CI subsets, not full benchmark scores.",
+    "No published or GPU reference exists for these task/configuration pairs; quality rows are measured-only.",
+    "Eight of ten GPQA samples had empty parsed final content after the reasoning budget was exhausted.",
+    "Long thinking-on greedy generations are not byte reproducible on the padded batch-8 decode path.",
+    "The TT port serves text only."
+  ],
+  "model": "ornith-ai/Ornith-1.0-35B",
+  "performance": {
+    "json_set_sha256": "8b1a8b7a6a5208aaf332cdb5a4cb05cece2d7e75f75cb22291e136237ec01e25",
+    "latency_cell_sha256": "df824566aca53c8a16e21a8da1f087475d8040080bc6e0ee927eae77abdbc992",
+    "receipt_sha256": "e98dd0f714ccdfa2c3b13f13df618fef87d8ee02f4e4fc637bcea1e48a70fdb5",
+    "run_id": "final-topk-native-2k-throughput-shared-geometry-20260822T191635Z",
+    "scope": "previously_finalized_selected_profile",
+    "selected_cell": {
+      "aggregate_decode_tokens_per_second": 167.26432999813295,
+      "concurrency": 8,
+      "decode_tokens_per_second_per_user": 20.90804124976662,
+      "e2el_delta_vs_gathered_percent": -42.15,
+      "e2el_delta_vs_original_sparse_percent": -53.24,
+      "failed_requests": 0,
+      "input_tokens": 131072,
+      "median_e2el_s": 285.27325292450035,
+      "median_ttft_s": 195.5254254869997,
+      "output_tokens": 512
+    },
+    "status": "pass",
+    "strict_latency_provenance": "pass",
+    "validated_cells": 10
+  },
+  "profile": {
+    "api_server_count": 4,
+    "environment": {
+      "ORNITH_MOE_GATHER": "unset",
+      "ORNITH_MOE_TOPK_NATIVE": "1",
+      "ORNITH_MOE_TOPK_NATIVE_SUB_CHUNK": "2048",
+      "ORNITH_VLLM_PREFILL_WARMUP": "all",
+      "TT_INTERLEAVE_PREFILL_CHUNKS": "1",
+      "TT_MAX_PREFILLS_PER_STEP": "4"
+    },
+    "input_queue_batching_delay_s": 2.0,
+    "max_model_len": 262144,
+    "max_num_seqs": 8,
+    "native_moe_sub_chunk": 2048,
+    "precision_config": "C25-prefill-sdpa-qk128",
+    "prefill_sdpa_qk_chunk": 128
+  },
+  "provenance": {
+    "hardware": {
+      "architecture": "blackhole",
+      "chip_type": "p300c",
+      "chips": 4,
+      "mesh": [
+        1,
+        4
+      ],
+      "system": "P300_X2"
+    },
+    "tt_metal": {
+      "evaluation_parent_revision": "6c9442c8d6ce1ba2c42c13c826b29ce0cabdd531",
+      "runtime_revision": "824072e81e99af0cacb36adb6a33e271cd66c47f"
+    },
+    "vllm": {
+      "revision": "a887998646dc4e6f192bce8d485bf89f4596ca2f"
+    },
+    "weights": {
+      "repo": "ornith-ai/Ornith-1.0-35B",
+      "revision": "5df2ed3f675c7beaa490328cc70bb573b65fb660"
+    }
+  },
+  "quality": [
+    {
+      "classification": "measured_only_no_gpu_or_published_reference",
+      "configuration": {
+        "api_model": {
+          "base_url": "http://127.0.0.1:8100/v1/chat/completions",
+          "max_length": 32768,
+          "max_retries": 1,
+          "model": "ornith-ai/Ornith-1.0-35B",
+          "num_concurrent": 8,
+          "timeout": 3600,
+          "tokenizer_backend": "huggingface",
+          "version": 4.0
+        },
+        "evaluation_harness": {
+          "lm_eval_git_revision": "v0.6.0-1470-g6ab1de73",
+          "lm_eval_version": "0.4.10.dev0",
+          "transformers_version": "5.15.1"
+        },
+        "generation_kwargs": {
+          "do_sample": true,
+          "max_gen_toks": 16384,
+          "seed": 42,
+          "stream": false,
+          "temperature": 0.6,
+          "top_k": 20,
+          "top_p": 0.95,
+          "until": []
+        },
+        "num_fewshot": 0
+      },
+      "coverage_percent": 5.175600739371535,
+      "doc_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "full_dataset_samples": 541,
+      "historical_comparison": "context_only_not_a_graded_ab_configuration_changed",
+      "historical_context_delta_points": 3.799833887043178,
+      "historical_same_doc_ids": {
+        "max_gen_toks": 8192,
+        "max_num_seqs": 32,
+        "measured_at": "2026-08-19",
+        "results_sha256": "f52ca367221dd6f1b7a50de796dd7f54710ceeb6e9bae4dabb6fe95d74680445",
+        "samples": 28,
+        "samples_sha256": "587edb112e7ca9800289b44a32d0f7e574bbe709edc4faa6362628dd742a23a7",
+        "score_percent": 82.08056478405315,
+        "temperature": 1.0
+      },
+      "metrics_percent": {
+        "inst_level_loose_acc,none": 86.04651162790698,
+        "inst_level_strict_acc,none": 86.04651162790698,
+        "prompt_level_loose_acc,none": 85.71428571428571,
+        "prompt_level_strict_acc,none": 85.71428571428571
+      },
+      "raw": {
+        "results_sha256": "0fe8faba0e4acc2963e3f00ce709d3698f4f4813044df4b858ee489548702e8a",
+        "samples_sha256": "36ed4519db806feed99279f19b878a45a089790ed913d44e2e620c6cddca3263"
+      },
+      "reference": null,
+      "response_diagnostics": {
+        "empty_filtered_responses": 2,
+        "nonempty_filtered_responses": 26
+      },
+      "samples": 28,
+      "scope": "fixed_ci_subset",
+      "score_definition": "mean_of_four_reported_accuracies",
+      "score_percent": 85.88039867109633,
+      "stderr_percent": null,
+      "task": "ifeval"
+    },
+    {
+      "classification": "measured_only_no_gpu_or_published_reference",
+      "configuration": {
+        "api_model": {
+          "base_url": "http://127.0.0.1:8100/v1/chat/completions",
+          "max_length": 65536,
+          "max_retries": 1,
+          "model": "ornith-ai/Ornith-1.0-35B",
+          "num_concurrent": 8,
+          "timeout": 3600,
+          "tokenizer_backend": "huggingface",
+          "version": 1.0
+        },
+        "evaluation_harness": {
+          "lm_eval_git_revision": "v0.6.0-1470-g6ab1de73",
+          "lm_eval_version": "0.4.10.dev0",
+          "transformers_version": "5.15.1"
+        },
+        "generation_kwargs": {
+          "do_sample": true,
+          "max_gen_toks": 32768,
+          "n": 1,
+          "seed": 42,
+          "stream": false,
+          "temperature": 0.6,
+          "top_k": 20,
+          "top_p": 0.95,
+          "until": []
+        },
+        "num_fewshot": 0
+      },
+      "coverage_percent": 5.05050505050505,
+      "doc_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "full_dataset_samples": 198,
+      "historical_comparison": "context_only_not_a_graded_ab_configuration_changed",
+      "historical_context_delta_points": -30.0,
+      "historical_same_doc_ids": {
+        "max_gen_toks": 32768,
+        "max_num_seqs": 32,
+        "measured_at": "2026-08-19",
+        "results_sha256": "8d50ca94e5ed4de4ace3c207fb2317762636d78f151e7bd7cbc1f44ab9b4e978",
+        "samples": 10,
+        "samples_sha256": "5f10cc3b915e0e213a221d6cf7a3dd710e2934cf0fe2306fb7c7f05ed7d0c49f",
+        "score_percent": 50.0,
+        "temperature": 1.0
+      },
+      "metrics_percent": {
+        "exact_match,none": 20.0
+      },
+      "raw": {
+        "results_sha256": "47e24d43603d0e7281eb7157c7fde388e491c646fe964d112f0c5360560a64e9",
+        "samples_sha256": "b44e564add6f9c27536039da3fed8bd447bbbc30bb75060be6fbcb051ee59adf"
+      },
+      "reference": null,
+      "response_diagnostics": {
+        "empty_filtered_responses": 8,
+        "nonempty_filtered_responses": 2
+      },
+      "samples": 10,
+      "scope": "fixed_ci_subset",
+      "score_definition": "exact_match",
+      "score_percent": 20.0,
+      "stderr_percent": 13.333333333333334,
+      "task": "r1_gpqa_diamond"
+    }
+  ],
+  "schema": "ornith-post-optimization-eval/1",
+  "status": "functional_pass_with_warnings",
+  "summary": {
+    "long_generation_byte_reproducibility": false,
+    "model_functional": true,
+    "quality_classification": "measured_only_with_empty_final_response_warning"
+  }
+}
