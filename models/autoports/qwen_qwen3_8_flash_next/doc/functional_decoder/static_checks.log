@@ -1,0 +1,29 @@
++zsh:1> rg --files models/autoports/qwen_qwen3_8_flash_next -g '*.py'
++zsh:1> sort
++zsh:1> xargs python_env/bin/black --check --fast --target-version py312
+All done! ✨ 🍰 ✨
+9 files would be left unchanged.
++zsh:1> python_env/bin/python -m compileall -q models/autoports/qwen_qwen3_8_flash_next
++zsh:1> python_env/bin/python -m json.tool models/autoports/qwen_qwen3_8_flash_next/doc/context_contract.json
++zsh:1> rg -n 'torch|from_torch|to_torch|as_tensor' models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py
+46:Only :meth:`from_state_dict` imports torch.  No measured prefill/decode path
+47:calls torch, ``ttnn.from_torch``, ``ttnn.as_tensor`` or ``ttnn.to_torch``.
+224:        import torch  # setup-only by contract
+264:            return ttnn.as_tensor(
+379:            neg_exp_a = None if a_log is None else -torch.exp(a_log.float()).reshape(1, 1, 1, -1)
+488:            block_ids = torch.arange(compressed_blocks, dtype=torch.int32).reshape(1, 1, 1, -1)
+489:            token_offsets = torch.arange(s.indexer_compress_ratio, dtype=torch.int32).reshape(1, 1, 1, 1, -1)
+492:            gathered_valid = torch.zeros(1, 1, 1, gathered_width, dtype=torch.bfloat16)
+499:                constants[name] = ttnn.as_tensor(
++zsh:1> rg -n 'ttnn\.embedding' models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py
+119:    out = ttnn.embedding(indices_rm, weight, layout=ttnn.TILE_LAYOUT)
++zsh:1> rg -n '34 passed, 7 skipped|PCCEVIDENCE' models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/correctness.log
+54:PCCEVIDENCE real layer=0 prefill_pcc=0.99871051
+55:PCCEVIDENCE real layer=0 decode_pcc=0.99997765
+57:models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder.py::test_real_weights_hf_prefill_decode_pcc[1] PCCEVIDENCE real layer=1 prefill_pcc=0.99910986
+58:PCCEVIDENCE real layer=1 decode_pcc=0.99991739
+61:PCCEVIDENCE real layer=3 prefill_pcc=0.99679226
+62:PCCEVIDENCE real layer=3 decode_pcc=0.99988198
+148:============= 34 passed, 7 skipped, 2 warnings in 80.58s (0:01:20) =============
++zsh:1> rg -n '34 passed, 7 skipped' models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/watcher_final_20260826_1419/pytest.log
+236:============ 34 passed, 7 skipped, 2 warnings in 230.80s (0:03:50) =============

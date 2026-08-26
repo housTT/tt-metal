@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "model_id": "Qwen/Qwen3.8-Flash-Next",
+  "checkpoint_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
+  "hf_advertised_context_tokens": 262144,
+  "functional_decoder_supported_context_tokens": 262144,
+  "capability_reduction": null,
+  "target": {
+    "mesh": "1x1",
+    "device": "P300c chip 0",
+    "ttnn_version": "0.75.0rc10.dev880",
+    "page_size_tokens": 64,
+    "prefill_chunk_tokens": 128,
+    "max_tested_batch": 32
+  },
+  "layer_kinds": [
+    {
+      "representative_layer": 0,
+      "kind": "linear_attention",
+      "has_ple": false,
+      "largest_public_prefill_tokens_tested": 262144,
+      "largest_non_aligned_public_prefill_tokens_tested": 262143,
+      "largest_decode_context_tokens_tested": 262144,
+      "largest_decode_current_position_tested": 262143
+    },
+    {
+      "representative_layer": 1,
+      "kind": "linear_attention",
+      "has_ple": true,
+      "largest_public_prefill_tokens_tested": 262144,
+      "largest_non_aligned_public_prefill_tokens_tested": 262143,
+      "largest_decode_context_tokens_tested": 262144,
+      "largest_decode_current_position_tested": 262143
+    },
+    {
+      "representative_layer": 3,
+      "kind": "qwen_sparse_attention",
+      "has_ple": false,
+      "largest_public_prefill_tokens_tested": 262144,
+      "largest_non_aligned_public_prefill_tokens_tested": 262143,
+      "largest_decode_context_tokens_tested": 262144,
+      "largest_decode_current_position_tested": 262143,
+      "advertised_context_prefill_geometry_tested": {
+        "context_tokens": 262144,
+        "full_chunk_plan_tokens": 262144,
+        "public_chunks_executed": 2048,
+        "compressed_blocks_scanned": 65536,
+        "last_cache_page_addressed": true,
+        "method": "Complete public 10240-wide decoder prefill including hyperconnections, QSA, sparse MoE, cache/page progression, and output concatenation."
+      }
+    }
+  ],
+  "logical_prefill_lengths_tested": [
+    1,
+    31,
+    32,
+    33,
+    63,
+    64,
+    65,
+    127,
+    128,
+    129,
+    2047,
+    2048,
+    2049,
+    262143,
+    262144
+  ],
+  "paging_and_position_contract": {
+    "paged_prefill": true,
+    "paged_decode": true,
+    "shuffled_page_table_tested": true,
+    "distinct_batch_page_tables_tested": true,
+    "device_int32_current_position": true,
+    "non_aligned_positions_tested": [33, 63, 128, 262143],
+    "largest_decode_batch_tested": 32
+  },
+  "ple_preprocessing_boundary": {
+    "full_embedding_table_shape": [320001536, 160],
+    "full_embedding_table_dtype": "BF16",
+    "full_embedding_table_bytes": 102400491520,
+    "decoder_input": "Caller-prepared device tensor [1, 1, sequence, 2560]",
+    "context_capability_reduction": false,
+    "reason": "The input-specific sparse row lookup is preprocessing. PLE projection, gating, convolution, and state remain in the measured TTNN decoder pass."
+  },
+  "evidence": {
+    "full_advertised_public_prefill": [
+      "functional_decoder/long_context_linear0_full.log",
+      "functional_decoder/long_context_linear1_full.log",
+      "functional_decoder/long_context_qsa_public_full.log"
+    ],
+    "near_max_non_aligned_public_prefill": [
+      "functional_decoder/near_max_gdn_public_final.log",
+      "functional_decoder/near_max_ple_public_final.log",
+      "functional_decoder/near_max_qsa_public.log"
+    ],
+    "advertised_context_traced_qsa_decode": "functional_decoder/qsa_max_context_trace_decode.log",
+    "batch_32_decode": "functional_decoder/batch32_decode.log",
+    "underfilled_qsa_selection": "functional_decoder/topk_multiset.log",
+    "correctness": "functional_decoder/correctness.log",
+    "watcher": "functional_decoder/watcher_final_20260826_1419/pytest.log"
+  },
+  "remaining_risk": null
+}
