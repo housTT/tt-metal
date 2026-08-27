@@ -1,0 +1,318 @@
+2026-08-26 21:07:35.036 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3] 2026-08-26 21:07:35.838 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-08-26 21:07:35.838 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-26 21:07:35.838 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-26 21:07:35.838 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-26 21:07:35.841 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-26 21:07:35.841 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-26 21:07:35.841 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-26 21:07:35.861 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:173)
+2026-08-26 21:07:35.861 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-26 21:07:35.861 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-08-26 21:07:35.861 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-26 21:07:35.861 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:203)
+2026-08-26 21:07:35.861 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-08-26 21:07:35.940 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-08-26 21:07:35.995 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-08-26 21:07:35.996 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-26 21:07:35.996 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-26 21:07:35.996 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:939)
+2026-08-26 21:07:35.996 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:997)
+2026-08-26 21:07:35.996 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1214)
+2026-08-26 21:07:35.996 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-08-26 21:07:35.996 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-08-26 21:07:35.996 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+PCCEVIDENCE real layer=3 prefill_pcc=0.92914814
+FAILED
+
+=================================== FAILURES ===================================
+__________________ test_real_weights_hf_prefill_decode_pcc[3] __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7db5eb27f260>
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_real_weights_hf_prefill_decode_pcc(monkeypatch, mesh_device, layer_idx):
+        _optimized(monkeypatch)
+>       functional_gates.test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx)
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py:49:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx):
+        """Real checkpoint tensors, cache-free HF decode oracle, shuffled TT pages."""
+
+        torch.manual_seed(20260826 + layer_idx)
+        config = H.target_config()
+        state = H.load_real_layer_state(layer_idx)
+        seq_len = 33
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        hidden = (torch.randn(1, seq_len + 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+        cos, sin = H.rope_tables(max_seq_len)
+        ple = None
+        if layer_idx == 1:
+            ple = (torch.randn(1, seq_len + 1, 2560, dtype=torch.bfloat16) * 0.02).contiguous()
+
+        hf_layer = H.build_hf_layer(config, layer_idx, state, ple_embeddings=None if ple is None else ple[:, :seq_len])
+        expected_prefill = H.hf_forward(
+            hf_layer,
+            hidden[:, :seq_len],
+            cos,
+            sin,
+            ple_embeddings=None if ple is None else ple[:, :seq_len],
+        )
+
+        layer = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        tt_hidden = _upload(hidden[:, :seq_len].unsqueeze(0), mesh_device)
+        tt_ple = None if ple is None else _upload(ple[:, :seq_len].unsqueeze(0), mesh_device)
+        kwargs = {"ple_embeddings": tt_ple} if ple is not None else {}
+        if layer_idx == 3:
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, seq_len)
+            kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+        with H.ForbidHostFallback():
+            actual_prefill_tt = layer.prefill_forward(tt_hidden, **kwargs)
+        actual_prefill = ttnn.to_torch(actual_prefill_tt).squeeze(0)
+        prefill_pcc = H.pcc(expected_prefill, actual_prefill)
+        print(f"PCCEVIDENCE real layer={layer_idx} prefill_pcc={prefill_pcc:.8f}")
+>       assert prefill_pcc >= H.PCC_BAR
+E       assert 0.9291481375694275 >= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder.py:109: AssertionError
+=============================== warnings summary ===============================
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+5.92s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.97s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+=========================== short test summary info ============================
+FAILED models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+======================== 1 failed, 2 warnings in 6.94s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7db5ee829218 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7db5ee44a5a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "__init__"
+ - leaked function "create_submeshes"
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function ""
+ - leaked function "from_json"
+ - leaked function "contains"
+ - leaked function "to_numpy"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-26 21:07:44.202 | info     |    BuildKernels | JIT cache stats: 736/736 hits (100.0%) [736 cached, 207 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-26 21:07:44.202 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-26 21:07:44.207 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-08-26 21:07:44.207 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-08-26 21:07:44.318 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-08-26 21:07:44.318 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-08-26 21:07:44.318 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)
+2026-08-26 21:07:46.179 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3] 2026-08-26 21:07:47.000 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-08-26 21:07:47.000 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-26 21:07:47.000 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-26 21:07:47.000 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-26 21:07:47.003 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-26 21:07:47.003 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-26 21:07:47.003 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-26 21:07:47.022 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:173)
+2026-08-26 21:07:47.022 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-26 21:07:47.022 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-08-26 21:07:47.022 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-26 21:07:47.022 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:203)
+2026-08-26 21:07:47.023 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-08-26 21:07:47.042 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-08-26 21:07:47.096 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-08-26 21:07:47.097 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-26 21:07:47.097 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-26 21:07:47.097 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:939)
+2026-08-26 21:07:47.097 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:997)
+2026-08-26 21:07:47.097 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1214)
+2026-08-26 21:07:47.097 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-08-26 21:07:47.097 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-08-26 21:07:47.097 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+PCCEVIDENCE real layer=3 prefill_pcc=0.99196231
+FAILED
+
+=================================== FAILURES ===================================
+__________________ test_real_weights_hf_prefill_decode_pcc[3] __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7d82bf5732f0>
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_real_weights_hf_prefill_decode_pcc(monkeypatch, mesh_device, layer_idx):
+        _optimized(monkeypatch)
+>       functional_gates.test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx)
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py:49:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx):
+        """Real checkpoint tensors, cache-free HF decode oracle, shuffled TT pages."""
+
+        torch.manual_seed(20260826 + layer_idx)
+        config = H.target_config()
+        state = H.load_real_layer_state(layer_idx)
+        seq_len = 33
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        hidden = (torch.randn(1, seq_len + 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+        cos, sin = H.rope_tables(max_seq_len)
+        ple = None
+        if layer_idx == 1:
+            ple = (torch.randn(1, seq_len + 1, 2560, dtype=torch.bfloat16) * 0.02).contiguous()
+
+        hf_layer = H.build_hf_layer(config, layer_idx, state, ple_embeddings=None if ple is None else ple[:, :seq_len])
+        expected_prefill = H.hf_forward(
+            hf_layer,
+            hidden[:, :seq_len],
+            cos,
+            sin,
+            ple_embeddings=None if ple is None else ple[:, :seq_len],
+        )
+
+        layer = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        tt_hidden = _upload(hidden[:, :seq_len].unsqueeze(0), mesh_device)
+        tt_ple = None if ple is None else _upload(ple[:, :seq_len].unsqueeze(0), mesh_device)
+        kwargs = {"ple_embeddings": tt_ple} if ple is not None else {}
+        if layer_idx == 3:
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, seq_len)
+            kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+        with H.ForbidHostFallback():
+            actual_prefill_tt = layer.prefill_forward(tt_hidden, **kwargs)
+        actual_prefill = ttnn.to_torch(actual_prefill_tt).squeeze(0)
+        prefill_pcc = H.pcc(expected_prefill, actual_prefill)
+        print(f"PCCEVIDENCE real layer={layer_idx} prefill_pcc={prefill_pcc:.8f}")
+>       assert prefill_pcc >= H.PCC_BAR
+E       assert 0.9919623136520386 >= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder.py:109: AssertionError
+=============================== warnings summary ===============================
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+6.00s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.92s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.02s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+=========================== short test summary info ============================
+FAILED models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+======================== 1 failed, 2 warnings in 6.97s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7d82c273a5a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7d82c2b18f18 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "to_json"
+ - leaked function "to_json"
+ - leaked function "__init__"
+ - leaked function "buffer_page_size"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-26 21:07:55.446 | info     |    BuildKernels | JIT cache stats: 733/733 hits (100.0%) [733 cached, 210 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-26 21:07:55.446 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-26 21:07:55.450 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-08-26 21:07:55.450 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-08-26 21:07:55.619 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-08-26 21:07:55.619 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-08-26 21:07:55.619 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)

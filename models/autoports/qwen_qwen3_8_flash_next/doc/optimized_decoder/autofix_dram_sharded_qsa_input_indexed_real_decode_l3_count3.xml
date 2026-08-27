@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="17.367" timestamp="2026-08-26T23:42:08.428398-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3-1-3]" time="7.030"><properties><property name="start_timestamp" value="2026-08-26T23:42:08" /><property name="end_timestamp" value="2026-08-26T23:42:15" /></properties><failure message="AttributeError: 'OptimizedDecoder' object has no attribute 'decode_residual_layout'">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+decode_config = None
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "decode_config",
+        DECODE_CONFIGS,
+        ids=lambda spec: "default" if spec is None else spec.replace(",", "+"),
+    )
+    def test_warmed_prefill_and_traced_decode(mesh_device, layer_idx, decode_config):
+        mode = os.environ.get("QWEN38_OPT_PERF_MODE", "both")
+        if mode not in {"both", "prefill", "decode"}:
+            raise ValueError(f"unsupported QWEN38_OPT_PERF_MODE={mode}")
+        implementation_name, decoder_cls = _implementation()
+        if implementation_name == "fused" and decode_config is not None:
+            raise ValueError("QWEN38_OPT_PERF_DECODE_CONFIGS applies only to the optimized implementation")
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        layer_kwargs = {}
+        if decode_config is not None:
+            layer_kwargs["decode_1d_config"] = decode_config
+        state = H.load_real_layer_state(layer_idx)
+        layer = decoder_cls.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            **layer_kwargs,
+        )
+        del state
+        assert type(layer) is decoder_cls
+        if "QWEN38_OPT_PERF_IMPLEMENTATION" not in os.environ:
+            assert type(layer) is OptimizedDecoder
+        hidden_host, ple_host, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        prefill_kwargs = {}
+        if layer_idx == 1:
+            prefill_kwargs["ple_embeddings"] = _upload(ple_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, PREFILL_SEQ_LEN)
+            prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+        routing = _observe_routing(layer, lambda: layer.prefill_forward(prefill_hidden, **prefill_kwargs))
+        evidence_prefix = _evidence_prefix(layer, implementation_name, decode_config, activation_hash, routing)
+        prefill_ms = None
+        if mode in {"both", "prefill"}:
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}")
+            start = time.perf_counter()
+            with H.ForbidHostFallback():
+                layer.prefill_forward(prefill_hidden, **prefill_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            prefill_ms = (time.perf_counter() - start) * 1000.0
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}_END")
+        if mode == "prefill":
+            print(
+                f"{evidence_prefix} prefill_configs={getattr(layer, 'prefill_configs', {})} "
+                f"prefill_output={getattr(layer, 'prefill_output', 'dram')} layer={layer_idx} "
+                f"prefill_seq={PREFILL_SEQ_LEN} warmed_prefill_ms={prefill_ms:.6f}"
+            )
+            return
+
+        layer.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        current_pos = _upload(
+            torch.tensor([127], dtype=torch.int32), mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if layer_idx == 1:
+            decode_kwargs["ple_embeddings"] = _upload(ple_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+
+&gt;       decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:89: in _observe_routing
+    output = invoke()
+             ^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193: in &lt;lambda&gt;
+    decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:726: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1646: in decode_forward
+    mixed, hyper, injection = self._hyper_mix(hidden_states, "attn_hc")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder.OptimizedDecoder object at 0x752b5d4adaf0&gt;
+hyper_input = ttnn.Tensor([[[[-2.1362e-03,  4.3945e-03,  ...,  1.3542e-04, -5.8289e-03]]]], shape=Shape([1, 1, 1, 10240]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+prefix = 'attn_hc'
+
+    def _hyper_mix(self, hyper_input, prefix: str):
+&gt;       if not self._decode_active or self.decode_residual_layout != "width_sharded":
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'OptimizedDecoder' object has no attribute 'decode_residual_layout'
+
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:522: AttributeError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3-2-3]" time="5.112"><properties><property name="start_timestamp" value="2026-08-26T23:42:15" /><property name="end_timestamp" value="2026-08-26T23:42:20" /></properties><failure message="AttributeError: 'OptimizedDecoder' object has no attribute 'decode_residual_layout'">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+decode_config = None
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "decode_config",
+        DECODE_CONFIGS,
+        ids=lambda spec: "default" if spec is None else spec.replace(",", "+"),
+    )
+    def test_warmed_prefill_and_traced_decode(mesh_device, layer_idx, decode_config):
+        mode = os.environ.get("QWEN38_OPT_PERF_MODE", "both")
+        if mode not in {"both", "prefill", "decode"}:
+            raise ValueError(f"unsupported QWEN38_OPT_PERF_MODE={mode}")
+        implementation_name, decoder_cls = _implementation()
+        if implementation_name == "fused" and decode_config is not None:
+            raise ValueError("QWEN38_OPT_PERF_DECODE_CONFIGS applies only to the optimized implementation")
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        layer_kwargs = {}
+        if decode_config is not None:
+            layer_kwargs["decode_1d_config"] = decode_config
+        state = H.load_real_layer_state(layer_idx)
+        layer = decoder_cls.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            **layer_kwargs,
+        )
+        del state
+        assert type(layer) is decoder_cls
+        if "QWEN38_OPT_PERF_IMPLEMENTATION" not in os.environ:
+            assert type(layer) is OptimizedDecoder
+        hidden_host, ple_host, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        prefill_kwargs = {}
+        if layer_idx == 1:
+            prefill_kwargs["ple_embeddings"] = _upload(ple_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, PREFILL_SEQ_LEN)
+            prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+        routing = _observe_routing(layer, lambda: layer.prefill_forward(prefill_hidden, **prefill_kwargs))
+        evidence_prefix = _evidence_prefix(layer, implementation_name, decode_config, activation_hash, routing)
+        prefill_ms = None
+        if mode in {"both", "prefill"}:
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}")
+            start = time.perf_counter()
+            with H.ForbidHostFallback():
+                layer.prefill_forward(prefill_hidden, **prefill_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            prefill_ms = (time.perf_counter() - start) * 1000.0
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}_END")
+        if mode == "prefill":
+            print(
+                f"{evidence_prefix} prefill_configs={getattr(layer, 'prefill_configs', {})} "
+                f"prefill_output={getattr(layer, 'prefill_output', 'dram')} layer={layer_idx} "
+                f"prefill_seq={PREFILL_SEQ_LEN} warmed_prefill_ms={prefill_ms:.6f}"
+            )
+            return
+
+        layer.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        current_pos = _upload(
+            torch.tensor([127], dtype=torch.int32), mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if layer_idx == 1:
+            decode_kwargs["ple_embeddings"] = _upload(ple_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+
+&gt;       decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:89: in _observe_routing
+    output = invoke()
+             ^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193: in &lt;lambda&gt;
+    decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:726: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1646: in decode_forward
+    mixed, hyper, injection = self._hyper_mix(hidden_states, "attn_hc")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder.OptimizedDecoder object at 0x752b5e3a3050&gt;
+hyper_input = ttnn.Tensor([[[[-2.1362e-03,  4.3945e-03,  ...,  1.3542e-04, -5.8289e-03]]]], shape=Shape([1, 1, 1, 10240]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+prefix = 'attn_hc'
+
+    def _hyper_mix(self, hyper_input, prefix: str):
+&gt;       if not self._decode_active or self.decode_residual_layout != "width_sharded":
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'OptimizedDecoder' object has no attribute 'decode_residual_layout'
+
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:522: AttributeError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3-3-3]" time="5.108"><properties><property name="start_timestamp" value="2026-08-26T23:42:20" /><property name="end_timestamp" value="2026-08-26T23:42:25" /></properties><failure message="AttributeError: 'OptimizedDecoder' object has no attribute 'decode_residual_layout'">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+decode_config = None
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "decode_config",
+        DECODE_CONFIGS,
+        ids=lambda spec: "default" if spec is None else spec.replace(",", "+"),
+    )
+    def test_warmed_prefill_and_traced_decode(mesh_device, layer_idx, decode_config):
+        mode = os.environ.get("QWEN38_OPT_PERF_MODE", "both")
+        if mode not in {"both", "prefill", "decode"}:
+            raise ValueError(f"unsupported QWEN38_OPT_PERF_MODE={mode}")
+        implementation_name, decoder_cls = _implementation()
+        if implementation_name == "fused" and decode_config is not None:
+            raise ValueError("QWEN38_OPT_PERF_DECODE_CONFIGS applies only to the optimized implementation")
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        layer_kwargs = {}
+        if decode_config is not None:
+            layer_kwargs["decode_1d_config"] = decode_config
+        state = H.load_real_layer_state(layer_idx)
+        layer = decoder_cls.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            **layer_kwargs,
+        )
+        del state
+        assert type(layer) is decoder_cls
+        if "QWEN38_OPT_PERF_IMPLEMENTATION" not in os.environ:
+            assert type(layer) is OptimizedDecoder
+        hidden_host, ple_host, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        prefill_kwargs = {}
+        if layer_idx == 1:
+            prefill_kwargs["ple_embeddings"] = _upload(ple_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, PREFILL_SEQ_LEN)
+            prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+        routing = _observe_routing(layer, lambda: layer.prefill_forward(prefill_hidden, **prefill_kwargs))
+        evidence_prefix = _evidence_prefix(layer, implementation_name, decode_config, activation_hash, routing)
+        prefill_ms = None
+        if mode in {"both", "prefill"}:
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}")
+            start = time.perf_counter()
+            with H.ForbidHostFallback():
+                layer.prefill_forward(prefill_hidden, **prefill_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            prefill_ms = (time.perf_counter() - start) * 1000.0
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}_END")
+        if mode == "prefill":
+            print(
+                f"{evidence_prefix} prefill_configs={getattr(layer, 'prefill_configs', {})} "
+                f"prefill_output={getattr(layer, 'prefill_output', 'dram')} layer={layer_idx} "
+                f"prefill_seq={PREFILL_SEQ_LEN} warmed_prefill_ms={prefill_ms:.6f}"
+            )
+            return
+
+        layer.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        current_pos = _upload(
+            torch.tensor([127], dtype=torch.int32), mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if layer_idx == 1:
+            decode_kwargs["ple_embeddings"] = _upload(ple_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+
+&gt;       decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:89: in _observe_routing
+    output = invoke()
+             ^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193: in &lt;lambda&gt;
+    decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:726: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1646: in decode_forward
+    mixed, hyper, injection = self._hyper_mix(hidden_states, "attn_hc")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder.OptimizedDecoder object at 0x752b5ceb5550&gt;
+hyper_input = ttnn.Tensor([[[[-2.1362e-03,  4.3945e-03,  ...,  1.3542e-04, -5.8289e-03]]]], shape=Shape([1, 1, 1, 10240]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+prefix = 'attn_hc'
+
+    def _hyper_mix(self, hyper_input, prefix: str):
+&gt;       if not self._decode_active or self.decode_residual_layout != "width_sharded":
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'OptimizedDecoder' object has no attribute 'decode_residual_layout'
+
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:522: AttributeError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+
+</system-err></testcase></testsuite></testsuites>

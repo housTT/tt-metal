@@ -1,0 +1,538 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="17.352" timestamp="2026-08-26T23:51:23.192710-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3-1-3]" time="7.015"><properties><property name="start_timestamp" value="2026-08-26T23:51:23" /><property name="end_timestamp" value="2026-08-26T23:51:30" /></properties><failure message="RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0&#10;info:&#10;Mask sequence length must be multiple of chunk size, got: 2080 and 64&#10;backtrace:&#10; --- void tt::assert::detail::tt_throw&lt;unsigned long, unsigned long&gt;(char const*, int, char const*, char const*, fmt::v11::fstring&lt;unsigned long const&amp;, unsigned long const&amp;&gt;::t, unsigned long const&amp;, unsigned long const&amp;)&#10; --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&amp;, ttnn::prim::SdpaDecodeInputs const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7bc9574db0e4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x7bc9574ca53f]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x7bc9574bd645]&#10; --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, bool, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;float&gt;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::operations::transformer::SDPAProgramConfig&gt;, std::optional&lt;ttnn::ComputeKernelConfig&gt;, std::optional)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x7bc957b872cc]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x7bc957b869d7]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x7bc957b681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bc99ea2a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bc99ea2a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+decode_config = None
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "decode_config",
+        DECODE_CONFIGS,
+        ids=lambda spec: "default" if spec is None else spec.replace(",", "+"),
+    )
+    def test_warmed_prefill_and_traced_decode(mesh_device, layer_idx, decode_config):
+        mode = os.environ.get("QWEN38_OPT_PERF_MODE", "both")
+        if mode not in {"both", "prefill", "decode"}:
+            raise ValueError(f"unsupported QWEN38_OPT_PERF_MODE={mode}")
+        implementation_name, decoder_cls = _implementation()
+        if implementation_name == "fused" and decode_config is not None:
+            raise ValueError("QWEN38_OPT_PERF_DECODE_CONFIGS applies only to the optimized implementation")
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        layer_kwargs = {}
+        if decode_config is not None:
+            layer_kwargs["decode_1d_config"] = decode_config
+        state = H.load_real_layer_state(layer_idx)
+        layer = decoder_cls.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            **layer_kwargs,
+        )
+        del state
+        assert type(layer) is decoder_cls
+        if "QWEN38_OPT_PERF_IMPLEMENTATION" not in os.environ:
+            assert type(layer) is OptimizedDecoder
+        hidden_host, ple_host, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        prefill_kwargs = {}
+        if layer_idx == 1:
+            prefill_kwargs["ple_embeddings"] = _upload(ple_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, PREFILL_SEQ_LEN)
+            prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+        routing = _observe_routing(layer, lambda: layer.prefill_forward(prefill_hidden, **prefill_kwargs))
+        evidence_prefix = _evidence_prefix(layer, implementation_name, decode_config, activation_hash, routing)
+        prefill_ms = None
+        if mode in {"both", "prefill"}:
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}")
+            start = time.perf_counter()
+            with H.ForbidHostFallback():
+                layer.prefill_forward(prefill_hidden, **prefill_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            prefill_ms = (time.perf_counter() - start) * 1000.0
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}_END")
+        if mode == "prefill":
+            print(
+                f"{evidence_prefix} prefill_configs={getattr(layer, 'prefill_configs', {})} "
+                f"prefill_output={getattr(layer, 'prefill_output', 'dram')} layer={layer_idx} "
+                f"prefill_seq={PREFILL_SEQ_LEN} warmed_prefill_ms={prefill_ms:.6f}"
+            )
+            return
+
+        layer.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        current_pos = _upload(
+            torch.tensor([127], dtype=torch.int32), mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if layer_idx == 1:
+            decode_kwargs["ple_embeddings"] = _upload(ple_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+
+&gt;       decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:89: in _observe_routing
+    output = invoke()
+             ^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193: in &lt;lambda&gt;
+    decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:645: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1652: in decode_forward
+    block = self._qsa_decode(
+models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py:1204: in _qsa_decode
+    attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:607: in _gathered_qsa_attention
+    out = ttnn.transformer.scaled_dot_product_attention_decode(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.transformer.scaled_dot_product_attention_decode', function=&lt;ttnn._ttnn...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 8.5547e-01,  3.3750e+00,  ..., -6.7969e-01, -1.1953e+00],
+               [-7.4609e-01, -1.3281e+00, ...00,  ..., -8.8867e-02,  2.7734e-01]]]], shape=Shape([1, 2, 2080, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE))
+function_kwargs = {'attn_mask': ttnn.Tensor([[[[ 0.0000,  0.0000,  ..., -9984.0000, -9984.0000],
+               [ 0.0000,  0.0000,  ...,...sub_core_grids=std::nullopt, q_chunk_size=0, k_chunk_size=64, exp_approx_mode=false, max_cores_per_head_batch=16), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0
+E               info:
+E               Mask sequence length must be multiple of chunk size, got: 2080 and 64
+E               backtrace:
+E                --- void tt::assert::detail::tt_throw&lt;unsigned long, unsigned long&gt;(char const*, int, char const*, char const*, fmt::v11::fstring&lt;unsigned long const&amp;, unsigned long const&amp;&gt;::t, unsigned long const&amp;, unsigned long const&amp;)
+E                --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&amp;, ttnn::prim::SdpaDecodeInputs const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7bc9574db0e4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x7bc9574ca53f]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x7bc9574bd645]
+E                --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, bool, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;float&gt;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::operations::transformer::SDPAProgramConfig&gt;, std::optional&lt;ttnn::ComputeKernelConfig&gt;, std::optional)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x7bc957b872cc]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x7bc957b869d7]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x7bc957b681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bc99ea2a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bc99ea2a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3-2-3]" time="5.095"><properties><property name="start_timestamp" value="2026-08-26T23:51:30" /><property name="end_timestamp" value="2026-08-26T23:51:35" /></properties><failure message="RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0&#10;info:&#10;Mask sequence length must be multiple of chunk size, got: 2080 and 64&#10;backtrace:&#10; --- void tt::assert::detail::tt_throw&lt;unsigned long, unsigned long&gt;(char const*, int, char const*, char const*, fmt::v11::fstring&lt;unsigned long const&amp;, unsigned long const&amp;&gt;::t, unsigned long const&amp;, unsigned long const&amp;)&#10; --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&amp;, ttnn::prim::SdpaDecodeInputs const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7bc9574db0e4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x7bc9574ca53f]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x7bc9574bd645]&#10; --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, bool, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;float&gt;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::operations::transformer::SDPAProgramConfig&gt;, std::optional&lt;ttnn::ComputeKernelConfig&gt;, std::optional)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x7bc957b872cc]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x7bc957b869d7]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x7bc957b681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bc99ea2a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bc99ea2a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+decode_config = None
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "decode_config",
+        DECODE_CONFIGS,
+        ids=lambda spec: "default" if spec is None else spec.replace(",", "+"),
+    )
+    def test_warmed_prefill_and_traced_decode(mesh_device, layer_idx, decode_config):
+        mode = os.environ.get("QWEN38_OPT_PERF_MODE", "both")
+        if mode not in {"both", "prefill", "decode"}:
+            raise ValueError(f"unsupported QWEN38_OPT_PERF_MODE={mode}")
+        implementation_name, decoder_cls = _implementation()
+        if implementation_name == "fused" and decode_config is not None:
+            raise ValueError("QWEN38_OPT_PERF_DECODE_CONFIGS applies only to the optimized implementation")
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        layer_kwargs = {}
+        if decode_config is not None:
+            layer_kwargs["decode_1d_config"] = decode_config
+        state = H.load_real_layer_state(layer_idx)
+        layer = decoder_cls.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            **layer_kwargs,
+        )
+        del state
+        assert type(layer) is decoder_cls
+        if "QWEN38_OPT_PERF_IMPLEMENTATION" not in os.environ:
+            assert type(layer) is OptimizedDecoder
+        hidden_host, ple_host, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        prefill_kwargs = {}
+        if layer_idx == 1:
+            prefill_kwargs["ple_embeddings"] = _upload(ple_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, PREFILL_SEQ_LEN)
+            prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+        routing = _observe_routing(layer, lambda: layer.prefill_forward(prefill_hidden, **prefill_kwargs))
+        evidence_prefix = _evidence_prefix(layer, implementation_name, decode_config, activation_hash, routing)
+        prefill_ms = None
+        if mode in {"both", "prefill"}:
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}")
+            start = time.perf_counter()
+            with H.ForbidHostFallback():
+                layer.prefill_forward(prefill_hidden, **prefill_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            prefill_ms = (time.perf_counter() - start) * 1000.0
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}_END")
+        if mode == "prefill":
+            print(
+                f"{evidence_prefix} prefill_configs={getattr(layer, 'prefill_configs', {})} "
+                f"prefill_output={getattr(layer, 'prefill_output', 'dram')} layer={layer_idx} "
+                f"prefill_seq={PREFILL_SEQ_LEN} warmed_prefill_ms={prefill_ms:.6f}"
+            )
+            return
+
+        layer.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        current_pos = _upload(
+            torch.tensor([127], dtype=torch.int32), mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if layer_idx == 1:
+            decode_kwargs["ple_embeddings"] = _upload(ple_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+
+&gt;       decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:89: in _observe_routing
+    output = invoke()
+             ^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193: in &lt;lambda&gt;
+    decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:645: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1652: in decode_forward
+    block = self._qsa_decode(
+models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py:1204: in _qsa_decode
+    attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:607: in _gathered_qsa_attention
+    out = ttnn.transformer.scaled_dot_product_attention_decode(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.transformer.scaled_dot_product_attention_decode', function=&lt;ttnn._ttnn...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 8.5547e-01,  3.3750e+00,  ..., -6.7969e-01, -1.1953e+00],
+               [-7.4609e-01, -1.3281e+00, ...00,  ..., -8.8867e-02,  2.7734e-01]]]], shape=Shape([1, 2, 2080, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE))
+function_kwargs = {'attn_mask': ttnn.Tensor([[[[ 0.0000,  0.0000,  ..., -9984.0000, -9984.0000],
+               [ 0.0000,  0.0000,  ...,...sub_core_grids=std::nullopt, q_chunk_size=0, k_chunk_size=64, exp_approx_mode=false, max_cores_per_head_batch=16), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0
+E               info:
+E               Mask sequence length must be multiple of chunk size, got: 2080 and 64
+E               backtrace:
+E                --- void tt::assert::detail::tt_throw&lt;unsigned long, unsigned long&gt;(char const*, int, char const*, char const*, fmt::v11::fstring&lt;unsigned long const&amp;, unsigned long const&amp;&gt;::t, unsigned long const&amp;, unsigned long const&amp;)
+E                --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&amp;, ttnn::prim::SdpaDecodeInputs const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7bc9574db0e4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x7bc9574ca53f]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x7bc9574bd645]
+E                --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, bool, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;float&gt;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::operations::transformer::SDPAProgramConfig&gt;, std::optional&lt;ttnn::ComputeKernelConfig&gt;, std::optional)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x7bc957b872cc]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x7bc957b869d7]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x7bc957b681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bc99ea2a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bc99ea2a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3-3-3]" time="5.094"><properties><property name="start_timestamp" value="2026-08-26T23:51:35" /><property name="end_timestamp" value="2026-08-26T23:51:40" /></properties><failure message="RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0&#10;info:&#10;Mask sequence length must be multiple of chunk size, got: 2080 and 64&#10;backtrace:&#10; --- void tt::assert::detail::tt_throw&lt;unsigned long, unsigned long&gt;(char const*, int, char const*, char const*, fmt::v11::fstring&lt;unsigned long const&amp;, unsigned long const&amp;&gt;::t, unsigned long const&amp;, unsigned long const&amp;)&#10; --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&amp;, ttnn::prim::SdpaDecodeInputs const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7bc9574db0e4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x7bc9574ca53f]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x7bc9574bd645]&#10; --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, bool, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;float&gt;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::operations::transformer::SDPAProgramConfig&gt;, std::optional&lt;ttnn::ComputeKernelConfig&gt;, std::optional)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x7bc957b872cc]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x7bc957b869d7]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x7bc957b681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bc99ea2a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bc99ea2a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]">mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+decode_config = None
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "decode_config",
+        DECODE_CONFIGS,
+        ids=lambda spec: "default" if spec is None else spec.replace(",", "+"),
+    )
+    def test_warmed_prefill_and_traced_decode(mesh_device, layer_idx, decode_config):
+        mode = os.environ.get("QWEN38_OPT_PERF_MODE", "both")
+        if mode not in {"both", "prefill", "decode"}:
+            raise ValueError(f"unsupported QWEN38_OPT_PERF_MODE={mode}")
+        implementation_name, decoder_cls = _implementation()
+        if implementation_name == "fused" and decode_config is not None:
+            raise ValueError("QWEN38_OPT_PERF_DECODE_CONFIGS applies only to the optimized implementation")
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        layer_kwargs = {}
+        if decode_config is not None:
+            layer_kwargs["decode_1d_config"] = decode_config
+        state = H.load_real_layer_state(layer_idx)
+        layer = decoder_cls.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            **layer_kwargs,
+        )
+        del state
+        assert type(layer) is decoder_cls
+        if "QWEN38_OPT_PERF_IMPLEMENTATION" not in os.environ:
+            assert type(layer) is OptimizedDecoder
+        hidden_host, ple_host, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        prefill_kwargs = {}
+        if layer_idx == 1:
+            prefill_kwargs["ple_embeddings"] = _upload(ple_host[:, :, :PREFILL_SEQ_LEN], mesh_device)
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, PREFILL_SEQ_LEN)
+            prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+        routing = _observe_routing(layer, lambda: layer.prefill_forward(prefill_hidden, **prefill_kwargs))
+        evidence_prefix = _evidence_prefix(layer, implementation_name, decode_config, activation_hash, routing)
+        prefill_ms = None
+        if mode in {"both", "prefill"}:
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}")
+            start = time.perf_counter()
+            with H.ForbidHostFallback():
+                layer.prefill_forward(prefill_hidden, **prefill_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            prefill_ms = (time.perf_counter() - start) * 1000.0
+            signpost(f"OPT_PERF_PREFILL_L{layer_idx}_END")
+        if mode == "prefill":
+            print(
+                f"{evidence_prefix} prefill_configs={getattr(layer, 'prefill_configs', {})} "
+                f"prefill_output={getattr(layer, 'prefill_output', 'dram')} layer={layer_idx} "
+                f"prefill_seq={PREFILL_SEQ_LEN} warmed_prefill_ms={prefill_ms:.6f}"
+            )
+            return
+
+        layer.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        current_pos = _upload(
+            torch.tensor([127], dtype=torch.int32), mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if layer_idx == 1:
+            decode_kwargs["ple_embeddings"] = _upload(ple_host[:, :, PREFILL_SEQ_LEN:], mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+
+&gt;       decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:89: in _observe_routing
+    output = invoke()
+             ^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py:193: in &lt;lambda&gt;
+    decode_routing = _observe_routing(layer, lambda: layer.decode_forward(decode_hidden, **decode_kwargs))
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:645: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1652: in decode_forward
+    block = self._qsa_decode(
+models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py:1204: in _qsa_decode
+    attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/optimized_decoder.py:607: in _gathered_qsa_attention
+    out = ttnn.transformer.scaled_dot_product_attention_decode(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.transformer.scaled_dot_product_attention_decode', function=&lt;ttnn._ttnn...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 8.5547e-01,  3.3750e+00,  ..., -6.7969e-01, -1.1953e+00],
+               [-7.4609e-01, -1.3281e+00, ...00,  ..., -8.8867e-02,  2.7734e-01]]]], shape=Shape([1, 2, 2080, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE))
+function_kwargs = {'attn_mask': ttnn.Tensor([[[[ 0.0000,  0.0000,  ..., -9984.0000, -9984.0000],
+               [ 0.0000,  0.0000,  ...,...sub_core_grids=std::nullopt, q_chunk_size=0, k_chunk_size=64, exp_approx_mode=false, max_cores_per_head_batch=16), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0
+E               info:
+E               Mask sequence length must be multiple of chunk size, got: 2080 and 64
+E               backtrace:
+E                --- void tt::assert::detail::tt_throw&lt;unsigned long, unsigned long&gt;(char const*, int, char const*, char const*, fmt::v11::fstring&lt;unsigned long const&amp;, unsigned long const&amp;&gt;::t, unsigned long const&amp;, unsigned long const&amp;)
+E                --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&amp;, ttnn::prim::SdpaDecodeInputs const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7bc9574db0e4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x7bc9574ca53f]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x7bc9574bd645]
+E                --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, bool, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;ttnn::Tensor const&gt; const&amp;, std::optional&lt;float&gt;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::operations::transformer::SDPAProgramConfig&gt;, std::optional&lt;ttnn::ComputeKernelConfig&gt;, std::optional)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x7bc957b872cc]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x7bc957b869d7]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x7bc957b681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7bc99ea2a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7bc99ea2a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

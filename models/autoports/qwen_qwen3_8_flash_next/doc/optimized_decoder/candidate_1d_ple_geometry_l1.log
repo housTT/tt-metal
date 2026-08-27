@@ -1,0 +1,267 @@
+2026-08-26 21:25:08.474 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1] 2026-08-26 21:25:09.272 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-08-26 21:25:09.272 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-26 21:25:09.272 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-26 21:25:09.272 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-26 21:25:09.275 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-26 21:25:09.275 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-26 21:25:09.275 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-26 21:25:09.295 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:173)
+2026-08-26 21:25:09.295 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-26 21:25:09.295 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-08-26 21:25:09.295 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-26 21:25:09.295 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:203)
+2026-08-26 21:25:09.295 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-08-26 21:25:09.367 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-08-26 21:25:09.421 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-08-26 21:25:09.422 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-26 21:25:09.422 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-26 21:25:09.422 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:939)
+2026-08-26 21:25:09.422 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:997)
+2026-08-26 21:25:09.422 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1214)
+2026-08-26 21:25:09.422 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-08-26 21:25:09.422 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-08-26 21:25:09.422 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+2026-08-26 21:25:17.741 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-26 21:25:17.827 | INFO     | tracy:signpost:49 - OPT_PERF_PREFILL_L1
+2026-08-26 21:25:17.846 | INFO     | tracy:signpost:49 - OPT_PERF_PREFILL_L1_END
+2026-08-26 21:25:18.940 | INFO     | tracy:signpost:49 - OPT_PERF_DECODE_L1
+2026-08-26 21:25:18.975 | INFO     | tracy:signpost:49 - OPT_PERF_DECODE_L1_END
+OPT_PERFEVIDENCE policy=expert_bfp4_lofi_g20d40 shared=bfp8_lofi gdn=bfp8_hifi2 qsa_input=bf16_hifi4 attention_output=bf16_hifi4 cache=bf16 decode_1d={'gdn_qkv_b_a': 55, 'in_proj_z': 48, 'gdn_out': 20, 'attn_hc_down_inject': 11, 'mlp_hc_down_inject': 11, 'moe_input': 20, 'ple_key_value': 50} decode_1d_output=l1 layer=1 prefill_seq=128 warmed_prefill_ms=19.475220 traced_decode_ms=3.531111 decode_replays=10
+PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+8.90s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+0.96s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+============================== 1 passed in 9.90s ===============================
+nanobind: leaked 2 instances!
+ - leaked instance 0x7b5dfc3125a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7b5dfc6f0ee8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "to_json"
+ - leaked function "contains"
+ - leaked function "to_json"
+ - leaked function "storage_type"
+ - leaked function ""
+ - leaked function "set_program_cache_misses_allowed"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-26 21:25:20.540 | info     |    BuildKernels | JIT cache stats: 792/810 hits (97.8%) [792 cached, 277 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-26 21:25:20.540 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-26 21:25:20.544 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-08-26 21:25:20.544 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-08-26 21:25:20.646 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-08-26 21:25:20.646 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-08-26 21:25:20.646 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)
+2026-08-26 21:25:22.471 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1] 2026-08-26 21:25:23.283 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-08-26 21:25:23.283 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-26 21:25:23.283 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-26 21:25:23.283 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-26 21:25:23.286 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-26 21:25:23.286 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-26 21:25:23.286 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-26 21:25:23.306 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:173)
+2026-08-26 21:25:23.306 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-26 21:25:23.306 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-08-26 21:25:23.306 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-26 21:25:23.306 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:203)
+2026-08-26 21:25:23.306 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-08-26 21:25:23.369 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-08-26 21:25:23.425 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-08-26 21:25:23.425 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-26 21:25:23.425 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-26 21:25:23.426 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:939)
+2026-08-26 21:25:23.426 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:997)
+2026-08-26 21:25:23.426 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1214)
+2026-08-26 21:25:23.426 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-08-26 21:25:23.426 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-08-26 21:25:23.426 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+2026-08-26 21:25:31.094 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-26 21:25:31.177 | INFO     | tracy:signpost:49 - OPT_PERF_PREFILL_L1
+2026-08-26 21:25:31.196 | INFO     | tracy:signpost:49 - OPT_PERF_PREFILL_L1_END
+2026-08-26 21:25:31.628 | INFO     | tracy:signpost:49 - OPT_PERF_DECODE_L1
+2026-08-26 21:25:31.664 | INFO     | tracy:signpost:49 - OPT_PERF_DECODE_L1_END
+OPT_PERFEVIDENCE policy=expert_bfp4_lofi_g20d40 shared=bfp8_lofi gdn=bfp8_hifi2 qsa_input=bf16_hifi4 attention_output=bf16_hifi4 cache=bf16 decode_1d={'gdn_qkv_b_a': 55, 'in_proj_z': 48, 'gdn_out': 20, 'attn_hc_down_inject': 11, 'mlp_hc_down_inject': 11, 'moe_input': 20, 'ple_key_value': 80} decode_1d_output=l1 layer=1 prefill_seq=128 warmed_prefill_ms=19.357336 traced_decode_ms=3.535008 decode_replays=10
+PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+7.59s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+0.95s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+============================== 1 passed in 8.58s ===============================
+nanobind: leaked 2 instances!
+ - leaked instance 0x705e8732cf48 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x705e86d625c8 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "sfpu_inf"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "get_optimal_dram_bank_to_logical_worker_assignment"
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function "get_system_mesh_id"
+ - leaked function "__ne__"
+ - leaked function "num_cores"
+ - leaked function "compute_program_hash"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-26 21:25:33.256 | info     |    BuildKernels | JIT cache stats: 805/810 hits (99.4%) [805 cached, 277 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-26 21:25:33.256 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-26 21:25:33.261 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-08-26 21:25:33.261 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-08-26 21:25:33.347 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-08-26 21:25:33.347 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-08-26 21:25:33.347 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)
+2026-08-26 21:25:35.181 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1] 2026-08-26 21:25:35.980 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:227)
+2026-08-26 21:25:35.980 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-08-26 21:25:35.980 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-08-26 21:25:35.980 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-08-26 21:25:35.983 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:575)
+2026-08-26 21:25:35.983 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-08-26 21:25:35.983 | warning  |             UMD | Board 0x46131924022 has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1238)
+2026-08-26 21:25:36.003 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:173)
+2026-08-26 21:25:36.003 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-08-26 21:25:36.003 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-08-26 21:25:36.003 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-08-26 21:25:36.003 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:203)
+2026-08-26 21:25:36.003 | info     |             UMD | Starting devices in cluster (cluster.cpp:1188)
+2026-08-26 21:25:36.071 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1196)
+2026-08-26 21:25:36.127 | info     |     Distributed | Using custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-08-26 21:25:36.127 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-08-26 21:25:36.127 | info     |          Fabric | Loaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-08-26 21:25:36.127 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:939)
+2026-08-26 21:25:36.127 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:997)
+2026-08-26 21:25:36.127 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1214)
+2026-08-26 21:25:36.127 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-08-26 21:25:36.127 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3341)
+2026-08-26 21:25:36.127 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3349)
+2026-08-26 21:25:43.988 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-26 21:25:44.070 | INFO     | tracy:signpost:49 - OPT_PERF_PREFILL_L1
+2026-08-26 21:25:44.090 | INFO     | tracy:signpost:49 - OPT_PERF_PREFILL_L1_END
+2026-08-26 21:25:44.516 | INFO     | tracy:signpost:49 - OPT_PERF_DECODE_L1
+2026-08-26 21:25:44.551 | INFO     | tracy:signpost:49 - OPT_PERF_DECODE_L1_END
+OPT_PERFEVIDENCE policy=expert_bfp4_lofi_g20d40 shared=bfp8_lofi gdn=bfp8_hifi2 qsa_input=bf16_hifi4 attention_output=bf16_hifi4 cache=bf16 decode_1d={'gdn_qkv_b_a': 55, 'in_proj_z': 48, 'gdn_out': 20, 'attn_hc_down_inject': 11, 'mlp_hc_down_inject': 11, 'moe_input': 20, 'ple_key_value': 100} decode_1d_output=l1 layer=1 prefill_seq=128 warmed_prefill_ms=19.367535 traced_decode_ms=3.528272 decode_replays=10
+PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+7.77s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+0.95s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_optimized_decoder_perf.py::test_warmed_prefill_and_traced_decode[1]
+============================== 1 passed in 8.77s ===============================
+nanobind: leaked 2 instances!
+ - leaked instance 0x7366f07025a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7366f0ccd068 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "device_coords"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "device"
+ - leaked function "is_allocated"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-26 21:25:46.092 | info     |    BuildKernels | JIT cache stats: 805/810 hits (99.4%) [805 cached, 277 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-08-26 21:25:46.092 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-08-26 21:25:46.097 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:547)
+2026-08-26 21:25:46.097 | info     |             UMD | Closing devices in cluster (cluster.cpp:1201)
+2026-08-26 21:25:46.249 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1210)
+2026-08-26 21:25:46.249 | info     |             UMD | Cluster destructor started. (cluster.cpp:916)
+2026-08-26 21:25:46.249 | info     |             UMD | Cluster destructor completed. (cluster.cpp:919)

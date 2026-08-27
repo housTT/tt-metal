@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="0.806" timestamp="2026-08-27T01:31:14.148418-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf" name="test_warmed_prefill_and_traced_decode[default-3]" time="0.461"><properties><property name="start_timestamp" value="2026-08-27T01:31:14" /><property name="end_timestamp" value="2026-08-27T01:31:14" /></properties><error message="failed on setup with &quot;RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:259: tt::exception&#10;info:&#10;Failed to generate binaries for cq_dispatch_subordinate TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/jit_build/build.cpp:67: tt::exception&#10;info:&#10;ncrisc build failed. Log: In file included from ../kernel_includes.hpp:1,&#10;                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:22:&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:47:48: error: 'COMPLETION_COUNTER_OFFSET' was not declared in this scope&#10;   47 | constexpr uint32_t completion_counter_offset = COMPLETION_COUNTER_OFFSET;&#10;      |                                                ^~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:56:34: error: 'dispatch_telemetry_types' in namespace 'tt::tt_metal' does not name a type&#10;   56 | volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchTelemetryControl* dispatch_telemetry_control =&#10;      |                                  ^~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void cb_acquire_pages_dispatch_s(uint32_t)':&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:318:85: error: 'programmable_core_type' was not declared in this scope; did you mean 'ProgrammableCoreType'? [-Wtemplate-body]&#10;  318 |     volatile tt_l1_ptr uint32_t* sem_addr = uncached_l1_ptr&lt;uint32_t&gt;(get_semaphore&lt;programmable_core_type&gt;(sem_id));&#10;      |                                                                                     ^~~~~~~~~~~~~~~~~~~~~~&#10;      |                                                                                     ProgrammableCoreType&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void cb_release_pages_dispatch_s(uint32_t)':&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:341:76: error: 'programmable_core_type' was not declared in this scope; did you mean 'ProgrammableCoreType'? [-Wtemplate-body]&#10;  341 |     dispatch_s_noc_semaphore_inc(get_noc_addr_helper(noc_xy, get_semaphore&lt;programmable_core_type&gt;(sem_id)), n, my_noc_index);&#10;      |                                                                            ^~~~~~~~~~~~~~~~~~~~~~&#10;      |                                                                            ProgrammableCoreType&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void process_go_signal_mcast_cmd()':&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:405:57: error: no matching function for call to 'cq_noc_async_write_init_state&lt;CQ_NOC_SNDL, true&gt;(uint32_t, uint64_t&amp;, unsigned int, uint32_t&amp;, const uint8_t&amp;)'&#10;  405 |         cq_noc_async_write_init_state&lt;CQ_NOC_SNDL, true&gt;(&#10;      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^&#10;  406 |             static_cast&lt;uint32_t&gt;(reinterpret_cast&lt;uintptr_t&gt;(&amp;aligned_go_signal_storage[storage_offset])),&#10;      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;  407 |             dst_noc_addr_multicast,&#10;      |             ~~~~~~~~~~~~~~~~~~~~~~~                      &#10;  408 |             sizeof(uint32_t),&#10;      |             ~~~~~~~~~~~~~~~~~                            &#10;  409 |             num_dests,&#10;      |             ~~~~~~~~~~                                   &#10;  410 |             noc_index);&#10;      |             ~~~~~~~~~~                                   &#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:405:57: note: there is 1 candidate&#10;In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:17:&#10;/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/dispatch/kernels/cq_common.hpp:179:19: note: candidate 1: 'template&lt;CQNocFlags flags, bool mcast, bool linked, long unsigned int cmd_buf&gt; void cq_noc_async_write_init_state(uint32_t, uint64_t, uint32_t, uint8_t)'&#10;  179 | FORCE_INLINE void cq_noc_async_write_init_state(&#10;      |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/dispatch/kernels/cq_common.hpp:179:19: note: candidate expects 4 arguments, 5 provided&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:460:87: error: ISO C++ forbids declaration of 'type name' with no type [-fpermissive]&#10;  460 |             reinterpret_cast&lt;volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchCoreTelemetry*&gt;(&#10;      |                                                                                       ^~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:460:49: error: expected '&gt;'&#10;  460 |             reinterpret_cast&lt;volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchCoreTelemetry*&gt;(&#10;      |                                                 ^~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:460:13: error: invalid cast from type 'uintptr_t' {aka 'unsigned int'} to type 'int'&#10;  460 |             reinterpret_cast&lt;volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchCoreTelemetry*&gt;(&#10;      |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;  461 |                 dispatch_telemetry_base);&#10;      |                 ~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:463:9: error: 'dispatch_telemetry_control' was not declared in this scope; did you mean 'dispatch_telemetry_control_addr'?&#10;  463 |         dispatch_telemetry_control-&gt;launched_work_sequence_counter[stream_index] = ++local_launch_seq_counter;&#10;      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~&#10;      |         dispatch_telemetry_control_addr&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void merge_dispatch_d_noc_counter_deltas()':&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:70: error: 'programmable_core_type' was not declared in this scope; did you mean 'ProgrammableCoreType'?&#10;  544 |         reinterpret_cast&lt;volatile tt_l1_ptr uint32_t*&gt;(get_semaphore&lt;programmable_core_type&gt;(dispatch_d_shutdown_sem_id));&#10;      |                                                                      ^~~~~~~~~~~~~~~~~~~~~~&#10;      |                                                                      ProgrammableCoreType&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:93: error: no matching function for call to 'get_semaphore&lt;&lt;expression error&gt; &gt;(const uint32_t&amp;)'&#10;  544 |         reinterpret_cast&lt;volatile tt_l1_ptr uint32_t*&gt;(get_semaphore&lt;programmable_core_type&gt;(dispatch_d_shutdown_sem_id));&#10;      |                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:93: note: there is 1 candidate&#10;In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,&#10;                 from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:17:&#10;/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:1488:24: note: candidate 1: 'template&lt;ProgrammableCoreType type&gt; uintptr_t get_semaphore(uint32_t)'&#10; 1488 | FORCE_INLINE uintptr_t get_semaphore(uint32_t semaphore_id) {&#10;      |                        ^~~~~~~~~~~~~&#10;/home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:1488:24: note: template argument deduction/substitution failed:&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:93: error: template argument 1 is invalid&#10;  544 |         reinterpret_cast&lt;volatile tt_l1_ptr uint32_t*&gt;(get_semaphore&lt;programmable_core_type&gt;(dispatch_d_shutdown_sem_id));&#10;      |                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void kernel_main()':&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:633:62: error: 'CQ_DISPATCH_CMD_RT_PROFILER_FLUSH' was not declared in this scope&#10;  633 |                                          cmd-&gt;base.cmd_id == CQ_DISPATCH_CMD_RT_PROFILER_FLUSH;&#10;      |                                                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:656:22: error: 'dispatch_telemetry_control' was not declared in this scope; did you mean 'dispatch_telemetry_control_addr'?&#10;  656 |                     &amp;dispatch_telemetry_control-&gt;sub_device_worker_counts_update,&#10;      |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~&#10;      |                      dispatch_telemetry_control_addr&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:663:18: error: 'CQ_DISPATCH_CMD_RT_PROFILER_FLUSH' was not declared in this scope&#10;  663 |             case CQ_DISPATCH_CMD_RT_PROFILER_FLUSH:&#10;      |                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:665:39: error: 'volatile struct CQDispatchCmd' has no member named 'rt_profiler_flush'&#10;  665 |                 wait_for_workers(cmd-&gt;rt_profiler_flush.wait_count, cmd-&gt;rt_profiler_flush.wait_stream);&#10;      |                                       ^~~~~~~~~~~~~~~~~&#10;/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:665:74: error: 'volatile struct CQDispatchCmd' has no member named 'rt_profiler_flush'&#10;  665 |                 wait_for_workers(cmd-&gt;rt_profiler_flush.wait_count, cmd-&gt;rt_profiler_flush.wait_stream);&#10;      |                                                                          ^~~~~~~~~~~~~~~~~&#10;&#10;backtrace:&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x17e7b39) [0x7347065e7b39]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xae2b40) [0x7347044e2b40]&#10; --- tt::tt_metal::JitBuildState::compile_one(std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const&amp;, tt::tt_metal::JitBuildSettings const*, unsigned long) const&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe9c4) [0x7347044fe9c4]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe969) [0x7347044fe969]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b807) [0x73470418b807]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0xa1fb3) [0x73474d0a1fb3]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b672) [0x73470418b672]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe7a1) [0x7347044fe7a1]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x917255) [0x734704317255]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915d71) [0x734704315d71]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915269) [0x734704315269]&#10; --- /lib/x86_64-linux-gnu/libstdc++.so.6(+0xf5c79) [0x734748cf5c79]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x9cb84) [0x73474d09cb84]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x129d6c) [0x73474d129d6c]&#10;&#10;backtrace:&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x92af79) [0x73470432af79]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x8fea59) [0x7347042fea59]&#10; --- tt::tt_metal::JitBuildCache::build_once(unsigned long, std::function&lt;void ()&gt; const&amp;)&#10; --- tt::tt_metal::jit_build_once(unsigned long, std::function&lt;void ()&gt; const&amp;)&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x8fe589) [0x7347042fe589]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe9c4) [0x7347044fe9c4]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe969) [0x7347044fe969]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b807) [0x73470418b807]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0xa1fb3) [0x73474d0a1fb3]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b672) [0x73470418b672]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe7a1) [0x7347044fe7a1]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x917255) [0x734704317255]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915d71) [0x734704315d71]&#10; --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915269) [0x734704315269]&#10; --- /lib/x86_64-linux-gnu/libstdc++.so.6(+0xf5c79) [0x734748cf5c79]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x9cb84) [0x73474d09cb84]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x129d6c) [0x73474d129d6c]&quot;">@pytest.fixture
+    def mesh_device():
+&gt;       mesh = ttnn.open_mesh_device(
+            ttnn.MeshShape(1, 1),
+            # TTNN auto-sizes trace storage from zero.  A fixed 768 MiB reservation
+            # needlessly makes the exact 262143-token PLE concat miss DRAM by
+            # roughly 171 MiB while providing no benefit to these layer traces.
+            trace_region_size=0,
+            physical_device_ids=[0],
+        )
+
+models/autoports/qwen_qwen3_8_flash_next/tests/conftest.py:28:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_shape = MeshShape([1, 1]), l1_small_size = 0, trace_region_size = 0
+num_command_queues = 1, dispatch_core_config = None, offset = None
+physical_device_ids = [0], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+
+        """
+&gt;       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/program/program.cpp:259: tt::exception
+E       info:
+E       Failed to generate binaries for cq_dispatch_subordinate TT_THROW @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/jit_build/build.cpp:67: tt::exception
+E       info:
+E       ncrisc build failed. Log: In file included from ../kernel_includes.hpp:1,
+E                        from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:22:
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:47:48: error: 'COMPLETION_COUNTER_OFFSET' was not declared in this scope
+E          47 | constexpr uint32_t completion_counter_offset = COMPLETION_COUNTER_OFFSET;
+E             |                                                ^~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:56:34: error: 'dispatch_telemetry_types' in namespace 'tt::tt_metal' does not name a type
+E          56 | volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchTelemetryControl* dispatch_telemetry_control =
+E             |                                  ^~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void cb_acquire_pages_dispatch_s(uint32_t)':
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:318:85: error: 'programmable_core_type' was not declared in this scope; did you mean 'ProgrammableCoreType'? [-Wtemplate-body]
+E         318 |     volatile tt_l1_ptr uint32_t* sem_addr = uncached_l1_ptr&lt;uint32_t&gt;(get_semaphore&lt;programmable_core_type&gt;(sem_id));
+E             |                                                                                     ^~~~~~~~~~~~~~~~~~~~~~
+E             |                                                                                     ProgrammableCoreType
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void cb_release_pages_dispatch_s(uint32_t)':
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:341:76: error: 'programmable_core_type' was not declared in this scope; did you mean 'ProgrammableCoreType'? [-Wtemplate-body]
+E         341 |     dispatch_s_noc_semaphore_inc(get_noc_addr_helper(noc_xy, get_semaphore&lt;programmable_core_type&gt;(sem_id)), n, my_noc_index);
+E             |                                                                            ^~~~~~~~~~~~~~~~~~~~~~
+E             |                                                                            ProgrammableCoreType
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void process_go_signal_mcast_cmd()':
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:405:57: error: no matching function for call to 'cq_noc_async_write_init_state&lt;CQ_NOC_SNDL, true&gt;(uint32_t, uint64_t&amp;, unsigned int, uint32_t&amp;, const uint8_t&amp;)'
+E         405 |         cq_noc_async_write_init_state&lt;CQ_NOC_SNDL, true&gt;(
+E             |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E         406 |             static_cast&lt;uint32_t&gt;(reinterpret_cast&lt;uintptr_t&gt;(&amp;aligned_go_signal_storage[storage_offset])),
+E             |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E         407 |             dst_noc_addr_multicast,
+E             |             ~~~~~~~~~~~~~~~~~~~~~~~
+E         408 |             sizeof(uint32_t),
+E             |             ~~~~~~~~~~~~~~~~~
+E         409 |             num_dests,
+E             |             ~~~~~~~~~~
+E         410 |             noc_index);
+E             |             ~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:405:57: note: there is 1 candidate
+E       In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:17:
+E       /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/dispatch/kernels/cq_common.hpp:179:19: note: candidate 1: 'template&lt;CQNocFlags flags, bool mcast, bool linked, long unsigned int cmd_buf&gt; void cq_noc_async_write_init_state(uint32_t, uint64_t, uint32_t, uint8_t)'
+E         179 | FORCE_INLINE void cq_noc_async_write_init_state(
+E             |                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/impl/dispatch/kernels/cq_common.hpp:179:19: note: candidate expects 4 arguments, 5 provided
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:460:87: error: ISO C++ forbids declaration of 'type name' with no type [-fpermissive]
+E         460 |             reinterpret_cast&lt;volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchCoreTelemetry*&gt;(
+E             |                                                                                       ^~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:460:49: error: expected '&gt;'
+E         460 |             reinterpret_cast&lt;volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchCoreTelemetry*&gt;(
+E             |                                                 ^~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:460:13: error: invalid cast from type 'uintptr_t' {aka 'unsigned int'} to type 'int'
+E         460 |             reinterpret_cast&lt;volatile tt_l1_ptr tt::tt_metal::dispatch_telemetry_types::DispatchCoreTelemetry*&gt;(
+E             |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E         461 |                 dispatch_telemetry_base);
+E             |                 ~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:463:9: error: 'dispatch_telemetry_control' was not declared in this scope; did you mean 'dispatch_telemetry_control_addr'?
+E         463 |         dispatch_telemetry_control-&gt;launched_work_sequence_counter[stream_index] = ++local_launch_seq_counter;
+E             |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+E             |         dispatch_telemetry_control_addr
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void merge_dispatch_d_noc_counter_deltas()':
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:70: error: 'programmable_core_type' was not declared in this scope; did you mean 'ProgrammableCoreType'?
+E         544 |         reinterpret_cast&lt;volatile tt_l1_ptr uint32_t*&gt;(get_semaphore&lt;programmable_core_type&gt;(dispatch_d_shutdown_sem_id));
+E             |                                                                      ^~~~~~~~~~~~~~~~~~~~~~
+E             |                                                                      ProgrammableCoreType
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:93: error: no matching function for call to 'get_semaphore&lt;&lt;expression error&gt; &gt;(const uint32_t&amp;)'
+E         544 |         reinterpret_cast&lt;volatile tt_l1_ptr uint32_t*&gt;(get_semaphore&lt;programmable_core_type&gt;(dispatch_d_shutdown_sem_id));
+E             |                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:93: note: there is 1 candidate
+E       In file included from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,
+E                        from /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:17:
+E       /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:1488:24: note: candidate 1: 'template&lt;ProgrammableCoreType type&gt; uintptr_t get_semaphore(uint32_t)'
+E        1488 | FORCE_INLINE uintptr_t get_semaphore(uint32_t semaphore_id) {
+E             |                        ^~~~~~~~~~~~~
+E       /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:1488:24: note: template argument deduction/substitution failed:
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:544:93: error: template argument 1 is invalid
+E         544 |         reinterpret_cast&lt;volatile tt_l1_ptr uint32_t*&gt;(get_semaphore&lt;programmable_core_type&gt;(dispatch_d_shutdown_sem_id));
+E             |                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp: In function 'void kernel_main()':
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:633:62: error: 'CQ_DISPATCH_CMD_RT_PROFILER_FLUSH' was not declared in this scope
+E         633 |                                          cmd-&gt;base.cmd_id == CQ_DISPATCH_CMD_RT_PROFILER_FLUSH;
+E             |                                                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:656:22: error: 'dispatch_telemetry_control' was not declared in this scope; did you mean 'dispatch_telemetry_control_addr'?
+E         656 |                     &amp;dispatch_telemetry_control-&gt;sub_device_worker_counts_update,
+E             |                      ^~~~~~~~~~~~~~~~~~~~~~~~~~
+E             |                      dispatch_telemetry_control_addr
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:663:18: error: 'CQ_DISPATCH_CMD_RT_PROFILER_FLUSH' was not declared in this scope
+E         663 |             case CQ_DISPATCH_CMD_RT_PROFILER_FLUSH:
+E             |                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:665:39: error: 'volatile struct CQDispatchCmd' has no member named 'rt_profiler_flush'
+E         665 |                 wait_for_workers(cmd-&gt;rt_profiler_flush.wait_count, cmd-&gt;rt_profiler_flush.wait_stream);
+E             |                                       ^~~~~~~~~~~~~~~~~
+E       /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/dispatch/kernels/cq_dispatch_subordinate.cpp:665:74: error: 'volatile struct CQDispatchCmd' has no member named 'rt_profiler_flush'
+E         665 |                 wait_for_workers(cmd-&gt;rt_profiler_flush.wait_count, cmd-&gt;rt_profiler_flush.wait_stream);
+E             |                                                                          ^~~~~~~~~~~~~~~~~
+E
+E       backtrace:
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/ttnn/_ttnncpp.so(+0x17e7b39) [0x7347065e7b39]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xae2b40) [0x7347044e2b40]
+E        --- tt::tt_metal::JitBuildState::compile_one(std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const&amp;, tt::tt_metal::JitBuildSettings const*, unsigned long) const
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe9c4) [0x7347044fe9c4]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe969) [0x7347044fe969]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b807) [0x73470418b807]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0xa1fb3) [0x73474d0a1fb3]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b672) [0x73470418b672]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe7a1) [0x7347044fe7a1]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x917255) [0x734704317255]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915d71) [0x734704315d71]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915269) [0x734704315269]
+E        --- /lib/x86_64-linux-gnu/libstdc++.so.6(+0xf5c79) [0x734748cf5c79]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x9cb84) [0x73474d09cb84]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x129d6c) [0x73474d129d6c]
+E
+E       backtrace:
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x92af79) [0x73470432af79]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x8fea59) [0x7347042fea59]
+E        --- tt::tt_metal::JitBuildCache::build_once(unsigned long, std::function&lt;void ()&gt; const&amp;)
+E        --- tt::tt_metal::jit_build_once(unsigned long, std::function&lt;void ()&gt; const&amp;)
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x8fe589) [0x7347042fe589]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe9c4) [0x7347044fe9c4]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe969) [0x7347044fe969]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b807) [0x73470418b807]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0xa1fb3) [0x73474d0a1fb3]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x78b672) [0x73470418b672]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xafe7a1) [0x7347044fe7a1]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x917255) [0x734704317255]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915d71) [0x734704315d71]
+E        --- /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x915269) [0x734704315269]
+E        --- /lib/x86_64-linux-gnu/libstdc++.so.6(+0xf5c79) [0x734748cf5c79]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x9cb84) [0x73474d09cb84]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x129d6c) [0x73474d129d6c]
+
+../../../.local/lib/model-bringup/tt-metal/ttnn/ttnn/distributed/distributed.py:671: RuntimeError</error><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+
+</system-err></testcase></testsuite></testsuites>
