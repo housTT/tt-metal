@@ -1,0 +1,346 @@
+Script started on 2026-08-26 17:59:36-04:00 [COMMAND="zsh -lc 'setopt nonomatch; source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh && git diff -- models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py && sha256sum models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py && QWEN38_FUSED_PERF_MODE=decode QWEN38_FUSED_PERF_DECODE_REPLAYS=1 QWEN38_FUSED_PERF_FLUSH_PROFILER=1 python -m tracy -r --check-exit-code -o models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/decode_specialized_concat_heads_raw -m pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]'" <not executed on terminal>]
+[1mdiff --git a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[1mindex 7aa8d176ae6..1f7930faa07 100644[m
+[1m--- a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[1m+++ b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[36m@@ -1111,8 +1111,45 @@[m [mclass FusedDecoder(FunctionalDecoder):[m
+     def _qsa_epilogue(self, attention, gate, *, decode: bool):[m
+         s = self.shapes[m
+         rows = self.max_batch if decode else int(attention.shape[-2])[m
+[31m-        attention = ttnn.transformer.concatenate_heads(attention)[m
+[31m-        attention = ttnn.reshape(attention, (1, 1, rows, s.q_width))[m
+[32m+[m[32m        if decode:[m
+[32m+[m[32m            # Candidate: use the dedicated multi-core decode head concatenator.[m
+[32m+[m[32m            from models.tt_transformers.tt.model_config import num_to_corerange[m
+[32m+[m
+[32m+[m[32m            decode_heads = ttnn.reshape(attention, (1, rows, s.num_attention_heads, s.head_dim))[m
+[32m+[m[32m            _free(attention, decode_heads)[m
+[32m+[m[32m            grid = self.mesh_device.compute_with_storage_grid_size()[m
+[32m+[m[32m            grid_x = min(rows, grid.x)[m
+[32m+[m[32m            if rows >= grid_x and rows % grid_x != 0:[m
+[32m+[m[32m                grid_x = max(x for x in range(grid_x, 0, -1) if rows % x == 0 and rows // x <= grid.y)[m
+[32m+[m[32m            core_grid = ttnn.CoreRangeSet({num_to_corerange(rows, grid_x=grid_x, grid_y=grid.y)})[m
+[32m+[m[32m            shard_cfg = ttnn.create_sharded_memory_config([m
+[32m+[m[32m                shape=(ttnn.TILE_SIZE, s.head_dim),[m
+[32m+[m[32m                core_grid=core_grid,[m
+[32m+[m[32m                strategy=ttnn.ShardStrategy.HEIGHT,[m
+[32m+[m[32m                orientation=ttnn.ShardOrientation.ROW_MAJOR,[m
+[32m+[m[32m                use_height_and_width_as_shard_shape=True,[m
+[32m+[m[32m            )[m
+[32m+[m[32m            heads_sharded = ttnn.to_memory_config(decode_heads, shard_cfg)[m
+[32m+[m[32m            ttnn.deallocate(decode_heads)[m
+[32m+[m[32m            concat_sharded = ttnn.experimental.nlp_concat_heads_decode([m
+[32m+[m[32m                heads_sharded,[m
+[32m+[m[32m                num_heads=s.num_attention_heads,[m
+[32m+[m[32m            )[m
+[32m+[m[32m            ttnn.deallocate(heads_sharded)[m
+[32m+[m[32m            attention = ttnn.sharded_to_interleaved(concat_sharded, ttnn.L1_MEMORY_CONFIG)[m
+[32m+[m[32m            ttnn.deallocate(concat_sharded)[m
+[32m+[m[32m            if attention.shape[-2] != rows:[m
+[32m+[m[32m                padded = attention[m
+[32m+[m[32m                attention = ttnn.slice([m
+[32m+[m[32m                    padded,[m
+[32m+[m[32m                    (0, 0, 0, 0),[m
+[32m+[m[32m                    (1, 1, rows, s.q_width),[m
+[32m+[m[32m                    memory_config=ttnn.L1_MEMORY_CONFIG,[m
+[32m+[m[32m                )[m
+[32m+[m[32m                ttnn.deallocate(padded)[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            attention = ttnn.transformer.concatenate_heads(attention)[m
+[32m+[m[32m            attention = ttnn.reshape(attention, (1, 1, rows, s.q_width))[m
+         gated = ttnn.multiply([m
+             attention,[m
+             gate,[m
+2991376220a99cfe6f97ec16c82af1d0445c14634e8a8cc0f0b6e225b4fb4fc3  models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+[32m2026-08-26 17:59:37.036[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m203[0m - [1mSetting profiler artifacts folder to models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/decode_specialized_concat_heads_raw[0m
+[32m2026-08-26 17:59:37.037[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m412[0m - [1mUsing port 8086[0m
+[32m2026-08-26 17:59:37.037[0m | [1mINFO    [0m | [36mtracy[0m:[36mrun_report_setup[0m:[36m91[0m - [1mVerifying tracy profiling tools[0m
+[32m2026-08-26 17:59:37.044[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m430[0m - [1mTest process started[0m
+[32m2026-08-26 17:59:37.736[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m203[0m - [1mSetting profiler artifacts folder to models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/decode_specialized_concat_heads_raw[0m
+[32m2026-08-26 17:59:37.970[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m78[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item                                                               
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3] [90m2026-08-26 17:59:41.092[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:227)[0m
+[90m2026-08-26 17:59:41.093[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:389)[0m
+[90m2026-08-26 17:59:41.093[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:96)[0m
+[90m2026-08-26 17:59:41.093[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:115)[0m
+[90m2026-08-26 17:59:41.096[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:575)[0m
+[90m2026-08-26 17:59:41.096[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:119)[0m
+[90m2026-08-26 17:59:41.096[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mBoard 0x46131924022 has 1 chips, but expected 2 chips for board type p300.[0m [90m(cluster_descriptor.cpp:1238)[0m
+[90m2026-08-26 17:59:41.115[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0}/[0] and remote chip ids {}[0m [90m(cluster.cpp:173)[0m
+[90m2026-08-26 17:59:41.115[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:147)[0m
+[90m2026-08-26 17:59:41.115[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.11.0[0m [90m(cluster.cpp:150)[0m
+[90m2026-08-26 17:59:41.115[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:648)[0m
+[90m2026-08-26 17:59:41.115[0m | [33m[1mwarning [m | [35m         Device[0m | [37mUsing CUSTOM cluster type for P300 board with 1 chips[0m [90m(tt_cluster.cpp:203)[0m
+[90m2026-08-26 17:59:41.116[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1188)[0m
+[90m2026-08-26 17:59:41.183[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1196)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto[0m [90m(metal_env.cpp:418)[0m
+[90m2026-08-26 17:59:41.240[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:119)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mLoaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto[0m [90m(fabric_host_utils.cpp:338)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mMatching MESH mgd groupings to MESH groupings[0m [90m(physical_grouping_descriptor_matching.cpp:939)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mGrouping valid candidates by node difference[0m [90m(physical_grouping_descriptor_matching.cpp:997)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH)[0m [90m(physical_grouping_descriptor_matching.cpp:1214)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mRank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es)[0m [90m(topology_mapper_utils.cpp:1617)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3341)[0m
+[90m2026-08-26 17:59:41.240[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3349)[0m
+[90m2026-08-26 17:59:41.261[0m | [32minfo    [m | [35m          Metal[0m | [37mProfiler started on device 0[0m [90m(profiler_initializer.cpp:49)[0m
+Building ncrisc, compile step:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/api/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/experimental/transformer/nlp_concat_heads_decode/device/kernels/dataflow -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROFILE_KERNEL=1 -DPROFILER_FULL_HOST_BUFFER_SIZE_PER_RISC=48000 -DPROCESSOR_INDEX=1 -DCOMPILE_FOR_NCRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=0 -DNOC_MODE=0 -DFULL_KERNEL_NAME="reader_tm_tile_layout_nlp_concat_heads_decode/17792943005697641215/" -DKERNEL_COMPILE_TIME_ARGS=2,32,16,16384,1,8,1,1,1 -c -o /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_tm_tile_layout_nlp_concat_heads_decode/17792943005697641215/ncrisc/ncrisck.17211472806644230407_452881.o /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_tm_tile_layout_nlp_concat_heads_decode/17792943005697641215/ncrisc/ncrisck.17211472806644230407_452881.d
+In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:27,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:17:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::quick_push()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-QUICK-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,632,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:632:5: note: in expansion of macro 'SrcLocNameToHash'
+  632 |     SrcLocNameToHash("PROFILER-NOC-QUICK-PUSH");
+      |     ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc: In function 'uint32_t _start()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: NCRISC-KERNEL,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc,70,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:1045:5: note: in expansion of macro 'DO_PRAGMA'
+ 1045 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name)));                               \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:70:5: note: in expansion of macro 'DeviceZoneScopedMainChildN'
+   70 |     DeviceZoneScopedMainChildN("NCRISC-KERNEL");
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~
+Building brisc, compile step:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/api/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/experimental/transformer/nlp_concat_heads_decode/device/kernels/dataflow -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROFILE_KERNEL=1 -DPROFILER_FULL_HOST_BUFFER_SIZE_PER_RISC=48000 -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=1 -DNOC_MODE=0 -DFULL_KERNEL_NAME="reader_tm_tile_layout_nlp_concat_heads_decode/17339200737778701794/" -DKERNEL_COMPILE_TIME_ARGS=2,32,16,16384,1,8,2,1,1 -c -o /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_tm_tile_layout_nlp_concat_heads_decode/17339200737778701794/brisc/brisck.17211472806644230407_452881.o /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_tm_tile_layout_nlp_concat_heads_decode/17339200737778701794/brisc/brisck.17211472806644230407_452881.d
+In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:27,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:17:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::finish_profiler(bool)':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-FLUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,480,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:480:17: note: in expansion of macro 'SrcLocNameToHash'
+  480 |                 SrcLocNameToHash("PROFILER-NOC-FLUSH");
+      |                 ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-DRAM-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,489,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:489:17: note: in expansion of macro 'SrcLocNameToHash'
+  489 |                 SrcLocNameToHash("PROFILER-DRAM-PUSH");
+      |                 ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::quick_push()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-QUICK-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,632,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:632:5: note: in expansion of macro 'SrcLocNameToHash'
+  632 |     SrcLocNameToHash("PROFILER-NOC-QUICK-PUSH");
+      |     ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc: In function 'uint32_t _start()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: BRISC-KERNEL,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc,78,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:1045:5: note: in expansion of macro 'DO_PRAGMA'
+ 1045 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name)));                               \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:78:9: note: in expansion of macro 'DeviceZoneScopedMainChildN'
+   78 |         DeviceZoneScopedMainChildN("BRISC-KERNEL");
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+Building ncrisc, compile step:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/api/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROFILE_KERNEL=1 -DPROFILER_FULL_HOST_BUFFER_SIZE_PER_RISC=48000 -DPROCESSOR_INDEX=1 -DCOMPILE_FOR_NCRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DBCAST_LLK=0 -DFILL_TILE_WITH_FIRST_COLUMN=fill_tile_with_first_column_bfloat16 -DFILL_TILE_WITH_FIRST_COLUMN_B=fill_tile_with_first_column_bfloat16 -DFILL_TILE_WITH_FIRST_COLUMN_RM=fill_tile_with_first_column_rm_bfloat16 -DFILL_TILE_WITH_FIRST_ELEMENT=fill_tile_with_first_element_bfloat16 -DFILL_TILE_WITH_FIRST_ELEMENT_B=fill_tile_with_first_element_bfloat16 -DFILL_TILE_WITH_FIRST_ROW=fill_tile_with_first_row_bfloat16 -DFILL_TILE_WITH_FIRST_ROW_B=fill_tile_with_first_row_bfloat16 -DFILL_TILE_WITH_FIRST_ROW_RM=fill_tile_with_first_row_rm_bfloat16 -DFILL_WITH_VALUE=fill_with_val_bfloat16 -DFILL_WITH_VALUE_B=fill_with_val_bfloat16 -DSRC_SHARDED=0 -DSRC_SHARDED_B=0 -DNOC_INDEX=0 -DNOC_MODE=0 -DFULL_KERNEL_NAME="reader_interleaved_no_bcast/16258606434133191251/" -DKERNEL_COMPILE_TIME_ARGS=0,2048,2,2048,0 -c -o /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_interleaved_no_bcast/16258606434133191251/ncrisc/ncrisck.17211472806644230407_452881.o /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_interleaved_no_bcast/16258606434133191251/ncrisc/ncrisck.17211472806644230407_452881.d
+In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:27,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:17:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::quick_push()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-QUICK-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,632,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:632:5: note: in expansion of macro 'SrcLocNameToHash'
+  632 |     SrcLocNameToHash("PROFILER-NOC-QUICK-PUSH");
+      |     ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc: In function 'uint32_t _start()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: NCRISC-KERNEL,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc,70,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:1045:5: note: in expansion of macro 'DO_PRAGMA'
+ 1045 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name)));                               \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:70:5: note: in expansion of macro 'DeviceZoneScopedMainChildN'
+   70 |     DeviceZoneScopedMainChildN("NCRISC-KERNEL");
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~
+Building brisc, compile step:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/api/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/eltwise/binary_ng/device/kernels_ng/dataflow -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROFILE_KERNEL=1 -DPROFILER_FULL_HOST_BUFFER_SIZE_PER_RISC=48000 -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DDST_SHARDED=0 -DFILL_TILE_WITH_FIRST_COLUMN=fill_tile_with_first_column_bfloat16 -DFILL_TILE_WITH_FIRST_COLUMN_B=fill_tile_with_first_column_bfloat16 -DFILL_TILE_WITH_FIRST_COLUMN_RM=fill_tile_with_first_column_rm_bfloat16 -DFILL_TILE_WITH_FIRST_ELEMENT=fill_tile_with_first_element_bfloat16 -DFILL_TILE_WITH_FIRST_ELEMENT_B=fill_tile_with_first_element_bfloat16 -DFILL_TILE_WITH_FIRST_ROW=fill_tile_with_first_row_bfloat16 -DFILL_TILE_WITH_FIRST_ROW_B=fill_tile_with_first_row_bfloat16 -DFILL_TILE_WITH_FIRST_ROW_RM=fill_tile_with_first_row_rm_bfloat16 -DFILL_WITH_VALUE=fill_with_val_bfloat16 -DFILL_WITH_VALUE_B=fill_with_val_bfloat16 -DSRC_SHARDED=0 -DNOC_INDEX=1 -DNOC_MODE=0 -DFULL_KERNEL_NAME="writer_interleaved_no_bcast/999249858913319275/" -DKERNEL_COMPILE_TIME_ARGS=0,2048,0 -c -o /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/writer_interleaved_no_bcast/999249858913319275/brisc/brisck.17211472806644230407_452881.o /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/writer_interleaved_no_bcast/999249858913319275/brisc/brisck.17211472806644230407_452881.d
+In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:27,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:17:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::finish_profiler(bool)':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-FLUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,480,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:480:17: note: in expansion of macro 'SrcLocNameToHash'
+  480 |                 SrcLocNameToHash("PROFILER-NOC-FLUSH");
+      |                 ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-DRAM-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,489,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:489:17: note: in expansion of macro 'SrcLocNameToHash'
+  489 |                 SrcLocNameToHash("PROFILER-DRAM-PUSH");
+      |                 ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::quick_push()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-QUICK-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,632,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:632:5: note: in expansion of macro 'SrcLocNameToHash'
+  632 |     SrcLocNameToHash("PROFILER-NOC-QUICK-PUSH");
+      |     ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc: In function 'uint32_t _start()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: BRISC-KERNEL,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc,78,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:1045:5: note: in expansion of macro 'DO_PRAGMA'
+ 1045 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name)));                               \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:78:9: note: in expansion of macro 'DeviceZoneScopedMainChildN'
+   78 |         DeviceZoneScopedMainChildN("BRISC-KERNEL");
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~
+Building ncrisc, compile step:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function -mcpu=tt-bh -fno-tree-loop-distribute-patterns -I. -I.. -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hostdevcommon/api -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/api/ -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROFILE_KERNEL=1 -DPROFILER_FULL_HOST_BUFFER_SIZE_PER_RISC=48000 -DPROCESSOR_INDEX=1 -DCOMPILE_FOR_NCRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=1 -DNOC_MODE=0 -DFULL_KERNEL_NAME="reader_bmm_tile_layout_in0_sender_padding/6462565475094534218/" -DKERNEL_COMPILE_TIME_ARGS=1,192,2,192,2,1,2,0,0,0,0,0,96,1,1,0,1,79,87,192,1,1,0,0,0,1,0,0,0,2048,0,0,0 -include named_ct_arg_map_generated.h -c -o /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_bmm_tile_layout_in0_sender_padding/6462565475094534218/ncrisc/ncrisck.17211472806644230407_452881.o /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc -MF /home/ttuser/.cache/tt-metal-cache/5978924660112426569/kernels/reader_bmm_tile_layout_in0_sender_padding/6462565475094534218/ncrisc/ncrisck.17211472806644230407_452881.d
+In file included from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/api/dataflow/dataflow_api.h:27,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/inc/internal/firmware_common.h:24,
+                 from /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:17:
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp: In function 'void kernel_profiler::quick_push()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: PROFILER-NOC-QUICK-PUSH,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp,632,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:41:5: note: in expansion of macro 'DO_PRAGMA'
+   41 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name))); \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:632:5: note: in expansion of macro 'SrcLocNameToHash'
+  632 |     SrcLocNameToHash("PROFILER-NOC-QUICK-PUSH");
+      |     ^~~~~~~~~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc: In function 'uint32_t _start()':
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:31:22: note: '#pragma message: NCRISC-KERNEL,/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc,70,KERNEL_PROFILER'
+   31 | #define DO_PRAGMA(x) _Pragma(#x)
+      |                      ^~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/tools/profiler/kernel_profiler.hpp:1045:5: note: in expansion of macro 'DO_PRAGMA'
+ 1045 |     DO_PRAGMA(message(PROFILER_MSG_NAME(name)));                               \
+      |     ^~~~~~~~~
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:70:5: note: in expansion of macro 'DeviceZoneScopedMainChildN'
+   70 |     DeviceZoneScopedMainChildN("NCRISC-KERNEL");
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~~~
+[32m2026-08-26 17:59:51.090[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mFUSED_PERF_DECODE_L3[0m
+[32m2026-08-26 17:59:51.148[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mFUSED_PERF_DECODE_L3_END[0m
+FUSED_PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=not-profiled traced_decode_ms=57.376289 decode_replays=1
+PASSED[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37mDevice kernel duration perf summary (device=0): count=999, min=579ns, avg=83669.1ns, max=17511131ns[0m [90m(profiler_analysis.cpp:727)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37mDevice kernel duration perf histogram (device=0): (buckets=10, bucket_size=1751100ns, range=[0..17511000), underflow(<0ns)=0, overflow(>=17511000ns)=1)[0m [90m(profiler_analysis.cpp:770)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [           0 ..      1751100) |########################################|      994[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [     1751100 ..      3502200) |                                        |        3[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [     3502200 ..      5253300) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [     5253300 ..      7004400) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [     7004400 ..      8755500) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [     8755500 ..     10506600) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [    10506600 ..     12257700) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [    12257700 ..     14008800) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [    14008800 ..     15759900) |                                        |        0[0m [90m(profiler_analysis.cpp:775)[0m
+[90m2026-08-26 17:59:51.550[0m | [32minfo    [m | [35m          Metal[0m | [37m  [    15759900 ..     17511000) |                                        |        1[0m [90m(profiler_analysis.cpp:775)[0m
+
+
+=============================== warnings summary ===============================
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+  /home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/tt_transformers/tt/common.py:28: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class ImageMedia(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+9.24s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+1.28s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+0.98s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+======================== 1 passed, 1 warning in 11.60s =========================
+nanobind: leaked 2 instances!
+ - leaked instance 0x7b5695d298e8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7b56a433bd08 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "create_descriptor"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__init__"
+ - leaked function "sfpu_nan"
+ - leaked function "devices"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-26 17:59:54.083[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 826/831 hits (99.4%) [826 cached, 373 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-26 17:59:54.083[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-26 17:59:54.090[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:547)[0m
+[90m2026-08-26 17:59:54.090[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1201)[0m
+[90m2026-08-26 17:59:54.261[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1210)[0m
+[90m2026-08-26 17:59:54.261[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:916)[0m
+[90m2026-08-26 17:59:54.261[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:919)[0m
+[32m2026-08-26 17:59:54.604[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m469[0m - [1mCopying /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy to /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build/profiler/build_wasm/traces/test_fused_decoder_perf_2026_08_26_17_59_54.tracy[0m
+[32m2026-08-26 17:59:54.606[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m472[0m - [1mCopied /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/profiler/.logs/tracy_profile_log_host.tracy to /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build/profiler/build_wasm/traces/test_fused_decoder_perf_2026_08_26_17_59_54.tracy[0m
+[32m2026-08-26 17:59:54.606[0m | [1mINFO    [0m | [36m__main__[0m:[36mmain[0m:[36m481[0m - [1membed.tracy -> traces/test_fused_decoder_perf_2026_08_26_17_59_54.tracy[0m
+[32m2026-08-26 17:59:54.606[0m | [1mINFO    [0m | [36mtracy.serve_wasm[0m:[36mlaunch_server_subprocess[0m:[36m284[0m - [1mLaunching tracy web app GUI server subprocess...[0m
+[32m2026-08-26 17:59:54.606[0m | [1mINFO    [0m | [36mtracy.serve_wasm[0m:[36mlaunch_server_subprocess[0m:[36m287[0m - [1mTracy WASM web UI (open in browser): http://localhost:8080/ (WebSocket for live reload: ws://localhost:8081/)[0m
+[32m2026-08-26 17:59:54.606[0m | [1mINFO    [0m | [36mtracy.serve_wasm[0m:[36mlaunch_server_subprocess[0m:[36m294[0m - [1mTracy WASM server already serving port 8080; reusing it (live-reload refreshes the browser).[0m
+[32m2026-08-26 17:59:58.119[0m | [1mINFO    [0m | [36mtracy[0m:[36mgenerate_report[0m:[36m162[0m - [1mHost side ops time report generated at models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/decode_specialized_concat_heads_raw/.logs/tracy_ops_times.csv[0m
+[32m2026-08-26 17:59:58.249[0m | [1mINFO    [0m | [36mtracy[0m:[36mgenerate_report[0m:[36m173[0m - [1mHost side ops data report generated at models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/decode_specialized_concat_heads_raw/.logs/tracy_ops_data.csv[0m
+[32m2026-08-26 17:59:58.249[0m | [1mINFO    [0m | [36mtracy.process_ops_logs[0m:[36mimport_tracy_op_logs[0m:[36m422[0m - [1mImporting ops logs[0m
+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tools/tracy/process_ops_logs.py:527: DtypeWarning: Columns (3,4,8) have mixed types. Specify dtype option on import or set low_memory=False.
+  df = pd.read_csv(tracyOpTimesLog)
+[32m2026-08-26 18:00:06.824[0m | [1mINFO    [0m | [36mtracy.perf_counter_analysis[0m:[36mget_device_op_data[0m:[36m2140[0m - [1mGetting device ops[0m
+[32m2026-08-26 18:00:06.825[0m | [1mINFO    [0m | [36mtracy.process_ops_logs[0m:[36mappend_device_data[0m:[36m1086[0m - [1mAppending device data[0m
+[32m2026-08-26 18:00:07.932[0m | [1mINFO    [0m | [36mtracy.process_ops_logs[0m:[36mgenerate_reports[0m:[36m1419[0m - [1mOPs' perf analysis is finished! Generating reports ...[0m
+[32m2026-08-26 18:00:07.932[0m | [1mINFO    [0m | [36mtracy.process_ops_logs[0m:[36mgenerate_reports[0m:[36m1439[0m - [1mCopying runtime artifacts[0m
+[32m2026-08-26 18:00:07.965[0m | [1mINFO    [0m | [36mtracy.process_ops_logs[0m:[36mgenerate_reports[0m:[36m1448[0m - [1mGenerating OPs CSV[0m
+[32m2026-08-26 18:00:08.306[0m | [1mINFO    [0m | [36mtracy.process_ops_logs[0m:[36mgenerate_reports[0m:[36m1904[0m - [1mOPs csv generated at: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/decode_specialized_concat_heads_raw/reports/2026_08_26_18_00_07/ops_perf_results_2026_08_26_18_00_07.csv[0m
+
+Script done on 2026-08-26 18:00:08-04:00 [COMMAND_EXIT_CODE="0"]

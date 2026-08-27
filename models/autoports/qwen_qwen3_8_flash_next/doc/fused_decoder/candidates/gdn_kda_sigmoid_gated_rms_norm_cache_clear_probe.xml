@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="4.071" timestamp="2026-08-26T20:08:41.789444-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_fused_decoder" name="test_kda_candidate_layer1_first_eager_decode_pcc" time="4.033"><properties><property name="start_timestamp" value="2026-08-26T20:08:41" /><property name="end_timestamp" value="2026-08-26T20:08:45" /></properties><failure message="assert 0.8604356050491333 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">mesh_device = MeshDevice(1x1 grid, 1 devices)
+
+    def test_kda_candidate_layer1_first_eager_decode_pcc(mesh_device):
+        """Measure candidate eager decode before any same-instance cache-hit replay."""
+    
+        torch.manual_seed(20260827)
+        config = H.target_config()
+        state = H.load_real_layer_state(1)
+        seq_len = 33
+        hidden = (torch.randn(1, seq_len + 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+        ple = (torch.randn(1, seq_len + 1, 2560, dtype=torch.bfloat16) * 0.02).contiguous()
+        cos, sin = H.rope_tables(128)
+        hf_layer = H.build_hf_layer(config, 1, state, ple_embeddings=ple[:, :seq_len])
+        H.hf_forward(hf_layer, hidden[:, :seq_len], cos, sin, ple_embeddings=ple[:, :seq_len])
+    
+        layer = FusedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=1,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=128,
+        )
+        prefill_out = layer.prefill_forward(
+            _upload(hidden[:, :seq_len].unsqueeze(0), mesh_device),
+            ple_embeddings=_upload(ple[:, :seq_len].unsqueeze(0), mesh_device),
+        )
+        ttnn.to_torch(prefill_out)
+        mesh_device.disable_and_clear_program_cache()
+        mesh_device.enable_program_cache()
+        layer.prepare_decode_state()
+        hf_layer.ple.ple_embedding.value = ple
+        expected = H.hf_forward(hf_layer, hidden, cos, sin, ple_embeddings=ple)[:, -1:]
+        decode_input = _upload(hidden[:, -1:].unsqueeze(0), mesh_device)
+        decode_ple = _upload(ple[:, -1:].unsqueeze(0), mesh_device)
+        decode_pos = _upload(
+            torch.tensor([seq_len], dtype=torch.int32),
+            mesh_device,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        actual_tt = layer.decode_forward(
+            decode_input,
+            current_pos=decode_pos,
+            ple_embeddings=decode_ple,
+        )
+        actual = ttnn.to_torch(actual_tt).squeeze(0)
+        pcc = H.pcc(expected, actual)
+        print(f"KDA_EAGER_PCCEVIDENCE layer=1 decode_pcc={pcc:.8f}")
+&gt;       assert pcc &gt;= H.PCC_BAR
+E       assert 0.8604356050491333 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py:121: AssertionError</failure></testcase></testsuite></testsuites>

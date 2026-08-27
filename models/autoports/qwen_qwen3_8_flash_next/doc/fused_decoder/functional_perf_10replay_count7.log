@@ -1,0 +1,20 @@
+Functional source SHA-256: 361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc
+Functional perf-test SHA-256: 3cf4f046af6336af2ec689c8d4df08535a59c96339d5e14eaf5feba3fd84a9f1
+Device/date: P300c Blackhole chip 0, 2026-08-26
+Command (after sourcing doc/functional_decoder/ttenv.sh):
+  QWEN38_PERF_DECODE_REPLAYS=10 pytest -q -s \
+    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py \
+    --count=7 --disable-warnings
+Exit: 0; 21 passed.
+
+Unedited terminal transcript:
+  functional_perf_10replay_count7.raw.log
+  SHA-256 388cd8235067c47f36f8c687002825febfb43968bc3a331d982a376b03f02777
+
+Seven-run medians, warmed prefill / traced decode with ten replays:
+  L0 24.047593 / 5.730349 ms
+  L1 27.598879 / 6.701143 ms
+  L3 408.372929 / 11.341126 ms
+
+This uses the same sequence length, zero input, warmup, cache geometry,
+replay count, synchronization policy and sample count as the fused final run.

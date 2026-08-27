@@ -1,0 +1,254 @@
+Script started on 2026-08-26 20:12:55-04:00 [COMMAND="QWEN38_PERF_DECODE_REPLAYS=10 pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py --count=7 --disable-warnings" <not executed on terminal>]
+[32m2026-08-26 20:12:57.548[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m78[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 21 items                                                             
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-7] [90m2026-08-26 20:12:58.353[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:227)[0m
+[90m2026-08-26 20:12:58.353[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:389)[0m
+[90m2026-08-26 20:12:58.354[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:96)[0m
+[90m2026-08-26 20:12:58.354[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:115)[0m
+[90m2026-08-26 20:12:58.357[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:575)[0m
+[90m2026-08-26 20:12:58.357[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:119)[0m
+[90m2026-08-26 20:12:58.357[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mBoard 0x46131924022 has 1 chips, but expected 2 chips for board type p300.[0m [90m(cluster_descriptor.cpp:1238)[0m
+[90m2026-08-26 20:12:58.376[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0}/[0] and remote chip ids {}[0m [90m(cluster.cpp:173)[0m
+[90m2026-08-26 20:12:58.376[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:147)[0m
+[90m2026-08-26 20:12:58.376[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.11.0[0m [90m(cluster.cpp:150)[0m
+[90m2026-08-26 20:12:58.376[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:648)[0m
+[90m2026-08-26 20:12:58.376[0m | [33m[1mwarning [m | [35m         Device[0m | [37mUsing CUSTOM cluster type for P300 board with 1 chips[0m [90m(tt_cluster.cpp:203)[0m
+[90m2026-08-26 20:12:58.377[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1188)[0m
+[90m2026-08-26 20:12:58.449[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1196)[0m
+[90m2026-08-26 20:12:58.503[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto[0m [90m(metal_env.cpp:418)[0m
+[90m2026-08-26 20:12:58.504[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:119)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mLoaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto[0m [90m(fabric_host_utils.cpp:338)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mMatching MESH mgd groupings to MESH groupings[0m [90m(physical_grouping_descriptor_matching.cpp:939)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mGrouping valid candidates by node difference[0m [90m(physical_grouping_descriptor_matching.cpp:997)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH)[0m [90m(physical_grouping_descriptor_matching.cpp:1214)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mRank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es)[0m [90m(topology_mapper_utils.cpp:1617)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3341)[0m
+[90m2026-08-26 20:12:58.504[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3349)[0m
+[32m2026-08-26 20:13:02.116[0m | [1mINFO    [0m | [36mmodels.demos.blackhole.qwen36.tt.gdn.fused_chunk[0m:[36mchunk_gated_delta_rule_fused_adapter[0m:[36m105[0m - [1m[GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.FLOAT32/DataType.FLOAT32/DataType.FLOAT32[0m
+[32m2026-08-26 20:13:02.238[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:02.262[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:02.334[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:02.392[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.143375 traced_decode_ms=5.735106 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-7] [32m2026-08-26 20:13:04.830[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:04.855[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:04.891[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:04.948[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.085585 traced_decode_ms=5.729811 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-7] [32m2026-08-26 20:13:07.387[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:07.411[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:07.447[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:07.504[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.181659 traced_decode_ms=5.730268 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-4-7] [32m2026-08-26 20:13:10.054[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:10.078[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:10.114[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:10.171[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.047593 traced_decode_ms=5.731462 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-5-7] [32m2026-08-26 20:13:12.689[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:12.713[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:12.749[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:12.807[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=23.965727 traced_decode_ms=5.730349 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-6-7] [32m2026-08-26 20:13:15.291[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:15.315[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:15.351[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:15.409[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.015111 traced_decode_ms=5.728751 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-7-7] [32m2026-08-26 20:13:17.769[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 20:13:17.794[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 20:13:17.830[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 20:13:17.888[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.006885 traced_decode_ms=5.733747 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-7] [32m2026-08-26 20:13:20.283[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:20.311[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:20.363[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:20.430[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.603698 traced_decode_ms=6.700856 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-7] [32m2026-08-26 20:13:22.784[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:22.811[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:22.857[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:22.925[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.526290 traced_decode_ms=6.696932 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-7] [32m2026-08-26 20:13:25.418[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:25.446[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:25.493[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:25.560[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.586275 traced_decode_ms=6.700724 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-4-7] [32m2026-08-26 20:13:28.066[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:28.094[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:28.140[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:28.207[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.624618 traced_decode_ms=6.701143 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-5-7] [32m2026-08-26 20:13:30.677[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:30.705[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:30.751[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:30.818[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.598879 traced_decode_ms=6.703320 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-6-7] [32m2026-08-26 20:13:33.356[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:33.384[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:33.432[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:33.499[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.638124 traced_decode_ms=6.701682 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-7-7] [32m2026-08-26 20:13:35.830[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 20:13:35.858[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 20:13:35.905[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 20:13:35.972[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.585203 traced_decode_ms=6.701514 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-7] [32m2026-08-26 20:13:40.992[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:13:41.401[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:13:41.505[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:13:41.618[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.472253 traced_decode_ms=11.339454 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-7] [32m2026-08-26 20:13:46.534[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:13:46.943[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:13:47.015[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:13:47.129[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.408313 traced_decode_ms=11.334781 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-7] [32m2026-08-26 20:13:52.077[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:13:52.486[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:13:52.560[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:13:52.673[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.455014 traced_decode_ms=11.342786 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-4-7] [32m2026-08-26 20:13:57.555[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:13:57.964[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:13:58.036[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:13:58.150[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.372929 traced_decode_ms=11.341637 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-5-7] [32m2026-08-26 20:14:03.017[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:14:03.425[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:14:03.498[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:14:03.611[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.279132 traced_decode_ms=11.343824 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-6-7] [32m2026-08-26 20:14:09.072[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:14:09.481[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:14:09.555[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:14:09.668[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.152493 traced_decode_ms=11.341126 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-7-7] [32m2026-08-26 20:14:14.613[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 20:14:15.021[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 20:14:15.094[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 20:14:15.207[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.246604 traced_decode_ms=11.331760 decode_replays=10
+PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+5.37s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-7]
+5.25s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-7]
+5.24s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-7-7]
+5.22s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-7]
+5.19s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-4-7]
+5.18s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-6-7]
+5.17s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-5-7]
+3.24s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-7]
+2.39s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-4-7]
+2.39s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-6-7]
+2.38s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-4-7]
+2.36s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-5-7]
+2.36s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-7]
+2.33s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-6-7]
+2.33s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-5-7]
+2.28s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-7]
+2.28s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-7]
+2.27s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-7]
+2.22s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-7]
+2.20s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-7-7]
+2.20s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-7-7]
+0.96s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-7]
+0.84s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-6-7]
+0.27s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-7]
+0.27s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-7-7]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-4-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-5-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-6-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-7-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-4-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-5-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-6-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-7-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-4-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-5-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-6-7]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-7-7]
+======================== 21 passed in 77.05s (0:01:17) =========================
+nanobind: leaked 2 instances!
+ - leaked instance 0x772529744ee8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x772529376588 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "id"
+ - leaked function ""
+ - leaked function "is_allocated"
+ - leaked function "push_current_command_queue_id_for_thread"
+ - leaked function "buffer_unique_id"
+ - leaked function "host_buffer"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-26 20:14:16.792[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 1143/1143 hits (100.0%) [1143 cached, 13604 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-26 20:14:16.792[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-26 20:14:16.805[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:547)[0m
+[90m2026-08-26 20:14:16.805[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1201)[0m
+[90m2026-08-26 20:14:16.933[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1210)[0m
+[90m2026-08-26 20:14:16.933[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:916)[0m
+[90m2026-08-26 20:14:16.933[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:919)[0m
+
+Script done on 2026-08-26 20:14:17-04:00 [COMMAND_EXIT_CODE="0"]

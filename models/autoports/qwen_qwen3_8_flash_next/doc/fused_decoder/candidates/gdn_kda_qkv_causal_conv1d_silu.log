@@ -1,0 +1,72 @@
+Candidate: ttnn.experimental.kda.qkv_causal_conv1d_silu (promoted)
+Date/device: 2026-08-26, chip 0, Blackhole p300c
+
+Adaptation
+- Preserve setup-time BF16 tap tensors before widening the decode copies to FP32.
+- Convert the FP32 packed prefill projection and three-row history to the op's
+  BF16 ROW_MAJOR boundary, call the fused four-tap FIR+SILU+QKV split, and keep
+  the persistent public history update in FP32.
+- The public chunk planner remains unchanged; non-aligned logical lengths keep
+  their exact state-update semantics.
+
+Correctness command
+  source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+  pytest -q -s 'models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[0]'
+
+PCC (chunk=640)
+  layer 0 prefill=0.99842572 decode=0.99703580 PASS
+  layer 1 prefill=0.99911219 decode=0.99988902 PASS
+
+Like-for-like warmed host timing, seq=128, traced decode=10 replays
+  chunk 320:  prefill 17.030380 ms, decode 3.884552 ms
+  chunk 640:  prefill 17.051693 / 16.979785 / 16.980767 ms,
+              decode 3.886268 / 3.883527 / 3.883819 ms
+  chunk 1280: prefill 17.146140 ms, decode 3.883680 ms
+
+The retained pre-candidate layer-0 prefill was 17.981688 ms. Chunk 640 wins
+by about 1.00 ms (5.6%) and is the lowest stable result; it is promoted.
+Layer-1 confirmation: prefill 20.470625 ms, decode 4.322399 ms.
+
+No host conversion/fallback is used: typecast and layout conversion are TTNN
+device operations. The kernel's BF16 boundary explains the small material PCC
+delta from the prior FP32 FIR, while both layer kinds remain above the
+functional acceptance bar.
+
+Primary source-linked provenance
+- Unedited journal records: `gdn_kda_qkv_causal_conv1d_silu.journal.jsonl`,
+  SHA-256 `ae21bf2147fd27385aee47f5a3ae9499ecdfc7f27fd5017005364413f0e7c71d`.
+  This is a byte-exact selection from
+  `/home/ttuser/.codex/sessions/2026/08/26/rollout-2026-08-26T14-40-30-01a03f5f-adc8-7cf0-8f0e-0ff0cb156051.jsonl`
+  and contains the patch calls, commands, initial session results, poll
+  results, complete pytest output, exit codes, PCC and timings.
+- Initial/adaptation/fix patches: `call_N5FRvhiuPAspSYij8oSZGQmH`
+  (2026-08-26T22:46:58.510Z), `call_vKF9kI4VVZoaN6C9FAVR1fBg`
+  (22:47:15.572Z), and `call_hYyJndWltceX6Dbyv4IP0Chj`
+  (22:47:51.972Z).
+- Chunk mutations: 640 -> 320 was `call_vVL4mCnvEG4nkVmSMuWrJfsN`
+  (22:49:09.331Z); 320 -> 1280 was `call_ck38t0EJTOVYq33nHTOxEKEI`
+  (22:49:27.483Z); 1280 -> retained 640 plus manifest promotion was
+  `call_vN5d8W0OCuhSYKqAhjztAXb0` (22:49:46.304Z).
+- Raw 640 timing command/output: `call_yqV4EutEDP5zfdFAuxUuTT7g` /
+  `call_HsU2KDKutlRASGQXKy7rQwij`, 22:48:50.556Z--22:49:04.240Z.
+  Raw 320: `call_qPVC7K7KxOv22Ux1nGXoxTk6` /
+  `call_CLucs2YPLlxBnNfibua1H0eP`, 22:49:13.753Z--22:49:22.839Z.
+  Raw 1280: `call_NXKlyUP9qWEnt5luDHPa2g9X` /
+  `call_yJo5Hfw9Zdr4ULQaNqTHMuXK`, 22:49:31.364Z--22:49:40.443Z.
+- Post-promotion/revert source SHA-256 captured in the journal was
+  `52fac21e0a8f58edf78dc819e2959550a7366a9bd72e4d99e23461619d69db83`;
+  its recovered immutable Git blob is `38fa01141d5bcb1ac590be1e28fe941758751593`.
+- The measured pre-manifest source identities were deterministically
+  reconstructed from that blob by deleting only the later manifest line and
+  applying the exact recorded scalar mutation: chunk 320 SHA-256
+  `6d82dfcf8f0771db15211b87f69aa6f41c86458d06c6cef30a08558766df7991`
+  (computed blob `5122a1128a241ba7ab0100342073103d1bb9e74b`), chunk 640
+  `952290bf9e4b9dd59be421865379fc52c859282f86a94dbd0797b27300605f30`,
+  and chunk 1280
+  `82d1b89e8546b1fde95211ebb08ebc3f654d7f728793b047869f5e6543f2f18f`
+  (computed blob `c4fe12fb8efffcc1b8eb82107bc5a68ef23002e5`). These three labels are
+  reconstructed, not hashes printed by the original run.
+- The exact tests used at candidate time were correctness SHA-256
+  `1d72572cc864b673f3297a5c78c1e8d9232c53011b473c6aba43f78af021bbb5`
+  and perf SHA-256
+  `f6d263a3bd1b888da6bd551b907e631634bb6f72cbe11ff5933f084ab32ae884`.

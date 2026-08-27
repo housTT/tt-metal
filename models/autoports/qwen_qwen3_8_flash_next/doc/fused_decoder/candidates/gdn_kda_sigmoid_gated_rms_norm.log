@@ -1,0 +1,95 @@
+Candidate: ttnn.experimental.kda.sigmoid_gated_rms_norm (rejected after AutoFix)
+Date/device: 2026-08-26, chip 0, Blackhole p300c
+
+Exact adaptation
+- Prefill only: T=128 is legal; public decode T=1 is binding-illegal and kept
+  the primitive RMSNorm/sigmoid/multiply epilogue.
+- Request [B*H,T,V]=[48,128,128] directly from the fused recurrence adapter.
+  Reshape z to [1,128,6144], use rank-1 BF16 norm weight [128], exact HiFi4,
+  math_approx_mode=false, fp32_dest_acc_en=true, packer_l1_acc=false, and
+  FP32 output. Project the returned [1,128,6144] exactly as the primitive path.
+- Reversible candidate diff:
+  gdn_kda_sigmoid_gated_rms_norm.patch
+  SHA-256 c61dcb930126d53e365f1f0a4fb7713ce03cea5c47f71e5c2931f5035c07fb61
+  This is a valid unified patch against delivered source SHA-256
+  3f033b75dd81ee615bc8309e8e24dbc7aa43f3a6699dfc3bba596879fb7b9d3b;
+  `git apply --check` passes. Applying it in a temporary Git index yields
+  candidate Git blob 5a7726738ed31cbe1f77866d4609b0411f0a5c69 and exact perf-source
+  SHA-256 e2918ebaccc6bb331d3703352cb1de6fef99b06e2e139e1a16bc4b687c0028cc.
+- The original diff was also recovered from the session journal:
+  /home/ttuser/.codex/sessions/2026/08/26/
+  rollout-2026-08-26T14-40-30-01a03f5f-adc8-7cf0-8f0e-0ff0cb156051.jsonl
+  head-major patch 2026-08-26T22:50:51.606Z; explicit-movement alternative
+  22:51:57.726Z; revert 22:52:28.369Z.
+
+Source identity
+- Full correctness source SHA-256:
+  2989758f24affd3401fef74b3c9fa9c5de30b2e7e389dfc3453fa581b959ca46
+- Seven-run perf source SHA-256 (semantically identical; comments removed):
+  e2918ebaccc6bb331d3703352cb1de6fef99b06e2e139e1a16bc4b687c0028cc
+- Correctness-test SHA-256:
+  a06d7e0adfb2323021e7ece8d36f4847183d9ba485816a5a936807712b7c8b24
+- Perf-test SHA-256:
+  f6d263a3bd1b888da6bd551b907e631634bb6f72cbe11ff5933f084ab32ae884
+
+Primary real-weight command
+  source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+  pytest -q -s \
+    models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc \
+    --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/gdn_kda_sigmoid_gated_rms_norm_candidate.xml
+
+Primary result/artifact
+  gdn_kda_sigmoid_gated_rms_norm_candidate.xml
+  SHA-256 767d03a77e20986b6216bbb344860107e3c2949db9bb790a57f5e58a1e7201b9
+  layer 0 prefill=0.99842554 decode=0.99703580 PASS
+  layer 1 prefill=0.99911982 decode=0.86216938 FAIL (bar 0.995)
+  layer 3 prefill/decode PASS; process exit 1 because layer 1 failed.
+
+AutoFix diagnosis
+- The prior claim that the output epilogue perturbed saved prefill state was
+  invalidated. A focused primitive/candidate prefill probe proved the saved
+  recurrent, convolution and PLE states bit-identical:
+  gdn_kda_sigmoid_gated_rms_norm_state.xml
+  SHA-256 1d28958df2c5f34cad9e7229709b2c7778ef42377e19ae27c9549ba09e0f3c42
+- Prepared recurrent/split-convolution/split-PLE copies were also bit-identical.
+- Static kernel audit for H=48,T=128,V=128 found exactly bounded input/gate/
+  output pages 0..767, weight pages 0..3, and no external write except the new
+  output. Unit tests also require all three inputs to remain immutable.
+- Fresh-process discriminator: inline throwaway decode inputs pass first eager
+  PCC 0.99988902, but retaining the same valid caller-owned input objects makes
+  first eager PCC 0.86030912. The standard traced gate retains inputs and fails
+  at 0.86216938. Thus the result depends on supported allocator/address/lifetime
+  behavior; it is not a semantic state delta.
+  Passing throwaway artifacts:
+    first_eager.xml SHA 851803055a16587683b6d34f44d718b3cd9d1bf39f65d34a6880aa89c9d7d238
+    first_eager_live_prefill.xml SHA 263dbeae7c40ffb0279e1daabe5031a8449ef33fec2904879fa53395efa2b269
+  Failing retained-input artifact:
+    eager_live_output_same_inputs.xml SHA 320a3f02639faf8c0d4d5454f6899fa33d40e575742005c10432261e4446cf5d
+- In-scope repair variants did not change the failure: L1 KDA output
+  (PCC 0.86043561), deferred core/gate lifetimes (0.86228633), and clearing
+  the program cache (0.86043561). Their XMLs are retained beside this log.
+
+Like-for-like timing command
+  QWEN38_FUSED_PERF_DECODE_REPLAYS=10 pytest -q -s --count=7 \
+    models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py \
+    --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/gdn_kda_sigmoid_gated_rms_norm_perf_count7.xml \
+    2>&1 | tee models/autoports/qwen_qwen3_8_flash_next/doc/fused_decoder/candidates/gdn_kda_sigmoid_gated_rms_norm_perf_count7.raw.log
+
+Timing artifacts/results
+- Raw transcript SHA-256:
+  b2ad46fedca71261ee9c4a33b7c4a76f106a3fafd2c2a803df3c4df5adcb2b5c
+- JUnit SHA-256:
+  3699d1e9c70cfffc519f104116b9450e1c54689d6b5f0be8e6d99497d52a502f
+- 21 performance tests passed; medians at seq=128/ten trace replays:
+  layer 0 16.411151 ms prefill / 3.884170 ms decode
+  layer 1 19.867806 ms prefill / 4.322886 ms decode
+  layer 3 43.613533 ms prefill / 5.538353 ms decode
+  The op saves about 0.60 ms (L0) and 0.65 ms (L1) prefill versus final.
+
+Disposition
+The dedicated op is mathematically exact and faster, but correctness must hold
+for all legal caller lifetimes. AutoFix exhausted the scoped layout, output
+placement, lifetime, state and program-cache hypotheses; the remaining failure
+is a current TTNN allocator/address-sensitive composition limitation that
+cannot be repaired in fused_decoder.py. The correct primitive epilogue is
+retained and the delivered source is restored to SHA-256 3f033b75dd81ee615bc8309e8e24dbc7aa43f3a6699dfc3bba596879fb7b9d3b.

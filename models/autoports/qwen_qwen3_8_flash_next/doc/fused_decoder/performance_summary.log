@@ -1,0 +1,22 @@
+Delivered source SHA-256: 3f033b75dd81ee615bc8309e8e24dbc7aa43f3a6699dfc3bba596879fb7b9d3b
+
+Like-for-like host timing, seven final runs at ten trace replays
+(functional prefill/decode ms -> fused prefill/decode median ms):
+  L0 24.047593/5.730349 -> 17.015016/3.883350
+  L1 27.598879/6.701143 -> 20.517265/4.321484
+  L3 408.372929/11.341126 -> 43.610069/5.539352
+Raw samples: functional_perf_10replay_count7.raw.log and
+fused_perf_final_count7.log. The L3 final median beats the distinct correct
+rejected indexer candidate's 5.588385 ms. The prior 5.540206-ms observation is
+the same subsequently promoted graph lineage, not a distinct candidate.
+
+Functional -> final signpost-filtered device microseconds:
+  L0 23790/5396 -> 16736.260/3848.370
+  L1 27269/5922 -> 20161.470/4269.910
+  L3 408094/11081 -> 43401.980/5338.730
+
+All six host/device windows beat the functional baseline. The final retained
+graph is materially faster on current hardware; topology reductions without a
+measured win were rejected. Each tracy/<layer> directory contains copied raw
+ops, filtered report CSV, stacked CSV/PNG, and separate exact capture/transform
+provenance logs.

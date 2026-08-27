@@ -1,0 +1,56 @@
+Candidate: ttnn.experimental.indexer_score_dsa (rejected)
+Date/device: 2026-08-26, chip 0, Blackhole p300c
+
+Exact adaptation exercised
+- Decode B=1: prepend 31 zero query rows, use all-one head weights,
+  q/k chunk size 32 and all heads resident, expose the real query as row 31,
+  slice that row, tilize, then retain the existing dynamic visibility mask.
+  The intrinsic chunk start was T-32, so row 31 could see the whole key table.
+- Prefill T=128: reshape the four token residue classes into four independent
+  [1,4,32,128] calls, use chunk_start/4, concatenate and interleave the four
+  score planes back into token order, then retain the existing visibility
+  mask. This is required because one compressed key covers four tokens while
+  the kernel's intrinsic causal slope is one key per query.
+- The helper padded non-tile-aligned configured key counts internally and
+  sliced them back, so it introduced no public alignment restriction.
+
+Correctness
+  layer 3 prefill PCC=0.99668211 PASS (prior 0.99668270)
+  layer 3 decode  PCC=0.99977344 PASS (unchanged)
+
+Like-for-like warmed host timing, seq=128, traced decode=10 replays
+  candidate prefill: 43.678806 / 43.648528 / 43.660651 ms
+  candidate decode:   5.590499 / 5.587990 / 5.588385 ms
+  retained prior:     43.666625 ms prefill / 5.540206 ms decode
+
+The four prefill calls plus residue movement were neutral within noise, while
+the padded one-token decode path regressed the best correct trace by about
+0.048 ms (0.87%). Since the final graph must beat the best correct decode,
+the primitive fused matmul+ReLU followed by head sum is retained.
+
+Primary source-linked provenance
+- Exact reversible unified patch: `qsa_indexer_score_dsa.patch`, SHA-256
+  `621d6c383d17687837efe34450c0114c58ad35b4a063247bc6c98c0aa404b07f`.
+- Unedited journal records: `qsa_indexer_score_dsa.journal.jsonl`, SHA-256
+  `1cfcf06439cb43489b8d4c0c1c692c47ec09baccdb6aa93b67fd8d4b4fb438a0`.
+  The file is a byte-exact selection from
+  `/home/ttuser/.codex/sessions/2026/08/26/rollout-2026-08-26T14-40-30-01a03f5f-adc8-7cf0-8f0e-0ff0cb156051.jsonl`.
+- Exact forward calls: `call_TfcyQNsitK3xriMBR48q0gTc`
+  (2026-08-26T22:54:32.298Z) and `call_G34aMcGDqm78AldrPItV60Gq`
+  (22:54:51.093Z). Exact reverse call:
+  `call_noiMtn9H1I9Q0XUNvaA9CN1O` (22:56:00.288Z).
+- Raw correctness command/output: `call_WOhjvuR665jdQI3z5Xs8KXVX` /
+  `call_7asK7jrohU8W82ejxtcJVHO1`, 22:54:56.791Z--22:55:07.787Z.
+  Raw three-sample timing command/output: `call_JoCPAo7wIpkIEkGfO6IYHTtI` /
+  `call_qtEiuDXOAGmcYI58r82TcftY`, 22:55:13.263Z--22:55:27.280Z.
+- Exact candidate base SHA-256 was
+  `52fac21e0a8f58edf78dc819e2959550a7366a9bd72e4d99e23461619d69db83`
+  (Git blob `38fa01141d5bcb1ac590be1e28fe941758751593`). Applying the unified patch
+  in a temporary Git index yields candidate SHA-256
+  `aad66b6ce01795ce92e12a231ab9426018743e22f15b97cce7de3132362b2ece`
+  and Git blob `43ac6207f849b8d835ceef278656643688f692a0`; applying the exact journal
+  reverse patch in memory round-trips byte-for-byte to the base.
+- Exact candidate-time correctness-test SHA-256 was
+  `1d72572cc864b673f3297a5c78c1e8d9232c53011b473c6aba43f78af021bbb5`;
+  perf-test SHA-256 was
+  `f6d263a3bd1b888da6bd551b907e631634bb6f72cbe11ff5933f084ab32ae884`.

@@ -1,0 +1,42 @@
+Delivered source SHA-256: 3f033b75dd81ee615bc8309e8e24dbc7aa43f3a6699dfc3bba596879fb7b9d3b
+Perf-test SHA-256: f6d263a3bd1b888da6bd551b907e631634bb6f72cbe11ff5933f084ab32ae884
+Device/date: P300c Blackhole chip 0, 2026-08-26
+Command:
+  source doc/functional_decoder/ttenv.sh
+  QWEN38_FUSED_PERF_DECODE_REPLAYS=10 pytest -q -s --count=7 tests/test_fused_decoder_perf.py -k 'test_warmed_prefill_and_traced_decode and 3'
+Note: `3` also matches the qwen3 module path, so pytest selected all three
+layer parameters. This yielded a useful seven-run sample for every layer.
+Exit: 0; 21 passed in 56.61 seconds.
+
+Raw warmed prefill / traced-decode milliseconds:
+  L0 17.120668/3.883396
+  L0 17.021910/3.881939
+  L0 17.009445/3.882916
+  L0 17.041978/3.883350
+  L0 17.015016/3.881974
+  L0 16.978897/3.885868
+  L0 16.937698/3.887391
+  L1 20.464053/4.323806
+  L1 20.554095/4.322195
+  L1 20.453684/4.319533
+  L1 20.551450/4.319858
+  L1 20.517556/4.321484
+  L1 20.517265/4.323323
+  L1 20.514179/4.321289
+  L3 43.610069/5.540074
+  L3 43.609898/5.539860
+  L3 43.622021/5.535979
+  L3 43.587034/5.537031
+  L3 43.666757/5.539352
+  L3 43.582025/5.539071
+  L3 43.636379/5.540231
+
+Medians:
+  L0 17.015016/3.883350 ms
+  L1 20.517265/4.321484 ms
+  L3 43.610069/5.539352 ms
+
+The final L3 median beats the distinct correct rejected indexer candidate's
+three-run median of 5.588385 ms. The prior 5.540206-ms observation is the same
+retained compressed-cache graph lineage before its final simplifications, not
+a distinct rejected candidate; the final seven-run median is numerically lower.

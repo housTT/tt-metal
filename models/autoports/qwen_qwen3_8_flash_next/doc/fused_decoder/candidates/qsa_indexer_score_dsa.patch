@@ -1,0 +1,153 @@
+diff --git a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+--- a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
++++ b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+@@ -204,6 +204,25 @@
+                 device=layer.mesh_device,
+             )
+             layer.fused_index_offset_ones = ttnn.ones_like(layer.const["index_token_offsets"])
++            layer.fused_index_score_weights = ttnn.ones(
++                (1, s.indexer_n_heads, 32, 1),
++                dtype=ttnn.bfloat16,
++                layout=ttnn.TILE_LAYOUT,
++                device=layer.mesh_device,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            )
++            layer.fused_index_score_decode_pad = ttnn.zeros(
++                (1, s.indexer_n_heads, 31, s.indexer_head_dim),
++                dtype=ttnn.bfloat16,
++                layout=ttnn.TILE_LAYOUT,
++                device=layer.mesh_device,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            )
++            layer.fused_index_score_program_cfg = ttnn.IndexerScoreProgramConfig(
++                q_chunk_size=32,
++                k_chunk_size=32,
++                head_group_size=0,
++            )
+             layer.fused_block_rot_source = None
+             layer.fused_block_cos = None
+             layer.fused_block_sin = None
+@@ -1097,7 +1116,13 @@
+         ttnn.deallocate(v)
+         ttnn.deallocate(raw_index)
+         _free(raw_heads, raw_index)
+-        selected, valid = self._selected_virtual_tokens(index_q, page_table, positions, rot_mats)
++        selected, valid = self._selected_virtual_tokens(
++            index_q,
++            page_table,
++            positions,
++            rot_mats,
++            chunk_start=chunk_start,
++        )
+         ttnn.deallocate(index_q)
+         attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+         ttnn.deallocate(q)
+@@ -1231,7 +1256,88 @@
+         _free(in_page, self.fused_index_in_page)
+         return ttnn.reshape(physical, (batch, count))
+ 
+-    def _selected_virtual_tokens(self, index_q, page_table, current_pos, rot_mats):
++    def _dedicated_index_scores(self, index_q, keys, *, chunk_start: int | None):
++        """Trial the exact DSA score kernel for decode and residue-split prefill."""
++
++        s = self.shapes
++        tokens = int(index_q.shape[-2])
++        count = int(keys.shape[-2])
++        padded_count = _round_up(count, 32)
++        score_keys = keys
++        if padded_count != count:
++            score_keys = ttnn.pad(keys, [(0, 0), (0, 0), (0, padded_count - count), (0, 0)], 0.0)
++
++        if tokens == 1:
++            padded_q = ttnn.concat([self.fused_index_score_decode_pad, index_q], dim=2)
++            scores = ttnn.experimental.indexer_score_dsa(
++                padded_q,
++                score_keys,
++                self.fused_index_score_weights,
++                chunk_start_idx=padded_count - 32,
++                program_config=self.fused_index_score_program_cfg,
++            )
++            ttnn.deallocate(padded_q)
++            last = ttnn.slice(scores, [0, 0, 31, 0], [1, 1, 32, count])
++            ttnn.deallocate(scores)
++            tiled = ttnn.to_layout(last, ttnn.TILE_LAYOUT)
++            ttnn.deallocate(last)
++            if score_keys is not keys:
++                ttnn.deallocate(score_keys)
++            return tiled
++
++        # One compressed key covers four public tokens, while indexer_score's
++        # intrinsic causal slope is one key per query. Split the 128-token
++        # chunk into its four residue classes, score 32 queries per call, and
++        # restore token order. The existing visibility mask removes the one
++        # extra current-group column for residues 0..2.
++        token_first = ttnn.permute(index_q, (0, 2, 1, 3))
++        grouped = ttnn.reshape(
++            token_first,
++            (1, tokens // s.indexer_compress_ratio, s.indexer_compress_ratio, s.indexer_n_heads, s.indexer_head_dim),
++        )
++        _free(token_first, index_q, grouped)
++        residue_major = ttnn.permute(grouped, (0, 2, 3, 1, 4))
++        _free(grouped, residue_major)
++        residue_scores = []
++        for residue in range(s.indexer_compress_ratio):
++            q_slice = ttnn.slice(
++                residue_major,
++                [0, residue, 0, 0, 0],
++                [1, residue + 1, s.indexer_n_heads, tokens // s.indexer_compress_ratio, s.indexer_head_dim],
++            )
++            q_residue = ttnn.reshape(
++                q_slice,
++                (1, s.indexer_n_heads, tokens // s.indexer_compress_ratio, s.indexer_head_dim),
++            )
++            _free(q_slice, q_residue)
++            score = ttnn.experimental.indexer_score_dsa(
++                q_residue,
++                score_keys,
++                self.fused_index_score_weights,
++                chunk_start_idx=int(chunk_start) // s.indexer_compress_ratio,
++                program_config=self.fused_index_score_program_cfg,
++            )
++            ttnn.deallocate(q_residue)
++            residue_scores.append(score)
++        ttnn.deallocate(residue_major)
++        residues = ttnn.concat(residue_scores, dim=1)
++        for score in residue_scores:
++            _free(score, residues)
++        token_scores = ttnn.permute(residues, (0, 2, 1, 3))
++        ttnn.deallocate(residues)
++        scores = ttnn.reshape(token_scores, (1, 1, tokens, padded_count))
++        _free(token_scores, scores)
++        if padded_count != count:
++            unpadded = ttnn.slice(scores, [0, 0, 0, 0], [1, 1, tokens, count])
++            ttnn.deallocate(scores)
++            scores = unpadded
++        tiled = ttnn.to_layout(scores, ttnn.TILE_LAYOUT)
++        ttnn.deallocate(scores)
++        if score_keys is not keys:
++            ttnn.deallocate(score_keys)
++        return tiled
++
++    def _selected_virtual_tokens(self, index_q, page_table, current_pos, rot_mats, *, chunk_start=None):
+         """QSA indexer with its score projection subgraph fused."""
+ 
+         s = self.shapes
+@@ -1250,15 +1356,9 @@
+         _free(key_weight, self.fused_index_key_cache, keys)
+         ttnn.deallocate(physical_ids)
+         keys = ttnn.reshape(keys, (batch, 1, count, s.indexer_head_dim))
+-        scores = ttnn.matmul(
+-            index_q,
+-            keys,
+-            transpose_b=True,
+-            activation="relu",
+-            compute_kernel_config=self.compute_cfg,
+-        )
++        scores = self._dedicated_index_scores(index_q, keys, chunk_start=chunk_start)
+         ttnn.deallocate(keys)
+-        scores = ttnn.sum(scores, dim=1, keepdim=True)
++
+ 
+         pos = ttnn.reshape(current_pos, (batch, 1, tokens, 1))
+         complete = ttnn.bitwise_right_shift(
+

@@ -1,0 +1,170 @@
+Script started on 2026-08-26 16:28:00-04:00 [COMMAND="zsh -lc 'source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh && QWEN38_PERF_DECODE_REPLAYS=10 pytest -q -s --count=3 models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py'" <not executed on terminal>]
+[32m2026-08-26 16:28:02.717[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m78[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 9 items                                                              
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-3] [90m2026-08-26 16:28:03.523[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:227)[0m
+[90m2026-08-26 16:28:03.523[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:389)[0m
+[90m2026-08-26 16:28:03.523[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:96)[0m
+[90m2026-08-26 16:28:03.523[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:115)[0m
+[90m2026-08-26 16:28:03.526[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:575)[0m
+[90m2026-08-26 16:28:03.526[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:119)[0m
+[90m2026-08-26 16:28:03.526[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mBoard 0x46131924022 has 1 chips, but expected 2 chips for board type p300.[0m [90m(cluster_descriptor.cpp:1238)[0m
+[90m2026-08-26 16:28:03.546[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0}/[0] and remote chip ids {}[0m [90m(cluster.cpp:173)[0m
+[90m2026-08-26 16:28:03.546[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:147)[0m
+[90m2026-08-26 16:28:03.546[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.11.0[0m [90m(cluster.cpp:150)[0m
+[90m2026-08-26 16:28:03.546[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:648)[0m
+[90m2026-08-26 16:28:03.546[0m | [33m[1mwarning [m | [35m         Device[0m | [37mUsing CUSTOM cluster type for P300 board with 1 chips[0m [90m(tt_cluster.cpp:203)[0m
+[90m2026-08-26 16:28:03.546[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1188)[0m
+[90m2026-08-26 16:28:03.613[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1196)[0m
+[90m2026-08-26 16:28:03.668[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto[0m [90m(metal_env.cpp:418)[0m
+[90m2026-08-26 16:28:03.669[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:119)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mLoaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto[0m [90m(fabric_host_utils.cpp:338)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mMatching MESH mgd groupings to MESH groupings[0m [90m(physical_grouping_descriptor_matching.cpp:939)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mGrouping valid candidates by node difference[0m [90m(physical_grouping_descriptor_matching.cpp:997)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH)[0m [90m(physical_grouping_descriptor_matching.cpp:1214)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mRank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es)[0m [90m(topology_mapper_utils.cpp:1617)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3341)[0m
+[90m2026-08-26 16:28:03.669[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3349)[0m
+[32m2026-08-26 16:28:07.460[0m | [1mINFO    [0m | [36mmodels.demos.blackhole.qwen36.tt.gdn.fused_chunk[0m:[36mchunk_gated_delta_rule_fused_adapter[0m:[36m105[0m - [1m[GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.FLOAT32/DataType.FLOAT32/DataType.FLOAT32[0m
+[32m2026-08-26 16:28:07.580[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 16:28:07.604[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 16:28:07.673[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 16:28:07.730[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.151855 traced_decode_ms=5.732053 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-3] [32m2026-08-26 16:28:10.232[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 16:28:10.256[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 16:28:10.292[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 16:28:10.350[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.055170 traced_decode_ms=5.732579 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-3] [32m2026-08-26 16:28:12.865[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0[0m
+[32m2026-08-26 16:28:12.890[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L0_END[0m
+[32m2026-08-26 16:28:12.925[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0[0m
+[32m2026-08-26 16:28:12.983[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L0_END[0m
+PERFEVIDENCE layer=0 prefill_seq=128 warmed_prefill_ms=24.117971 traced_decode_ms=5.732531 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-3] [32m2026-08-26 16:28:15.511[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 16:28:15.539[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 16:28:15.590[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 16:28:15.657[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.576238 traced_decode_ms=6.699843 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-3] [32m2026-08-26 16:28:18.221[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 16:28:18.249[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 16:28:18.295[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 16:28:18.362[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.571280 traced_decode_ms=6.699851 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-3] [32m2026-08-26 16:28:20.807[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1[0m
+[32m2026-08-26 16:28:20.834[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L1_END[0m
+[32m2026-08-26 16:28:20.881[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1[0m
+[32m2026-08-26 16:28:20.948[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L1_END[0m
+PERFEVIDENCE layer=1 prefill_seq=128 warmed_prefill_ms=27.575097 traced_decode_ms=6.699271 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-3] [32m2026-08-26 16:28:26.059[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 16:28:26.467[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 16:28:26.571[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 16:28:26.685[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.279154 traced_decode_ms=11.345282 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-3] [32m2026-08-26 16:28:31.581[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 16:28:31.989[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 16:28:32.062[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 16:28:32.175[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.247665 traced_decode_ms=11.339128 decode_replays=10
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-3] [32m2026-08-26 16:28:37.066[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3[0m
+[32m2026-08-26 16:28:37.475[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_PREFILL_L3_END[0m
+[32m2026-08-26 16:28:37.548[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3[0m
+[32m2026-08-26 16:28:37.661[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mPERF_DECODE_L3_END[0m
+PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=408.555464 traced_decode_ms=11.336031 decode_replays=10
+PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+5.46s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-3]
+5.21s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-3]
+5.20s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-3]
+3.41s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-3]
+2.43s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-3]
+2.40s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-3]
+2.36s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-3]
+2.34s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-3]
+2.31s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-3]
+0.95s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-3]
+0.25s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-3]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-1-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-2-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[0-3-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-1-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-2-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[1-3-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-1-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-2-3]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder_perf.py::test_warmed_prefill_and_traced_decode[3-3-3]
+============================== 9 passed in 34.34s ==============================
+nanobind: leaked 2 instances!
+ - leaked instance 0x757ff8df0e28 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x757ff8a1e588 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "__init__"
+ - leaked function ""
+ - leaked function "clear_loaded_sub_device_manager"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "ranges"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-26 16:28:39.247[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 1143/1143 hits (100.0%) [1143 cached, 5416 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-26 16:28:39.247[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-26 16:28:39.257[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:547)[0m
+[90m2026-08-26 16:28:39.257[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1201)[0m
+[90m2026-08-26 16:28:39.395[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1210)[0m
+[90m2026-08-26 16:28:39.395[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:916)[0m
+[90m2026-08-26 16:28:39.395[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:919)[0m
+
+Script done on 2026-08-26 16:28:39-04:00 [COMMAND_EXIT_CODE="0"]

@@ -1,0 +1,72 @@
+diff --git a/models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py b/models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py
+--- a/models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py
++++ b/models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py
+@@
+ import inspect
++import types
+ 
+ import pytest
++import torch
++import ttnn
+ 
++from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
+ from models.autoports.qwen_qwen3_8_flash_next.tests import test_functional_decoder as functional_gates
++from models.autoports.qwen_qwen3_8_flash_next.tests.test_functional_decoder import _upload
++from models.autoports.qwen_qwen3_8_flash_next.tt.functional_decoder import FunctionalDecoder
+ from models.autoports.qwen_qwen3_8_flash_next.tt.fused_decoder import FusedDecoder
+@@
+ def test_real_weights_hf_prefill_decode_pcc(monkeypatch, mesh_device, layer_idx):
+     _fused(monkeypatch)
+     functional_gates.test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx)
++
++
++def test_kda_prefill_epilogue_preserves_layer1_saved_state(mesh_device):
++    """The prefill-only KDA epilogue must not mutate upstream decode state."""
++
++    torch.manual_seed(20260827)
++    config = H.target_config()
++    state = H.load_real_layer_state(1)
++    layer = FusedDecoder.from_state_dict(
++        state,
++        hf_config=config,
++        layer_idx=1,
++        mesh_device=mesh_device,
++        max_batch=1,
++        max_seq_len=128,
++    )
++    hidden = _upload((torch.randn(1, 1, 33, 10240, dtype=torch.bfloat16) * 0.02).contiguous(), mesh_device)
++    ple = _upload((torch.randn(1, 1, 33, 2560, dtype=torch.bfloat16) * 0.02).contiguous(), mesh_device)
++
++    def primitive_prefill_epilogue(self, core, z, *, public_shape):
++        s = self.shapes
++        head_major = ttnn.reshape(
++            core,
++            (1, s.linear_num_value_heads, int(core.shape[1]), s.linear_value_head_dim),
++        )
++        token_major = ttnn.permute(head_major, (0, 2, 1, 3))
++        ttnn.deallocate(core)
++        return FunctionalDecoder._gdn_epilogue(self, token_major, z, public_shape=public_shape)
++
++    layer._gdn_prefill_epilogue = types.MethodType(primitive_prefill_epilogue, layer)
++    control_out = layer.prefill_forward(hidden, ple_embeddings=ple)
++    ttnn.synchronize_device(mesh_device)
++    control = {
++        "recurrent": ttnn.to_torch(layer.user_recurrent_state[0]).clone(),
++        "conv": ttnn.to_torch(layer.user_conv_state[0]).clone(),
++        "ple": ttnn.to_torch(layer.user_ple_conv_state[0]).clone(),
++    }
++    ttnn.deallocate(control_out)
++
++    layer._gdn_prefill_epilogue = types.MethodType(FusedDecoder._gdn_prefill_epilogue, layer)
++    candidate_out = layer.prefill_forward(hidden, ple_embeddings=ple)
++    ttnn.synchronize_device(mesh_device)
++    candidate = {
++        "recurrent": ttnn.to_torch(layer.user_recurrent_state[0]),
++        "conv": ttnn.to_torch(layer.user_conv_state[0]),
++        "ple": ttnn.to_torch(layer.user_ple_conv_state[0]),
++    }
++    ttnn.deallocate(candidate_out)
++
++    for name in control:
++        assert torch.equal(control[name], candidate[name]), f"KDA epilogue mutated saved {name} state"
+

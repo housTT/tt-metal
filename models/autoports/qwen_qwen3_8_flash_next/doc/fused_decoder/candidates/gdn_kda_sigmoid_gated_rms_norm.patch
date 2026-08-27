@@ -1,0 +1,64 @@
+diff --git a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+--- a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
++++ b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+@@ -54,6 +54,7 @@
+         "dedicated_scaled_dot_product_attention_decode",
+         "dedicated_paged_fused_kv_update",
+         "dedicated_kda_qkv_causal_conv1d_silu_prefill",
++        "dedicated_kda_sigmoid_gated_rms_norm_prefill",
+         "native_sdpa_grouped_query_heads",
+         "per_kv_head_paged_gather",
+         "index_matmul_transpose_relu_and_scale",
+@@ -167,6 +168,13 @@
+             layer.fused_q_norm_weight = ttnn.multiply(norm_one, 1.0 / s.linear_key_head_dim)
+             layer.fused_k_norm_weight = ttnn.multiply(norm_one, 1.0 / math.sqrt(s.linear_key_head_dim))
+             ttnn.deallocate(norm_one)
++            layer.fused_gdn_norm_weight = ttnn.reshape(w["gdn_norm"], (s.linear_value_head_dim,))
++            layer.fused_gdn_epilogue_compute_cfg = ttnn.WormholeComputeKernelConfig(
++                math_fidelity=ttnn.MathFidelity.HiFi4,
++                math_approx_mode=False,
++                fp32_dest_acc_en=True,
++                packer_l1_acc=False,
++            )
+ 
+         if s.layer_type == QWEN_SPARSE_ATTENTION:
+             # q/k/v are contiguous so a dedicated head-split op can consume the
+@@ -699,14 +707,34 @@
+                 s.linear_value_head_dim,
+             ),
+             const_tiles=self.const["gdn_tiles"],
++            return_o_bh=True,
+         )
+         ttnn.deallocate(self.user_recurrent_state[user_id])
+         self.user_recurrent_state[user_id] = state
+-        core = ttnn.reshape(
++        return self._gdn_prefill_epilogue(core, z, public_shape=_shape(x))
++
++    def _gdn_prefill_epilogue(self, core, z, *, public_shape):
++        """Fuse per-head RMSNorm, sigmoid gate and head-to-token relayout."""
++
++        s = self.shapes
++        gate = ttnn.reshape(z, (1, int(core.shape[1]), s.linear_value_width))
++        gated = ttnn.experimental.kda.sigmoid_gated_rms_norm(
+             core,
+-            (1, padded, s.linear_num_value_heads, s.linear_value_head_dim),
+-        )
+-        return self._gdn_epilogue(core, z, public_shape=_shape(x))
++            gate,
++            self.fused_gdn_norm_weight,
++            s.linear_num_value_heads,
++            epsilon=s.rms_norm_eps,
++            compute_kernel_config=self.fused_gdn_epilogue_compute_cfg,
++            output_dtype=ttnn.float32,
++        )
++        ttnn.deallocate(core)
++        _free(gate, z, gated)
++        ttnn.deallocate(z)
++        flat = ttnn.reshape(gated, (*public_shape[:-1], s.linear_value_width))
++        _free(gated, flat)
++        out = self._linear(flat, self.w["gdn_out"])
++        ttnn.deallocate(flat)
++        return out
+ 
+     def _gdn_decode(self, x):
+         s = self.shapes

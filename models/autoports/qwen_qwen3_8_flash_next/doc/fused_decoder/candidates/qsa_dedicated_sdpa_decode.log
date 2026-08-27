@@ -1,0 +1,617 @@
+Script started on 2026-08-26 18:15:58-04:00 [COMMAND="zsh -lc 'setopt nonomatch; set -x; source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; git diff -- models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py; sha256sum models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py; pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3] && QWEN38_FUSED_PERF_DECODE_REPLAYS=10 pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]'" <not executed on terminal>]
++zsh:1> source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:5> [[ -n 5.9 ]]
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:6> _qwen38_self=models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh 
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> _qwen38_repo=+models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> dirname models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> _qwen38_repo=+models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> cd models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/../../../../..
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> pwd
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> _qwen38_repo=/home/ttuser/dev/qwen3.8-flash-next/tt-metal 
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:12> export TT_METAL_HOME=/home/ttuser/dev/qwen3.8-flash-next/tt-metal
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:13> export TT_METAL_RUNTIME_ROOT=/home/ttuser/dev/qwen3.8-flash-next/tt-metal
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:14> export PYTHONPATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:15> export TT_VISIBLE_DEVICES=0
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:16> export TT_MESH_GRAPH_DESC_PATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:17> unset TT_METAL_KERNEL_PATH
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:19> [[ /home/ttuser/.tenstorrent-venv != /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env ]]
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:21> source /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:25> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:30> [ -n '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:37> [ -n x ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:38> SCRIPT_PATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:79> deactivate nondestructive
++deactivate:1> unset -f pydoc
++deactivate:1> true
++deactivate:5> [ -z '' ']'
++deactivate:10> [ -z '' ']'
++deactivate:19> hash -r
++deactivate:21> [ -z '' ']'
++deactivate:27> unset VIRTUAL_ENV
++deactivate:28> unset VIRTUAL_ENV_PROMPT
++deactivate:29> [ ! nondestructive '=' nondestructive ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:81> [ -n /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> realpath -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> dirname -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> dirname -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:86> [ linux-gnu '=' cygwin ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:86> [ linux-gnu '=' msys ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:89> export VIRTUAL_ENV
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:93> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:98> unset SCRIPT_PATH
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:101> _OLD_VIRTUAL_PATH=/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.codex/tmp/arg0/codex-arg0YTKoA7:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:102> PATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.codex/tmp/arg0/codex-arg0YTKoA7:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:103> export PATH
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:105> [ x '!=' x ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:108> VIRTUAL_ENV_PROMPT=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:108> basename /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:108> VIRTUAL_ENV_PROMPT=python_env 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:110> export VIRTUAL_ENV_PROMPT
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:113> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:118> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:119> _OLD_VIRTUAL_PS1=$'(.tenstorrent-venv) %{\C-[[00m%}%F{magenta}%n%F{cyan}@%F{yellow}%m%F{red}:%F{cyan}%0~%F{red}|%f$(git_prompt_info)%{\C-[[00m%}%F{cyan}⇒%f  ' 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:120> PS1=$'(python_env) (.tenstorrent-venv) %{\C-[[00m%}%F{magenta}%n%F{cyan}@%F{yellow}%m%F{red}:%F{cyan}%0~%F{red}|%f$(git_prompt_info)%{\C-[[00m%}%F{cyan}⇒%f  ' 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:121> export PS1
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:125> alias pydoc
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:125> true
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:134> hash -r
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:24> unset _qwen38_repo _qwen38_self
++zsh:1> git diff -- models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+[1mdiff --git a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[1mindex ba02207d481..9ae6eea0566 100644[m
+[1m--- a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[1m+++ b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[36m@@ -1127,20 +1127,36 @@[m [mclass FusedDecoder(FunctionalDecoder):[m
+         _free(token_mask, additive)[m
+         sdpa_cfg = ttnn.SDPAProgramConfig([m
+             compute_with_storage_grid_size=self.mesh_device.compute_with_storage_grid_size(),[m
+[31m-            q_chunk_size=32,[m
+[32m+[m[32m            q_chunk_size=0 if tokens == 1 else 32,[m
+             k_chunk_size=64,[m
+             exp_approx_mode=False,[m
+         )[m
+[31m-        out = ttnn.transformer.scaled_dot_product_attention([m
+[31m-            q_rows,[m
+[31m-            k_rows,[m
+[31m-            v_rows,[m
+[31m-            is_causal=False,[m
+[31m-            attn_mask=additive,[m
+[31m-            scale=1.0 / math.sqrt(s.head_dim),[m
+[31m-            program_config=sdpa_cfg,[m
+[31m-            compute_kernel_config=self.compute_cfg,[m
+[31m-        )[m
+[32m+[m[32m        if tokens == 1:[m
+[32m+[m[32m            decode_q = ttnn.permute(q_rows, (2, 0, 1, 3))[m
+[32m+[m[32m            decode_mask = ttnn.repeat(additive, (1, 1, s.num_attention_heads, 1))[m
+[32m+[m[32m            out = ttnn.transformer.scaled_dot_product_attention_decode([m
+[32m+[m[32m                decode_q,[m
+[32m+[m[32m                k_rows,[m
+[32m+[m[32m                v_rows,[m
+[32m+[m[32m                is_causal=False,[m
+[32m+[m[32m                attn_mask=decode_mask,[m
+[32m+[m[32m                scale=1.0 / math.sqrt(s.head_dim),[m
+[32m+[m[32m                program_config=sdpa_cfg,[m
+[32m+[m[32m                compute_kernel_config=self.compute_cfg,[m
+[32m+[m[32m            )[m
+[32m+[m[32m            ttnn.deallocate(decode_q)[m
+[32m+[m[32m            ttnn.deallocate(decode_mask)[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            out = ttnn.transformer.scaled_dot_product_attention([m
+[32m+[m[32m                q_rows,[m
+[32m+[m[32m                k_rows,[m
+[32m+[m[32m                v_rows,[m
+[32m+[m[32m                is_causal=False,[m
+[32m+[m[32m                attn_mask=additive,[m
+[32m+[m[32m                scale=1.0 / math.sqrt(s.head_dim),[m
+[32m+[m[32m                program_config=sdpa_cfg,[m
+[32m+[m[32m                compute_kernel_config=self.compute_cfg,[m
+[32m+[m[32m            )[m
+         _free(q_rows, q, out)[m
+         ttnn.deallocate(k_rows)[m
+         ttnn.deallocate(v_rows)[m
++zsh:1> sha256sum models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py
+93ecc50e24b2b576d19b3a703d57c53de8baaa6b8b5e8542af9465a2645de8aa  models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+1d72572cc864b673f3297a5c78c1e8d9232c53011b473c6aba43f78af021bbb5  models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py
+f6d263a3bd1b888da6bd551b907e631634bb6f72cbe11ff5933f084ab32ae884  models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py
++zsh:1> pytest -q -s 'models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]'
+[32m2026-08-26 18:16:00.794[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m78[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item                                                               
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3] [90m2026-08-26 18:16:01.703[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:227)[0m
+[90m2026-08-26 18:16:01.703[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:389)[0m
+[90m2026-08-26 18:16:01.704[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:96)[0m
+[90m2026-08-26 18:16:01.704[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:115)[0m
+[90m2026-08-26 18:16:01.707[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:575)[0m
+[90m2026-08-26 18:16:01.707[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:119)[0m
+[90m2026-08-26 18:16:01.707[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mBoard 0x46131924022 has 1 chips, but expected 2 chips for board type p300.[0m [90m(cluster_descriptor.cpp:1238)[0m
+[90m2026-08-26 18:16:01.726[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0}/[0] and remote chip ids {}[0m [90m(cluster.cpp:173)[0m
+[90m2026-08-26 18:16:01.726[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:147)[0m
+[90m2026-08-26 18:16:01.726[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.11.0[0m [90m(cluster.cpp:150)[0m
+[90m2026-08-26 18:16:01.726[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:648)[0m
+[90m2026-08-26 18:16:01.726[0m | [33m[1mwarning [m | [35m         Device[0m | [37mUsing CUSTOM cluster type for P300 board with 1 chips[0m [90m(tt_cluster.cpp:203)[0m
+[90m2026-08-26 18:16:01.727[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1188)[0m
+[90m2026-08-26 18:16:01.799[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1196)[0m
+[90m2026-08-26 18:16:01.855[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto[0m [90m(metal_env.cpp:418)[0m
+[90m2026-08-26 18:16:01.855[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:119)[0m
+[90m2026-08-26 18:16:01.855[0m | [32minfo    [m | [35m         Fabric[0m | [37mLoaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto[0m [90m(fabric_host_utils.cpp:338)[0m
+[90m2026-08-26 18:16:01.856[0m | [32minfo    [m | [35m         Fabric[0m | [37mMatching MESH mgd groupings to MESH groupings[0m [90m(physical_grouping_descriptor_matching.cpp:939)[0m
+[90m2026-08-26 18:16:01.856[0m | [32minfo    [m | [35m         Fabric[0m | [37mGrouping valid candidates by node difference[0m [90m(physical_grouping_descriptor_matching.cpp:997)[0m
+[90m2026-08-26 18:16:01.856[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH)[0m [90m(physical_grouping_descriptor_matching.cpp:1214)[0m
+[90m2026-08-26 18:16:01.856[0m | [32minfo    [m | [35m         Fabric[0m | [37mRank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es)[0m [90m(topology_mapper_utils.cpp:1617)[0m
+[90m2026-08-26 18:16:01.856[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3341)[0m
+[90m2026-08-26 18:16:01.856[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3349)[0m
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+PCCEVIDENCE real layer=3 prefill_pcc=0.99660957
+[90m2026-08-26 18:16:06.500[0m | [1m[41mcritical[m | [35m         Always[0m | [37mTT_FATAL: Mask sequence length must be multiple of chunk size, got: 2080 and 64[0m [90m(assert.hpp:104)[0m
+FAILED
+
+=================================== FAILURES ===================================
+__________________ test_real_weights_hf_prefill_decode_pcc[3] __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x738e4b21fbf0>
+mesh_device = MeshDevice(1x1 grid, 1 devices), layer_idx = 3
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    def test_real_weights_hf_prefill_decode_pcc(monkeypatch, mesh_device, layer_idx):
+        _fused(monkeypatch)
+>       functional_gates.test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx)
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py:60: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+models/autoports/qwen_qwen3_8_flash_next/tests/test_functional_decoder.py:127: in test_real_weights_hf_prefill_decode_pcc
+    layer.decode_forward(decode_input, **decode_kwargs)
+models/autoports/qwen_qwen3_8_flash_next/tt/functional_decoder.py:1652: in decode_forward
+    block = self._qsa_decode(
+models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py:896: in _qsa_decode
+    attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py:1137: in _gathered_qsa_attention
+    out = ttnn.transformer.scaled_dot_product_attention_decode(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.transformer.scaled_dot_product_attention_decode', function=<ttnn._ttnn...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor([[[[ 3.5312e+00, -1.7188e+00,  ..., -7.5781e-01,  7.9688e-01],
+               [-2.2070e-01,  1.8672e+00, ...01,  ...,  1.1816e-01, -1.0498e-01]]]], shape=Shape([1, 2, 2080, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE))
+function_kwargs = {'attn_mask': ttnn.Tensor([[[[ 0.0000,  0.0000,  ..., -9984.0000, -9984.0000],
+               [ 0.0000,  0.0000,  ...,...sub_core_grids=std::nullopt, q_chunk_size=0, k_chunk_size=64, exp_approx_mode=false, max_cores_per_head_batch=16), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+>               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/transformer/sdpa_decode/device/sdpa_decode_device_operation.cpp:141: mask_shape[3] % operation_attributes.k_chunk_size == 0
+E               info:
+E               Mask sequence length must be multiple of chunk size, got: 2080 and 64
+E               backtrace:
+E                --- void tt::assert::detail::tt_throw<unsigned long, unsigned long>(char const*, int, char const*, char const*, fmt::v11::fstring<unsigned long const&, unsigned long const&>::t, unsigned long const&, unsigned long const&)
+E                --- ttnn::prim::SdpaDecodeDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SdpaDecodeParams const&, ttnn::prim::SdpaDecodeInputs const&)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim25SdpaDecodeDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x738ea0edb0e4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim25SdpaDecodeDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x31f) [0x738ea0eca53f]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim11sdpa_decodeERKNS_6TensorES3_RKSt8optionalIS2_ES7_S7_S7_S7_bbRKSt6vectorIjSaIjEES4_IfES4_IjERKN2tt8tt_metal12MemoryConfigERKS4_INS_10operations11transformer17SDPAProgramConfigEENS_19ComputeKernelConfigEjS4_IbESR_SE_S4_INSL_26PagedCacheGeometryOverrideEESE_+0x425) [0x738ea0ebd645]
+E                --- ttnn::transformer::scaled_dot_product_attention_decode(ttnn::Tensor const&, ttnn::Tensor const&, ttnn::Tensor const&, bool, std::optional<ttnn::Tensor const> const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::optional<ttnn::Tensor const> const&, std::optional<ttnn::Tensor const> const&, std::optional<float>, std::optional<unsigned int>, std::optional<tt::tt_metal::MemoryConfig> const&, std::optional<ttnn::operations::transformer::SDPAProgramConfig>, std::optional<ttnn::ComputeKernelConfig>, std::optional)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3872cc) [0x738ea15872cc]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3869d7) [0x738ea15869d7]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x738ea15681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x738ee842a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x738ee842a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError
+=============================== warnings summary ===============================
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+3.99s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.98s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+=========================== short test summary info ============================
+FAILED models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+======================== 1 failed, 2 warnings in 5.06s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x738e4e3f65a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x738e4ece9818 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function ""
+ - leaked function "item"
+ - leaked function "reset_sub_device_stall_group"
+ - leaked function "memory_config"
+ - leaked function "unpad_from_tile"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "devices"
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-26 18:16:08.225[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 866/871 hits (99.4%) [866 cached, 327 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-26 18:16:08.225[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-26 18:16:08.230[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:547)[0m
+[90m2026-08-26 18:16:08.230[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1201)[0m
+[90m2026-08-26 18:16:08.376[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1210)[0m
+[90m2026-08-26 18:16:08.376[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:916)[0m
+[90m2026-08-26 18:16:08.376[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:919)[0m
+
+Script done on 2026-08-26 18:16:08-04:00 [COMMAND_EXIT_CODE="1"]
+Script started on 2026-08-26 18:16:25-04:00 [COMMAND="zsh -lc 'setopt nonomatch; set -x; source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; git diff -- models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py; sha256sum models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py; pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3] && QWEN38_FUSED_PERF_DECODE_REPLAYS=10 pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]'" <not executed on terminal>]
++zsh:1> source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:5> [[ -n 5.9 ]]
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:6> _qwen38_self=models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh 
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> _qwen38_repo=+models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> dirname models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> _qwen38_repo=+models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> cd models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/../../../../..
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> pwd
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:10> _qwen38_repo=/home/ttuser/dev/qwen3.8-flash-next/tt-metal 
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:12> export TT_METAL_HOME=/home/ttuser/dev/qwen3.8-flash-next/tt-metal
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:13> export TT_METAL_RUNTIME_ROOT=/home/ttuser/dev/qwen3.8-flash-next/tt-metal
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:14> export PYTHONPATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:15> export TT_VISIBLE_DEVICES=0
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:16> export TT_MESH_GRAPH_DESC_PATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:17> unset TT_METAL_KERNEL_PATH
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:19> [[ /home/ttuser/.tenstorrent-venv != /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env ]]
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:21> source /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:25> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:30> [ -n '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:37> [ -n x ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:38> SCRIPT_PATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:79> deactivate nondestructive
++deactivate:1> unset -f pydoc
++deactivate:1> true
++deactivate:5> [ -z '' ']'
++deactivate:10> [ -z '' ']'
++deactivate:19> hash -r
++deactivate:21> [ -z '' ']'
++deactivate:27> unset VIRTUAL_ENV
++deactivate:28> unset VIRTUAL_ENV_PROMPT
++deactivate:29> [ ! nondestructive '=' nondestructive ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:81> [ -n /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> realpath -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> dirname -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> dirname -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:82> VIRTUAL_ENV=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:86> [ linux-gnu '=' cygwin ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:86> [ linux-gnu '=' msys ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:89> export VIRTUAL_ENV
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:93> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:98> unset SCRIPT_PATH
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:101> _OLD_VIRTUAL_PATH=/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.codex/tmp/arg0/codex-arg0YTKoA7:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:102> PATH=/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.codex/tmp/arg0/codex-arg0YTKoA7:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/lib/python3.12/site-packages/codex_cli_bin/codex-path:/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/home/ttuser/.tenstorrent-venv/bin:/home/ttuser/.opencode/bin:/home/ttuser/.local/bin:/home/ttuser/.local/bin/agent-deck:/home/ttuser/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:103> export PATH
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:105> [ x '!=' x ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:108> VIRTUAL_ENV_PROMPT=+/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:108> basename /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:108> VIRTUAL_ENV_PROMPT=python_env 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:110> export VIRTUAL_ENV_PROMPT
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:113> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:118> [ -z '' ']'
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:119> _OLD_VIRTUAL_PS1=$'(.tenstorrent-venv) %{\C-[[00m%}%F{magenta}%n%F{cyan}@%F{yellow}%m%F{red}:%F{cyan}%0~%F{red}|%f$(git_prompt_info)%{\C-[[00m%}%F{cyan}⇒%f  ' 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:120> PS1=$'(python_env) (.tenstorrent-venv) %{\C-[[00m%}%F{magenta}%n%F{cyan}@%F{yellow}%m%F{red}:%F{cyan}%0~%F{red}|%f$(git_prompt_info)%{\C-[[00m%}%F{cyan}⇒%f  ' 
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:121> export PS1
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:125> alias pydoc
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:125> true
++/home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/activate:134> hash -r
++models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh:24> unset _qwen38_repo _qwen38_self
++zsh:1> git diff -- models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+[1mdiff --git a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[1mindex ba02207d481..84c67636180 100644[m
+[1m--- a/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[1m+++ b/models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py[m
+[36m@@ -1127,20 +1127,36 @@[m [mclass FusedDecoder(FunctionalDecoder):[m
+         _free(token_mask, additive)[m
+         sdpa_cfg = ttnn.SDPAProgramConfig([m
+             compute_with_storage_grid_size=self.mesh_device.compute_with_storage_grid_size(),[m
+[31m-            q_chunk_size=32,[m
+[31m-            k_chunk_size=64,[m
+[32m+[m[32m            q_chunk_size=0 if tokens == 1 else 32,[m
+[32m+[m[32m            k_chunk_size=32 if tokens == 1 else 64,[m
+             exp_approx_mode=False,[m
+         )[m
+[31m-        out = ttnn.transformer.scaled_dot_product_attention([m
+[31m-            q_rows,[m
+[31m-            k_rows,[m
+[31m-            v_rows,[m
+[31m-            is_causal=False,[m
+[31m-            attn_mask=additive,[m
+[31m-            scale=1.0 / math.sqrt(s.head_dim),[m
+[31m-            program_config=sdpa_cfg,[m
+[31m-            compute_kernel_config=self.compute_cfg,[m
+[31m-        )[m
+[32m+[m[32m        if tokens == 1:[m
+[32m+[m[32m            decode_q = ttnn.permute(q_rows, (2, 0, 1, 3))[m
+[32m+[m[32m            decode_mask = ttnn.repeat(additive, (1, 1, s.num_attention_heads, 1))[m
+[32m+[m[32m            out = ttnn.transformer.scaled_dot_product_attention_decode([m
+[32m+[m[32m                decode_q,[m
+[32m+[m[32m                k_rows,[m
+[32m+[m[32m                v_rows,[m
+[32m+[m[32m                is_causal=False,[m
+[32m+[m[32m                attn_mask=decode_mask,[m
+[32m+[m[32m                scale=1.0 / math.sqrt(s.head_dim),[m
+[32m+[m[32m                program_config=sdpa_cfg,[m
+[32m+[m[32m                compute_kernel_config=self.compute_cfg,[m
+[32m+[m[32m            )[m
+[32m+[m[32m            ttnn.deallocate(decode_q)[m
+[32m+[m[32m            ttnn.deallocate(decode_mask)[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            out = ttnn.transformer.scaled_dot_product_attention([m
+[32m+[m[32m                q_rows,[m
+[32m+[m[32m                k_rows,[m
+[32m+[m[32m                v_rows,[m
+[32m+[m[32m                is_causal=False,[m
+[32m+[m[32m                attn_mask=additive,[m
+[32m+[m[32m                scale=1.0 / math.sqrt(s.head_dim),[m
+[32m+[m[32m                program_config=sdpa_cfg,[m
+[32m+[m[32m                compute_kernel_config=self.compute_cfg,[m
+[32m+[m[32m            )[m
+         _free(q_rows, q, out)[m
+         ttnn.deallocate(k_rows)[m
+         ttnn.deallocate(v_rows)[m
++zsh:1> sha256sum models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py
+0a8876355db2abbf134edf387056c3984acdac25778b931300fc3cca3497cd92  models/autoports/qwen_qwen3_8_flash_next/tt/fused_decoder.py
+1d72572cc864b673f3297a5c78c1e8d9232c53011b473c6aba43f78af021bbb5  models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py
+f6d263a3bd1b888da6bd551b907e631634bb6f72cbe11ff5933f084ab32ae884  models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py
++zsh:1> pytest -q -s 'models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]'
+[32m2026-08-26 18:16:26.957[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m78[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item                                                               
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3] [90m2026-08-26 18:16:27.771[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:227)[0m
+[90m2026-08-26 18:16:27.771[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:389)[0m
+[90m2026-08-26 18:16:27.771[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:96)[0m
+[90m2026-08-26 18:16:27.771[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:115)[0m
+[90m2026-08-26 18:16:27.774[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:575)[0m
+[90m2026-08-26 18:16:27.774[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:119)[0m
+[90m2026-08-26 18:16:27.774[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mBoard 0x46131924022 has 1 chips, but expected 2 chips for board type p300.[0m [90m(cluster_descriptor.cpp:1238)[0m
+[90m2026-08-26 18:16:27.793[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0}/[0] and remote chip ids {}[0m [90m(cluster.cpp:173)[0m
+[90m2026-08-26 18:16:27.794[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:147)[0m
+[90m2026-08-26 18:16:27.794[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.11.0[0m [90m(cluster.cpp:150)[0m
+[90m2026-08-26 18:16:27.794[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:648)[0m
+[90m2026-08-26 18:16:27.794[0m | [33m[1mwarning [m | [35m         Device[0m | [37mUsing CUSTOM cluster type for P300 board with 1 chips[0m [90m(tt_cluster.cpp:203)[0m
+[90m2026-08-26 18:16:27.794[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1188)[0m
+[90m2026-08-26 18:16:27.802[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mAICLK settled at 1343 MHz, within 5% of the requested 1350 MHz but not an exact match. Proceeding.[0m [90m(tt_device.cpp:318)[0m
+[90m2026-08-26 18:16:27.802[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1196)[0m
+[90m2026-08-26 18:16:27.858[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto[0m [90m(metal_env.cpp:418)[0m
+[90m2026-08-26 18:16:27.858[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:119)[0m
+[90m2026-08-26 18:16:27.858[0m | [32minfo    [m | [35m         Fabric[0m | [37mLoaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto[0m [90m(fabric_host_utils.cpp:338)[0m
+[90m2026-08-26 18:16:27.859[0m | [32minfo    [m | [35m         Fabric[0m | [37mMatching MESH mgd groupings to MESH groupings[0m [90m(physical_grouping_descriptor_matching.cpp:939)[0m
+[90m2026-08-26 18:16:27.859[0m | [32minfo    [m | [35m         Fabric[0m | [37mGrouping valid candidates by node difference[0m [90m(physical_grouping_descriptor_matching.cpp:997)[0m
+[90m2026-08-26 18:16:27.859[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH)[0m [90m(physical_grouping_descriptor_matching.cpp:1214)[0m
+[90m2026-08-26 18:16:27.859[0m | [32minfo    [m | [35m         Fabric[0m | [37mRank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es)[0m [90m(topology_mapper_utils.cpp:1617)[0m
+[90m2026-08-26 18:16:27.859[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3341)[0m
+[90m2026-08-26 18:16:27.859[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3349)[0m
+[transformers] You tried to access the `AttentionInterface` with a `config._attn_implementation` set to `None`. This is expected if you use an Attention Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._attn_implementation`
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+PCCEVIDENCE real layer=3 prefill_pcc=0.99660957
+PCCEVIDENCE real layer=3 decode_pcc=0.99977440
+PASSED
+
+=============================== warnings summary ===============================
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+3.95s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.90s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder.py::test_real_weights_hf_prefill_decode_pcc[3]
+======================== 1 passed, 2 warnings in 4.91s =========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+nanobind: leaked 2 instances!
+ - leaked instance 0x7f8496b4e5a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7f8496f2ce88 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function "extract_shard"
+ - leaked function "logical_volume"
+ - leaked function ""
+ - leaked function "is_per_core_allocated"
+ - leaked function "tensor_topology"
+ - leaked function "create_descriptor"
+ - leaked function "clear_program_cache"
+ - leaked function ""
+ - leaked function "subtract"
+ - leaked function "__repr__"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-26 18:16:34.133[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 913/918 hits (99.5%) [913 cached, 379 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-26 18:16:34.133[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-26 18:16:34.138[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:547)[0m
+[90m2026-08-26 18:16:34.138[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1201)[0m
+[90m2026-08-26 18:16:34.279[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1210)[0m
+[90m2026-08-26 18:16:34.280[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:916)[0m
+[90m2026-08-26 18:16:34.280[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:919)[0m
++zsh:1> QWEN38_FUSED_PERF_DECODE_REPLAYS=10 pytest -q -s 'models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]'
+[32m2026-08-26 18:16:36.122[0m | [34m[1mDEBUG   [0m | [36mttnn[0m:[36m<module>[0m:[36m78[0m - [34m[1mInitial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}[0m
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+configfile: pytest.ini
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item                                                               
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3] [90m2026-08-26 18:16:36.956[0m | [32minfo    [m | [35m         Device[0m | [37mOpening user mode device driver[0m [90m(tt_cluster.cpp:227)[0m
+[90m2026-08-26 18:16:36.956[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor started.[0m [90m(cluster.cpp:389)[0m
+[90m2026-08-26 18:16:36.956[0m | [32minfo    [m | [35m            UMD[0m | [37mCreating TopologyDiscovery for architecture: blackhole[0m [90m(topology_discovery.cpp:96)[0m
+[90m2026-08-26 18:16:36.956[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting topology discovery.[0m [90m(topology_discovery.cpp:115)[0m
+[90m2026-08-26 18:16:36.959[0m | [32minfo    [m | [35m            UMD[0m | [37mEstablished firmware bundle version: 19.11.0[0m [90m(topology_discovery.cpp:575)[0m
+[90m2026-08-26 18:16:36.959[0m | [32minfo    [m | [35m            UMD[0m | [37mCompleted topology discovery.[0m [90m(topology_discovery.cpp:119)[0m
+[90m2026-08-26 18:16:36.959[0m | [33m[1mwarning [m | [35m            UMD[0m | [37mBoard 0x46131924022 has 1 chips, but expected 2 chips for board type p300.[0m [90m(cluster_descriptor.cpp:1238)[0m
+[90m2026-08-26 18:16:36.979[0m | [32minfo    [m | [35m            UMD[0m | [37mOpening local chip ids/PCIe ids: {0}/[0] and remote chip ids {}[0m [90m(cluster.cpp:173)[0m
+[90m2026-08-26 18:16:36.979[0m | [32minfo    [m | [35m            UMD[0m | [37mIOMMU: enabled[0m [90m(cluster.cpp:147)[0m
+[90m2026-08-26 18:16:36.979[0m | [32minfo    [m | [35m            UMD[0m | [37mKMD version: 2.11.0[0m [90m(cluster.cpp:150)[0m
+[90m2026-08-26 18:16:36.979[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster constructor completed.[0m [90m(cluster.cpp:648)[0m
+[90m2026-08-26 18:16:36.979[0m | [33m[1mwarning [m | [35m         Device[0m | [37mUsing CUSTOM cluster type for P300 board with 1 chips[0m [90m(tt_cluster.cpp:203)[0m
+[90m2026-08-26 18:16:36.979[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster[0m [90m(cluster.cpp:1188)[0m
+[90m2026-08-26 18:16:37.003[0m | [32minfo    [m | [35m            UMD[0m | [37mStarting devices in cluster completed.[0m [90m(cluster.cpp:1196)[0m
+[90m2026-08-26 18:16:37.059[0m | [32minfo    [m | [35m    Distributed[0m | [37mUsing custom mesh graph descriptor: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto[0m [90m(metal_env.cpp:418)[0m
+[90m2026-08-26 18:16:37.059[0m | [33m[1mwarning [m | [35m         Always[0m | [37mUnknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp.[0m [90m(physical_system_discovery.cpp:119)[0m
+[90m2026-08-26 18:16:37.059[0m | [32minfo    [m | [35m         Fabric[0m | [37mLoaded physical groupings from: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto[0m [90m(fabric_host_utils.cpp:338)[0m
+[90m2026-08-26 18:16:37.060[0m | [32minfo    [m | [35m         Fabric[0m | [37mMatching MESH mgd groupings to MESH groupings[0m [90m(physical_grouping_descriptor_matching.cpp:939)[0m
+[90m2026-08-26 18:16:37.060[0m | [32minfo    [m | [35m         Fabric[0m | [37mGrouping valid candidates by node difference[0m [90m(physical_grouping_descriptor_matching.cpp:997)[0m
+[90m2026-08-26 18:16:37.060[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH)[0m [90m(physical_grouping_descriptor_matching.cpp:1214)[0m
+[90m2026-08-26 18:16:37.060[0m | [32minfo    [m | [35m         Fabric[0m | [37mRank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es)[0m [90m(topology_mapper_utils.cpp:1617)[0m
+[90m2026-08-26 18:16:37.060[0m | [32minfo    [m | [35m         Fabric[0m | [37mLogical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3341)[0m
+[90m2026-08-26 18:16:37.060[0m | [32minfo    [m | [35m         Fabric[0m | [37mPhysical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1}[0m [90m(topology_mapper_utils.cpp:3349)[0m
+[32m2026-08-26 18:16:41.070[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mFUSED_PERF_PREFILL_L3[0m
+[32m2026-08-26 18:16:41.115[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mFUSED_PERF_PREFILL_L3_END[0m
+[32m2026-08-26 18:16:41.211[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mFUSED_PERF_DECODE_L3[0m
+[32m2026-08-26 18:16:41.272[0m | [1mINFO    [0m | [36mtracy[0m:[36msignpost[0m:[36m49[0m - [1mFUSED_PERF_DECODE_L3_END[0m
+FUSED_PERFEVIDENCE layer=3 prefill_seq=128 warmed_prefill_ms=45.260523 traced_decode_ms=6.051686 decode_replays=10
+PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+3.56s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+0.91s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+0.01s teardown models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_fused_decoder_perf.py::test_warmed_prefill_and_traced_decode[3]
+============================== 1 passed in 4.52s ===============================
+nanobind: leaked 2 instances!
+ - leaked instance 0x7966f629cfa8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7966f5ece5a8 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 251 functions!
+ - leaked function ""
+ - leaked function "from_json"
+ - leaked function ""
+ - leaked function "buffer_address"
+ - leaked function "get_layout"
+ - leaked function "matmul_select_program_factory"
+ - leaked function "__repr__"
+ - leaked function ""
+ - leaked function "reset_sub_device_stall_group"
+ - leaked function "__ne__"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html[90m2026-08-26 18:16:42.873[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT cache stats: 800/800 hits (100.0%) [800 cached, 358 build-once dedup, 0 merged artifacts, 0 merged genfiles][0m [90m(build_cache_telemetry.cpp:207)[0m
+[90m2026-08-26 18:16:42.873[0m | [32minfo    [m | [35m   BuildKernels[0m | [37mJIT telemetry: 3 registered TelemetryTokens[0m [90m(build_cache_telemetry.cpp:230)[0m
+[90m2026-08-26 18:16:42.878[0m | [32minfo    [m | [35m         Device[0m | [37mClosing user mode device drivers[0m [90m(tt_cluster.cpp:547)[0m
+[90m2026-08-26 18:16:42.878[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster[0m [90m(cluster.cpp:1201)[0m
+[90m2026-08-26 18:16:42.982[0m | [32minfo    [m | [35m            UMD[0m | [37mClosing devices in cluster completed.[0m [90m(cluster.cpp:1210)[0m
+[90m2026-08-26 18:16:42.982[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor started.[0m [90m(cluster.cpp:916)[0m
+[90m2026-08-26 18:16:42.982[0m | [32minfo    [m | [35m            UMD[0m | [37mCluster destructor completed.[0m [90m(cluster.cpp:919)[0m
+
+Script done on 2026-08-26 18:16:43-04:00 [COMMAND_EXIT_CODE="0"]
