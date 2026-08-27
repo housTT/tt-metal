@@ -189,3 +189,11 @@ repairable evidence-provenance gap.  `capacity_candidate_probes.log` fixed the
 gap and was added to the SHA-256 manifest.  Rereview found no remaining
 repairable gap and returned `more-work-needed` solely for the resident-stack
 capacity impossibility; `STAGE_REVIEW.md` records that final verdict.
+
+## Local commits
+
+- `07a1a588e27`: blocked multichip implementation, tests, documentation, and
+  retained correctness/performance/watcher/capacity evidence.
+
+This SHA records a blocked stage, not a pipeline-complete signoff.  No push or
+other remote operation was performed.
