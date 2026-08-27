@@ -242,3 +242,16 @@ the frozen source, correctness/context/stress/watcher/Tracy evidence, all three
 last candidate records, the KDA AutoFix disposition, and equal seven-run host
 timing. Local commit SHAs are recorded in the follow-up checkpoint entry below.
 No push is performed.
+
+## Local checkpoint
+
+- Functional parent: `85b1099e34bb89307dd77b913f4b74f5fdc71283`.
+- Fused implementation, tests, final evidence, candidate provenance, and clean
+  review: `09b97d35f4a42db1d286787ab37d0c3019ded594`.
+- The checkpoint was local only; no push was performed. Black, merge-conflict,
+  include, global-torch, pytest-usage, and source-policy hooks passed. The
+  whitespace/EOF/autoflake/isort hooks were explicitly skipped to preserve the
+  hash-reviewed byte identity of raw terminal/XML/watcher evidence and the
+  frozen fused source. The generic 500 KiB hook was skipped for the six
+  required raw Tracy op CSVs; their stable filtered reports and exact hashes
+  are recorded in `provenance_manifest.md`.
