@@ -41,11 +41,15 @@ PLE_ROW_BYTES = PLE_ROW_WIDTH * 2
 EXPERTS = 512
 GLOBAL_INTERMEDIATE = 640
 TP_SIZE = 2
-LOCAL_INTERMEDIATE = GLOBAL_INTERMEDIATE // TP_SIZE
 HIDDEN_SIZE = 2560
 BFP4_TILE_BYTES = 576
-EXPERT_GATE_UP_TILES_PER_RANK = (HIDDEN_SIZE // 32) * (2 * LOCAL_INTERMEDIATE // 32)
-EXPERT_DOWN_TILES_PER_RANK = (LOCAL_INTERMEDIATE // 32) * (HIDDEN_SIZE // 32)
+# Routed experts use deterministic EP2 ownership.  Each physical rank has a
+# full-K slot so the selected owner executes the checkpoint-identical
+# 640-wide projection; the non-owner slot contains exact zeros.  This avoids
+# the numerically divergent 320+320 split-K down projection while preserving
+# bounded, fixed-address host backing.
+EXPERT_GATE_UP_TILES_PER_RANK = (HIDDEN_SIZE // 32) * (2 * GLOBAL_INTERMEDIATE // 32)
+EXPERT_DOWN_TILES_PER_RANK = (GLOBAL_INTERMEDIATE // 32) * (HIDDEN_SIZE // 32)
 EXPERT_PACKED_BYTES_PER_RANK = (EXPERT_GATE_UP_TILES_PER_RANK + EXPERT_DOWN_TILES_PER_RANK) * BFP4_TILE_BYTES
 
 
@@ -118,17 +122,20 @@ class ExpertIdentity:
 
 @dataclasses.dataclass(frozen=True)
 class PackedExpert:
-    """BF16 rank-local matrices immediately before device-native BFP4 packing."""
+    """BF16 EP2 matrices immediately before device-native BFP4 packing.
+
+    Exactly one rank owns the full expert; the other rank holds exact zeros.
+    """
 
     gate_up_by_rank: tuple[torch.Tensor, torch.Tensor]
     down_by_rank: tuple[torch.Tensor, torch.Tensor]
 
     def __post_init__(self):
         for value in self.gate_up_by_rank:
-            if tuple(value.shape) != (1, 1, HIDDEN_SIZE, 2 * LOCAL_INTERMEDIATE):
+            if tuple(value.shape) != (1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE):
                 raise ValueError(f"rank gate/up shape {tuple(value.shape)} is invalid")
         for value in self.down_by_rank:
-            if tuple(value.shape) != (1, 1, LOCAL_INTERMEDIATE, HIDDEN_SIZE):
+            if tuple(value.shape) != (1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE):
                 raise ValueError(f"rank down shape {tuple(value.shape)} is invalid")
 
 
@@ -136,7 +143,8 @@ class Qwen38ExpertHostSource:
     """Lazy exact checkpoint source for routed experts.
 
     The two large layer tensors remain mmap-backed.  A miss reads exactly one
-    expert and creates the two TP-local matrix pairs used by the TT decoder.
+    expert and creates a full-K matrix pair on its deterministic EP2 owner and
+    an exact-zero pair on the other rank.
     """
 
     def __init__(self, checkpoint: SafetensorCheckpoint, layer_idx: int):
@@ -171,22 +179,25 @@ class Qwen38ExpertHostSource:
         if tuple(down.shape) != (HIDDEN_SIZE, GLOBAL_INTERMEDIATE):
             raise ValueError(f"checkpoint down shape {tuple(down.shape)} is invalid")
 
-        gate_up_by_rank = []
-        down_by_rank = []
-        for rank in range(TP_SIZE):
-            start = rank * LOCAL_INTERMEDIATE
-            stop = start + LOCAL_INTERMEDIATE
-            gate = fused[start:stop].transpose(0, 1)
-            up = fused[GLOBAL_INTERMEDIATE + start : GLOBAL_INTERMEDIATE + stop].transpose(0, 1)
-            gate_up_by_rank.append(torch.cat((gate, up), dim=-1).contiguous().reshape(1, 1, HIDDEN_SIZE, -1))
-            down_by_rank.append(down[:, start:stop].transpose(0, 1).contiguous().reshape(1, 1, -1, HIDDEN_SIZE))
+        gate_up = (
+            torch.cat(
+                (fused[:GLOBAL_INTERMEDIATE].transpose(0, 1), fused[GLOBAL_INTERMEDIATE:].transpose(0, 1)),
+                dim=-1,
+            )
+            .contiguous()
+            .reshape(1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE)
+        )
+        down_full = down.transpose(0, 1).contiguous().reshape(1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE)
+        owner = expert_id % TP_SIZE
+        gate_up_by_rank = tuple(gate_up if rank == owner else torch.zeros_like(gate_up) for rank in range(TP_SIZE))
+        down_by_rank = tuple(down_full if rank == owner else torch.zeros_like(down_full) for rank in range(TP_SIZE))
 
         elapsed = time.perf_counter() - started
         with self._lock:
             self.host_reads += 1
             self.host_bytes += self.checkpoint_bytes_per_expert
             self.read_seconds += elapsed
-        return PackedExpert(tuple(gate_up_by_rank), tuple(down_by_rank))
+        return PackedExpert(gate_up_by_rank, down_by_rank)
 
     def metrics(self) -> dict[str, int | float]:
         with self._lock:
@@ -475,12 +486,12 @@ class QwenDeviceExpertCache:
             DeviceExpertSlot(
                 gate_up=_replicated_device_zeros(
                     mesh_device,
-                    (1, 1, HIDDEN_SIZE, 2 * LOCAL_INTERMEDIATE),
+                    (1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE),
                     dtype=ttnn.bfloat4_b,
                 ),
                 down=_replicated_device_zeros(
                     mesh_device,
-                    (1, 1, LOCAL_INTERMEDIATE, HIDDEN_SIZE),
+                    (1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE),
                     dtype=ttnn.bfloat4_b,
                 ),
             )
@@ -496,14 +507,14 @@ class QwenDeviceExpertCache:
         self.upload_by_rank = tuple(
             DeviceExpertSlot(
                 gate_up=ttnn.from_torch(
-                    torch.zeros((1, 1, HIDDEN_SIZE, 2 * LOCAL_INTERMEDIATE), dtype=torch.bfloat16),
+                    torch.zeros((1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE), dtype=torch.bfloat16),
                     dtype=ttnn.bfloat4_b,
                     layout=ttnn.TILE_LAYOUT,
                     device=device,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 ),
                 down=ttnn.from_torch(
-                    torch.zeros((1, 1, LOCAL_INTERMEDIATE, HIDDEN_SIZE), dtype=torch.bfloat16),
+                    torch.zeros((1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE), dtype=torch.bfloat16),
                     dtype=ttnn.bfloat4_b,
                     layout=ttnn.TILE_LAYOUT,
                     device=device,

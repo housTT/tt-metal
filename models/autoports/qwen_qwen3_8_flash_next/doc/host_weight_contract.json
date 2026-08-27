@@ -3,13 +3,13 @@
   "model_id": "Qwen/Qwen3.8-Flash-Next",
   "checkpoint_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
   "target_mesh": "1x2 P300 Blackhole",
-  "status": "implemented_with_gdn_trace_blocker",
+  "status": "implemented_and_validated",
   "declared_host_boundaries": {
     "expert_decode": [
       "D2H compact sorted top-10 expert ids from rank 0",
       "mmap one exact checkpoint expert on each miss",
-      "pack exact TP2 rank-local BFP4 gate/up and down matrices",
-      "H2D only missed expert shards through fixed per-rank staging",
+      "pack the exact full-K BFP4 gate/up and down matrices on expert_id % 2 and exact zeros on the non-owner",
+      "H2D only missed owner/zero expert pairs through fixed per-rank staging",
       "local D2D copy into fixed generation-checked slots"
     ],
     "expert_prefill": [
@@ -38,13 +38,14 @@
     "device_slots_per_layer": 10,
     "upload_staging_experts_per_rank_per_layer": 1,
     "packed_host_cache_experts_per_layer": 16,
-    "rank_local_gate_up_shape": [1, 1, 2560, 640],
-    "rank_local_down_shape": [1, 1, 320, 2560],
+    "parallelism": "EP2 deterministic owner expert_id % 2; shared expert remains TP2",
+    "rank_local_gate_up_shape": [1, 1, 2560, 1280],
+    "rank_local_down_shape": [1, 1, 640, 2560],
     "device_dtype": "BFP4_B",
-    "packed_bytes_per_rank_per_expert": 1382400,
-    "device_bytes_per_rank_per_layer_including_staging": 15206400,
-    "device_bytes_per_rank_full_48_layer_stack": 729907200,
-    "cold_decode_h2d_bytes_both_ranks": 27648000,
+    "packed_bytes_per_rank_per_expert": 2764800,
+    "device_bytes_per_rank_per_layer_including_staging": 30412800,
+    "device_bytes_per_rank_full_48_layer_stack": 1459814400,
+    "cold_decode_h2d_bytes_both_ranks": 55296000,
     "hit_decode_h2d_bytes": 0,
     "checkpoint_bf16_bytes_read_per_miss": 9830400,
     "replacement": "deterministic ordered slots for traced decode; deterministic generation-checked LRU waves for prefill",
@@ -71,15 +72,23 @@
     "dram_bytes_per_device": 34225520640,
     "runtime_trace_reserve_bytes_per_device": 1073741824,
     "max_context_cache_bytes_per_device": 2340421632,
-    "non_expert_weight_allowance_bytes_per_device": 3921895424,
-    "host_expert_cache_and_staging_bytes_per_device": 729907200,
+    "decoder_non_expert_weight_bytes_per_device": 3479858176,
+    "full_text_endpoint_weight_bytes_per_device": 1279016960,
+    "non_expert_weight_allowance_bytes_per_device": 4758875136,
+    "host_expert_cache_and_staging_bytes_per_device": 1459814400,
     "ple_staging_bytes_per_device": 819200,
-    "planned_total_bytes_per_device": 8066785280,
-    "headroom_bytes_per_device": 26158735360,
+    "canonical_decode_state_bytes_per_device": 260702208,
+    "additional_prefill_user_state_bytes_per_device": 208928768,
+    "all_runtime_state_bytes_per_device": 469630976,
+    "shared_decode_workspace_l1_bytes_per_worker": 120832,
+    "shared_decode_workspace_l1_actual_bytes_per_device": 12976128,
+    "shared_decode_workspace_l1_bank_reserved_bytes_per_device": 13291520,
+    "planned_total_bytes_per_device": 10103303168,
+    "headroom_bytes_per_device": 24122217472,
     "fits": true
   },
   "validation": {
-    "cpu_contract_tests": "11 passed",
+    "cpu_contract_tests": "12 exact host-cache/PLE/capacity cases are included in the final 32-pass current-source static matrix recorded in multichip_decoder/expert_ep2_final_static_contracts.xml",
     "expert_slot_cases": [
       "cold",
       "hit",
@@ -103,11 +112,22 @@
       "row-cache hit"
     ],
     "hardware_correctness": [
-      "layer 0 host-backed decode versus resident TP2",
-      "layer 1 exact PLE prefill/decode versus resident TP2",
-      "layer 3 paged prefill/decode and local caches versus resident TP2",
-      "layer 3 changing-input segmented front/back trace replay"
+      "layer 0 host-backed EP2 prefill and first-token decode versus OptimizedDecoder",
+      "layer 1 exact PLE host-backed EP2 prefill and first-token decode versus OptimizedDecoder",
+      "layer 3 paged host-backed EP2 prefill/decode versus OptimizedDecoder with resident local-cache topology control",
+      "deterministic full-K owner and exact-zero peer placement, with packed physical slot PCC >= 0.99 against the BF16 source",
+      "layer 0 and 1 progressing segmented front/back trace replay",
+      "layer 3 changing-input segmented front/back trace replay",
+      "100-token exact GDN, PLE, route, output, and QSA cache stress",
+      "two simultaneously live GDN layer traces sharing one L1 state workspace",
+      "allocation-tracked 12-case current-source acceptance suite",
+      "watcher-clean four-case segmented trace suite"
     ]
   },
-  "blocking_limitation": "Repeated segmented trace replay is not correct for progressing optimized GDN/PLE+GDN state on the current runtime. QSA tracing passes. See multichip_decoder/work_log.md and /tmp/qwen-segmented-trace-AUTODEBUG.md."
+  "blocking_limitation": null,
+  "measured_limitations": [
+    "Exact demand-loaded prefill is substantially slower than resident optimized prefill because a large routed-expert union is serviced in bounded waves.",
+    "Token decode does not speed up on TP2 after exact host service, canonical-state DRAM movement, gathers, and one or two fixed collectives are included.",
+    "Host-backed decode is batch one; the resident optimized multichip path retains the validated batch-32 contract."
+  ]
 }

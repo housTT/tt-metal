@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from safetensors import safe_open
 
 from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
 from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import (
@@ -37,30 +38,178 @@ def ple_store(checkpoint):
     store.close()
 
 
+_TILE_BYTES = {"bf16": 2_048, "bfp8": 1_088, "fp32": 4_096}
+
+# Final persistent TT tensors after FunctionalDecoder loading, FusedDecoder
+# packing, OptimizedDecoder typecasting, and MultichipDecoder TP2 slicing.
+# Routed-expert slots, PLE rows, caches, recurrent state, and runtime constants
+# are separate capacity categories.
+_DECODER_NON_EXPERT_ROWS = (
+    ("hc_norm", (4, 1_280), "bf16", 96),
+    ("hc_down_inject", (5_120, 324), "bfp8", 96),
+    ("hc_up", (320, 5_120), "bfp8", 96),
+    ("moe_input", (2_560, 1_153), "bfp8", 48),
+    ("shared_down", (320, 2_560), "bfp8", 48),
+    ("gdn_qkv_base", (2_560, 10_336), "bfp8", 35),
+    ("gdn_qkv_layer0", (2_560, 10_560), "bfp8", 1),
+    ("gdn_bias_base", (1, 10_336), "fp32", 35),
+    ("gdn_bias_layer0", (1, 10_560), "fp32", 1),
+    ("gdn_z", (2_560, 6_144), "bfp8", 36),
+    ("gdn_decode_taps", (1, 10_240), "fp32", 144),
+    ("gdn_prefill_taps", (1, 10_240), "bf16", 144),
+    ("gdn_neg_a", (1, 48), "fp32", 36),
+    ("gdn_norm", (1, 128), "bf16", 36),
+    ("gdn_out", (6_144, 1_280), "bfp8", 36),
+    ("gdn_qk_norm_constants", (1, 128), "fp32", 72),
+    ("ple_key_value", (2_560, 12_800), "bfp8", 1),
+    ("ple_norms", (1, 10_240), "bf16", 3),
+    ("ple_taps", (1, 10_240), "bf16", 4),
+    ("qsa_input", (2_560, 7_296), "bf16", 12),
+    ("qsa_out", (3_072, 2_560), "bf16", 12),
+    ("qsa_qk_norms", (1, 256), "bf16", 24),
+    ("qsa_index_norms", (1, 128), "bf16", 24),
+)
+
+_FULL_TEXT_ENDPOINT_ROWS = (
+    ("embed_hidden_tp", (248_320, 1_280), "bf16", 1),
+    ("final_hc_norm", (1, 10_240), "bf16", 1),
+    ("final_hc_down", (10_240, 320), "bfp8", 1),
+    ("final_hc_up", (320, 10_240), "bfp8", 1),
+    ("lm_head_vocab_tp", (2_560, 124_160), "bf16", 1),
+)
+
+
+def _tiled_bytes(shape, dtype):
+    leading_elements = 1
+    for dimension in shape[:-2]:
+        leading_elements *= dimension
+    height_tiles = (shape[-2] + 31) // 32
+    width_tiles = (shape[-1] + 31) // 32
+    return leading_elements * height_tiles * width_tiles * _TILE_BYTES[dtype]
+
+
+def _inventory_bytes(rows):
+    return sum(_tiled_bytes(shape, dtype) * count for _, shape, dtype, count in rows)
+
+
+def _checkpoint_metadata(checkpoint, key):
+    with safe_open(checkpoint.path_for(key), framework="pt", device="cpu") as handle:
+        tensor_slice = handle.get_slice(key)
+        return tuple(tensor_slice.get_shape()), str(tensor_slice.get_dtype())
+
+
+def test_non_expert_weight_inventory_from_checkpoint_metadata(checkpoint):
+    config = json.loads((H.MODEL_SNAPSHOT / "config.json").read_text())
+    text_config = config["text_config"]
+    layer_types = tuple(text_config["layer_types"])
+    qsa_layers = tuple(index for index, layer_type in enumerate(layer_types) if layer_type == "full_attention")
+    gdn_layers = tuple(index for index, layer_type in enumerate(layer_types) if layer_type == "linear_attention")
+    assert len(layer_types) == 48
+    assert qsa_layers == tuple(range(3, 48, 4))
+    assert len(gdn_layers) == 36 and set(gdn_layers).isdisjoint(qsa_layers)
+    assert text_config["ple_layer_ids"] == [2]
+    assert text_config["vocab_size"] == 248_320
+    assert config["tie_word_embeddings"] is False and text_config["tie_word_embeddings"] is False
+
+    # Exercise every layer in the index without materializing any checkpoint
+    # tensor.  Transformers canonicalizes raw ``full_attention`` to the
+    # autoport's ``qwen_sparse_attention`` name.
+    for layer_idx, layer_type in enumerate(layer_types):
+        prefix = f"model.language_model.layers.{layer_idx}"
+        assert _checkpoint_metadata(checkpoint, f"{prefix}.attn_hyper_connection.hc_norm.weight") == (
+            (10_240,),
+            "BF16",
+        )
+        assert _checkpoint_metadata(checkpoint, f"{prefix}.mlp.gate.weight") == ((512, 2_560), "BF16")
+        if layer_type == "linear_attention":
+            assert _checkpoint_metadata(checkpoint, f"{prefix}.linear_attn.in_proj_qkv.weight") == (
+                (10_240, 2_560),
+                "BF16",
+            )
+        else:
+            assert _checkpoint_metadata(checkpoint, f"{prefix}.self_attn.q_proj.weight") == (
+                (12_288, 2_560),
+                "BF16",
+            )
+
+    representative_shapes = {
+        # Common layer graph.
+        "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down.weight": (320, 10_240),
+        "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_up.weight": (10_240, 320),
+        "model.language_model.layers.0.attn_hyper_connection.block_inject_weight.weight": (4, 10_240),
+        "model.language_model.layers.0.mlp.shared_expert.gate_proj.weight": (640, 2_560),
+        "model.language_model.layers.0.mlp.shared_expert.up_proj.weight": (640, 2_560),
+        "model.language_model.layers.0.mlp.shared_expert.down_proj.weight": (2_560, 640),
+        "model.language_model.layers.0.mlp.shared_expert_gate.weight": (1, 2_560),
+        # Replicated GDN graph.
+        "model.language_model.layers.0.linear_attn.in_proj_z.weight": (6_144, 2_560),
+        "model.language_model.layers.0.linear_attn.in_proj_b.weight": (48, 2_560),
+        "model.language_model.layers.0.linear_attn.in_proj_a.weight": (48, 2_560),
+        "model.language_model.layers.0.linear_attn.conv1d.weight": (10_240, 1, 4),
+        "model.language_model.layers.0.linear_attn.dt_bias": (48,),
+        "model.language_model.layers.0.linear_attn.A_log": (48,),
+        "model.language_model.layers.0.linear_attn.norm.weight": (128,),
+        "model.language_model.layers.0.linear_attn.out_proj.weight": (2_560, 6_144),
+        # PLE projection graph; the table row is metadata-only and excluded.
+        "model.language_model.layers.1.ple.key_proj.weight": (10_240, 2_560),
+        "model.language_model.layers.1.ple.value_proj.weight": (2_560, 2_560),
+        "model.language_model.layers.1.ple.norm_key.weight": (10_240,),
+        "model.language_model.layers.1.ple.norm_query.weight": (10_240,),
+        "model.language_model.layers.1.ple.norm_conv.weight": (10_240,),
+        "model.language_model.layers.1.ple.conv1d.weight": (10_240, 1, 4),
+        "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.shard_0.weight": (2_500_012, 160),
+        # TP2 QSA plus replicated indexer.
+        "model.language_model.layers.3.self_attn.k_proj.weight": (512, 2_560),
+        "model.language_model.layers.3.self_attn.v_proj.weight": (512, 2_560),
+        "model.language_model.layers.3.self_attn.o_proj.weight": (2_560, 6_144),
+        "model.language_model.layers.3.self_attn.q_norm.weight": (256,),
+        "model.language_model.layers.3.self_attn.k_norm.weight": (256,),
+        "model.language_model.layers.3.self_attn.indexer.index_qk_proj.weight": (640, 2_560),
+        "model.language_model.layers.3.self_attn.indexer.q_layernorm.weight": (128,),
+        "model.language_model.layers.3.self_attn.indexer.k_layernorm.weight": (128,),
+        # Future full-text entry/exit tensors.
+        "model.language_model.embed_tokens.weight": (248_320, 2_560),
+        "model.language_model.hyper_connection_mixer.hc_norm.weight": (10_240,),
+        "model.language_model.hyper_connection_mixer.input_mix_weight_down.weight": (320, 10_240),
+        "model.language_model.hyper_connection_mixer.input_mix_weight_up.weight": (10_240, 320),
+        "lm_head.weight": (248_320, 2_560),
+    }
+    for key, shape in representative_shapes.items():
+        assert _checkpoint_metadata(checkpoint, key) == (shape, "BF16")
+
+    decoder_bytes = _inventory_bytes(_DECODER_NON_EXPERT_ROWS)
+    endpoint_bytes = _inventory_bytes(_FULL_TEXT_ENDPOINT_ROWS)
+    assert decoder_bytes == 3_479_858_176
+    assert endpoint_bytes == 1_279_016_960
+    assert decoder_bytes + endpoint_bytes == 4_758_875_136
+
+
 def test_checkpoint_capacity_constants_and_manifests(checkpoint, ple_store):
     assert checkpoint.total_size == 359_999_963_128
     assert PLE_LOGICAL_ROWS == 320_001_446
     assert PLE_PADDED_ROWS == 320_001_536
     assert PLE_TABLE_BYTES == 102_400_491_520
-    assert EXPERT_PACKED_BYTES_PER_RANK == 1_382_400
+    assert EXPERT_PACKED_BYTES_PER_RANK == 2_764_800
     assert len(ple_store.manifest) == 33
     assert sum(entry["bytes"] for entry in ple_store.manifest) == 104_298_732_704
     assert all(len(entry["blob_sha256"]) == 64 for entry in ple_store.manifest)
 
 
-def test_checkpoint_expert_tp_packing_is_exact(checkpoint):
+def test_checkpoint_expert_ep2_packing_is_exact(checkpoint):
     source = Qwen38ExpertHostSource(checkpoint, layer_idx=3)
     packed = source.load(17)
     fused = checkpoint.indexed_tensor(source.gate_up_key, 17)
     down = checkpoint.indexed_tensor(source.down_key, 17)
+    expected_gate_up = torch.cat((fused[:640].T, fused[640:].T), dim=-1)
+    expected_down = down.T
+    owner = 17 % 2
     for rank in range(2):
-        start, stop = rank * 320, (rank + 1) * 320
-        expected_gate_up = torch.cat(
-            (fused[start:stop].T, fused[640 + start : 640 + stop].T),
-            dim=-1,
-        )
-        assert torch.equal(packed.gate_up_by_rank[rank][0, 0], expected_gate_up)
-        assert torch.equal(packed.down_by_rank[rank][0, 0], down[:, start:stop].T)
+        if rank == owner:
+            assert torch.equal(packed.gate_up_by_rank[rank][0, 0], expected_gate_up)
+            assert torch.equal(packed.down_by_rank[rank][0, 0], expected_down)
+        else:
+            assert torch.count_nonzero(packed.gate_up_by_rank[rank]) == 0
+            assert torch.count_nonzero(packed.down_by_rank[rank]) == 0
     assert source.metrics()["checkpoint_bytes"] == 9_830_400
     assert len(source.manifest) == 2
 
@@ -213,6 +362,20 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
     assert json.loads(json.dumps(payload))["ple_table_bytes"] == PLE_TABLE_BYTES
     contract_path = Path(__file__).resolve().parents[1] / "doc" / "host_weight_contract.json"
     contract = json.loads(contract_path.read_text())
-    assert contract["expert_cache"]["device_bytes_per_rank_full_48_layer_stack"] == 729_907_200
-    assert contract["full_stack_capacity"]["planned_total_bytes_per_device"] == 8_066_785_280
-    assert contract["full_stack_capacity"]["fits"] is True
+    assert contract["expert_cache"]["device_bytes_per_rank_full_48_layer_stack"] == 1_459_814_400
+    capacity = contract["full_stack_capacity"]
+    expected_total = sum(
+        capacity[name]
+        for name in (
+            "runtime_trace_reserve_bytes_per_device",
+            "max_context_cache_bytes_per_device",
+            "non_expert_weight_allowance_bytes_per_device",
+            "host_expert_cache_and_staging_bytes_per_device",
+            "ple_staging_bytes_per_device",
+            "all_runtime_state_bytes_per_device",
+        )
+    )
+    assert expected_total == 10_103_303_168
+    assert capacity["planned_total_bytes_per_device"] == expected_total
+    assert capacity["headroom_bytes_per_device"] == capacity["dram_bytes_per_device"] - expected_total
+    assert capacity["fits"] is True

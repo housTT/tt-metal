@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="21" time="322.924" timestamp="2026-08-27T17:20:14.589107-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-1-7]" time="35.779"><properties><property name="start_timestamp" value="2026-08-27T17:20:14" /><property name="end_timestamp" value="2026-08-27T17:20:50" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=19.140413 host_prefill_ms=8451.399307 baseline_traced_decode_ms=1.107354 host_segmented_decode_ms=15.383048 host_decode_p50_ms=6.011832 speedup=0.071985 efficiency=0.035993 ple_ms=0.000000 front_trace_ms=1.548076 expert_service_ms=12.418347 back_trace_ms=1.375793 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:20:16.043 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:20:28.816 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-27 17:20:37.958 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:20:37.977 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:20:37.977 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:20:46.429 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:20:47.141 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:20:47.252 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:20:48.844 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:20:50.383 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-2-7]" time="30.949"><properties><property name="start_timestamp" value="2026-08-27T17:20:50" /><property name="end_timestamp" value="2026-08-27T17:21:21" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=21.363489 host_prefill_ms=8299.328321 baseline_traced_decode_ms=1.107130 host_segmented_decode_ms=8.644404 host_decode_p50_ms=3.984433 speedup=0.128075 efficiency=0.064037 ple_ms=0.000000 front_trace_ms=1.235414 expert_service_ms=6.593114 back_trace_ms=0.782610 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:20:50.962 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:21:10.499 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:21:10.521 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:21:10.521 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:21:18.821 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:21:19.166 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:21:19.277 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:21:20.524 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:21:21.389 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-3-7]" time="31.281"><properties><property name="start_timestamp" value="2026-08-27T17:21:21" /><property name="end_timestamp" value="2026-08-27T17:21:52" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=20.000565 host_prefill_ms=7854.299613 baseline_traced_decode_ms=1.107306 host_segmented_decode_ms=15.832915 host_decode_p50_ms=6.040425 speedup=0.069937 efficiency=0.034968 ple_ms=0.000000 front_trace_ms=1.758147 expert_service_ms=12.504181 back_trace_ms=1.529763 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:21:22.529 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:21:41.067 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:21:41.087 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:21:41.087 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:21:48.942 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:21:49.402 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:21:49.513 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:21:51.143 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:21:52.727 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-4-7]" time="24.894"><properties><property name="start_timestamp" value="2026-08-27T17:21:52" /><property name="end_timestamp" value="2026-08-27T17:22:17" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=18.693426 host_prefill_ms=3583.877886 baseline_traced_decode_ms=1.106575 host_segmented_decode_ms=3.766486 host_decode_p50_ms=1.578074 speedup=0.293795 efficiency=0.146898 ple_ms=0.000000 front_trace_ms=1.022278 expert_service_ms=2.301620 back_trace_ms=0.435917 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:21:53.324 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:22:13.117 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:22:13.136 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:22:13.137 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:22:16.721 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:22:16.773 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:22:16.884 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:22:17.311 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:22:17.688 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-5-7]" time="15.479"><properties><property name="start_timestamp" value="2026-08-27T17:22:17" /><property name="end_timestamp" value="2026-08-27T17:22:33" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.764859 host_prefill_ms=2548.142763 baseline_traced_decode_ms=1.106864 host_segmented_decode_ms=3.680344 host_decode_p50_ms=1.579372 speedup=0.300750 efficiency=0.150375 ple_ms=0.000000 front_trace_ms=1.041346 expert_service_ms=2.225274 back_trace_ms=0.407111 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:22:18.054 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:22:29.710 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:22:29.728 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:22:29.728 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:22:32.276 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:22:32.327 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:22:32.438 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:22:32.826 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:22:33.194 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-6-7]" time="12.355"><properties><property name="start_timestamp" value="2026-08-27T17:22:33" /><property name="end_timestamp" value="2026-08-27T17:22:45" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.547113 host_prefill_ms=2107.388159 baseline_traced_decode_ms=1.106457 host_segmented_decode_ms=3.433178 host_decode_p50_ms=1.541224 speedup=0.322283 efficiency=0.161142 ple_ms=0.000000 front_trace_ms=1.022114 expert_service_ms=1.998147 back_trace_ms=0.407116 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:22:34.138 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:22:42.604 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:22:42.621 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:22:42.622 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:22:44.729 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:22:44.780 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:22:44.891 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:22:45.234 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:22:45.577 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-7-7]" time="12.357"><properties><property name="start_timestamp" value="2026-08-27T17:22:45" /><property name="end_timestamp" value="2026-08-27T17:22:57" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.549580 host_prefill_ms=2400.120170 baseline_traced_decode_ms=1.106655 host_segmented_decode_ms=3.639080 host_decode_p50_ms=1.565858 speedup=0.304103 efficiency=0.152051 ple_ms=0.000000 front_trace_ms=1.022323 expert_service_ms=2.181485 back_trace_ms=0.428943 expert_requests=137 expert_hits=893 expert_misses=469 h2d_bytes=2593382400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:22:45.914 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:22:54.618 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 17:22:54.636 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 17:22:54.636 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 17:22:57.036 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 17:22:57.086 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 17:22:57.197 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 17:22:57.594 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 17:22:57.959 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-1-7]" time="11.472"><properties><property name="start_timestamp" value="2026-08-27T17:22:58" /><property name="end_timestamp" value="2026-08-27T17:23:09" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.043954 host_prefill_ms=1541.191421 baseline_traced_decode_ms=1.484207 host_segmented_decode_ms=4.193504 host_decode_p50_ms=3.131508 speedup=0.353930 efficiency=0.176965 ple_ms=0.374399 front_trace_ms=1.519584 expert_service_ms=1.883263 back_trace_ms=0.407421 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:22:58.310 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:23:06.807 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:23:06.827 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:23:06.827 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:23:08.368 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:23:08.435 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:23:08.583 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:23:09.034 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:23:09.453 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-2-7]" time="10.563"><properties><property name="start_timestamp" value="2026-08-27T17:23:09" /><property name="end_timestamp" value="2026-08-27T17:23:20" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.050278 host_prefill_ms=1528.232409 baseline_traced_decode_ms=1.483822 host_segmented_decode_ms=4.184993 host_decode_p50_ms=2.689732 speedup=0.354558 efficiency=0.177279 ple_ms=0.339647 front_trace_ms=1.519741 expert_service_ms=1.906837 back_trace_ms=0.409930 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:23:09.823 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:23:17.408 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:23:17.428 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:23:17.428 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:23:18.957 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:23:19.016 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:23:19.164 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:23:19.630 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:23:20.049 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-3-7]" time="11.206"><properties><property name="start_timestamp" value="2026-08-27T17:23:20" /><property name="end_timestamp" value="2026-08-27T17:23:31" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.032626 host_prefill_ms=1739.527155 baseline_traced_decode_ms=1.484124 host_segmented_decode_ms=4.312847 host_decode_p50_ms=2.913100 speedup=0.344117 efficiency=0.172059 ple_ms=0.375615 front_trace_ms=1.519896 expert_service_ms=2.001277 back_trace_ms=0.407196 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:23:20.385 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:23:28.389 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:23:28.410 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:23:28.410 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:23:30.149 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:23:30.222 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:23:30.371 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:23:30.851 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:23:31.283 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-4-7]" time="11.856"><properties><property name="start_timestamp" value="2026-08-27T17:23:31" /><property name="end_timestamp" value="2026-08-27T17:23:43" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.054701 host_prefill_ms=1661.705852 baseline_traced_decode_ms=1.484068 host_segmented_decode_ms=4.253531 host_decode_p50_ms=2.687638 speedup=0.348903 efficiency=0.174451 ple_ms=0.340114 front_trace_ms=1.519575 expert_service_ms=1.977968 back_trace_ms=0.407304 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:23:31.639 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:23:40.397 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:23:40.417 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:23:40.417 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:23:42.079 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:23:42.139 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:23:42.288 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:23:42.743 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:23:43.168 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-5-7]" time="11.052"><properties><property name="start_timestamp" value="2026-08-27T17:23:43" /><property name="end_timestamp" value="2026-08-27T17:23:54" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.052107 host_prefill_ms=1523.038735 baseline_traced_decode_ms=1.483830 host_segmented_decode_ms=4.151231 host_decode_p50_ms=2.557328 speedup=0.357443 efficiency=0.178722 ple_ms=0.326616 front_trace_ms=1.519424 expert_service_ms=1.889565 back_trace_ms=0.407280 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:23:44.127 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:23:51.641 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:23:51.661 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:23:51.661 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:23:53.184 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:23:53.245 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:23:53.393 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:23:53.835 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:23:54.250 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-6-7]" time="10.508"><properties><property name="start_timestamp" value="2026-08-27T17:23:54" /><property name="end_timestamp" value="2026-08-27T17:24:04" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.061076 host_prefill_ms=1549.657894 baseline_traced_decode_ms=1.484174 host_segmented_decode_ms=4.152369 host_decode_p50_ms=2.856879 speedup=0.357428 efficiency=0.178714 ple_ms=0.349272 front_trace_ms=1.519677 expert_service_ms=1.862876 back_trace_ms=0.411940 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:23:54.591 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:24:02.154 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:24:02.174 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:24:02.174 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:24:03.724 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:24:03.784 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:24:03.933 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:24:04.371 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:24:04.787 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-7-7]" time="10.428"><properties><property name="start_timestamp" value="2026-08-27T17:24:04" /><property name="end_timestamp" value="2026-08-27T17:24:15" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.058172 host_prefill_ms=1529.303700 baseline_traced_decode_ms=1.484079 host_segmented_decode_ms=4.130580 host_decode_p50_ms=2.595663 speedup=0.359291 efficiency=0.179645 ple_ms=0.334781 front_trace_ms=1.519684 expert_service_ms=1.859363 back_trace_ms=0.407880 expert_requests=129 expert_hits=906 expert_misses=372 h2d_bytes=2057011200 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:24:05.136 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:24:12.631 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 17:24:12.651 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 17:24:12.651 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 17:24:14.181 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 17:24:14.241 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 17:24:14.390 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 17:24:14.833 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 17:24:15.246 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-1-7]" time="11.106"><properties><property name="start_timestamp" value="2026-08-27T17:24:15" /><property name="end_timestamp" value="2026-08-27T17:24:26" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.739446 host_prefill_ms=1952.402246 baseline_traced_decode_ms=2.861884 host_segmented_decode_ms=3.050174 host_decode_p50_ms=3.032004 speedup=0.938269 efficiency=0.469135 ple_ms=0.000000 front_trace_ms=2.565288 expert_service_ms=0.074476 back_trace_ms=0.407832 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:24:15.592 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:24:23.473 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:24:23.517 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:24:23.517 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:24:25.470 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:24:25.593 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:24:25.880 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:24:26.078 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:24:26.383 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-2-7]" time="12.155"><properties><property name="start_timestamp" value="2026-08-27T17:24:26" /><property name="end_timestamp" value="2026-08-27T17:24:38" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.731704 host_prefill_ms=2240.730804 baseline_traced_decode_ms=2.861645 host_segmented_decode_ms=3.189477 host_decode_p50_ms=3.092490 speedup=0.897215 efficiency=0.448607 ple_ms=0.000000 front_trace_ms=2.574362 expert_service_ms=0.136910 back_trace_ms=0.474019 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:24:26.736 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:24:35.387 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:24:35.431 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:24:35.432 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:24:37.672 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:24:37.766 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:24:38.052 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:24:38.257 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:24:38.576 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-3-7]" time="12.328"><properties><property name="start_timestamp" value="2026-08-27T17:24:38" /><property name="end_timestamp" value="2026-08-27T17:24:50" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.762759 host_prefill_ms=2311.414595 baseline_traced_decode_ms=2.862139 host_segmented_decode_ms=3.043678 host_decode_p50_ms=3.032821 speedup=0.940355 efficiency=0.470178 ple_ms=0.000000 front_trace_ms=2.567319 expert_service_ms=0.066716 back_trace_ms=0.407258 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:24:38.945 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:24:47.722 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:24:47.766 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:24:47.766 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:24:50.077 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:24:50.157 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:24:50.444 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:24:50.637 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:24:50.941 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-4-7]" time="12.754"><properties><property name="start_timestamp" value="2026-08-27T17:24:51" /><property name="end_timestamp" value="2026-08-27T17:25:03" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.708589 host_prefill_ms=2244.464070 baseline_traced_decode_ms=2.862478 host_segmented_decode_ms=3.064780 host_decode_p50_ms=3.050070 speedup=0.933992 efficiency=0.466996 ple_ms=0.000000 front_trace_ms=2.565159 expert_service_ms=0.088458 back_trace_ms=0.407942 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:24:51.899 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:25:00.566 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:25:00.609 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:25:00.610 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:25:02.854 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:25:02.943 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:25:03.230 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:25:03.428 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:25:03.735 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-5-7]" time="11.564"><properties><property name="start_timestamp" value="2026-08-27T17:25:03" /><property name="end_timestamp" value="2026-08-27T17:25:15" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.737768 host_prefill_ms=2064.964676 baseline_traced_decode_ms=2.861509 host_segmented_decode_ms=3.070360 host_decode_p50_ms=3.045271 speedup=0.931979 efficiency=0.465989 ple_ms=0.000000 front_trace_ms=2.565828 expert_service_ms=0.094260 back_trace_ms=0.407707 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:25:04.102 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:25:12.350 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:25:12.394 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:25:12.394 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:25:14.459 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:25:14.538 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:25:14.824 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:25:15.031 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:25:15.338 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-6-7]" time="11.045"><properties><property name="start_timestamp" value="2026-08-27T17:25:15" /><property name="end_timestamp" value="2026-08-27T17:25:26" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.730928 host_prefill_ms=1967.405389 baseline_traced_decode_ms=2.861561 host_segmented_decode_ms=3.049216 host_decode_p50_ms=3.043407 speedup=0.938458 efficiency=0.469229 ple_ms=0.000000 front_trace_ms=2.565487 expert_service_ms=0.073079 back_trace_ms=0.408047 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:25:15.690 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:25:23.560 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:25:23.604 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:25:23.604 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:25:25.572 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:25:25.652 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:25:25.939 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:25:26.116 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:25:26.421 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-7-7]" time="10.998"><properties><property name="start_timestamp" value="2026-08-27T17:25:26" /><property name="end_timestamp" value="2026-08-27T17:25:37" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.720622 host_prefill_ms=2006.666100 baseline_traced_decode_ms=2.862264 host_segmented_decode_ms=3.046263 host_decode_p50_ms=3.042401 speedup=0.939598 efficiency=0.469799 ple_ms=0.000000 front_trace_ms=2.564742 expert_service_ms=0.071931 back_trace_ms=0.407197 expert_requests=135 expert_hits=1040 expert_misses=304 h2d_bytes=1680998400 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 17:25:26.764 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 17:25:34.558 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 17:25:34.602 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 17:25:34.602 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 17:25:36.609 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 17:25:36.687 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 17:25:36.974 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 17:25:37.150 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 17:25:37.455 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase></testsuite></testsuites>

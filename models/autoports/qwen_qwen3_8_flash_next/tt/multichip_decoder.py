@@ -3,12 +3,16 @@
 """Two-die tensor-parallel Qwen3.8-Flash-Next decoder layer.
 
 The fixed target is the 1x2 Blackhole P300 mesh present on the bring-up host.
-Each rank owns half of the QSA head groups and half of the routed and shared
-expert intermediate dimensions.  GDN, hyperconnection, PLE, indexer and
-router tensors remain replicated.  Row-parallel QSA and MoE outputs are summed
-before the next replicated hyperconnection boundary.  Replicated GDN is a
-deliberate correctness result: the target recurrence loses too much numerical
-agreement when its 48 value heads are split into two 24-head kernels.
+Each rank owns half of the QSA head groups, shared-expert intermediate, and
+every hyperconnection stream's hidden width.  Routed experts use deterministic
+EP2 ownership with a full 640-wide projection on one rank and an exact-zero
+slot on the other, avoiding a numerically divergent split-K down projection.
+Stack-internal
+residuals stay fractured as ``[1,1,4*M,1280]``: QSA and MoE use reduce-scatter,
+while replicated-head GDN shards only its output projection.  PLE, indexer,
+router inputs, and the 48-head GDN recurrence remain replicated.  Replicated
+GDN recurrence is a deliberate correctness result: splitting it into two
+24-head kernels loses too much numerical agreement.
 
 ``from_state_dict`` deliberately starts from :class:`OptimizedDecoder`: it
 builds the exact optimized local graph twice on one shared mesh allocation,
@@ -25,7 +29,7 @@ import gc
 import threading
 import time
 from collections.abc import Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import torch
 
@@ -45,16 +49,29 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import Optimi
 
 TP_SIZE = 2
 TARGET_MESH = (1, 2)
+RESIDUAL_SHARD_WIDTH = 1280
 DRAM_BYTES_PER_DEVICE = 34_225_520_640
 RUNTIME_RESERVE_BYTES = 1 << 30
 # BFP8 local main K/V and raw index caches plus BF16 compressed index caches
 # across the twelve QSA layers at batch 1 and 262,144 tokens.
 MAX_CONTEXT_CACHE_BYTES_PER_DEVICE = 2_340_421_632
-# The pre-code TP2 estimate was 2,713,935,872 bytes.  The delivered graph keeps
-# all 36 GDN layers replicated.  1.125 GiB is a conservative tile-padded BFP8
-# allowance for the second half of qkv/b/a, z and output weights.
-REPLICATED_GDN_OVERHEAD_BYTES_PER_DEVICE = 1_207_959_552
-NON_EXPERT_WEIGHT_BYTES_PER_DEVICE = 3_921_895_424
+# Metadata-derived, tile-padded physical storage for the delivered decoder and
+# the natural TP2 full-text endpoints.  NON_EXPERT_WEIGHT_INVENTORY.md and its
+# CPU gate derive every row from checkpoint shapes, final packing, dtype, and
+# mesh placement.  The replicated GDN delta is reported separately to retain
+# the rejected TP2 comparison.
+TP2_SHARDED_GDN_DECODER_WEIGHT_BYTES_PER_DEVICE = 2_914_749_440
+REPLICATED_GDN_OVERHEAD_BYTES_PER_DEVICE = 1_271_914_496
+FRACTURED_RESIDUAL_WEIGHT_SAVINGS_PER_DEVICE = 706_805_760
+DECODER_NON_EXPERT_WEIGHT_BYTES_PER_DEVICE = (
+    TP2_SHARDED_GDN_DECODER_WEIGHT_BYTES_PER_DEVICE
+    + REPLICATED_GDN_OVERHEAD_BYTES_PER_DEVICE
+    - FRACTURED_RESIDUAL_WEIGHT_SAVINGS_PER_DEVICE
+)
+FULL_TEXT_ENDPOINT_WEIGHT_BYTES_PER_DEVICE = 1_279_016_960
+NON_EXPERT_WEIGHT_BYTES_PER_DEVICE = (
+    DECODER_NON_EXPERT_WEIGHT_BYTES_PER_DEVICE + FULL_TEXT_ENDPOINT_WEIGHT_BYTES_PER_DEVICE
+)
 EXPERT_TILES_PER_DEVICE = 58_982_400
 # The available compressed expert kernel distributes the packed local gate/up
 # width over eight banks and pads 640 to 768.  Down projection geometry is
@@ -70,6 +87,22 @@ HOST_EXPERT_SLOTS = 10
 HOST_PACKED_EXPERTS = 16
 FULL_STACK_EXPERT_CACHE_BYTES_PER_DEVICE = 48 * (HOST_EXPERT_SLOTS + 1) * EXPERT_PACKED_BYTES_PER_RANK
 PLE_STAGING_BYTES_PER_DEVICE = (128 + 32) * 2560 * 2
+# Persistent batch-one decode state is canonical in DRAM.  The exact optimized
+# L1 compute tensors are staged only while one layer executes, so the 36 GDN
+# layers do not consume more worker L1 than the device physically provides.
+GDN_RECURRENT_BYTES_PER_LAYER = 48 * 128 * 128 * 4
+GDN_COMBINED_CONV_BYTES_PER_LAYER = 32 * 10240 * 4
+GDN_CONV_BYTES_PER_LAYER = 3 * 32 * 10240 * 4
+PLE_COMBINED_CONV_BYTES = 32 * 10240 * 2
+PLE_CONV_BYTES = 9 * 32 * 10240 * 2
+FULL_STACK_DECODE_STATE_BYTES_PER_DEVICE = (
+    36 * (GDN_RECURRENT_BYTES_PER_LAYER + GDN_CONV_BYTES_PER_LAYER) + PLE_CONV_BYTES
+)
+FULL_STACK_PREFILL_STATE_BYTES_PER_DEVICE = (
+    36 * (GDN_RECURRENT_BYTES_PER_LAYER + 2 * GDN_COMBINED_CONV_BYTES_PER_LAYER) + 2 * PLE_COMBINED_CONV_BYTES
+)
+GDN_TRANSIENT_L1_BYTES_PER_WORKER = 7 * 4096 + 3 * 3 * 4096
+PLE_TRANSIENT_L1_BYTES_PER_WORKER = 9 * 3 * 2048
 _SHAPE_OVERRIDE_LOCK = threading.RLock()
 
 
@@ -87,7 +120,14 @@ class MultichipMemoryPlan:
 
     @property
     def max_expert_bytes(self) -> int:
-        return self.dram_bytes - self.runtime_reserve_bytes - self.cache_bytes - self.non_expert_weight_bytes
+        return (
+            self.dram_bytes
+            - self.runtime_reserve_bytes
+            - self.cache_bytes
+            - self.non_expert_weight_bytes
+            - self.ple_staging_bytes
+            - self.all_runtime_state_bytes
+        )
 
     @property
     def standard_bfp4_expert_bytes(self) -> int:
@@ -120,6 +160,22 @@ class MultichipMemoryPlan:
         return 48 * (self.host_expert_slots + 1) * EXPERT_PACKED_BYTES_PER_RANK
 
     @property
+    def decode_state_bytes(self) -> int:
+        return FULL_STACK_DECODE_STATE_BYTES_PER_DEVICE
+
+    @property
+    def prefill_state_bytes(self) -> int:
+        return FULL_STACK_PREFILL_STATE_BYTES_PER_DEVICE
+
+    @property
+    def all_runtime_state_bytes(self) -> int:
+        return self.decode_state_bytes + self.prefill_state_bytes
+
+    @property
+    def transient_l1_state_bytes_per_worker(self) -> int:
+        return GDN_TRANSIENT_L1_BYTES_PER_WORKER + PLE_TRANSIENT_L1_BYTES_PER_WORKER
+
+    @property
     def host_backed_stack_bytes(self) -> int:
         return (
             self.runtime_reserve_bytes
@@ -127,6 +183,7 @@ class MultichipMemoryPlan:
             + self.non_expert_weight_bytes
             + self.host_expert_cache_bytes
             + self.ple_staging_bytes
+            + self.all_runtime_state_bytes
         )
 
     @property
@@ -155,12 +212,14 @@ class HostDecodeFront:
     route_weights: object
 
 
-def _rank_local_config(hf_config, layer_idx: int | None = None):
+def _rank_local_config(hf_config, layer_idx: int | None = None, *, expert_parallel: bool = False):
     """Clone the HF config and express one of the two equal TP ranks."""
 
     local = copy.deepcopy(hf_config)
     cfg = local.text_config
-    names = ["moe_intermediate_size", "shared_expert_intermediate_size"]
+    names = ["shared_expert_intermediate_size"]
+    if not expert_parallel:
+        names.append("moe_intermediate_size")
     if layer_idx is None or cfg.layer_types[layer_idx] != LINEAR_ATTENTION:
         names.extend(("num_attention_heads", "num_key_value_heads"))
     if layer_idx is None:
@@ -174,7 +233,7 @@ def _rank_local_config(hf_config, layer_idx: int | None = None):
 
 
 @contextmanager
-def _rank_local_shape_contract(global_config, layer_idx: int):
+def _rank_local_shape_contract(global_config, layer_idx: int, *, expert_parallel: bool = False):
     """Let the exact-target loader materialize one rank-local TP graph.
 
     ``FunctionalDecoder`` intentionally validates only checkpoint-global
@@ -186,9 +245,10 @@ def _rank_local_shape_contract(global_config, layer_idx: int):
 
     global_shapes = _target_decoder_shapes(global_config, layer_idx)
     replacements = {
-        "moe_intermediate_size": global_shapes.moe_intermediate_size // TP_SIZE,
         "shared_expert_intermediate_size": global_shapes.shared_expert_intermediate_size // TP_SIZE,
     }
+    if not expert_parallel:
+        replacements["moe_intermediate_size"] = global_shapes.moe_intermediate_size // TP_SIZE
     if global_shapes.layer_type != LINEAR_ATTENTION:
         replacements.update(
             num_attention_heads=global_shapes.num_attention_heads // TP_SIZE,
@@ -331,6 +391,112 @@ def _rank_local_state(state_dict: Mapping | None, rank: int, *, shard_gdn: bool 
     return state
 
 
+def _install_fractured_residual_weights(layer) -> None:
+    """Replace replicated HC/GDN outputs with exact within-stream TP2 shards.
+
+    This is setup-only.  The original optimized weights are replicated on both
+    ranks, so mesh-partitioning their four-stream axes preserves the represented
+    BFP8 values exactly without a host round trip.  No conversion occurs in a
+    forward, capture, or replay path.
+    """
+
+    replacements = {}
+    created = []
+    try:
+        for prefix in ("attn_hc", "mlp_hc"):
+            norm_name = f"{prefix}_norm"
+            norm = layer.w[norm_name]
+            norm_groups = ttnn.reshape(norm, (1, 1, layer.shapes.hc_count, layer.shapes.hidden_size))
+            local_norm = ttnn.mesh_partition(
+                norm_groups,
+                dim=3,
+                cluster_axis=1,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            created.append(local_norm)
+            replacements[norm_name] = local_norm
+
+            down_name = f"{prefix}_down_inject"
+            down = layer.w[down_name]
+            down_groups = ttnn.reshape(
+                down,
+                (
+                    1,
+                    layer.shapes.hc_count,
+                    layer.shapes.hidden_size,
+                    layer.shapes.hc_lowrank + layer.shapes.hc_count,
+                ),
+            )
+            local_down = ttnn.mesh_partition(
+                down_groups,
+                dim=2,
+                cluster_axis=1,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            created.append(local_down)
+            replacements[down_name] = ttnn.reshape(
+                local_down,
+                (
+                    1,
+                    1,
+                    layer.shapes.hc_hidden_size // TP_SIZE,
+                    layer.shapes.hc_lowrank + layer.shapes.hc_count,
+                ),
+            )
+
+            up_name = f"{prefix}_up"
+            up = layer.w[up_name]
+            up_groups = ttnn.reshape(
+                up,
+                (
+                    1,
+                    layer.shapes.hc_lowrank,
+                    layer.shapes.hc_count,
+                    layer.shapes.hidden_size,
+                ),
+            )
+            local_up = ttnn.mesh_partition(
+                up_groups,
+                dim=3,
+                cluster_axis=1,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            created.append(local_up)
+            replacements[up_name] = ttnn.reshape(
+                local_up,
+                (1, 1, layer.shapes.hc_lowrank, layer.shapes.hc_hidden_size // TP_SIZE),
+            )
+
+        if layer.shapes.layer_type == LINEAR_ATTENTION:
+            output = layer.w["gdn_out"]
+            local_output = ttnn.mesh_partition(
+                output,
+                dim=-1,
+                cluster_axis=1,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            created.append(local_output)
+            replacements["gdn_out"] = local_output
+        ttnn.synchronize_device(layer.mesh_device)
+    except Exception:
+        for tensor in created:
+            if tensor.is_allocated():
+                ttnn.deallocate(tensor)
+        raise
+
+    for name, replacement in replacements.items():
+        original = layer.w[name]
+        group = layer.weight_group_by_id.pop(id(original), None)
+        role = layer.weight_role_by_id.pop(id(original), None)
+        layer.w[name] = replacement
+        if group is not None:
+            layer.weight_group_by_id[id(replacement)] = group
+        if role is not None:
+            layer.weight_role_by_id[id(replacement)] = role
+        if original.is_allocated():
+            ttnn.deallocate(original)
+
+
 def _patch_rank_one(target, source, seen: set[tuple[int, int]]) -> None:
     """Copy source logical rank 1 into target's shared 1x2 mesh buffer."""
 
@@ -384,6 +550,170 @@ def _deallocate_tree(value, seen: set[int]) -> None:
             _deallocate_tree(item, seen)
 
 
+class MultichipDecodeStateWorkspace:
+    """One fixed-address L1 state workspace shared by a batch-one layer stack.
+
+    Layer-owned canonical state stays in DRAM.  Hydrate/compute/commit commands
+    are captured against these stable L1 addresses, so all 36 GDN layer traces
+    may reuse the workspace sequentially on CQ0 without retaining 36 copies in
+    worker L1.
+    """
+
+    def __init__(self, mesh_device):
+        self.mesh_device = mesh_device
+        self._lock = threading.RLock()
+        self._bound = False
+        self._trace_users = 0
+        self.closed = False
+        allocated = []
+        try:
+            self.recurrent_state = ttnn.empty(
+                (1, 48, 128, 128),
+                dtype=ttnn.float32,
+                layout=ttnn.TILE_LAYOUT,
+                device=mesh_device,
+                memory_config=ttnn.L1_MEMORY_CONFIG,
+            )
+            allocated.append(self.recurrent_state)
+            self.conv_state = tuple(
+                ttnn.empty(
+                    (1, 1, 1, 10240),
+                    dtype=ttnn.float32,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=mesh_device,
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+                for _ in range(3)
+            )
+            allocated.extend(self.conv_state)
+            self.ple_conv_state = tuple(
+                ttnn.empty(
+                    (1, 1, 1, 10240),
+                    dtype=ttnn.bfloat16,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=mesh_device,
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+                for _ in range(9)
+            )
+            allocated.extend(self.ple_conv_state)
+        except Exception:
+            for tensor in reversed(allocated):
+                if tensor.is_allocated():
+                    ttnn.deallocate(tensor)
+            raise
+
+    def _require_open(self) -> None:
+        if self.closed:
+            raise RuntimeError("decode-state workspace is closed")
+
+    @staticmethod
+    def _copy_state(sources, targets) -> None:
+        if len(sources) != len(targets):
+            raise RuntimeError(
+                f"decode-state topology mismatch: {len(sources)} canonical tensors, {len(targets)} L1 tensors"
+            )
+        for source, target in zip(sources, targets):
+            if (
+                tuple(source.shape) != tuple(target.shape)
+                or tuple(source.padded_shape) != tuple(target.padded_shape)
+                or source.dtype != target.dtype
+                or source.get_layout() != target.get_layout()
+            ):
+                raise RuntimeError("decode-state canonical and L1 tensor contracts differ")
+            ttnn.copy(source, target)
+
+    @contextmanager
+    def bind_gdn(self, layer):
+        """Temporarily bind stable L1 GDN tensors around one eager enqueue."""
+
+        with self._lock:
+            self._require_open()
+            if self._bound:
+                raise RuntimeError("decode-state workspace cannot execute concurrent layers")
+            canonical_recurrent = layer.recurrent_state
+            canonical_conv = layer.fused_conv_state
+            if canonical_recurrent.memory_config() != ttnn.DRAM_MEMORY_CONFIG or any(
+                tensor.memory_config() != ttnn.DRAM_MEMORY_CONFIG for tensor in canonical_conv
+            ):
+                raise RuntimeError("shared GDN workspace requires DRAM-canonical layer state")
+            if (
+                tuple(canonical_recurrent.shape) != tuple(self.recurrent_state.shape)
+                or tuple(canonical_recurrent.padded_shape) != tuple(self.recurrent_state.padded_shape)
+                or canonical_recurrent.dtype != self.recurrent_state.dtype
+                or canonical_recurrent.get_layout() != self.recurrent_state.get_layout()
+            ):
+                raise RuntimeError("GDN recurrent-state canonical and L1 tensor contracts differ")
+            self._bound = True
+            try:
+                ttnn.copy(canonical_recurrent, self.recurrent_state)
+                self._copy_state(canonical_conv, self.conv_state)
+                layer.recurrent_state = self.recurrent_state
+                layer.fused_conv_state = self.conv_state
+                yield
+                ttnn.copy(self.recurrent_state, canonical_recurrent)
+                self._copy_state(self.conv_state, canonical_conv)
+            finally:
+                layer.recurrent_state = canonical_recurrent
+                layer.fused_conv_state = canonical_conv
+                self._bound = False
+
+    @contextmanager
+    def bind_ple(self, layer):
+        """Temporarily bind stable L1 PLE tensors around one eager enqueue."""
+
+        with self._lock:
+            self._require_open()
+            if self._bound:
+                raise RuntimeError("decode-state workspace cannot execute concurrent layers")
+            canonical = layer.fused_ple_conv_state
+            if any(tensor.memory_config() != ttnn.DRAM_MEMORY_CONFIG for tensor in canonical):
+                raise RuntimeError("shared PLE workspace requires DRAM-canonical layer state")
+            self._bound = True
+            try:
+                self._copy_state(canonical, self.ple_conv_state)
+                layer.fused_ple_conv_state = self.ple_conv_state
+                yield
+                self._copy_state(self.ple_conv_state, canonical)
+            finally:
+                layer.fused_ple_conv_state = canonical
+                self._bound = False
+
+    @contextmanager
+    def serialize_replay(self):
+        """Prevent two shared-workspace traces from interleaving on the host."""
+
+        with self._lock:
+            self._require_open()
+            yield
+
+    def retain_trace(self) -> None:
+        with self._lock:
+            self._require_open()
+            self._trace_users += 1
+
+    def release_trace(self) -> None:
+        with self._lock:
+            if self._trace_users <= 0:
+                raise RuntimeError("decode-state workspace trace ownership underflow")
+            self._trace_users -= 1
+
+    def close(self) -> None:
+        with self._lock:
+            if self.closed:
+                return
+            if self._bound or self._trace_users:
+                raise RuntimeError("decode-state workspace is still bound to active work")
+            for tensor in (
+                self.recurrent_state,
+                *self.conv_state,
+                *self.ple_conv_state,
+            ):
+                if tensor.is_allocated():
+                    ttnn.deallocate(tensor)
+            self.closed = True
+
+
 class MultichipDecoder(OptimizedDecoder):
     """Optimized Qwen decoder layer tensor-parallelized over the fixed P300."""
 
@@ -393,10 +723,16 @@ class MultichipDecoder(OptimizedDecoder):
         "p300_1x2_tensor_parallel_heads_and_experts",
         "rank_local_paged_kv_cache",
         "replicated_indexer_selection",
-        "attention_and_moe_output_all_reduce",
+        "persistent_within_stream_fractured_residual",
+        "qsa_and_moe_output_reduce_scatter",
+        "gdn_output_column_parallel",
+        "distributed_hyperconnection_rmsnorm_and_projections",
         "exact_checkpoint_host_expert_cache",
         "exact_mmap_ple_row_lookup",
         "fixed_generation_checked_expert_slots",
+        "dram_canonical_gdn_state_shared_l1_workspace",
+        "direct_persistent_gdn_tap_trace_commit",
+        "two_phase_stack_trace_program_warm",
     )
 
     @classmethod
@@ -449,6 +785,16 @@ class MultichipDecoder(OptimizedDecoder):
         expert_cache_slots = int(kwargs.pop("expert_cache_slots", HOST_EXPERT_SLOTS))
         packed_host_experts = int(kwargs.pop("packed_host_experts", HOST_PACKED_EXPERTS))
         ple_store = kwargs.pop("ple_store", None)
+        decode_state_workspace = kwargs.pop("decode_state_workspace", None)
+        fractured_residual = bool(kwargs.pop("fractured_residual", True))
+        if not fractured_residual and host_expert_source is not None:
+            raise ValueError("replicated-residual A/B is supported only for resident decoder measurements")
+        if decode_state_workspace is not None and not isinstance(decode_state_workspace, MultichipDecodeStateWorkspace):
+            raise TypeError("decode_state_workspace must be a MultichipDecodeStateWorkspace")
+        if decode_state_workspace is not None and decode_state_workspace.mesh_device is not mesh_device:
+            raise ValueError("decode_state_workspace must belong to the decoder mesh")
+        if decode_state_workspace is not None:
+            decode_state_workspace._require_open()
         if host_expert_source is not None:
             if not isinstance(host_expert_source, Qwen38ExpertHostSource):
                 raise TypeError("host_expert_source must be Qwen38ExpertHostSource")
@@ -463,8 +809,13 @@ class MultichipDecoder(OptimizedDecoder):
         if ple_store is not None and layer_idx != 1:
             raise ValueError("PLE host store can only be attached to zero-based layer 1")
 
-        local_config = _rank_local_config(hf_config, layer_idx)
+        expert_parallel = host_expert_source is not None
+        local_config = _rank_local_config(hf_config, layer_idx, expert_parallel=expert_parallel)
         is_qsa = local_config.text_config.layer_types[layer_idx] != LINEAR_ATTENTION
+        if decode_state_workspace is not None and (
+            host_expert_source is None or int(kwargs.get("max_batch", 1)) != 1 or is_qsa
+        ):
+            raise ValueError("shared decode-state workspace is valid only for batch-one host-backed GDN")
         # GDN is intentionally replicated.  Only QSA head groups and MoE
         # intermediate dimensions are tensor parallel.
         shard_gdn = False
@@ -480,9 +831,17 @@ class MultichipDecoder(OptimizedDecoder):
             # and trace gates.  On TP2 it saves 1.7578125 GiB/device at maximum
             # context, which is required capacity rather than a cosmetic win.
             local_kwargs.setdefault("cache_policy", "bfp8")
-        local_kwargs.setdefault("optimization_policy", "expert_bfp4_lofi_g20b16_d40b5")
+        if fractured_residual:
+            # The optimized auxiliary DRAM-sharded weights preserve the
+            # pre-fracture full width.  The fixed S topology instead owns
+            # compact local weights and must never select those stale copies.
+            local_kwargs["dram_sharded_role"] = ""
+        local_kwargs.setdefault(
+            "optimization_policy",
+            "expert_bfp4_lofi_g40b16_d40b5" if expert_parallel else "expert_bfp4_lofi_g20b16_d40b5",
+        )
 
-        with _rank_local_shape_contract(hf_config, layer_idx) as local_shapes:
+        with _rank_local_shape_contract(hf_config, layer_idx, expert_parallel=expert_parallel) as local_shapes:
             setup_context = _bounded_host_expert_setup(local_shapes, host_expert_source is not None)
             with setup_context as bounded_expert_shapes:
                 rank_zero_state = _rank_local_state(state_dict, 0, shard_gdn=shard_gdn)
@@ -539,7 +898,12 @@ class MultichipDecoder(OptimizedDecoder):
         primary._host_logical_route_rows = None
         primary._host_boundary_active = False
         primary._host_segmented_trace_active = False
+        primary.fractured_residual = fractured_residual
+        primary.decode_state_workspace = None
+        primary._owns_decode_state_workspace = False
         primary.host_setup_expert_shapes = tuple(bounded_expert_shapes)
+        if fractured_residual:
+            _install_fractured_residual_weights(primary)
         if host_expert_source is not None:
             # Release one-expert setup sentinels and replace them with bounded,
             # fixed-address demand-loaded slots.
@@ -557,7 +921,240 @@ class MultichipDecoder(OptimizedDecoder):
             )
         if ple_store is not None:
             primary.ple_staging = PLEDeviceStaging(mesh_device, max_batch=primary.max_batch)
+        if host_expert_source is not None and primary.max_batch == 1 and not is_qsa:
+            if decode_state_workspace is None:
+                decode_state_workspace = MultichipDecodeStateWorkspace(mesh_device)
+                primary._owns_decode_state_workspace = True
+            try:
+                primary._canonicalize_batch_one_decode_state()
+            except Exception:
+                if primary._owns_decode_state_workspace:
+                    decode_state_workspace.close()
+                raise
+            primary.decode_state_workspace = decode_state_workspace
         return primary
+
+    def _canonicalize_batch_one_decode_state(self) -> None:
+        """Move split optimized decode state to DRAM without changing values."""
+
+        if self.max_batch != 1 or self.shapes.layer_type != LINEAR_ATTENTION:
+            raise RuntimeError("DRAM-canonical state is defined only for batch-one GDN")
+        originals = (self.recurrent_state, *self.fused_conv_state, *getattr(self, "fused_ple_conv_state", ()))
+        replacements = []
+        try:
+            for tensor in originals:
+                replacements.append(ttnn.clone(tensor, memory_config=ttnn.DRAM_MEMORY_CONFIG))
+            ttnn.synchronize_device(self.mesh_device)
+        except Exception:
+            for tensor in replacements:
+                if tensor.is_allocated():
+                    ttnn.deallocate(tensor)
+            raise
+
+        conv_end = 1 + len(self.fused_conv_state)
+        self.recurrent_state = replacements[0]
+        self.fused_conv_state = tuple(replacements[1:conv_end])
+        if self.shapes.has_ple:
+            self.fused_ple_conv_state = tuple(replacements[conv_end:])
+        for tensor in originals:
+            if tensor.is_allocated():
+                ttnn.deallocate(tensor)
+
+    def _slice_fractured_seq(self, tensor, start: int, logical: int, padded: int):
+        """Slice token-major four-stream rows without exposing padding."""
+
+        width = RESIDUAL_SHARD_WIDTH
+        first = self.shapes.hc_count * start
+        count = self.shapes.hc_count * logical
+        piece = ttnn.slice(tensor, [0, 0, first, 0], [1, 1, first + count, width])
+        padded_rows = self.shapes.hc_count * padded
+        if count != padded_rows:
+            result = ttnn.pad(piece, [(0, 0), (0, 0), (0, padded_rows - count), (0, 0)], 0.0)
+            _functional_decoder._free(piece, tensor, result)
+            piece = result
+        return piece
+
+    def _ple_prefill_fractured(self, local, embeddings, *, user_id: int, logical: int):
+        """Run the one replicated PLE layer and return its local residual update."""
+
+        replicated = self.gather_residual(local)
+        ple = self._ple_prefill(replicated, embeddings, user_id=user_id, logical=logical)
+        local_ple = self.fracture_residual(ple)
+        updated = ttnn.add(local, local_ple)
+        ttnn.deallocate(replicated)
+        ttnn.deallocate(ple)
+        ttnn.deallocate(local_ple)
+        return updated
+
+    def _ple_decode_fractured(self, local, embeddings):
+        """Decode counterpart of the layer-1 replicated PLE bridge."""
+
+        replicated = self.gather_residual(local)
+        ple = self._ple_decode(replicated, embeddings)
+        local_ple = self.fracture_residual(ple)
+        updated = ttnn.add(local, local_ple)
+        ttnn.deallocate(replicated)
+        ttnn.deallocate(ple)
+        ttnn.deallocate(local_ple)
+        return updated
+
+    def prefill_forward_fractured(
+        self,
+        hidden_states,
+        *,
+        user_id: int = 0,
+        page_table=None,
+        page_tables_per_chunk=None,
+        rot_mats=None,
+        ple_embeddings=None,
+    ):
+        """Run prefill with the stack-internal ``[1,1,4*seq,1280]`` ABI."""
+
+        s = self.shapes
+        shape = _functional_decoder._shape(hidden_states)
+        if len(shape) != 4 or shape[:2] != [1, 1] or shape[-1] != RESIDUAL_SHARD_WIDTH:
+            raise ValueError(f"fractured prefill expects [1, 1, 4*seq, {RESIDUAL_SHARD_WIDTH}], got {shape}")
+        if shape[-2] % s.hc_count:
+            raise ValueError("fractured prefill row count must be divisible by four streams")
+        seq_len = shape[-2] // s.hc_count
+        if not 1 <= seq_len <= self.max_seq_len:
+            raise ValueError(f"prefill seq_len {seq_len} outside [1, {self.max_seq_len}]")
+        if not 0 <= user_id < self.max_batch:
+            raise ValueError(f"user_id {user_id} outside [0, {self.max_batch})")
+        if s.has_ple:
+            expected_ple = [1, 1, seq_len, s.ple_embed_dim]
+            if ple_embeddings is None or _functional_decoder._shape(ple_embeddings) != expected_ple:
+                raise ValueError(f"PLE layer needs embeddings {expected_ple}")
+        elif ple_embeddings is not None:
+            raise ValueError("ple_embeddings were passed to a layer without PLE")
+        plan = self.prefill_chunk_plan(seq_len)
+        if s.layer_type != LINEAR_ATTENTION:
+            if page_table is None or page_tables_per_chunk is None or rot_mats is None:
+                raise ValueError("QSA prefill requires page_table, page_tables_per_chunk and full RoPE tables")
+            if len(page_tables_per_chunk) != len(plan):
+                raise ValueError("page_tables_per_chunk does not match prefill_chunk_plan")
+
+        self._decode_active = False
+        self._reset_user_state(user_id)
+        pieces = []
+        for chunk_index, (start, logical, padded) in enumerate(plan):
+            x = self._slice_fractured_seq(hidden_states, start, logical, padded)
+            if s.has_ple:
+                embedding_chunk = _functional_decoder._slice_seq(ple_embeddings, start, logical, padded)
+                updated = self._ple_prefill_fractured(x, embedding_chunk, user_id=user_id, logical=logical)
+                _functional_decoder._free(embedding_chunk, ple_embeddings)
+                _functional_decoder._free(x, hidden_states, updated)
+                x = updated
+
+            mixed, hyper, injection = self._hyper_mix(x, "attn_hc")
+            if s.layer_type == LINEAR_ATTENTION:
+                block = self._gdn_prefill(mixed, user_id=user_id, logical=logical)
+            else:
+                block = self._qsa_prefill(
+                    mixed,
+                    page_table=page_table,
+                    chunk_page_table=page_tables_per_chunk[chunk_index],
+                    chunk_start=start,
+                    rot_mats=rot_mats,
+                )
+            ttnn.deallocate(mixed)
+            hidden = self._hyper_inject(hyper, block, injection)
+            mixed, hyper, injection = self._hyper_mix(hidden, "mlp_hc")
+            self._host_logical_route_rows = logical
+            try:
+                block = self._moe(mixed)
+            finally:
+                self._host_logical_route_rows = None
+            ttnn.deallocate(mixed)
+            out = self._hyper_inject(hyper, block, injection)
+            if logical != padded:
+                trimmed = ttnn.slice(
+                    out,
+                    [0, 0, 0, 0],
+                    [1, 1, s.hc_count * logical, RESIDUAL_SHARD_WIDTH],
+                )
+                _functional_decoder._free(out, trimmed)
+                out = trimmed
+            pieces.append(out)
+
+        if len(pieces) == 1:
+            return pieces[0]
+        output = ttnn.concat(pieces, dim=-2)
+        for piece in pieces:
+            ttnn.deallocate(piece)
+        return output
+
+    def decode_forward_fractured(
+        self,
+        hidden_states,
+        *,
+        current_pos,
+        page_table=None,
+        rot_mats=None,
+        ple_embeddings=None,
+    ):
+        """Run decode with the stack-internal ``[1,1,4*batch,1280]`` ABI."""
+
+        s = self.shapes
+        expected = [1, 1, s.hc_count * self.max_batch, RESIDUAL_SHARD_WIDTH]
+        if _functional_decoder._shape(hidden_states) != expected:
+            raise ValueError(f"fractured decode expects {expected}, got {_functional_decoder._shape(hidden_states)}")
+        if current_pos is None or _functional_decoder._shape(current_pos) != [self.max_batch]:
+            raise ValueError(f"decode current_pos must be device int32 [{self.max_batch}]")
+        if s.has_ple:
+            expected_ple = [1, 1, self.max_batch, s.ple_embed_dim]
+            if ple_embeddings is None or _functional_decoder._shape(ple_embeddings) != expected_ple:
+                raise ValueError(f"PLE decode embeddings must be {expected_ple}")
+        elif ple_embeddings is not None:
+            raise ValueError("ple_embeddings were passed to a layer without PLE")
+
+        self._decode_active = True
+        try:
+            if s.has_ple:
+                hidden_states = self._ple_decode_fractured(hidden_states, ple_embeddings)
+            mixed, hyper, injection = self._hyper_mix(hidden_states, "attn_hc")
+            if s.layer_type == LINEAR_ATTENTION:
+                block = self._gdn_decode(mixed)
+            else:
+                if page_table is None or rot_mats is None:
+                    raise ValueError("QSA decode requires page_table and full RoPE tables")
+                block = self._qsa_decode(mixed, current_pos=current_pos, page_table=page_table, rot_mats=rot_mats)
+            ttnn.deallocate(mixed)
+            hidden = self._hyper_inject(hyper, block, injection)
+            mixed, hyper, injection = self._hyper_mix(hidden, "mlp_hc")
+            block = self._moe(mixed)
+            ttnn.deallocate(mixed)
+            return self._hyper_inject(hyper, block, injection)
+        finally:
+            self._decode_active = False
+
+    def prefill_forward(self, hidden_states, **kwargs):
+        """Standalone compatibility wrapper around the fractured stack ABI."""
+
+        if not self.fractured_residual:
+            return super().prefill_forward(hidden_states, **kwargs)
+        local = self.fracture_residual(hidden_states)
+        try:
+            output = self.prefill_forward_fractured(local, **kwargs)
+            gathered = self.gather_residual(output)
+            _functional_decoder._free(output, gathered)
+            return gathered
+        finally:
+            _functional_decoder._free(local)
+
+    def decode_forward(self, hidden_states, **kwargs):
+        """Standalone compatibility wrapper around the fractured stack ABI."""
+
+        if not self.fractured_residual:
+            return super().decode_forward(hidden_states, **kwargs)
+        local = self.fracture_residual(hidden_states)
+        try:
+            output = self.decode_forward_fractured(local, **kwargs)
+            gathered = self.gather_residual(output)
+            _functional_decoder._free(output, gathered)
+            return gathered
+        finally:
+            _functional_decoder._free(local)
 
     def _routing_from_logits(self, logits):
         if self.host_expert_cache is None:
@@ -876,6 +1473,155 @@ class MultichipDecoder(OptimizedDecoder):
             output = reduced
         return output
 
+    def _reduce_scatter_block(self, partial):
+        """Sum a row-parallel block and retain its within-hidden TP2 shard."""
+
+        output = ttnn.reduce_scatter(
+            partial,
+            dim=3,
+            cluster_axis=self.collective_axis,
+            num_links=self.collective_num_links,
+            topology=self.collective_topology,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(partial)
+        if output.dtype == ttnn.float32:
+            reduced = ttnn.typecast(output, ttnn.bfloat16)
+            ttnn.deallocate(output)
+            output = reduced
+        return output
+
+    def fracture_residual(self, replicated):
+        """One-time stack ingress: R ``[1,1,M,10240]`` -> S ``[1,1,4M,1280]``."""
+
+        shape = _functional_decoder._shape(replicated)
+        s = self.shapes
+        if len(shape) != 4 or shape[:2] != [1, 1] or shape[-1] != s.hc_hidden_size:
+            raise ValueError(f"replicated residual must be [1, 1, M, {s.hc_hidden_size}], got {shape}")
+        grouped = ttnn.reshape(replicated, (1, 1, shape[-2] * s.hc_count, s.hidden_size))
+        local = ttnn.mesh_partition(
+            grouped,
+            dim=3,
+            cluster_axis=self.collective_axis,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        _functional_decoder._free(grouped, replicated, local)
+        return local
+
+    def gather_residual(self, local):
+        """One-time stack/test exit for a within-stream fractured residual."""
+
+        shape = _functional_decoder._shape(local)
+        s = self.shapes
+        if len(shape) != 4 or shape[:2] != [1, 1] or shape[-1] != RESIDUAL_SHARD_WIDTH:
+            raise ValueError(f"fractured residual must be [1, 1, 4*M, {RESIDUAL_SHARD_WIDTH}], got {shape}")
+        if shape[-2] % s.hc_count:
+            raise ValueError("fractured residual row count must be divisible by four streams")
+        gathered = ttnn.all_gather(
+            local,
+            dim=3,
+            cluster_axis=self.collective_axis,
+            num_links=self.collective_num_links,
+            topology=self.collective_topology,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        output = ttnn.reshape(gathered, (1, 1, shape[-2] // s.hc_count, s.hc_hidden_size))
+        _functional_decoder._free(gathered, output)
+        return output
+
+    def _hyper_mix(self, hyper_input, prefix: str):
+        """Distributed four-stream hyper mixer over a persistent S residual."""
+
+        if not self.fractured_residual:
+            return super()._hyper_mix(hyper_input, prefix)
+        s = self.shapes
+        shape = _functional_decoder._shape(hyper_input)
+        if shape[:2] != [1, 1] or shape[-1] != RESIDUAL_SHARD_WIDTH or shape[-2] % s.hc_count:
+            raise ValueError(f"fractured hyper input has invalid shape {shape}")
+        rows = shape[-2] // s.hc_count
+        stats = ttnn.rms_norm_pre_all_gather(
+            hyper_input,
+            compute_kernel_config=_functional_decoder._hifi4(fp32=True),
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        gathered_stats = ttnn.all_gather(
+            stats,
+            dim=3,
+            cluster_axis=self.collective_axis,
+            num_links=self.collective_num_links,
+            topology=self.collective_topology,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(stats)
+        normed = ttnn.rms_norm_post_all_gather(
+            hyper_input,
+            gathered_stats,
+            epsilon=s.rms_norm_eps,
+            compute_kernel_config=_functional_decoder._hifi4(fp32=True),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(gathered_stats)
+        norm_weight = self.w[f"{prefix}_norm"]
+        weight_rows = norm_weight if rows == 1 else ttnn.repeat(norm_weight, (1, 1, rows, 1))
+        weighted = ttnn.multiply(normed, weight_rows)
+        ttnn.deallocate(normed)
+        _functional_decoder._free(weight_rows, norm_weight, weighted)
+
+        flat = ttnn.reshape(weighted, (1, 1, rows, s.hc_hidden_size // TP_SIZE))
+        packed_partial = self._linear_impl(flat, self.w[f"{prefix}_down_inject"], dtype=ttnn.bfloat16)
+        _functional_decoder._free(flat, weighted, packed_partial)
+        packed = self._all_reduce_block(packed_partial)
+        low = self._slice_last(packed, 0, s.hc_lowrank)
+        injection = self._slice_last(packed, s.hc_lowrank, s.hc_lowrank + s.hc_count)
+        ttnn.deallocate(packed)
+        low = ttnn.silu(low)
+        local_mix = self._linear_impl(low, self.w[f"{prefix}_up"], dtype=ttnn.bfloat16)
+        ttnn.deallocate(low)
+
+        norm_groups = ttnn.reshape(weighted, (rows, s.hc_count, RESIDUAL_SHARD_WIDTH))
+        mix_groups = ttnn.reshape(local_mix, (rows, s.hc_count, RESIDUAL_SHARD_WIDTH))
+        local_mixed = ttnn.multiply(
+            norm_groups,
+            mix_groups,
+            input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID],
+        )
+        _functional_decoder._free(norm_groups, weighted, local_mixed)
+        _functional_decoder._free(mix_groups, local_mix, local_mixed)
+        ttnn.deallocate(weighted)
+        ttnn.deallocate(local_mix)
+        local_mixed = ttnn.mean(local_mixed, dim=1, keepdim=True)
+        local_mixed = ttnn.reshape(local_mixed, (1, 1, rows, RESIDUAL_SHARD_WIDTH))
+        mixed = ttnn.all_gather(
+            local_mixed,
+            dim=3,
+            cluster_axis=self.collective_axis,
+            num_links=self.collective_num_links,
+            topology=self.collective_topology,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(local_mixed)
+        return mixed, hyper_input, injection
+
+    def _hyper_inject(self, hyper_input, block_output, injection):
+        """Inject one local 1280 block shard into all four local streams."""
+
+        if not self.fractured_residual:
+            return super()._hyper_inject(hyper_input, block_output, injection)
+        s = self.shapes
+        rows = int(block_output.shape[-2])
+        value = ttnn.reshape(block_output, (rows, 1, RESIDUAL_SHARD_WIDTH))
+        gate = ttnn.reshape(injection, (rows, s.hc_count, 1))
+        projected = ttnn.multiply(value, gate, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
+        _functional_decoder._free(value, block_output, projected)
+        _functional_decoder._free(gate, injection, projected)
+        ttnn.deallocate(block_output)
+        ttnn.deallocate(injection)
+        projected = ttnn.reshape(projected, (1, 1, rows * s.hc_count, RESIDUAL_SHARD_WIDTH))
+        output = ttnn.mac(projected, 2.0, hyper_input)
+        ttnn.deallocate(projected)
+        return output
+
     def _linear(self, x, weight, *, dtype=ttnn.bfloat16):
         role = self.weight_role_by_id.get(id(weight))
         if role in ROW_PARALLEL_ROLES and dtype == ttnn.bfloat16:
@@ -885,24 +1631,65 @@ class MultichipDecoder(OptimizedDecoder):
     def _gdn_prefill(self, *args, **kwargs):
         return super()._gdn_prefill(*args, **kwargs)
 
+    def _ple_decode(self, *args, **kwargs):
+        workspace = self.decode_state_workspace
+        if workspace is None or self.max_batch != 1:
+            return super()._ple_decode(*args, **kwargs)
+        with workspace.bind_ple(self):
+            return super()._ple_decode(*args, **kwargs)
+
+    def _commit_newest_gdn_state_direct(self, x) -> None:
+        """Reproduce the mixed projection as the persistent tap's final writer."""
+
+        s = self.shapes
+        packed = self._linear_impl(
+            x,
+            self.w["gdn_qkv_b_a"],
+            bias=self.w["gdn_qkv_b_a_bias"],
+            dtype=ttnn.float32,
+        )
+        lead = _functional_decoder._shape(packed)[:-1]
+        ttnn.slice(
+            packed,
+            [0] * len(lead) + [0],
+            lead + [s.linear_qkv_width],
+            output_tensor=self.fused_conv_state[-1],
+        )
+        ttnn.deallocate(packed)
+
     def _gdn_decode(self, *args, **kwargs):
-        return super()._gdn_decode(*args, **kwargs)
+        if self.max_batch != 1:
+            return super()._gdn_decode(*args, **kwargs)
+        if kwargs or len(args) != 1:
+            raise TypeError("optimized GDN decode expects one input tensor")
+        workspace = self.decode_state_workspace
+        if workspace is None:
+            output = super()._gdn_decode(args[0])
+            self._commit_newest_gdn_state_direct(args[0])
+            return output
+        with workspace.bind_gdn(self):
+            output = super()._gdn_decode(args[0])
+            self._commit_newest_gdn_state_direct(args[0])
+            return output
 
     def _qsa_prefill(self, *args, **kwargs):
-        return self._all_reduce_block(super()._qsa_prefill(*args, **kwargs))
+        partial = super()._qsa_prefill(*args, **kwargs)
+        return self._reduce_scatter_block(partial) if self.fractured_residual else self._all_reduce_block(partial)
 
     def _qsa_decode(self, *args, **kwargs):
-        return self._all_reduce_block(super()._qsa_decode(*args, **kwargs))
+        partial = super()._qsa_decode(*args, **kwargs)
+        return self._reduce_scatter_block(partial) if self.fractured_residual else self._all_reduce_block(partial)
 
     def _moe(self, *args, **kwargs):
         if self.host_expert_cache is None:
-            return self._all_reduce_block(super()._moe(*args, **kwargs))
+            partial = super()._moe(*args, **kwargs)
+            return self._reduce_scatter_block(partial) if self.fractured_residual else self._all_reduce_block(partial)
         if not args:
             raise TypeError("MoE input tensor is required")
         self._host_route_rows = int(self._host_logical_route_rows or args[0].shape[-2])
         self._host_boundary_active = True
         try:
-            return self._all_reduce_block(super()._moe(*args, **kwargs))
+            return self._reduce_scatter_block(super()._moe(*args, **kwargs))
         finally:
             self._host_boundary_active = False
             self._host_route_rows = None
@@ -915,7 +1702,7 @@ class MultichipDecoder(OptimizedDecoder):
         if self.host_expert_cache is None or self.max_batch != 1:
             raise RuntimeError("segmented host trace requires batch-one host expert slots")
         s = self.shapes
-        if _functional_decoder._shape(hidden_states) != [1, 1, 1, s.hc_hidden_size]:
+        if _functional_decoder._shape(hidden_states) != [1, 1, s.hc_count, RESIDUAL_SHARD_WIDTH]:
             raise ValueError("segmented decode hidden input has the wrong shape")
         if current_pos is None or _functional_decoder._shape(current_pos) != [1]:
             raise ValueError("segmented decode current_pos must be device int32 [1]")
@@ -924,9 +1711,7 @@ class MultichipDecoder(OptimizedDecoder):
             if s.has_ple:
                 if ple_embeddings is None or _functional_decoder._shape(ple_embeddings) != [1, 1, 1, s.ple_embed_dim]:
                     raise ValueError("segmented PLE decode requires stable [1, 1, 1, 2560] embeddings")
-                ple = self._ple_decode(hidden_states, ple_embeddings)
-                front_hidden = ttnn.add(hidden_states, ple)
-                ttnn.deallocate(ple)
+                front_hidden = self._ple_decode_fractured(hidden_states, ple_embeddings)
             else:
                 if ple_embeddings is not None:
                     raise ValueError("PLE embeddings passed to a layer without PLE")
@@ -948,12 +1733,13 @@ class MultichipDecoder(OptimizedDecoder):
         """Inject attention while retaining every captured crossing buffer."""
 
         s = self.shapes
-        value = ttnn.reshape(block_output, (1, 1, s.hidden_size))
-        gate = ttnn.reshape(injection, (1, s.hc_count, 1))
+        rows = int(block_output.shape[-2])
+        value = ttnn.reshape(block_output, (rows, 1, RESIDUAL_SHARD_WIDTH))
+        gate = ttnn.reshape(injection, (rows, s.hc_count, 1))
         projected = ttnn.multiply(value, gate, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
         _functional_decoder._free(value, block_output, projected)
         _functional_decoder._free(gate, injection, projected)
-        projected = ttnn.reshape(projected, _functional_decoder._shape(hyper_input))
+        projected = ttnn.reshape(projected, (1, 1, rows * s.hc_count, RESIDUAL_SHARD_WIDTH))
         out = ttnn.mac(projected, 2.0, hyper_input)
         ttnn.deallocate(projected)
         return out
@@ -1039,13 +1825,14 @@ class MultichipDecoder(OptimizedDecoder):
         """Trace-back injection that preserves front-segment input buffers."""
 
         s = self.shapes
-        value = ttnn.reshape(block_output, (1, 1, s.hidden_size))
-        gate = ttnn.reshape(injection, (1, s.hc_count, 1))
+        rows = int(block_output.shape[-2])
+        value = ttnn.reshape(block_output, (rows, 1, RESIDUAL_SHARD_WIDTH))
+        gate = ttnn.reshape(injection, (rows, s.hc_count, 1))
         projected = ttnn.multiply(value, gate, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
         _functional_decoder._free(value, block_output, projected)
         _functional_decoder._free(gate, injection, projected)
         ttnn.deallocate(block_output)
-        projected = ttnn.reshape(projected, _functional_decoder._shape(hyper_input))
+        projected = ttnn.reshape(projected, (1, 1, rows * s.hc_count, RESIDUAL_SHARD_WIDTH))
         out = ttnn.mac(projected, 2.0, hyper_input)
         ttnn.deallocate(projected)
         return out
@@ -1056,8 +1843,8 @@ class MultichipDecoder(OptimizedDecoder):
         routed = self._routed_experts_indexed_ready(front.work, front.route_weights)
         local = ttnn.add(routed, front.shared)
         ttnn.deallocate(routed)
-        reduced = self._all_reduce_block(local)
-        trimmed = ttnn.slice(reduced, [0, 0, 0, 0], [1, 1, 1, self.shapes.hidden_size])
+        reduced = self._reduce_scatter_block(local)
+        trimmed = ttnn.slice(reduced, [0, 0, 0, 0], [1, 1, 1, RESIDUAL_SHARD_WIDTH])
         _functional_decoder._free(reduced, trimmed)
         reduced = trimmed
         return self._hyper_inject_preserve(front.hyper, reduced, front.injection)
@@ -1074,7 +1861,7 @@ class MultichipDecoder(OptimizedDecoder):
         self._require_host_ple()
         self.host_ple_store.cancel_request(request_id)
 
-    def prefill_forward_host_backed(
+    def prefill_forward_host_backed_fractured(
         self,
         hidden_states,
         *,
@@ -1083,16 +1870,19 @@ class MultichipDecoder(OptimizedDecoder):
         user_id: int = 0,
         valid_mask: torch.Tensor | None = None,
     ):
-        """Exact chunked PLE lookup/staging followed by the TP2 layer graph."""
+        """Exact host PLE prefill over the stack-internal fractured ABI."""
 
         self._require_host_ple()
         s = self.shapes
         hidden_shape = _functional_decoder._shape(hidden_states)
-        if len(hidden_shape) != 4 or hidden_shape[:2] != [1, 1]:
-            raise ValueError("host-backed prefill expects [1, 1, seq, hidden]")
-        seq_len = int(hidden_states.shape[-2])
-        if int(hidden_states.shape[-1]) != s.hc_hidden_size:
-            raise ValueError(f"prefill hidden width {int(hidden_states.shape[-1])} != {s.hc_hidden_size}")
+        if (
+            len(hidden_shape) != 4
+            or hidden_shape[:2] != [1, 1]
+            or hidden_shape[-1] != RESIDUAL_SHARD_WIDTH
+            or hidden_shape[-2] % s.hc_count
+        ):
+            raise ValueError("host-backed fractured prefill expects [1, 1, 4*seq, 1280]")
+        seq_len = hidden_shape[-2] // s.hc_count
         ids = torch.as_tensor(input_ids, dtype=torch.int64, device="cpu")
         if ids.ndim == 1:
             ids = ids.unsqueeze(0)
@@ -1108,7 +1898,7 @@ class MultichipDecoder(OptimizedDecoder):
         self._reset_user_state(user_id)
         pieces = []
         for start, logical, padded in self.prefill_chunk_plan(seq_len):
-            x = _functional_decoder._slice_seq(hidden_states, start, logical, padded)
+            x = self._slice_fractured_seq(hidden_states, start, logical, padded)
             embeddings = self.host_ple_store.prepare(
                 [request_id],
                 ids[:, start : start + logical],
@@ -1116,10 +1906,8 @@ class MultichipDecoder(OptimizedDecoder):
                 reset=start == 0,
             )
             staged = self.ple_staging.upload_prefill(embeddings, logical=logical)
-            ple = self._ple_prefill(x, staged, user_id=user_id, logical=logical)
-            updated = ttnn.add(x, ple)
+            updated = self._ple_prefill_fractured(x, staged, user_id=user_id, logical=logical)
             _functional_decoder._free(x, hidden_states, updated)
-            ttnn.deallocate(ple)
             mixed, hyper, injection = self._hyper_mix(updated, "attn_hc")
             block = self._gdn_prefill(mixed, user_id=user_id, logical=logical)
             ttnn.deallocate(mixed)
@@ -1133,7 +1921,11 @@ class MultichipDecoder(OptimizedDecoder):
             ttnn.deallocate(mixed)
             out = self._hyper_inject(hyper, block, injection)
             if logical != padded:
-                trimmed = ttnn.slice(out, [0, 0, 0, 0], [1, 1, logical, s.hc_hidden_size])
+                trimmed = ttnn.slice(
+                    out,
+                    [0, 0, 0, 0],
+                    [1, 1, s.hc_count * logical, RESIDUAL_SHARD_WIDTH],
+                )
                 _functional_decoder._free(out, trimmed)
                 out = trimmed
             pieces.append(out)
@@ -1144,7 +1936,19 @@ class MultichipDecoder(OptimizedDecoder):
             ttnn.deallocate(piece)
         return output
 
-    def decode_forward_host_backed(
+    def prefill_forward_host_backed(self, hidden_states, **kwargs):
+        """Standalone replicated wrapper for exact host-backed prefill."""
+
+        local = self.fracture_residual(hidden_states)
+        try:
+            output = self.prefill_forward_host_backed_fractured(local, **kwargs)
+            gathered = self.gather_residual(output)
+            _functional_decoder._free(output, gathered)
+            return gathered
+        finally:
+            _functional_decoder._free(local)
+
+    def decode_forward_host_backed_fractured(
         self,
         hidden_states,
         *,
@@ -1152,7 +1956,7 @@ class MultichipDecoder(OptimizedDecoder):
         request_ids,
         current_pos,
     ):
-        """Service one real PLE row per request, then execute normal decode."""
+        """Service one real PLE row, then execute fractured decode."""
 
         self._require_host_ple()
         request_ids = tuple(request_ids)
@@ -1165,11 +1969,30 @@ class MultichipDecoder(OptimizedDecoder):
             raise ValueError(f"decode input ids must be [{self.max_batch}, 1], got {tuple(ids.shape)}")
         embeddings = self.host_ple_store.prepare(request_ids, ids)
         staged = self.ple_staging.upload_decode(embeddings)
-        return self.decode_forward(hidden_states, current_pos=current_pos, ple_embeddings=staged)
+        return self.decode_forward_fractured(hidden_states, current_pos=current_pos, ple_embeddings=staged)
+
+    def decode_forward_host_backed(self, hidden_states, **kwargs):
+        """Standalone replicated wrapper for exact host-backed decode."""
+
+        local = self.fracture_residual(hidden_states)
+        try:
+            output = self.decode_forward_host_backed_fractured(local, **kwargs)
+            gathered = self.gather_residual(output)
+            _functional_decoder._free(output, gathered)
+            return gathered
+        finally:
+            _functional_decoder._free(local)
 
     def close_host_backing(self) -> None:
         """Release only the host-backed resources owned by this layer."""
 
+        if self._host_segmented_trace_active:
+            raise RuntimeError("release the active segmented trace before closing host backing")
+        # Close the owned state workspace first.  If it is unexpectedly bound,
+        # fail before partially closing the expert/PLE resources.
+        if self._owns_decode_state_workspace and self.decode_state_workspace is not None:
+            self.decode_state_workspace.close()
+            self.decode_state_workspace = None
         if self.host_expert_cache is not None:
             self.host_expert_cache.close()
             self.host_expert_cache = None
@@ -1182,22 +2005,74 @@ class MultichipDecoder(OptimizedDecoder):
 
 
 class HostBackedSegmentedDecodeTrace:
-    """Warmed QSA front/back TT traces around exact host expert service.
+    """Warmed front/back TT traces around exact host PLE/expert service.
 
-    Progressing optimized GDN state is deliberately rejected: repeated live
-    trace replay corrupts its persistent FP32 L1 recurrence on the target
-    runtime.  The stage work log records the isolated AutoFix evidence.
+    Batch-one GDN writes the mixed prefix of its packed FP32 projection directly
+    into the fixed newest L1 workspace tap with ``slice(output_tensor=...)``;
+    the workspace then commits it to layer-owned canonical DRAM state.  The
+    captured producer therefore retains a fixed destination address without a
+    transient slice followed by an address-sensitive copy.
     """
 
-    def __init__(self, layer, front, output, front_trace_id, back_trace_id):
+    def __init__(
+        self,
+        layer,
+        front,
+        output,
+        front_trace_id,
+        back_trace_id,
+        *,
+        captured_inputs=(),
+    ):
         self.layer = layer
         self.front = front
         self.output = output
         self.front_trace_id = front_trace_id
         self.back_trace_id = back_trace_id
+        self.captured_inputs = tuple(captured_inputs)
         self.last_timing = None
         self.last_route_ids = None
         self.released = False
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _decode_state_tensors(layer) -> tuple:
+        tensors = []
+        if layer.shapes.layer_type == LINEAR_ATTENTION:
+            tensors.extend((layer.recurrent_state, *layer.fused_conv_state))
+        if layer.shapes.has_ple:
+            tensors.extend(layer.fused_ple_conv_state)
+        return tuple(tensors)
+
+    @classmethod
+    def _snapshot_decode_state(cls, layer) -> tuple:
+        snapshots = []
+        try:
+            for tensor in cls._decode_state_tensors(layer):
+                shards = ttnn.get_device_tensors(tensor)
+                if len(shards) != TP_SIZE:
+                    raise RuntimeError("segmented decode state is not replicated over TP2")
+                snapshots.append(ttnn.clone(tensor, memory_config=ttnn.DRAM_MEMORY_CONFIG))
+            ttnn.synchronize_device(layer.mesh_device)
+            return tuple(snapshots)
+        except Exception:
+            cls._release_state_snapshots(snapshots)
+            raise
+
+    @classmethod
+    def _restore_decode_state(cls, layer, snapshots: tuple) -> None:
+        targets = cls._decode_state_tensors(layer)
+        if len(targets) != len(snapshots):
+            raise RuntimeError("segmented decode state topology changed during capture")
+        for source, target in zip(snapshots, targets):
+            ttnn.copy(source, target)
+        ttnn.synchronize_device(layer.mesh_device)
+
+    @staticmethod
+    def _release_state_snapshots(snapshots) -> None:
+        for tensor in snapshots:
+            if tensor.is_allocated():
+                ttnn.deallocate(tensor)
 
     @staticmethod
     def _release_front(front: HostDecodeFront) -> None:
@@ -1205,6 +2080,20 @@ class HostBackedSegmentedDecodeTrace:
             tensor = getattr(front, field.name)
             if tensor.is_allocated():
                 ttnn.deallocate(tensor)
+
+    @staticmethod
+    def _mark_front_corruptible(front: HostDecodeFront) -> None:
+        """Declare retained front outputs safe to overwrite by older traces.
+
+        Every field is produced by this trace before the host service reads it.
+        This is what permits several layer traces to remain live: replaying an
+        older layer may reuse addresses allocated while that trace was live,
+        but the younger layer refreshes all six crossings before consuming
+        them.
+        """
+
+        for field in dataclasses.fields(front):
+            ttnn.mark_corruptible(getattr(front, field.name))
 
     @staticmethod
     def _finish_failed_capture(mesh_device, trace_id, capture_open: bool) -> None:
@@ -1220,6 +2109,132 @@ class HostBackedSegmentedDecodeTrace:
         except Exception:
             pass
 
+    @staticmethod
+    def _capture_arguments(layer, *, current_pos, page_table, rot_mats, ple_input_ids, request_ids):
+        linear_attention = layer.shapes.layer_type == LINEAR_ATTENTION
+        ple_ids = ple_requests = None
+        if layer.shapes.has_ple:
+            layer._require_host_ple()
+            if ple_input_ids is None or request_ids is None:
+                raise ValueError("PLE segmented capture requires input ids and request ids")
+            ple_requests = tuple(request_ids)
+            if len(ple_requests) != layer.max_batch:
+                raise ValueError(f"decode needs {layer.max_batch} request ids")
+            ple_ids = torch.as_tensor(ple_input_ids, dtype=torch.int64, device="cpu")
+            if ple_ids.ndim == 1:
+                ple_ids = ple_ids.unsqueeze(1)
+            if tuple(ple_ids.shape) != (layer.max_batch, 1):
+                raise ValueError(f"decode input ids must be [{layer.max_batch}, 1], got {tuple(ple_ids.shape)}")
+        elif ple_input_ids is not None or request_ids is not None:
+            raise ValueError("PLE inputs were passed to a layer without PLE")
+
+        if linear_attention and (page_table is not None or rot_mats is not None):
+            raise ValueError("GDN segmented trace does not accept QSA page or RoPE inputs")
+        return (
+            linear_attention,
+            ple_ids,
+            ple_requests,
+            {
+                "current_pos": current_pos,
+                "page_table": page_table,
+                "rot_mats": rot_mats,
+                "ple_embeddings": None,
+            },
+        )
+
+    @staticmethod
+    def _snapshot_ple_history(layer, ple_requests):
+        if ple_requests is None:
+            return None
+        with layer.host_ple_store._lock:
+            return {
+                request_id: (
+                    None
+                    if request_id not in layer.host_ple_store._histories
+                    else layer.host_ple_store._histories[request_id].clone()
+                )
+                for request_id in ple_requests
+            }
+
+    @staticmethod
+    def _restore_ple_history(layer, snapshot) -> None:
+        if snapshot is None:
+            return
+        with layer.host_ple_store._lock:
+            for request_id, history in snapshot.items():
+                if history is None:
+                    layer.host_ple_store._histories.pop(request_id, None)
+                else:
+                    layer.host_ple_store._histories[request_id] = history
+
+    @classmethod
+    def warm_programs(
+        cls,
+        layer: MultichipDecoder,
+        hidden_states,
+        *,
+        current_pos,
+        page_table=None,
+        rot_mats=None,
+        ple_input_ids: torch.Tensor | None = None,
+        request_ids=None,
+    ) -> None:
+        """Compile one capture signature before any stack trace is registered.
+
+        Full stacks call this for every distinct layer kind, then pass
+        ``programs_prepared=True`` to ``capture``.  This prevents persistent
+        program-cache allocations from being created while an older layer
+        trace is live.
+        """
+
+        if layer.host_expert_cache is None:
+            raise RuntimeError("segmented trace requires host-backed expert slots")
+        linear_attention, ple_ids, ple_requests, front_kwargs = cls._capture_arguments(
+            layer,
+            current_pos=current_pos,
+            page_table=page_table,
+            rot_mats=rot_mats,
+            ple_input_ids=ple_input_ids,
+            request_ids=request_ids,
+        )
+        workspace = layer.decode_state_workspace
+        replay_scope = workspace.serialize_replay() if workspace is not None else nullcontext()
+        snapshots = ()
+        ple_history = None
+        front = output = None
+        with replay_scope:
+            try:
+                if linear_attention:
+                    snapshots = cls._snapshot_decode_state(layer)
+                ple_history = cls._snapshot_ple_history(layer, ple_requests)
+                if ple_ids is not None:
+                    embeddings = layer.host_ple_store.prepare(ple_requests, ple_ids)
+                    front_kwargs["ple_embeddings"] = layer.ple_staging.upload_decode(embeddings)
+                front = layer._decode_front_host(hidden_states, **front_kwargs)
+                layer.service_decode_front(front)
+                output = layer._decode_back_host(front)
+                ttnn.synchronize_device(layer.mesh_device)
+            finally:
+                # Every cleanup step must run even if an earlier deallocation
+                # or state restore fails.  In particular, a failed warm must
+                # not leak DRAM snapshots or leave PLE host history advanced.
+                try:
+                    if output is not None and output.is_allocated():
+                        ttnn.deallocate(output)
+                finally:
+                    try:
+                        if front is not None:
+                            cls._release_front(front)
+                    finally:
+                        try:
+                            if snapshots:
+                                cls._restore_decode_state(layer, snapshots)
+                        finally:
+                            try:
+                                cls._release_state_snapshots(snapshots)
+                            finally:
+                                cls._restore_ple_history(layer, ple_history)
+
     @classmethod
     def capture(
         cls,
@@ -1231,45 +2246,89 @@ class HostBackedSegmentedDecodeTrace:
         rot_mats=None,
         ple_input_ids: torch.Tensor | None = None,
         request_ids=None,
+        programs_prepared: bool = False,
     ) -> "HostBackedSegmentedDecodeTrace":
         if layer.host_expert_cache is None:
             raise RuntimeError("segmented trace requires host-backed expert slots")
-        if layer.shapes.layer_type == LINEAR_ATTENTION:
-            raise RuntimeError(
-                "progressing optimized GDN state is not trace-safe on this runtime; "
-                "see doc/multichip_decoder/work_log.md"
-            )
         if layer._host_segmented_trace_active:
             raise RuntimeError("segmented trace is already active for this layer")
-        if ple_input_ids is not None or request_ids is not None:
-            raise ValueError("QSA segmented trace does not accept PLE inputs")
-
-        front_kwargs = {
-            "current_pos": current_pos,
-            "page_table": page_table,
-            "rot_mats": rot_mats,
-            "ple_embeddings": None,
-        }
+        linear_attention, ple_ids, ple_requests, front_kwargs = cls._capture_arguments(
+            layer,
+            current_pos=current_pos,
+            page_table=page_table,
+            rot_mats=rot_mats,
+            ple_input_ids=ple_input_ids,
+            request_ids=request_ids,
+        )
+        state_workspace = layer.decode_state_workspace
+        workspace_retained = False
+        if state_workspace is not None:
+            with state_workspace._lock:
+                if state_workspace._trace_users and not programs_prepared:
+                    raise RuntimeError(
+                        "capture beside a live shared-workspace trace requires warm_programs() for every layer "
+                        "and programs_prepared=True"
+                    )
+        if state_workspace is not None:
+            state_workspace.retain_trace()
+            workspace_retained = True
+        workspace_lock = state_workspace._lock if state_workspace is not None else None
+        if workspace_lock is not None:
+            # Trace capture is process/CQ scoped.  Hold the shared-workspace
+            # serialization lock across warm, capture, and the deployed first
+            # replay so another layer cannot dispatch into this capture.
+            workspace_lock.acquire()
         layer._host_segmented_trace_active = True
-        front = output = None
+        front = output = warm_front = warm_output = None
         front_trace_id = back_trace_id = None
         front_open = back_open = cache_locked = False
+        state_snapshot = ()
+        ple_history_snapshot = None
         try:
+            if programs_prepared:
+                # Lock before even the snapshot clones: no persistent program
+                # buffer may be allocated after an older stack trace exists.
+                layer.mesh_device.set_program_cache_misses_allowed(False)
+                cache_locked = True
+            if linear_attention:
+                state_snapshot = cls._snapshot_decode_state(layer)
+            if ple_ids is not None:
+                ple_history_snapshot = cls._snapshot_ple_history(layer, ple_requests)
+                embeddings = layer.host_ple_store.prepare(ple_requests, ple_ids)
+                front_kwargs["ple_embeddings"] = layer.ple_staging.upload_decode(embeddings)
+                # A prior live layer trace may overwrite this later allocation.
+                # Every PLE replay uploads the selected row before the front
+                # trace consumes it, so the buffer is intentionally corruptible.
+                ttnn.mark_corruptible(front_kwargs["ple_embeddings"])
+
             warm_front = layer._decode_front_host(hidden_states, **front_kwargs)
             layer.service_decode_front(warm_front)
             warm_output = layer._decode_back_host(warm_front)
             ttnn.synchronize_device(layer.mesh_device)
             if warm_output.is_allocated():
                 ttnn.deallocate(warm_output)
+            warm_output = None
             cls._release_front(warm_front)
+            warm_front = None
+            if linear_attention:
+                # Warm compilation must not consume the caller's state.
+                cls._restore_decode_state(layer, state_snapshot)
 
-            layer.mesh_device.set_program_cache_misses_allowed(False)
-            cache_locked = True
+            if not cache_locked:
+                layer.mesh_device.set_program_cache_misses_allowed(False)
+                cache_locked = True
             front_trace_id = ttnn.begin_trace_capture(layer.mesh_device, cq_id=0)
             front_open = True
             front = layer._decode_front_host(hidden_states, **front_kwargs)
             ttnn.end_trace_capture(layer.mesh_device, front_trace_id, cq_id=0)
             front_open = False
+            cls._mark_front_corruptible(front)
+            if linear_attention:
+                # Capturing the progressing GDN front mutates its persistent
+                # recurrence.  Restore the user's pre-token state, then make
+                # the first deployed invocation an ordinary trace replay.
+                cls._restore_decode_state(layer, state_snapshot)
+                ttnn.execute_trace(layer.mesh_device, front_trace_id, cq_id=0, blocking=True)
             route_ids, _ = layer.service_decode_front(front)
 
             back_trace_id = ttnn.begin_trace_capture(layer.mesh_device, cq_id=0)
@@ -1279,65 +2338,142 @@ class HostBackedSegmentedDecodeTrace:
             back_open = False
             ttnn.mark_corruptible(output)
             ttnn.execute_trace(layer.mesh_device, back_trace_id, cq_id=0, blocking=True)
+            cls._release_state_snapshots(state_snapshot)
+            state_snapshot = ()
+            layer.mesh_device.set_program_cache_misses_allowed(True)
+            cache_locked = False
         except Exception:
             cls._finish_failed_capture(layer.mesh_device, back_trace_id, back_open)
             cls._finish_failed_capture(layer.mesh_device, front_trace_id, front_open)
+            if warm_output is not None and warm_output.is_allocated():
+                ttnn.deallocate(warm_output)
+            if warm_front is not None:
+                cls._release_front(warm_front)
             if front is not None:
                 cls._release_front(front)
             if output is not None and output.is_allocated():
                 ttnn.deallocate(output)
+            if state_snapshot:
+                try:
+                    cls._restore_decode_state(layer, state_snapshot)
+                except Exception:
+                    pass
+                cls._release_state_snapshots(state_snapshot)
+            cls._restore_ple_history(layer, ple_history_snapshot)
+            if workspace_retained:
+                state_workspace.release_trace()
             layer._host_segmented_trace_active = False
             raise
         finally:
-            if cache_locked:
-                layer.mesh_device.set_program_cache_misses_allowed(True)
+            try:
+                if cache_locked:
+                    layer.mesh_device.set_program_cache_misses_allowed(True)
+            finally:
+                if workspace_lock is not None:
+                    workspace_lock.release()
 
-        trace = cls(layer, front, output, front_trace_id, back_trace_id)
+        trace = cls(
+            layer,
+            front,
+            output,
+            front_trace_id,
+            back_trace_id,
+            captured_inputs=(
+                hidden_states,
+                current_pos,
+                page_table,
+                rot_mats,
+                front_kwargs["ple_embeddings"],
+            ),
+        )
+        trace.state_workspace = state_workspace
         trace.last_route_ids = route_ids
         return trace
 
     def replay(self, *, ple_input_ids: torch.Tensor | None = None, request_ids=None):
-        if self.released:
-            raise RuntimeError("segmented trace has been released")
-        if ple_input_ids is not None or request_ids is not None:
-            raise ValueError("QSA segmented trace does not accept PLE inputs")
-        started = time.perf_counter()
-        front_started = time.perf_counter()
-        ttnn.execute_trace(self.layer.mesh_device, self.front_trace_id, cq_id=0, blocking=True)
-        front_seconds = time.perf_counter() - front_started
-        service_started = time.perf_counter()
-        route_ids, plan = self.layer.service_decode_front(self.front)
-        service_seconds = time.perf_counter() - service_started
-        back_started = time.perf_counter()
-        ttnn.execute_trace(self.layer.mesh_device, self.back_trace_id, cq_id=0, blocking=True)
-        back_seconds = time.perf_counter() - back_started
-        self.last_route_ids = route_ids
-        self.last_timing = {
-            "front_trace_seconds": front_seconds,
-            "expert_service_seconds": service_seconds,
-            "back_trace_seconds": back_seconds,
-            "total_seconds": time.perf_counter() - started,
-            "expert_hits": len(plan.hits),
-            "expert_misses": len(plan.misses),
-        }
-        return self.output
+        with self._lock:
+            if self.released:
+                raise RuntimeError("segmented trace has been released")
+            started = time.perf_counter()
+            ple_seconds = 0.0
+            workspace = getattr(self, "state_workspace", None)
+            replay_scope = workspace.serialize_replay() if workspace is not None else nullcontext()
+            with replay_scope:
+                if self.layer.shapes.has_ple:
+                    if ple_input_ids is None or request_ids is None:
+                        raise ValueError("PLE segmented replay requires input ids and request ids")
+                    ple_started = time.perf_counter()
+                    request_ids = tuple(request_ids)
+                    if len(request_ids) != self.layer.max_batch:
+                        raise ValueError(f"decode needs {self.layer.max_batch} request ids")
+                    ids = torch.as_tensor(ple_input_ids, dtype=torch.int64, device="cpu")
+                    if ids.ndim == 1:
+                        ids = ids.unsqueeze(1)
+                    if tuple(ids.shape) != (self.layer.max_batch, 1):
+                        raise ValueError(
+                            f"decode input ids must be [{self.layer.max_batch}, 1], got {tuple(ids.shape)}"
+                        )
+                    embeddings = self.layer.host_ple_store.prepare(request_ids, ids)
+                    self.layer.ple_staging.upload_decode(embeddings)
+                    ple_seconds = time.perf_counter() - ple_started
+                elif ple_input_ids is not None or request_ids is not None:
+                    raise ValueError("PLE inputs were passed to a layer without PLE")
+
+                front_started = time.perf_counter()
+                ttnn.execute_trace(self.layer.mesh_device, self.front_trace_id, cq_id=0, blocking=True)
+                front_seconds = time.perf_counter() - front_started
+                service_started = time.perf_counter()
+                route_ids, plan = self.layer.service_decode_front(self.front)
+                service_seconds = time.perf_counter() - service_started
+                back_started = time.perf_counter()
+                ttnn.execute_trace(self.layer.mesh_device, self.back_trace_id, cq_id=0, blocking=True)
+                back_seconds = time.perf_counter() - back_started
+            self.last_route_ids = route_ids
+            self.last_timing = {
+                "ple_seconds": ple_seconds,
+                "front_trace_seconds": front_seconds,
+                "expert_service_seconds": service_seconds,
+                "back_trace_seconds": back_seconds,
+                "total_seconds": time.perf_counter() - started,
+                "expert_hits": len(plan.hits),
+                "expert_misses": len(plan.misses),
+            }
+            return self.output
 
     def release(self) -> None:
-        if self.released:
-            return
-        ttnn.release_trace(self.layer.mesh_device, self.front_trace_id)
-        ttnn.release_trace(self.layer.mesh_device, self.back_trace_id)
-        self.layer._host_segmented_trace_active = False
-        self._release_front(self.front)
-        if self.output.is_allocated():
-            ttnn.deallocate(self.output)
-        self.released = True
+        with self._lock:
+            if self.released:
+                return
+            workspace = getattr(self, "state_workspace", None)
+            release_scope = workspace.serialize_replay() if workspace is not None else nullcontext()
+            with release_scope:
+                # Release consumers before producers.  Clear each handle only
+                # after successful teardown so a partial failure is retryable.
+                if self.back_trace_id is not None:
+                    ttnn.release_trace(self.layer.mesh_device, self.back_trace_id)
+                    self.back_trace_id = None
+                if self.front_trace_id is not None:
+                    ttnn.release_trace(self.layer.mesh_device, self.front_trace_id)
+                    self.front_trace_id = None
+                # Retain workspace ownership and the layer's active guard until
+                # all trace-addressed tensors are gone.  If deallocation fails,
+                # release remains retryable under the same serialization lock.
+                self._release_front(self.front)
+                if self.output.is_allocated():
+                    ttnn.deallocate(self.output)
+                self.captured_inputs = ()
+                if workspace is not None:
+                    workspace.release_trace()
+                    self.state_workspace = None
+                self.layer._host_segmented_trace_active = False
+                self.released = True
 
 
 __all__ = [
     "HostBackedSegmentedDecodeTrace",
     "HostDecodeAttention",
     "HostDecodeFront",
+    "MultichipDecodeStateWorkspace",
     "MultichipDecoder",
     "MultichipMemoryPlan",
 ]

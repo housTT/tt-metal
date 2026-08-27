@@ -1,148 +1,213 @@
 # Qwen3.8-Flash-Next multichip decoder
 
-This decoder-layer stage targets the fixed `1x2` Blackhole P300 mesh and
-subclasses the completed single-chip `OptimizedDecoder`.  It implements real
-TP2 QSA and gate-selected sparse MoE execution, replicated GDN, rank-local
-paged KV caches, BF16 fabric reductions, resident replay, and host-backed QSA
-segmented replay.  Progressing host-backed GDN trace replay is the blocker
-documented below.  No full-model or vLLM code was started.
+This stage is complete for the fixed `1x2` Blackhole P300 mesh. It starts
+from the completed `OptimizedDecoder`, keeps a persistent fractured residual
+inside a layer stack, distributes QSA and the shared expert, and uses exact,
+bounded host backing for routed experts and the PLE table that cannot fit in
+device DRAM. Prefill, first-token decode, progressing segmented traces,
+two-live-layer workspace reuse, paged KV, advertised-context geometry,
+allocation tracking, latency, device profiling, and watcher are validated.
+Full-model and vLLM work are outside this stage.
 
-## Status
+## Fixed target and delivered parallel plan
 
-The resumed stage resolves the earlier physical residency blocker with exact
-host backing, but remains **not pipeline-complete**.  Every layer owns ten
-fixed BFP4 expert slots plus one rank-local upload staging expert.  The full
-48-layer expert allocation is 729,907,200 bytes/die and the complete
-max-context plan is 8,066,785,280 bytes/die, leaving 26,158,735,360 bytes/die
-of planned headroom.  The 95.37 GiB PLE table remains mmap-backed; only exact
-selected rows enter stable TT staging.  See `../host_weight_contract.json`.
+- Hardware: P300 dies 0 and 1, mesh `1x2`, `FABRIC_1D`, linear topology,
+  one link, `11x10` worker grid, 34,225,520,640 bytes DRAM/die.
+- Public ABI: replicated BF16
+  `[1,1,logical_sequence_or_batch,10240]`. Stack-internal residuals are
+  fractured as `[1,1,4*logical_rows,1280]` and are gathered only at an
+  explicit stack/test exit.
+- Hyperconnection: distributed RMSNorm and local projections operate on the
+  persistent fractured residual.
+- GDN: the 16-key/48-value-head recurrence and state are replicated. Its
+  output projection is column-parallel into the local residual shard. A
+  measured 24-value-head split was rejected for PCC loss.
+- QSA: 12 query heads and one main KV head per die; Q/K/V widths are
+  6144/256/256 per die. The indexer is replicated and the output is reduced
+  into the local residual shard.
+- MoE: the shared expert remains TP2 at intermediate width 320/die. Routed
+  experts use deterministic EP2 ownership `expert_id % 2`: the owner executes
+  the checkpoint-identical full K=640 projection and the other rank executes
+  an exact-zero, full-shaped slot. The MoE collective sums the one routed
+  owner plus both shared-expert partials into the local residual shard.
+- Sparse execution: all 512 routed experts remain addressable, but only the
+  gate-selected top 10 execute. Decode uses ten fixed slots; prefill processes
+  larger route unions in bounded ten-expert waves. Dense all-expert execution
+  is never used.
+- KV cache: each QSA layer/die owns one BFP8 K and V head
+  `[max_blocks,1,64,256]`; the BFP8 raw index cache
+  `[max_blocks,1,64,128]` and BF16 compressed index cache are replicated.
+  Page tables, rotary tensors, and INT32 positions are replicated.
 
-The remaining blocker is warmed trace replay for the 36 progressing GDN
-layers.  QSA host-backed front/back segmented replay passes changing inputs,
-route ids, outputs, page tables, positions, and final KV/index caches.  For GDN
-and PLE+GDN, repeated live trace replay corrupts persistent FP32 recurrence:
-tokens 0--2 match the eager TTNN oracle, while token 3 drops to output PCC
-0.92648160; final recurrent-state PCC is 0.82660490 and the second-oldest FIR
-tap PCC is -0.01665942.  PLE state and the staged newest FIR row remain exact.
-`$autofix` refuted stable-source, copy-op, destination-residency, split-trace,
-post-back commit, eager-commit, and canonical-shadow variants.  The cleaned
-implementation therefore rejects GDN segmented capture explicitly rather than
-advertising a corrupt path.  This prevents the required clean stage review,
-host-backed latency/profiler signoff, and full-model stack-baseline handoff.
+The complete shapes, placement, communication, and rejected alternatives are
+in `mesh_plan.md`.
 
-## Delivered mesh path
+## Why routed EP2 is required
 
-- P300 dies 0 and 1, mesh `1x2`, `FABRIC_1D`, linear topology, one link.
-- Replicated public BF16 hidden state `[1,1,logical_rows,10240]`.
-- Replicated hyperconnection, PLE, router, indexer, and full 16-key/48-value
-  head GDN.
-- QSA: 12 query heads and one main KV head per die; replicated indexer.
-- MoE: local intermediate 320; all 512 checkpoint experts remain addressable
-  through ten fixed slots, with exactly top-10 gate-selected execution per
-  logical token and bounded prefill waves.
-- One BF16 all-reduce after MoE; QSA layers have a second one after attention.
-- BFP8 local QSA K/V and replicated raw-index caches; BF16 compressed-index
-  cache.  Maximum-context allocation is 2.1796875 GiB/die across 12 QSA layers.
-- Setup-only rank patching.  Declared host boundaries are compact route-id D2H,
-  exact expert/PLE mmap lookup, and bounded H2D; decoder math and CCL stay on
-  TT.  No host lookup or transfer occurs inside capture.
+The original resident/host-backed TP2 experiment split the routed expert's
+down projection at K=640 into two K=320 sparse matmuls and reduced the
+partials. A fresh AutoDebug run localized the first material error to this
+boundary: reconstructed weights and gate/up were exact, but the down partial
+sum was about 0.926 PCC and the routed output about 0.938 PCC. HiFi2, FP32
+down output, fused-precision changes, and baseline routing substitution did
+not repair it.
 
-`mesh_plan.md` records every global/per-die weight, activation, cache, padding,
-collective, and expert shape, plus alternatives evaluated before and during
-implementation.
+The isolated AutoFix retained only two changes:
 
-## Correctness and contract evidence
+1. place each selected routed expert on `expert_id % 2` with full K=640 and
+   exact zeros on the peer;
+2. select the full-width sparse program `expert_bfp4_lofi_g40b16_d40b5` for
+   host-backed routed experts.
 
-All PCC values below compare the multichip layer directly with the single-chip
-TTNN optimized baseline using real checkpoint weights.  The hardware suite ran
-with trace-allocation tracking and passed 28 non-long tests.  The separate
-maximum-context trace test passed, and `static_contracts.xml` records 19
-CPU/static checks including the added 262,143/262,144 chunk-plan cases.
+Full K with the old g20 program still failed layer-0 prefill at 0.99064916.
+Full K plus g40 passed at 0.99942303. `FINAL_SOURCE_AUTODEBUG.md` and
+`FRACTURED_EXPERT_AUTOFIX.md` preserve the diagnosis and isolated A/B evidence.
+The known-invalid resident split-K path is retained only as negative evidence;
+it is not an acceptance oracle for the delivered host-backed configuration.
 
-| Representative layer | Kind | Prefill PCC, seq 33 | Decode PCC | Warm vs replay PCC |
-| --- | --- | ---: | ---: | ---: |
-| 0 | GDN | 0.99892092 | 0.99999958 | 1.00000000 |
-| 1 | PLE + GDN | 0.99943250 | 0.99999976 | 1.00000048 |
-| 3 | QSA | 0.99885875 | 0.99932384 | 0.99999964 |
+## Exact bounded host capacity
 
-QSA BFP8-cache PCC against the BF16 optimized control was
-0.99997681/0.99997419/0.99997586 for prefill K/V/index and
-0.99997675/0.99997461/0.99997586 after decode.  Both ranks return bit-identical
-public output.  Coverage also includes:
+Ordinary resident TP2 BFP4 routed experts alone require 33,973,862,400
+bytes/die before maximum-context caches, non-expert graph weights, endpoints,
+state, and runtime reserve. The accepted path mmap-loads exact checkpoint
+weights only on a miss and keeps ten fixed BFP4 slots plus one upload staging
+expert per layer/rank. Layer 1 uses the real 95.37 GiB PLE table through
+EOS-aware n-gram hashing, exact selected-row mmap lookup, and stable BF16 TT
+staging. Compact route IDs, sparse host lookup, and bounded expert/PLE H2D are
+the only declared host boundaries; decoder, expert, PLE, and collective math
+remain on TT.
 
-- shuffled QSA page tables and reconstructed local KV-head caches;
-- GDN recurrent and convolution state transfer;
-- distinct batch-32 QSA page tables and positions 33 through 64;
-- direct stacked layout `layer0 -> layer1 -> layer3`;
-- five deterministic trace replays for every meaningful layer kind;
-- maximum context 262,144, position 262,143, page 4095, and cache shapes
-  `[4096,1,64,256]` / `[4096,1,64,128]` under trace;
-- logical non-aligned prefill chunk plans through 262,143 without changing the
-  public length;
-- source and runtime guards against Torch/host fallback.
+| Per-device resource | Bytes |
+| --- | ---: |
+| Maximum-context QSA caches, 12 layers | 2,340,421,632 |
+| Decoder non-expert weights | 3,479,858,176 |
+| Natural TP2 embedding/final-mixer/LM-head endpoints | 1,279,016,960 |
+| 48-layer routed-expert slots and upload staging | 1,459,814,400 |
+| PLE prefill/decode staging | 819,200 |
+| Canonical batch-one GDN/PLE decode state | 260,702,208 |
+| Additional live prefill/user state | 208,928,768 |
+| Runtime, activation, allocator, and trace reserve | 1,073,741,824 |
+| Planned total | **10,103,303,168** |
+| Headroom from physical DRAM | **24,122,217,472** |
 
-The five-replay GDN tests above reset recurrence before every replay and prove
-stable replay only, not progression.  The resumed changing-input progression
-gate exposed the GDN blocker in the status section.  The new QSA host-backed
-gate validates four changing tokens without state reset and checks exact final
-KV and index caches.
+Each expert/rank slot is 2,764,800 bytes: gate/up
+`[1,1,2560,1280]` plus down `[1,1,640,2560]` in BFP4. A cold top-10 decode
+transfers 55,296,000 bytes across both ranks; a hit transfers zero. The
+checkpoint read remains 9,830,400 BF16 bytes per missed expert.
 
-Primary artifacts are `final_correctness.xml`,
-`advertised_context_trace.xml`, and `final_watcher.xml`.
+Canonical batch-one recurrence and taps live in DRAM. The 36 GDN layers share
+one fixed L1 workspace sequentially: 65,536 bytes/worker for GDN plus 55,296
+bytes/worker for PLE, or 120,832 bytes/worker at the layer-1 peak. The full
+accounting is machine-checked by `test_host_weight_cache.py` and recorded in
+`../host_weight_contract.json` and `../context_contract.json`.
+
+## Correctness, paging, and trace evidence
+
+The acceptance oracle is the unchanged TTNN `OptimizedDecoder` on the same
+real checkpoint and inputs. The minimum gate is PCC 0.995.
+
+| Representative layer | Kind | Seq-33 prefill PCC | First-token decode PCC |
+| --- | --- | ---: | ---: |
+| 0 | GDN | 0.99942303 | 0.99996978 |
+| 1 | PLE + GDN | 0.99949104 | 0.99984211 |
+| 3 | QSA | 0.99972457 | 0.99988294 |
+
+The hardware contract also checks deterministic full-K owner/exact-zero peer
+placement, packed-slot PCC against the BF16 source, exact PLE rows, shuffled
+paged prefill/decode, rank-local K/V heads, replicated index state, device
+INT32 positions, non-aligned logical length 33, batch 32 for all layer kinds,
+and stack ingress/egress layout.
+
+The allocation-tracked current-source acceptance matrix passed **12 tests in
+224.56 s** (`expert_ep2_final_correctness_alloc.xml`). The complete CPU,
+capacity, fallback, and non-aligned matrix passed **32 tests in 12.42 s**
+(`expert_ep2_final_static_contracts.xml`). Maximum-context QSA capture/replay
+passed at context 262,144 and current position 262,143 with cache shapes
+`[4096,1,64,256]` and `[4096,1,64,128]`
+(`expert_ep2_advertised_context_trace.xml`). No advertised capability was
+reduced.
+
+### Progressing segmented trace
+
+Host-backed batch-one decode uses two TT traces around the declared expert
+service boundary:
+
+```text
+stable inputs -> front trace (PLE/attention/router/state)
+              -> compact route D2H + exact expert cache service
+              -> back trace (selected routed/shared experts/collective/output)
+```
+
+GDN state is canonical in DRAM and hydrates/commits through the fixed shared
+L1 workspace. Trace registration warms every stack capture signature before
+freezing program-cache misses. Two live layer traces retain fixed workspace
+addresses and independent state.
+
+`expert_ep2_trace_stress100.xml` passed both GDN kinds and paged QSA for 100
+changing tokens in 90.26 s. Each token checks output, routes, GDN/PLE state,
+or QSA KV/index cache against eager TTNN.
 
 ## Warmed latency
 
-Medians are seven independent real-checkpoint samples.  Prefill uses logical
-sequence 128; decode is the mean of 100 warmed trace replays.  Efficiency is
-`speedup / 2` for the two-die target.
+`expert_ep2_perf_count7.xml` contains seven independent samples per
+representative layer with seq-33 prefill and 100 decode replays/sample. The
+path includes PLE, compact route D2H, exact expert lookup/packing/H2D, both TT
+traces, state hydrate/commit, and collectives. Values below are medians across
+the seven samples.
 
-| Layer | Single prefill ms | Multi prefill ms | Speedup | Efficiency | Single decode ms | Multi decode ms | Speedup | Efficiency |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0 GDN | 22.461979 | 19.057457 | 1.178645x | 58.932% | 1.090756 | 1.099877 | 0.991707x | 49.585% |
-| 1 PLE+GDN | 25.621410 | 22.127126 | 1.157919x | 57.896% | 1.455516 | 1.478821 | 0.984241x | 49.212% |
-| 3 QSA | 48.602010 | 32.853951 | 1.479335x | 73.967% | 2.867152 | 2.880215 | 0.995465x | 49.773% |
+| Layer | Baseline prefill ms | Host EP2 prefill ms | Baseline trace decode ms | Host segmented decode ms | Speedup | 2-device efficiency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 GDN | 18.693426 | 3,583.877886 | 1.106864 | 3.766486 | 0.293795x | 14.690% |
+| 1 PLE+GDN | 20.052107 | 1,541.191421 | 1.484079 | 4.184993 | 0.354558x | 17.728% |
+| 3 QSA | 43.731704 | 2,064.964676 | 2.861884 | 3.050174 | 0.938269x | 46.914% |
 
-Decode does not speed up: token-sized TP compute savings are offset by one or
-two fixed fabric reductions.  This is reported as a measured limitation, not
-hidden by an untraced or host-timed path.  The raw benchmark artifacts are
-`singlechip_perf_count7.xml` and `multichip_perf_count7.xml`.
+All 21 performance cases passed in 322.92 s. Demand-loaded prefill is much
+slower because it services a large routed-expert union in bounded waves.
+Decode also does not beat the single-chip graph baseline: exact host service,
+canonical-state DRAM movement, gathers, and fixed collectives dominate the
+token-sized TP savings. These are measured limitations, not omitted work.
 
-These numbers are the resident per-layer baseline.  End-to-end host-backed
-decode latency is intentionally not promoted as final evidence because the GDN
-progressing-trace gate fails; expert lookup, packing, H2D, and segmented timing
-would otherwise need to be included.
+## Device profiler and communication evidence
 
-## Profiler findings
+Watcher was off for profiling. Three fresh one-layer Tracy processes used a
+2,000-program support buffer and the final full-width g40 expert program. All
+three pytest processes and postprocessors passed, and each
+`tracy_ops_data.csv` contains zero `Profiler DRAM buffers were full` messages.
+`tt-perf-report` accepted every prefill/decode signpost range.
 
-Profiler and watcher runs were separate.  Direct-decode profiling executes the
-same graph without trace capture solely to avoid Tracy's multi-device trace-ID
-correlation limitation; reported decode latency remains real trace replay.
-Each layer was captured in its own process with explicit device-profiler
-checkpoints so no markers were dropped.
+| Layer/window | Modeled DRAM roofline |
+| --- | ---: |
+| L0 prefill | 119 GB/s, 23.2% |
+| L0 decode | 77 GB/s, 15.0% |
+| L1 prefill | 94 GB/s, 18.3% |
+| L1 decode | 75 GB/s, 14.7% |
+| L3 prefill | 64 GB/s, 12.5% |
+| L3 decode | 34 GB/s, 6.6% |
 
-| Layer/window | Compute | Tensor manipulation | Data movement | Other | Modeled DRAM roofline |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| L0 prefill | 74.54% | 22.92% | 0.40% | 2.14% | 86 GB/s (16.8%) |
-| L0 decode | 58.05% | 29.74% | 4.11% | 8.10% | 86 GB/s (16.8%) |
-| L1 prefill | 68.23% | 29.61% | 0.33% | 1.82% | 92 GB/s (18.0%) |
-| L1 decode | 60.28% | 29.43% | 4.21% | 6.06% | 89 GB/s (17.4%) |
-| L3 prefill | 76.74% | 18.09% | 0.93% | 4.23% | 55 GB/s (10.7%) |
-| L3 decode | 33.46% | 17.55% | 1.95% | 47.05% | 34 GB/s (6.6%) |
+The oversized raw capture/ops CSVs were inspected locally and remain
+gitignored. Compact detailed report CSVs, summary CSV/PNGs, and human tables
+are retained under `tracy_host_ep2/*_capacity2000`. Custom-op categorization
+warnings remain visible; they are not profiler-buffer overflow or dropped
+evidence.
 
-GDN prefill is dominated by two active sparse-MoE projections (47.45% of
-device time in L0 and 42.31% in L1).  QSA prefill is dominated by SDPA (27.44%)
-and sparse MoE (26.43%).  QSA decode is dominated by index/cache gather work
-(40.57%); sparse MoE is only 3.09%.  Fabric rows total 8.59/9.16 us per GDN
-decode and 18.42 us per QSA decode.  These results reject further decode TP on
-the fixed two-die boundary unless a future graph fuses or removes collectives
-and cache/index gathers.
+## Fallback, stress, and watcher
 
-Human tables, detailed CSVs, summary CSVs/PNGs, and raw provenance CSVs live
-under `tracy/layer0_gdn`, `tracy/layer1_ple_gdn`, and `tracy/layer3_qsa`.
+Static and runtime guards prohibit Torch conversions in attention, GDN,
+selected-expert math, collectives, state workspace, and trace-open regions.
+Allowed host work is limited to compact route IDs, exact expert/PLE mmap
+lookup, and stable staging uploads.
 
-## Reproduction
+The separate final watcher suite passed **4 tests in 32.88 s** for GDN,
+PLE+GDN, paged QSA, and the two-live trace stack. The 556-line archived log has
+SHA-256 `50e398a486e7b8290e31e8837284c1e2bcf7b2d4127e855c6eeb76be5b101830`
+and no watcher error, assertion, panic, hang, timeout, NoC, or RISC failure
+signature. `TT_METAL_WATCHER_DISABLE_ETH=1` retains Tensix, dispatch, NoC/CB,
+stack, and waypoint checks while avoiding the known fabric-ERISC teardown
+instrumentation issue. Watcher and profiler were never enabled together.
 
-Every hardware command used the repository-local runtime:
+## Reproduction and retained evidence
+
+Every hardware command used:
 
 ```bash
 source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
@@ -150,30 +215,16 @@ export TT_VISIBLE_DEVICES=0,1
 export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto
 ```
 
-Correctness and maximum context:
+Exact commands are in `work_log.md`. Primary retained artifacts are:
 
-```bash
-TT_METAL_TRACE_ALLOC_TRACKING=1 pytest -q --tt-arch blackhole \
-  -m 'not long_context' \
-  models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder.py
+- `expert_ep2_host_cpu_reconciled.xml`, `expert_ep2_final_static_contracts.xml`
+- `expert_ep2_first_decode_pcc.xml`, `expert_ep2_hardware_contracts.xml`
+- `expert_ep2_final_correctness_alloc.xml`, `expert_ep2_trace_stress100.xml`
+- `expert_ep2_advertised_context_trace.xml`, `expert_ep2_watcher.xml`
+- `expert_ep2_perf_count7.xml`, `tracy_host_ep2_layer{0,1,3}.xml`
+- `tracy_host_ep2/*_capacity2000`
+- `FINAL_SOURCE_AUTODEBUG.md`, `FRACTURED_EXPERT_AUTOFIX.md`
+- `SEGMENTED_TRACE_AUTOFIX.md`, `STAGE_REVIEW.md`
+- `evidence_manifest.sha256`
 
-TT_METAL_TRACE_ALLOC_TRACKING=1 pytest -q --tt-arch blackhole --long-context \
-  models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder.py::test_multichip_qsa_trace_at_advertised_context
-
-pytest -q \
-  models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder.py \
-  --collect-only
-```
-
-Latency:
-
-```bash
-QWEN38_MC_PERF_DECODE_REPLAYS=100 pytest -q --tt-arch blackhole --count=7 \
-  models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py
-```
-
-Profiler attribution uses `QWEN38_MC_PROFILE_DIRECT_DECODE=1`, one
-`QWEN38_MC_PERF_LAYERS` value per process, `python -m tracy -r`, and
-`tt-perf-report` windows `MC_PERF_PREFILL_Lx..._END` and
-`MC_PERF_DECODE_Lx..._END`.  The exact commands and hashes are retained in
-`work_log.md` and `evidence_manifest.sha256`.
+No remote operation or push was performed.
