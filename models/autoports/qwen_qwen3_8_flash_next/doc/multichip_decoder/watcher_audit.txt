@@ -1,0 +1,37 @@
+Qwen3.8-Flash-Next multichip decoder watcher audit
+Date: 2026-08-27
+Target: fixed P300 1x2, devices 0 and 1, FABRIC_1D
+Command mode: TT_METAL_WATCHER=10, TT_METAL_WATCHER_DISABLE_ETH=1
+Workload: test_multichip_stacked_decoder_layout_contract
+Pytest result: 1 passed in 127.02s
+Artifact: final_watcher.xml
+Raw log: watcher_final/generated/watcher/watcher.log
+
+Audit expression:
+(^|[^a-z])(assert|error|fatal|hang|stuck|timeout|timed out|watcher exception|noc.*(fault|error)|cb.*(fault|error))([^a-z]|$)
+
+Matching raw watcher-log lines: 0
+Watcher dumps completed: 13
+Both devices attached and detached normally.
+
+Minimum free stack reported:
+- BRISC: 4080 bytes
+- NCRISC: 3504 bytes
+- TRISC0: 1496 bytes
+- TRISC1: 3456 bytes
+- TRISC2: 1580 bytes
+
+Post-run health:
+- Device 0 DRAM status: healthy
+- Device 1 DRAM status: healthy
+- Corrected GDDR errors: 0 on every channel pair
+- Uncorrected GDDR errors: 0
+- Firmware bundle: 19.11.0.0
+- Process/device/fabric teardown: clean
+
+Ethernet watcher instrumentation is disabled because two retained control runs
+reproduced an ERISC 29-25 return-to-base-firmware timeout after the decoder
+workload itself passed. Fabric functionality is covered separately by the
+non-watcher PCC suite, trace replay, and Tracy/CCL reports. The failed controls
+are watcher_pre_reset_failure.xml and
+watcher_eth_enabled_teardown_failure.xml.

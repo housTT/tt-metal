@@ -4,49 +4,68 @@
   "checkpoint_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
   "hf_advertised_context_tokens": 262144,
   "functional_decoder_supported_context_tokens": 262144,
+  "multichip_decoder_supported_context_tokens": 262144,
   "capability_reduction": null,
   "target": {
-    "mesh": "1x1",
-    "device": "P300c chip 0",
+    "mesh": "1x2",
+    "device": "P300 board, Blackhole dies 0 and 1",
     "ttnn_version": "0.75.0rc10.dev880",
     "page_size_tokens": 64,
     "prefill_chunk_tokens": 128,
     "max_tested_batch": 32
+  },
+  "single_chip_baseline_target": {
+    "mesh": "1x1",
+    "device": "P300c chip 0"
+  },
+  "multichip_parallelism": {
+    "tensor_parallel_degree": 2,
+    "public_hidden_layout": "Replicated BF16 [1, 1, logical_sequence_or_batch, 10240]",
+    "gdn": "Replicated 16 key heads and 48 value heads per device",
+    "qsa": "12 query heads and 1 main KV head per device; replicated indexer",
+    "moe": "Intermediate TP2 (320 local), all 512 experts retained, gate-selected top-10 execution",
+    "qsa_main_cache_per_device_at_batch1": "[4096, 1, 64, 256] BFP8 K and V at context 262144",
+    "qsa_index_cache_per_device_at_batch1": "Replicated raw [4096, 1, 64, 128] BFP8 plus BF16 compressed index cache",
+    "maximum_position_trace_tested": 262143,
+    "batch32_decode_tested_for_every_layer_kind": true
   },
   "layer_kinds": [
     {
       "representative_layer": 0,
       "kind": "linear_attention",
       "has_ple": false,
-      "largest_public_prefill_tokens_tested": 262144,
-      "largest_non_aligned_public_prefill_tokens_tested": 262143,
-      "largest_decode_context_tokens_tested": 262144,
-      "largest_decode_current_position_tested": 262143
+      "largest_multichip_public_prefill_tokens_executed": 128,
+      "largest_non_aligned_multichip_public_prefill_tokens_executed": 33,
+      "largest_multichip_chunk_plan_tokens_tested": 262144,
+      "largest_decode_context_tokens_tested": 128,
+      "largest_decode_current_position_tested": 64
     },
     {
       "representative_layer": 1,
       "kind": "linear_attention",
       "has_ple": true,
-      "largest_public_prefill_tokens_tested": 262144,
-      "largest_non_aligned_public_prefill_tokens_tested": 262143,
-      "largest_decode_context_tokens_tested": 262144,
-      "largest_decode_current_position_tested": 262143
+      "largest_multichip_public_prefill_tokens_executed": 128,
+      "largest_non_aligned_multichip_public_prefill_tokens_executed": 33,
+      "largest_multichip_chunk_plan_tokens_tested": 262144,
+      "largest_decode_context_tokens_tested": 128,
+      "largest_decode_current_position_tested": 64
     },
     {
       "representative_layer": 3,
       "kind": "qwen_sparse_attention",
       "has_ple": false,
-      "largest_public_prefill_tokens_tested": 262144,
-      "largest_non_aligned_public_prefill_tokens_tested": 262143,
+      "largest_multichip_public_prefill_tokens_executed": 128,
+      "largest_non_aligned_multichip_public_prefill_tokens_executed": 33,
+      "largest_multichip_chunk_plan_tokens_tested": 262144,
       "largest_decode_context_tokens_tested": 262144,
       "largest_decode_current_position_tested": 262143,
-      "advertised_context_prefill_geometry_tested": {
+      "advertised_context_decoder_geometry_tested": {
         "context_tokens": 262144,
-        "full_chunk_plan_tokens": 262144,
-        "public_chunks_executed": 2048,
+        "chunk_plan_tokens_validated": [262143, 262144],
+        "full_public_prefill_executed_in_this_stage": false,
         "compressed_blocks_scanned": 65536,
         "last_cache_page_addressed": true,
-        "method": "Complete public 10240-wide decoder prefill including hyperconnections, QSA, sparse MoE, cache/page progression, and output concatenation."
+        "method": "A complete 10240-wide multichip QSA decode, page/cache update, sparse MoE, collectives, and output path at position 262143 was captured and replayed. Full advertised-context prefill remains inherited functional-decoder evidence, not a repeated 2048-chunk multichip run."
       }
     }
   ],
@@ -85,7 +104,7 @@
     "reason": "The input-specific sparse row lookup is preprocessing. PLE projection, gating, convolution, and state remain in the measured TTNN decoder pass."
   },
   "evidence": {
-    "full_advertised_public_prefill": [
+    "functional_full_advertised_public_prefill": [
       "functional_decoder/long_context_linear0_full.log",
       "functional_decoder/long_context_linear1_full.log",
       "functional_decoder/long_context_qsa_public_full.log"
@@ -99,7 +118,22 @@
     "batch_32_decode": "functional_decoder/batch32_decode.log",
     "underfilled_qsa_selection": "functional_decoder/topk_multiset.log",
     "correctness": "functional_decoder/correctness.log",
-    "watcher": "functional_decoder/watcher_final_20260826_1419/pytest.log"
+    "watcher": "functional_decoder/watcher_final_20260826_1419/pytest.log",
+    "multichip_correctness": "multichip_decoder/final_correctness.xml",
+    "multichip_advertised_context_trace": "multichip_decoder/advertised_context_trace.xml",
+    "multichip_watcher": "multichip_decoder/final_watcher.xml"
   },
-  "remaining_risk": null
+  "full_stack_residency": {
+    "status": "blocked",
+    "dram_bytes_per_device": 34225520640,
+    "max_context_cache_bytes_per_device": 2340421632,
+    "non_expert_weight_allowance_bytes_per_device": 3921895424,
+    "runtime_trace_reserve_bytes_per_device": 1073741824,
+    "standard_tp2_bfp4_expert_bytes_per_device": 33973862400,
+    "maximum_optimistic_bfp4_tile_fraction": 0.5308186848958333,
+    "compressed_kernel_physical_expert_tiles_per_device": 66846720,
+    "maximum_bank_padded_bfp4_tile_fraction": 0.3213106043198529,
+    "reason": "Standard TP2 BFP4 expert weights do not fit. Tested lower-precision and residual-compression candidates that fit did not meet decoder PCC, and the available compressed expert kernel does not supply a validated prefill+decode replacement for this geometry."
+  },
+  "remaining_risk": "The per-layer multichip implementation passes, but no validated resident 48-layer expert-weight representation fits this two-die board. The stage must not be consumed as a full-model stack baseline until that physical capacity gate is solved."
 }

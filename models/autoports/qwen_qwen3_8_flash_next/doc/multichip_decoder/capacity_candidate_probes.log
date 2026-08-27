@@ -1,0 +1,63 @@
+Qwen3.8-Flash-Next multichip capacity candidate probes
+Date: 2026-08-27 EDT
+Checkpoint: Qwen/Qwen3.8-Flash-Next revision f5d08274bafd880402bd16f5e3e6c514136ec06c
+Environment: repository-local functional_decoder/ttenv.sh
+Quantizer: models.demos.deepseek_v3_b1.compressed_tensor.tile_utils.quantize_dequantize_bfp
+PCC gate: 0.995
+Source transcript: /tmp/codex-multigoal-runs/20260826T152145Z/04-04-multichip-decoder.jsonl
+
+The records below are the raw stdout payloads recovered by command-execution
+ID from the retained run transcript.  All commands exited 0.  The first and
+fourth probes are deterministic CPU expert-matmul controls against ordinary
+BFP4; the second, third, and fifth are deterministic real-checkpoint layer-0
+HF decoder-output controls using seed 20260826 and the gate-selected ten
+experts.  They mutate only an in-memory state copy.
+
+2026-08-27 02:53:15 EDT
+command id: exec-65053bea-436e-464b-8772-c420b2dbd57f
+scope: first ten layer-0 experts, TP2 local intermediate 320, seeds 9500..9504
+stdout:
+all_bfp2 bfp4_fraction 0.0 pccs 0.72421859,0.64967686,0.68308835,0.72457394,0.66700058
+gate_bfp2_down_bfp4 bfp4_fraction 0.3333333333333333 pccs 0.81859456,0.72858605,0.77626404,0.81892580,0.76600759
+gate_bfp4_down_bfp2 bfp4_fraction 0.6666666666666666 pccs 0.88726983,0.88371401,0.88601405,0.87991440,0.88107602
+
+2026-08-27 02:54:26 EDT
+command id: exec-f4cd3403-0424-4600-86da-1ea86d543d67
+scope: real HF layer-0 output, selected down projections changed to BFP2
+stdout:
+selected_experts [53, 58, 80, 99, 198, 269, 280, 309, 351, 410]
+quantized_selected_down_to_bfp2 10
+layer_output_pcc 0.98258221
+relative_l2 0.1859259009361267 max_abs 0.019500732421875
+
+2026-08-27 02:54:57 EDT
+command id: exec-9d75a6d9-c6b6-44c5-9610-ee8656807124
+scope: real HF layer-0 output, lowest-error 60% of selected gate/up tiles BFP2
+stdout:
+selected_experts [53, 58, 80, 99, 198, 269, 280, 309, 351, 410]
+selected_gate_up_bfp2_fraction 0.6 overall_expert_bfp4_fraction 0.6000000000000001
+layer_output_pcc 0.98320884
+relative_l2 0.18262836337089539 max_abs 0.018707275390625
+
+2026-08-27 02:57:19 EDT
+command id: exec-4e913cb0-998d-4884-96fb-7440366dd329
+scope: first ten layer-0 experts, BFP2 base plus BFP2 residual on highest-error 48% of tiles, seeds 9700..9704
+stdout:
+residual_active_fraction 0.48 average_tile_bytes 473.6
+seed 0 pcc_vs_bfp4 0.76865381
+seed 1 pcc_vs_bfp4 0.76493715
+seed 2 pcc_vs_bfp4 0.73664422
+seed 3 pcc_vs_bfp4 0.71853326
+seed 4 pcc_vs_bfp4 0.77423474
+
+2026-08-27 02:58:46 EDT
+command id: exec-1d8fa4e4-1b4c-497e-b8c3-f30193baa4c5
+scope: real HF layer-0 output, selected gate/up and down BFP2 base plus rank-96 BFP4 low-rank residual
+stdout:
+selected_experts [53, 58, 80, 99, 198, 269, 280, 309, 351, 410]
+approximated mlp.experts.gate_up_proj
+approximated mlp.experts.down_proj
+layer_output_pcc 0.96831983
+relative_l2 0.2497032731771469 max_abs 0.025634765625
+
+Verdict: every fit-oriented candidate is below the 0.995 decoder PCC gate.
