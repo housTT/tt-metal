@@ -730,3 +730,12 @@ healthy DRAM and zero corrected or uncorrected GDDR errors. JSON parsing,
 Python bytecode compilation, `git diff --check`, and `sha256sum -c` also
 passed. Ruff was unavailable in this environment and is not claimed as a
 completed check.
+
+### Local checkpoint
+
+- Repository: `tt-metal`
+- Branch: `hous/qwen3.8-flash-next`
+- Stage checkpoint commit:
+  `82af47d73235744357fd4ac62d33ef97eb04dd56`
+- Commit subject: `Add exact EP2 multichip Qwen decoder`
+- Remote operations: none; the checkpoint was not pushed.
