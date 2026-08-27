@@ -307,3 +307,7 @@ a blocked evidence checkpoint rather than a stage completion.
 Final `$tt-device-usage` health check at `2026-08-27T11:58:39-04:00` found
 both P300c dies with `dram_status=true`, identical live heartbeat `45918`, and
 zero corrected or uncorrected GDDR errors.  No reset was required.
+
+Resume implementation/evidence commit: `849400cf6e0`.  This is a local
+blocked-state checkpoint, not a pipeline-complete signoff.  No push or other
+remote operation was performed.
