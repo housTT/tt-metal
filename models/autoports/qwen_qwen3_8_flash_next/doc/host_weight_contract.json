@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "model_id": "Qwen/Qwen3.8-Flash-Next",
+  "checkpoint_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
+  "target_mesh": "1x2 P300 Blackhole",
+  "status": "implemented_with_gdn_trace_blocker",
+  "declared_host_boundaries": {
+    "expert_decode": [
+      "D2H compact sorted top-10 expert ids from rank 0",
+      "mmap one exact checkpoint expert on each miss",
+      "pack exact TP2 rank-local BFP4 gate/up and down matrices",
+      "H2D only missed expert shards through fixed per-rank staging",
+      "local D2D copy into fixed generation-checked slots"
+    ],
+    "expert_prefill": [
+      "D2H compact unique routed expert ids",
+      "bounded waves of at most 10 experts",
+      "each gate-selected expert executes once for its wave",
+      "no dense all-expert execution"
+    ],
+    "ple": [
+      "CPU EOS-aware n-gram hash with isolated two-token request history",
+      "mmap only selected BF16 table rows",
+      "H2D exact assembled [batch, sequence, 2560] rows into stable staging",
+      "PLE projection, gating, convolution, recurrence, and residual stay on TT"
+    ],
+    "forbidden": [
+      "Torch expert math",
+      "Torch PLE projection or decoder math",
+      "host all-reduce",
+      "dense 512-expert TT execution",
+      "host lookup or H2D inside trace capture"
+    ]
+  },
+  "expert_cache": {
+    "experts": 512,
+    "active_experts_per_token": 10,
+    "device_slots_per_layer": 10,
+    "upload_staging_experts_per_rank_per_layer": 1,
+    "packed_host_cache_experts_per_layer": 16,
+    "rank_local_gate_up_shape": [1, 1, 2560, 640],
+    "rank_local_down_shape": [1, 1, 320, 2560],
+    "device_dtype": "BFP4_B",
+    "packed_bytes_per_rank_per_expert": 1382400,
+    "device_bytes_per_rank_per_layer_including_staging": 15206400,
+    "device_bytes_per_rank_full_48_layer_stack": 729907200,
+    "cold_decode_h2d_bytes_both_ranks": 27648000,
+    "hit_decode_h2d_bytes": 0,
+    "checkpoint_bf16_bytes_read_per_miss": 9830400,
+    "replacement": "deterministic ordered slots for traced decode; deterministic generation-checked LRU waves for prefill",
+    "failure_semantics": "publish a generation only after both ranks and projections upload; invalidate the slot on any failure"
+  },
+  "ple_table": {
+    "layer_zero_based": 1,
+    "ngram": 3,
+    "heads": 16,
+    "row_width": 160,
+    "assembled_width": 2560,
+    "shards": 128,
+    "rows_per_shard": 2500012,
+    "logical_rows": 320001446,
+    "padded_rows": 320001536,
+    "host_table_bytes": 102400491520,
+    "eos_token_id": 248044,
+    "history_tokens_per_request": 2,
+    "device_prefill_staging_shape": [1, 1, 128, 2560],
+    "device_decode_staging_shape": [1, 1, 1, 2560],
+    "device_staging_physical_bytes_per_rank": 819200
+  },
+  "full_stack_capacity": {
+    "dram_bytes_per_device": 34225520640,
+    "runtime_trace_reserve_bytes_per_device": 1073741824,
+    "max_context_cache_bytes_per_device": 2340421632,
+    "non_expert_weight_allowance_bytes_per_device": 3921895424,
+    "host_expert_cache_and_staging_bytes_per_device": 729907200,
+    "ple_staging_bytes_per_device": 819200,
+    "planned_total_bytes_per_device": 8066785280,
+    "headroom_bytes_per_device": 26158735360,
+    "fits": true
+  },
+  "validation": {
+    "cpu_contract_tests": "11 passed",
+    "expert_slot_cases": [
+      "cold",
+      "hit",
+      "partial eviction",
+      "capacity-one thrash",
+      "reload",
+      "stale generation",
+      "upload failure invalidation",
+      "prefill wave partition",
+      "ordered trace replacement"
+    ],
+    "ple_cases": [
+      "HF row-id parity",
+      "real checkpoint rows",
+      "EOS history",
+      "chunk carry",
+      "reset",
+      "cancel",
+      "request isolation",
+      "non-aligned valid mask",
+      "row-cache hit"
+    ],
+    "hardware_correctness": [
+      "layer 0 host-backed decode versus resident TP2",
+      "layer 1 exact PLE prefill/decode versus resident TP2",
+      "layer 3 paged prefill/decode and local caches versus resident TP2",
+      "layer 3 changing-input segmented front/back trace replay"
+    ]
+  },
+  "blocking_limitation": "Repeated segmented trace replay is not correct for progressing optimized GDN/PLE+GDN state on the current runtime. QSA tracing passes. See multichip_decoder/work_log.md and /tmp/qwen-segmented-trace-AUTODEBUG.md."
+}

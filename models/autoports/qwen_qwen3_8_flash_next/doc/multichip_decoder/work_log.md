@@ -197,3 +197,113 @@ capacity impossibility; `STAGE_REVIEW.md` records that final verdict.
 
 This SHA records a blocked stage, not a pipeline-complete signoff.  No push or
 other remote operation was performed.
+
+## 2026-08-27 resume-1: exact host backing and trace blocker
+
+The resume used `$host-weight-cache` to replace the resident-stack failure with
+an exact bounded path:
+
+- `tt/host_weight_cache.py` mmap-loads one checkpoint expert at a time, packs
+  exact TP2 rank-local `[1,1,2560,640]` gate/up and
+  `[1,1,320,2560]` down matrices, and uploads BFP4 only on slot misses.
+- Each layer has ten generation-checked expert slots and one fixed upload
+  staging pair per rank.  Full-stack device cost is 729,907,200 bytes/die.
+- Prefill partitions the unique routed-expert union into bounded waves of ten;
+  decode uses ordered slots 0--9 so captured back-trace addresses are stable.
+  Both retain gate-selected active-expert execution.
+- Layer 1 uses the real 128-shard, 320,001,446-logical-row PLE table.  EOS-aware
+  HF-equivalent n-gram hashing, isolated two-token histories, reset/cancel,
+  exact selected-row mmap, and stable prefill/decode staging are implemented.
+- The max-context host-backed plan is 8,066,785,280 bytes/die and leaves
+  26,158,735,360 bytes/die of planned headroom.  Exact arithmetic and the
+  declared boundary are in `../host_weight_contract.json`.
+
+CPU contract command:
+
+```bash
+source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+pytest -q models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py \
+  -m 'not requires_device' --disable-warnings --maxfail=1
+```
+
+Latest hook-conforming rerun: `11 passed` in 3.28 seconds.  Cases include cold/hit/partial eviction,
+capacity-one thrash, reload, stale generations, failed-upload invalidation,
+ordered trace replacement, bounded prefill waves, HF row-id parity, real PLE
+rows, EOS/chunk carry, reset/cancel, request isolation, non-aligned masks, and
+row-cache hits.
+
+Previously completed hardware gates retained from the resume session:
+
+- layer 0 host-backed decode versus resident TP2: PCC >= 0.995, exact ranks;
+- layer 1 exact real-PLE prefill/decode versus resident TP2: PCC >= 0.995;
+- layer 3 paged non-aligned prefill/decode versus resident TP2: PCC >= 0.995,
+  with page table and local KV/index cache checks.
+
+The QSA segmented trace control was rerun after correcting its test geometry
+from 128 to 4096 context tokens:
+
+```bash
+pytest -q \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder.py::test_host_backed_segmented_trace_replay_matches_direct_qsa_decode \
+  --disable-warnings --maxfail=1 -s
+```
+
+Result: one pass in 4.39 seconds on the healthy 1x2 P300.  Four changing hidden
+inputs/positions matched direct TTNN routes and output PCC >= 0.995; final
+shuffled-page KV and index caches were exact.  The expert-cache request count
+was five (one warm service, one captured token, three external replays).
+The retained allocation-tracked rerun passed in 5.53 seconds and is
+`host_backed_qsa_segmented_trace_alloc.xml`.
+
+Retained resume artifacts:
+
+- `host_weight_cpu.xml`: 11 CPU exact-cache/PLE contract passes;
+- `host_backed_static.xml`: 19 memory/shape/fallback/non-aligned passes;
+- `host_backed_correctness.xml`: layer 0, layer 1, and layer 3 host-backed
+  hardware correctness passes;
+- `host_backed_qsa_segmented_trace_alloc.xml`: changing-input QSA segmented
+  trace under `TT_METAL_TRACE_ALLOC_TRACKING=1`;
+- `host_backed_gdn_rejection.xml`: direct layer-0 correctness plus explicit
+  rejection of the known-corrupt trace mode;
+- `SEGMENTED_TRACE_AUTOFIX.md`: isolated GDN failure matrix and exact PCC;
+- `evidence_manifest.sha256`: SHA-256 provenance for these artifacts.
+
+### Progressing GDN trace AutoFix
+
+The original resident trace determinism test reset GDN state on every replay.
+A new layer-1 gate compared four genuinely progressing tokens
+`(23, 91, EOS=248044, 7)` against the eager host-backed TP2 oracle.  Tokens
+0--2 were exact; token 3 route ids diverged and output PCC fell to 0.92648160.
+Final recurrent PCC was 0.82660490 and the middle FIR tap was -0.01665942,
+while all PLE state and the staged newest row remained exact.
+
+`$autofix` isolated and refuted stable source staging, alternate output write,
+DRAM destination residency, attention/router split traces, a tiny state trace,
+post-back commit, warmed eager D2D commit, and canonical DRAM shadow hydration.
+The code now rejects GDN segmented capture explicitly; all failed experimental
+paths were removed.  Full observations and the variant matrix are in
+`SEGMENTED_TRACE_AUTOFIX.md`.
+
+This is a hard current-runtime blocker for the goal's warmed decode trace gate:
+36 of 48 layers use GDN.  Consequently host-backed latency/efficiency,
+tt-perf-report acceptance, watcher signoff, and a clean stage-review were not
+claimed.  The earlier resident profiler tables remain useful baseline evidence
+but are not mislabeled as end-to-end host-backed measurements.
+
+### Resume-1 stage review
+
+The first independent rereview found one repairable accounting contradiction:
+the code memory plan omitted 819,200 bytes/die of stable PLE staging that the
+host-weight contract already charged.  The code and static test were fixed,
+the full-stack plan became 8,066,785,280 bytes/die, and the 19-test static XML
+and SHA-256 manifest were regenerated and verified.
+
+The final rereview returned `more-work-needed` solely for the progressing GDN
+trace blocker above.  It found no remaining repairable finding, other concern,
+or hard-check gap.  `STAGE_REVIEW_RESUME.md` records the verdict.  Because
+`$autofix` exhausted the isolated baseline-preserving variants, this resume is
+a blocked evidence checkpoint rather than a stage completion.
+
+Final `$tt-device-usage` health check at `2026-08-27T11:58:39-04:00` found
+both P300c dies with `dram_status=true`, identical live heartbeat `45918`, and
+zero corrected or uncorrected GDDR errors.  No reset was required.

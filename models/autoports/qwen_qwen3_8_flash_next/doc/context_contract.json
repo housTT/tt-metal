@@ -23,7 +23,9 @@
     "public_hidden_layout": "Replicated BF16 [1, 1, logical_sequence_or_batch, 10240]",
     "gdn": "Replicated 16 key heads and 48 value heads per device",
     "qsa": "12 query heads and 1 main KV head per device; replicated indexer",
-    "moe": "Intermediate TP2 (320 local), all 512 experts retained, gate-selected top-10 execution",
+    "moe": "Intermediate TP2 (320 local), exact demand-loaded top-10 experts in 10 fixed slots per layer/rank; all 512 checkpoint experts remain addressable",
+    "host_backed_decode_batch": 1,
+    "host_backed_expert_device_bytes_per_rank_full_stack": 729907200,
     "qsa_main_cache_per_device_at_batch1": "[4096, 1, 64, 256] BFP8 K and V at context 262144",
     "qsa_index_cache_per_device_at_batch1": "Replicated raw [4096, 1, 64, 128] BFP8 plus BF16 compressed index cache",
     "maximum_position_trace_tested": 262143,
@@ -99,9 +101,9 @@
     "full_embedding_table_shape": [320001536, 160],
     "full_embedding_table_dtype": "BF16",
     "full_embedding_table_bytes": 102400491520,
-    "decoder_input": "Caller-prepared device tensor [1, 1, sequence, 2560]",
+    "decoder_input": "Exact mmap host n-gram row lookup uploads stable device tensor [1, 1, sequence, 2560]",
     "context_capability_reduction": false,
-    "reason": "The input-specific sparse row lookup is preprocessing. PLE projection, gating, convolution, and state remain in the measured TTNN decoder pass."
+    "reason": "EOS-aware n-gram hashing and selected sparse row lookup are preprocessing. PLE projection, gating, convolution, and state remain in the TTNN decoder pass."
   },
   "evidence": {
     "functional_full_advertised_public_prefill": [
@@ -121,19 +123,26 @@
     "watcher": "functional_decoder/watcher_final_20260826_1419/pytest.log",
     "multichip_correctness": "multichip_decoder/final_correctness.xml",
     "multichip_advertised_context_trace": "multichip_decoder/advertised_context_trace.xml",
-    "multichip_watcher": "multichip_decoder/final_watcher.xml"
+    "multichip_watcher": "multichip_decoder/final_watcher.xml",
+    "host_weight_contract": "host_weight_contract.json",
+    "host_backed_cpu_contracts": "../tests/test_host_weight_cache.py",
+    "host_backed_hardware_contracts": "../tests/test_multichip_decoder.py"
   },
   "full_stack_residency": {
-    "status": "blocked",
+    "status": "host_backed_fits",
     "dram_bytes_per_device": 34225520640,
     "max_context_cache_bytes_per_device": 2340421632,
     "non_expert_weight_allowance_bytes_per_device": 3921895424,
     "runtime_trace_reserve_bytes_per_device": 1073741824,
     "standard_tp2_bfp4_expert_bytes_per_device": 33973862400,
+    "host_expert_cache_and_staging_bytes_per_device": 729907200,
+    "ple_staging_bytes_per_device": 819200,
+    "host_backed_planned_total_bytes_per_device": 8066785280,
+    "host_backed_headroom_bytes_per_device": 26158735360,
     "maximum_optimistic_bfp4_tile_fraction": 0.5308186848958333,
     "compressed_kernel_physical_expert_tiles_per_device": 66846720,
     "maximum_bank_padded_bfp4_tile_fraction": 0.3213106043198529,
-    "reason": "Standard TP2 BFP4 expert weights do not fit. Tested lower-precision and residual-compression candidates that fit did not meet decoder PCC, and the available compressed expert kernel does not supply a validated prefill+decode replacement for this geometry."
+    "reason": "Standard resident TP2 BFP4 experts do not fit. Exact host-backed top-10 expert slots plus one fixed upload staging expert per rank fit the full 48-layer weights and advertised KV-cache plan with 26,158,735,360 bytes/die of planned headroom."
   },
-  "remaining_risk": "The per-layer multichip implementation passes, but no validated resident 48-layer expert-weight representation fits this two-die board. The stage must not be consumed as a full-model stack baseline until that physical capacity gate is solved."
+  "remaining_risk": "Exact host backing resolves the resident-weight capacity blocker, and QSA segmented trace replay passes. The stage remains blocked because repeated live trace replay corrupts progressing optimized GDN recurrence state on this runtime; layer 0 and layer 1 therefore lack the required warmed host-backed trace gate."
 }

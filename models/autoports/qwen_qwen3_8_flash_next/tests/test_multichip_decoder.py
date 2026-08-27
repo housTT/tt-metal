@@ -11,8 +11,10 @@ import torch
 
 import ttnn
 from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
+from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import Qwen38PLEHostStore, SafetensorCheckpoint
 from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import HF_ADVERTISED_CONTEXT
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
+    HostBackedSegmentedDecodeTrace,
     MultichipDecoder,
     MultichipMemoryPlan,
     _rank_local_config,
@@ -35,6 +37,11 @@ def _replicated_upload(tensor, mesh_device, *, dtype=ttnn.bfloat16, layout=ttnn.
 
 def _rank_zero_host(tensor):
     return ttnn.to_torch(ttnn.get_device_tensors(tensor)[0])
+
+
+def _decode_state_host(layer):
+    tensors = [layer.recurrent_state, *layer.fused_conv_state, *layer.fused_ple_conv_state]
+    return tuple(_rank_zero_host(tensor).clone() for tensor in tensors)
 
 
 def _paged_inputs(layer, mesh_device, page_table_host, cos_host, sin_host, seq_len):
@@ -98,6 +105,10 @@ def test_multichip_class_and_memory_contract():
     assert plan.standard_bfp4_fits is False
     assert plan.max_bfp4_fraction == pytest.approx(0.5308186848958333)
     assert plan.max_compressed_bfp4_fraction == pytest.approx(0.3213106043198529)
+    assert plan.host_expert_cache_bytes == 729_907_200
+    assert plan.ple_staging_bytes == 819_200
+    assert plan.host_backed_stack_bytes == 8_066_785_280
+    assert plan.host_backed_stack_fits is True
 
 
 def test_rank_local_config_contract():
@@ -206,6 +217,328 @@ def test_multichip_layer0_decode_structural_smoke(bh_1d_mesh_device, device_para
     assert len(rank_outputs) == 2
     assert list(output.shape) == [1, 1, 1, 10240]
     assert torch.equal(rank_outputs[0], rank_outputs[1])
+
+
+@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+def test_host_backed_layer0_decode_matches_resident_multichip(bh_1d_mesh_device, device_params, expect_error):
+    """Real route-id D2H, demand expert H2D, and active TT math match resident TP2."""
+
+    torch.manual_seed(20260828)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    config = H.target_config()
+    state = H.load_real_layer_state(0)
+    resident = MultichipDecoder.from_state_dict(
+        state,
+        hf_config=config,
+        layer_idx=0,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+    )
+    host_backed = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=config,
+        layer_idx=0,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+    )
+    hidden_host = (torch.randn(1, 1, 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    current_pos_host = torch.tensor([0], dtype=torch.int32)
+    resident_out = resident.decode_forward(
+        _replicated_upload(hidden_host, mesh_device),
+        current_pos=_replicated_upload(current_pos_host, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+    )
+    host_out = host_backed.decode_forward(
+        _replicated_upload(hidden_host, mesh_device),
+        current_pos=_replicated_upload(current_pos_host, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+    )
+    ttnn.synchronize_device(mesh_device)
+    first_slot, first_record = next(
+        (slot_index, record)
+        for slot_index, record in enumerate(host_backed.host_expert_cache.directory.records)
+        if record.valid
+    )
+    packed = host_backed.host_expert_source.load(first_record.identity.expert_id)
+    for rank in range(2):
+        slot = host_backed.host_expert_cache.slots[first_slot]
+        gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
+        down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
+        assert H.pcc(packed.gate_up_by_rank[rank], gate_host) >= 0.99
+        assert H.pcc(packed.down_by_rank[rank], down_host) >= 0.99
+    assert len(host_backed.host_setup_expert_shapes) == 6
+    assert all(shape[1] == 512 for shape in host_backed.host_setup_expert_shapes)
+    expected = _rank_zero_host(resident_out)
+    actual = _rank_zero_host(host_out)
+    assert H.pcc(expected, actual) >= 0.995
+    assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
+    metrics = host_backed.host_expert_cache.metrics()
+    assert metrics["misses"] == 10 and metrics["h2d_bytes"] == 27_648_000
+    assert metrics["device_bytes_per_rank"] == 15_206_400
+    with expect_error(RuntimeError, "not trace-safe"):
+        HostBackedSegmentedDecodeTrace.capture(
+            host_backed,
+            _replicated_upload(hidden_host, mesh_device),
+            current_pos=_replicated_upload(
+                current_pos_host,
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+        )
+    host_backed.close_host_backing()
+
+
+@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+def test_host_backed_real_ple_decode_matches_resident_multichip(bh_1d_mesh_device, device_params):
+    """Real PLE prefill/history/decode plus expert service match resident TP2."""
+
+    torch.manual_seed(20260829)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    config = H.target_config()
+    state = H.load_real_layer_state(1)
+    resident = MultichipDecoder.from_state_dict(
+        state,
+        hf_config=config,
+        layer_idx=1,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+    )
+    host_backed = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=config,
+        layer_idx=1,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+    )
+    reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=32)
+    prompt_ids = torch.tensor([[11, 248044, 17]], dtype=torch.int64)
+    prompt_ple = reference_store.prepare(["reference"], prompt_ids, reset=True)
+    prompt_hidden = (torch.randn(1, 1, 3, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    resident_prefill = resident.prefill_forward(
+        _replicated_upload(prompt_hidden, mesh_device),
+        ple_embeddings=_replicated_upload(prompt_ple.unsqueeze(0), mesh_device),
+    )
+    host_prefill = host_backed.prefill_forward_host_backed(
+        _replicated_upload(prompt_hidden, mesh_device),
+        input_ids=prompt_ids,
+        request_id="host",
+    )
+    ttnn.synchronize_device(mesh_device)
+    assert H.pcc(_rank_zero_host(resident_prefill), _rank_zero_host(host_prefill)) >= 0.995
+    assert list(host_prefill.shape) == [1, 1, 3, 10240]
+    resident.prepare_decode_state()
+    host_backed.prepare_decode_state()
+
+    token_ids = torch.tensor([[99]], dtype=torch.int64)
+    ple_host = reference_store.prepare(["reference"], token_ids)
+    hidden_host = (torch.randn(1, 1, 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    current_pos_host = torch.tensor([0], dtype=torch.int32)
+    resident_out = resident.decode_forward(
+        _replicated_upload(hidden_host, mesh_device),
+        current_pos=_replicated_upload(current_pos_host, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+        ple_embeddings=_replicated_upload(ple_host.unsqueeze(0), mesh_device),
+    )
+    host_out = host_backed.decode_forward_host_backed(
+        _replicated_upload(hidden_host, mesh_device),
+        input_ids=token_ids,
+        request_ids=("host",),
+        current_pos=_replicated_upload(current_pos_host, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+    )
+    ttnn.synchronize_device(mesh_device)
+    assert torch.equal(_rank_zero_host(host_backed.ple_staging.decode), ple_host.unsqueeze(0))
+    assert H.pcc(_rank_zero_host(resident_out), _rank_zero_host(host_out)) >= 0.995
+    assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
+    assert host_backed.host_ple_store.metrics()["table_rows_read"] <= 64
+    assert host_backed.ple_staging.metrics()["h2d_bytes"] == 1_320_960
+    reference_store.close()
+    host_backed.close_host_backing()
+
+
+@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+def test_host_backed_qsa_paged_prefill_decode_matches_resident_multichip(bh_1d_mesh_device, device_params):
+    """Host experts preserve TP-local QSA caches, page tables, and positions."""
+
+    torch.manual_seed(20260830)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    config = H.target_config()
+    state = H.load_real_layer_state(3)
+    resident = MultichipDecoder.from_state_dict(
+        state,
+        hf_config=config,
+        layer_idx=3,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    host_backed = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=config,
+        layer_idx=3,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    cos, sin = H.rope_tables(4096)
+    page_host = H.shuffled_page_table(4096)
+    page, chunk_pages, rot = _paged_inputs(resident, mesh_device, page_host, cos, sin, 3)
+    prompt_hidden = (torch.randn(1, 1, 3, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    resident_prefill = resident.prefill_forward(
+        _replicated_upload(prompt_hidden, mesh_device),
+        page_table=page,
+        page_tables_per_chunk=chunk_pages,
+        rot_mats=rot,
+    )
+    host_prefill = host_backed.prefill_forward(
+        _replicated_upload(prompt_hidden, mesh_device),
+        page_table=page,
+        page_tables_per_chunk=chunk_pages,
+        rot_mats=rot,
+    )
+    ttnn.synchronize_device(mesh_device)
+    assert H.pcc(_rank_zero_host(resident_prefill), _rank_zero_host(host_prefill)) >= 0.995
+    for resident_cache, host_cache in zip(resident.kv_cache, host_backed.kv_cache):
+        for resident_rank, host_rank in zip(
+            ttnn.get_device_tensors(resident_cache),
+            ttnn.get_device_tensors(host_cache),
+        ):
+            assert H.pcc(ttnn.to_torch(resident_rank), ttnn.to_torch(host_rank)) >= 0.995
+    assert list(host_backed.kv_cache[0].shape) == [64, 1, 64, 256]
+
+    current_pos = _replicated_upload(
+        torch.tensor([3], dtype=torch.int32),
+        mesh_device,
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
+    decode_hidden = (torch.randn(1, 1, 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    resident_out = resident.decode_forward(
+        _replicated_upload(decode_hidden, mesh_device),
+        current_pos=current_pos,
+        page_table=page,
+        rot_mats=rot,
+    )
+    host_out = host_backed.decode_forward(
+        _replicated_upload(decode_hidden, mesh_device),
+        current_pos=current_pos,
+        page_table=page,
+        rot_mats=rot,
+    )
+    ttnn.synchronize_device(mesh_device)
+    assert H.pcc(_rank_zero_host(resident_out), _rank_zero_host(host_out)) >= 0.995
+    assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
+    assert host_backed.host_expert_cache.metrics()["misses"] >= 10
+    host_backed.close_host_backing()
+
+
+@pytest.mark.parametrize(
+    "device_params",
+    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+    indirect=True,
+)
+def test_host_backed_segmented_trace_replay_matches_direct_qsa_decode(bh_1d_mesh_device, device_params):
+    """Stable QSA front/back traces bracket exact expert service."""
+
+    torch.manual_seed(20260831)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    config = H.target_config()
+    steps = []
+    for position in range(4):
+        scale = 0.02 if position == 0 else 0.02 + position * 0.01
+        hidden = (torch.randn(1, 1, 1, 10240, dtype=torch.bfloat16) * scale).contiguous()
+        steps.append((hidden, torch.tensor([position], dtype=torch.int32)))
+    page_host = H.shuffled_page_table(4096)
+    cos, sin = H.rope_tables(4096)
+
+    direct = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=config,
+        layer_idx=3,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    direct.prepare_decode_state()
+    expected = []
+    expected_routes = []
+    page, _, rot = _paged_inputs(direct, mesh_device, page_host, cos, sin, 1)
+    direct_ensure_ordered = direct.host_expert_cache.ensure_ordered
+
+    def record_direct_routes(route_ids):
+        expected_routes.append(tuple(int(value) for value in route_ids))
+        return direct_ensure_ordered(route_ids)
+
+    direct.host_expert_cache.ensure_ordered = record_direct_routes
+    for hidden, position in steps:
+        output = direct.decode_forward(
+            _replicated_upload(hidden, mesh_device),
+            current_pos=_replicated_upload(
+                position,
+                mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            page_table=page,
+            rot_mats=rot,
+        )
+        ttnn.synchronize_device(mesh_device)
+        expected.append(_rank_zero_host(output).clone())
+    expected_cache = tuple(_rank_zero_host(tensor).clone() for tensor in (*direct.kv_cache, direct.indexer_cache))
+    direct.close_host_backing()
+
+    layer = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=config,
+        layer_idx=3,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    layer.prepare_decode_state()
+    stable_hidden = _replicated_upload(steps[0][0], mesh_device)
+    stable_pos = _replicated_upload(
+        steps[0][1],
+        mesh_device,
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
+    segmented = HostBackedSegmentedDecodeTrace.capture(
+        layer,
+        stable_hidden,
+        current_pos=stable_pos,
+        page_table=page,
+        rot_mats=rot,
+    )
+    ttnn.synchronize_device(mesh_device)
+    assert H.pcc(expected[0], _rank_zero_host(segmented.output)) >= 0.995
+    assert segmented.last_route_ids == expected_routes[0]
+
+    initial_routes = segmented.last_route_ids
+    for step, (next_hidden, next_pos_host) in enumerate(steps[1:], start=1):
+        hidden_host = ttnn.from_torch(next_hidden, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+        position_host = ttnn.from_torch(next_pos_host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.copy_host_to_device_tensor(hidden_host, stable_hidden)
+        ttnn.copy_host_to_device_tensor(position_host, stable_pos)
+        traced_out = segmented.replay()
+        ttnn.synchronize_device(mesh_device)
+        assert segmented.last_route_ids == expected_routes[step], step
+        assert H.pcc(expected[step], _rank_zero_host(traced_out)) >= 0.995
+        assert segmented.last_timing["total_seconds"] >= segmented.last_timing["expert_service_seconds"]
+        assert segmented.last_timing["total_seconds"] >= (
+            segmented.last_timing["front_trace_seconds"] + segmented.last_timing["back_trace_seconds"]
+        )
+    assert segmented.last_route_ids != initial_routes
+    assert layer.host_expert_cache.metrics()["requests"] == 5
+    segmented.release()
+    actual_cache = tuple(_rank_zero_host(tensor) for tensor in (*layer.kv_cache, layer.indexer_cache))
+    assert all(torch.equal(reference, actual) for reference, actual in zip(expected_cache, actual_cache))
+    layer.close_host_backing()
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)

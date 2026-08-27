@@ -3,25 +3,32 @@
 This decoder-layer stage targets the fixed `1x2` Blackhole P300 mesh and
 subclasses the completed single-chip `OptimizedDecoder`.  It implements real
 TP2 QSA and gate-selected sparse MoE execution, replicated GDN, rank-local
-paged KV caches, BF16 fabric reductions, and warmed decode trace replay.  No
-full-model or vLLM code was started.
+paged KV caches, BF16 fabric reductions, resident replay, and host-backed QSA
+segmented replay.  Progressing host-backed GDN trace replay is the blocker
+documented below.  No full-model or vLLM code was started.
 
 ## Status
 
-The per-layer implementation and hardware gates pass, but this stage is **not
-pipeline-complete**.  The physical full-stack residency gate remains blocked:
-ordinary TP2 BFP4 experts alone require 31.640625 GiB/die, leaving no room for
-replicated/sharded non-expert weights, the maximum-context cache, or trace and
-activation allocations.  All tested mixed BFP2/BFP4 and residual-compression
-candidates that fit missed the decoder correctness threshold.  See
-`mesh_plan.md` and `AUTOFIX.md` for exact arithmetic and rejected alternatives.
-Even the no-padding mixed-precision bound permits only 53.081868% BFP4; the
-available compressed kernel's 640-to-768 bank padding lowers the practical
-limit to 32.131060%, requiring at least 67.868940% BFP2/zero.
-This limitation prevents a clean stage-review verdict and prevents advertising
-this layer as the full-model stack baseline.
-The independent rereview is retained in `STAGE_REVIEW.md`; its final verdict is
-`more-work-needed` solely for this physical capacity constraint.
+The resumed stage resolves the earlier physical residency blocker with exact
+host backing, but remains **not pipeline-complete**.  Every layer owns ten
+fixed BFP4 expert slots plus one rank-local upload staging expert.  The full
+48-layer expert allocation is 729,907,200 bytes/die and the complete
+max-context plan is 8,066,785,280 bytes/die, leaving 26,158,735,360 bytes/die
+of planned headroom.  The 95.37 GiB PLE table remains mmap-backed; only exact
+selected rows enter stable TT staging.  See `../host_weight_contract.json`.
+
+The remaining blocker is warmed trace replay for the 36 progressing GDN
+layers.  QSA host-backed front/back segmented replay passes changing inputs,
+route ids, outputs, page tables, positions, and final KV/index caches.  For GDN
+and PLE+GDN, repeated live trace replay corrupts persistent FP32 recurrence:
+tokens 0--2 match the eager TTNN oracle, while token 3 drops to output PCC
+0.92648160; final recurrent-state PCC is 0.82660490 and the second-oldest FIR
+tap PCC is -0.01665942.  PLE state and the staged newest FIR row remain exact.
+`$autofix` refuted stable-source, copy-op, destination-residency, split-trace,
+post-back commit, eager-commit, and canonical-shadow variants.  The cleaned
+implementation therefore rejects GDN segmented capture explicitly rather than
+advertising a corrupt path.  This prevents the required clean stage review,
+host-backed latency/profiler signoff, and full-model stack-baseline handoff.
 
 ## Delivered mesh path
 
@@ -30,13 +37,15 @@ The independent rereview is retained in `STAGE_REVIEW.md`; its final verdict is
 - Replicated hyperconnection, PLE, router, indexer, and full 16-key/48-value
   head GDN.
 - QSA: 12 query heads and one main KV head per die; replicated indexer.
-- MoE: local intermediate 320, all 512 experts retained, exactly top-10
-  gate-selected execution per logical token.
+- MoE: local intermediate 320; all 512 checkpoint experts remain addressable
+  through ten fixed slots, with exactly top-10 gate-selected execution per
+  logical token and bounded prefill waves.
 - One BF16 all-reduce after MoE; QSA layers have a second one after attention.
 - BFP8 local QSA K/V and replicated raw-index caches; BF16 compressed-index
   cache.  Maximum-context allocation is 2.1796875 GiB/die across 12 QSA layers.
-- Setup-only rank patching; no host conversion in prefill, decode, CCL, or
-  trace replay.
+- Setup-only rank patching.  Declared host boundaries are compact route-id D2H,
+  exact expert/PLE mmap lookup, and bounded H2D; decoder math and CCL stay on
+  TT.  No host lookup or transfer occurs inside capture.
 
 `mesh_plan.md` records every global/per-die weight, activation, cache, padding,
 collective, and expert shape, plus alternatives evaluated before and during
@@ -72,6 +81,12 @@ public output.  Coverage also includes:
   public length;
 - source and runtime guards against Torch/host fallback.
 
+The five-replay GDN tests above reset recurrence before every replay and prove
+stable replay only, not progression.  The resumed changing-input progression
+gate exposed the GDN blocker in the status section.  The new QSA host-backed
+gate validates four changing tokens without state reset and checks exact final
+KV and index caches.
+
 Primary artifacts are `final_correctness.xml`,
 `advertised_context_trace.xml`, and `final_watcher.xml`.
 
@@ -91,6 +106,11 @@ Decode does not speed up: token-sized TP compute savings are offset by one or
 two fixed fabric reductions.  This is reported as a measured limitation, not
 hidden by an untraced or host-timed path.  The raw benchmark artifacts are
 `singlechip_perf_count7.xml` and `multichip_perf_count7.xml`.
+
+These numbers are the resident per-layer baseline.  End-to-end host-backed
+decode latency is intentionally not promoted as final evidence because the GDN
+progressing-trace gate fails; expert lookup, packing, H2D, and segmented timing
+would otherwise need to be included.
 
 ## Profiler findings
 

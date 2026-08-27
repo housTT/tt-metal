@@ -11,8 +11,10 @@ DRAM.  The single-chip baseline is `OptimizedDecoder` on P300c chip 0.
 `MultichipDecoder` subclasses `OptimizedDecoder`.  Setup builds the exact
 optimized graph for rank 0 and rank 1, patches rank 1's setup-only tensor
 shards into the shared mesh allocation, and releases the temporary graph.
-Runtime prefill, decode, collectives, and trace replay perform no Torch or host
-conversion.
+The original resident runtime performs no Torch or host conversion.  The
+resumed exact host-backed runtime adds only declared compact route-id D2H,
+selected expert/PLE mmap lookup, and bounded H2D outside capture; all decoder
+math and collectives remain on TT.
 
 The public input and output stay replicated BF16
 `[1, 1, logical_sequence_or_batch, 10240]`.  The public sequence/batch length
@@ -67,11 +69,12 @@ shards; tile padding is internal to TTNN.
 
 Local QSA activations are 12 query heads and one K/V head of width 256;
 the attention epilogue has local width 3072 before a `[... ,2560]` partial.
-Local routed/shared expert activations have width 320.  Every die retains all
-512 routed experts and executes only gate-selected experts (`top_k=10` per
-logical token).  The sparse kernel's tile union can exceed ten because 32
-logical rows share a routing tile; tests separately assert exactly ten nonzero
-weights for the first logical row.
+Local routed/shared expert activations have width 320.  Every die can address
+all 512 checkpoint experts through ten fixed slots and executes only
+gate-selected experts (`top_k=10` per logical token).  Prefill unions larger
+than ten are partitioned into bounded waves.  The sparse kernel's tile union
+can exceed ten because 32 logical rows share a routing tile; tests separately
+assert exactly ten nonzero weights for the first logical row.
 
 ## State, paging, and cache placement
 
@@ -143,6 +146,38 @@ real layer-0 selected-top10 down BFP2 reached
 residual reached 0.968320.  `AUTOFIX.md` records the candidate audit.
 The extracted raw command outputs are in `capacity_candidate_probes.log`.
 
+### Resume-1 exact host-backed resolution
+
+The resident arithmetic above remains the reason ordinary all-expert weights
+cannot be used.  The resumed plan resolves it without reducing the advertised
+context:
+
+| Resource | Per die/rank | Full-stack calculation |
+| --- | ---: | --- |
+| fixed expert slots | 10 experts/layer | `48 * 10 * 1,382,400 = 663,552,000 B` |
+| fixed expert upload staging | 1 expert/layer | `48 * 1 * 1,382,400 = 66,355,200 B` |
+| total expert device storage | 11 experts/layer | `729,907,200 B` |
+| exact PLE prefill staging | `[1,1,128,2560]` BF16 | `655,360 B` |
+| exact PLE decode staging | `[1,1,1,2560]`, physical 32 rows | `163,840 B` |
+| max-context cache | TP-local/replicated as above | `2,340,421,632 B` |
+| non-expert weights | TP2 plus replicated GDN | `3,921,895,424 B` |
+| runtime/trace reserve | fixed allowance | `1,073,741,824 B` |
+| planned total |  | `8,066,785,280 B/die` |
+| planned headroom |  | `26,158,735,360 B/die` |
+
+Each expert miss reads one BF16 checkpoint expert (9,830,400 bytes), packs
+rank-local gate/up `[1,1,2560,640]` and down `[1,1,320,2560]`, and transfers
+1,382,400 B/rank in BFP4.  A cold top-10 decode transfers 27,648,000 bytes
+across both ranks; a hit transfers zero.  Ordered decode slots preserve fixed
+back-trace addresses.  Generation-checked LRU prefill waves publish a slot only
+after both projections on both ranks have uploaded successfully.
+
+The PLE table is 128 mmap shards, 320,001,446 logical rows padded to
+320,001,536, row width 160 BF16, total 102,400,491,520 bytes.  Sixteen exact
+EOS-aware n-gram rows assemble each 2560-wide token embedding; only selected
+rows enter TT staging.  The complete boundary and failure semantics are in
+`../host_weight_contract.json`.
+
 ## Rejected alternatives
 
 - **GDN TP2:** decode PCC failure described above.
@@ -155,8 +190,9 @@ The extracted raw command outputs are in `capacity_candidate_probes.log`.
   gathers before replicated HC/router/GDN, adding more communication than it
   removes on two dies.  The simpler L1 reduction experiment also failed rank
   correctness.
-- **Host weight streaming:** not a resident layer-stack baseline and violates
-  the clean runtime/fallback contract.
+- **Unbounded/ad-hoc host weight streaming:** rejected.  It is superseded by
+  the exact bounded fixed-slot contract above, whose D2H/H2D boundaries are
+  explicit and whose expert math remains on TT.
 - **Smaller context as the primary fix:** even zero KV cache cannot make
   standard BFP4 experts plus non-expert weights and runtime reserve fit.
 - **Aligned-only public lengths:** incompatible with the existing decoder
