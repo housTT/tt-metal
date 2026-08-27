@@ -488,7 +488,7 @@ reproducible with the commands above.
 - [x] No applicable single-device decoder optimization is deferred to a later
   stage. Multichip, full-model, and serving work remain out of scope.
 - [x] Independent `$stage-review` clean-pass recorded below.
-- [ ] Stage-owned local commit SHA recorded below; nothing pushed.
+- [x] Stage-owned local commit SHA recorded below; nothing pushed.
 
 ## Review and commits
 
@@ -507,4 +507,9 @@ samples; it is correct but loses traced decode to BF16 with non-overlapping
 sample ranges. The final fresh `$stage-review` independently recomputed the
 cache and baseline medians, checked the exact optimized path, gates, hashes,
 profiler/advice evidence, context contract, and candidate closures, and
-returned `clean-pass` with no required work. The stage-owned commit is pending.
+returned `clean-pass` with no required work. The primary stage commit was then
+created locally.
+
+Primary stage commit: `d7baac46495` (`Add optimized Qwen3.8 Flash Next
+decoder`). The follow-up signoff commit contains only this work-log completion;
+nothing was pushed.
