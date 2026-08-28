@@ -1,0 +1,46 @@
+Repository root:
+  /home/ttuser/dev/gpt-oss-20b/tt-metal
+
+All hardware commands were serialized by:
+  flock -x /tmp/gpt_oss_120b_fused_hw.lock zsh -lc '<command>'
+
+The four Tracy captures used this command, with OUT and NODEID set to each
+exact pair listed below:
+
+  env -u TT_METAL_SIMULATOR -u TT_METAL_SIMULATOR_HOME -u TT_METAL_SLOW_DISPATCH_MODE -u TT_METAL_DISABLE_SFPLOADMACRO -u TT_METAL_WATCHER -u TT_METAL_DEVICE_PROFILER TT_VISIBLE_DEVICES=3 TT_METAL_HOME=/home/ttuser/dev/gpt-oss-20b/tt-metal TT_METAL_RUNTIME_ROOT=/home/ttuser/dev/gpt-oss-20b/tt-metal TT_METAL_CACHE=/home/ttuser/dev/gpt-oss-20b/tt-metal/.tt_metal_cache TT_METAL_PROFILER_DIR="$OUT/generated/profiler" TTNN_CONFIG_OVERRIDES='{"cache_path":"/home/ttuser/dev/gpt-oss-20b/tt-metal/.ttnn_cache","model_cache_path":"/home/ttuser/dev/gpt-oss-20b/tt-metal/.ttnn_cache/models","tmp_dir":"/home/ttuser/dev/gpt-oss-20b/tt-metal/.ttnn_tmp"}' PYTHONPATH=/home/ttuser/dev/gpt-oss-20b/tt-metal:/home/ttuser/dev/gpt-oss-20b/tt-metal/ttnn LD_LIBRARY_PATH=/home/ttuser/dev/gpt-oss-20b/tt-metal/build/lib GPT_OSS_120B_SNAPSHOT=/home/ttuser/.cache/huggingface/hub/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a GPT_OSS_120B_FULL_LOCAL_WHOLE_PERF=1 GPT_OSS_120B_FULL_LOCAL_WHOLE_PERF_REPEATS=1 timeout 900 ./python_env/bin/python -m tracy -r -p -v --dump-device-data-mid-run --op-support-count 5000 -m pytest "$NODEID" -s
+
+OUT=models/autoports/openai_gpt_oss_120b/doc/fused_decoder/tracy/final_full_local/full_attention/full_local
+NODEID=models/autoports/openai_gpt_oss_120b/tests/test_fused_decoder.py::test_fused_real_weight_whole_traced_decode_path_performance[blackhole-1x1-full_local-full]
+
+OUT=models/autoports/openai_gpt_oss_120b/doc/fused_decoder/tracy/final_full_local/full_attention/indexed
+NODEID=models/autoports/openai_gpt_oss_120b/tests/test_fused_decoder.py::test_fused_real_weight_whole_traced_decode_path_performance[blackhole-1x1-indexed-full]
+
+OUT=models/autoports/openai_gpt_oss_120b/doc/fused_decoder/tracy/final_full_local/sliding_attention/full_local
+NODEID=models/autoports/openai_gpt_oss_120b/tests/test_fused_decoder.py::test_fused_real_weight_whole_traced_decode_path_performance[blackhole-1x1-full_local-sliding]
+
+OUT=models/autoports/openai_gpt_oss_120b/doc/fused_decoder/tracy/final_full_local/sliding_attention/indexed
+NODEID=models/autoports/openai_gpt_oss_120b/tests/test_fused_decoder.py::test_fused_real_weight_whole_traced_decode_path_performance[blackhole-1x1-indexed-sliding]
+
+For each OUT, the Tracy-generated ops CSV was copied to
+"$OUT/ops_perf_results.csv" and compressed with:
+
+  gzip -c "$OUT/ops_perf_results.csv" > "$OUT/ops_perf_results.csv.gz"
+
+For PHASE=prefill, START=PERF_PREFILL, END=PERF_PREFILL_END, and for
+PHASE=decode, START=PERF_DECODE, END=PERF_DECODE_END, reports used:
+
+  /home/ttuser/dev/ornith/ornith-pyenv/bin/tt-perf-report "$OUT/ops_perf_results.csv" --start-signpost "$START" --end-signpost "$END" --no-color --no-advice --csv "$OUT/${PHASE}_perf_report.csv" --summary-file "$OUT/${PHASE}_perf_report_stacked.csv" > "$OUT/${PHASE}_perf_report.txt"
+
+The decode command additionally included:
+
+  --active-experts 4
+
+Post-profile bounded recovery commands:
+
+  tt-smi -ls --local
+  tt-smi -r
+  ./python_env/bin/python tools/tt-triage.py --dev=all --dump-file models/autoports/openai_gpt_oss_120b/doc/fused_decoder/tracy/final_full_local/recovery/triage/tt-triage.txt --summary-file models/autoports/openai_gpt_oss_120b/doc/fused_decoder/tracy/final_full_local/recovery/triage/triage-summary.txt
+  tt-smi -r
+
+The final corrected smoke used the same fully pinned non-simulator environment
+as the captures and opened then closed `ttnn.open_mesh_device(ttnn.MeshShape(1, 1), physical_device_ids=[3])`.
