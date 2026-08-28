@@ -1,6 +1,6 @@
 # GPT-OSS 120B functional decoder work log
 
-Status: functional-decoder implementation, device gates, and independent stage review complete; local commit pending.
+Status: functional-decoder implementation, device gates, independent stage review, and local stage commit complete.
 
 ## Target and environment
 
@@ -236,6 +236,6 @@ Watcher result: both layer kinds passed in 41.64 seconds. The original log's SHA
 
 - Fresh stage-review verdict: `clean-pass` from `/root/stage_review_clean` after a full staged-artifact rereview.
 - Closed review findings: retained real-weight routing counterfactual, distinct batch positions/page tables, raw real-weight/chunk/max-prefill provenance, qualified watcher scan, and HF-valid length-one prefill support/evidence.
-- Stage commit SHA: pending.
-- Ledger commit SHA: reported in the final handoff because a commit cannot contain its own SHA.
+- Stage commit SHA: `acfbdee588f929b51a22f99c46baa5394eb75216`.
+- Ledger commit SHA: this documentation-only follow-up commit; its exact SHA is reported in the final handoff because a commit cannot contain its own SHA.
 - Push: never performed.
