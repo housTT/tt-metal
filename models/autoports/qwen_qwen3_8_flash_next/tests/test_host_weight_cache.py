@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import importlib.util
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -249,6 +251,10 @@ def test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failur
     with expect_error(OSError, "rank-1"):
         directory.ensure(0, [5], fail)
     assert not directory.records[0].valid
+    recovered = directory.ensure(0, [5], lambda *args: loads.append(args))
+    assert recovered.misses == (5,) and recovered.hits == ()
+    directory.validate(recovered)
+    assert directory.resident_entries == 1
 
 
 def test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid(expect_error):
@@ -279,6 +285,15 @@ def test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid
     assert any(record.valid and record.identity == ExpertIdentity(6, 29) for record in records)
     assert any(record.valid and record.identity == ExpertIdentity(6, 37) for record in records)
     assert sum(not record.valid for record in records) == 2
+    recovered_loads = []
+    recovered = batched.ensure_batched(
+        6,
+        [29, 53, 37, 59],
+        lambda loads: recovered_loads.extend(loads),
+    )
+    assert recovered.hits == (29, 37) and recovered.misses == (53, 59)
+    assert tuple(identity.expert_id for _, identity, _ in recovered_loads) == (53, 59)
+    batched.validate(recovered)
 
 
 def test_slot_directory_prefill_wave_partition_is_exact():
@@ -352,6 +367,35 @@ def test_ple_chunk_history_eos_reset_and_request_isolation(ple_store):
     restarted = ple_store.row_ids(["other"], torch.tensor([[102]]))
     fresh = ple_store.row_ids(["fresh"], torch.tensor([[102]]), reset=True)
     assert torch.equal(restarted, fresh)
+
+
+def test_ple_concurrent_history_and_cancellation_isolation(ple_store):
+    """Simultaneous callers retain independent n-gram histories and cleanup."""
+
+    tokens_a = torch.tensor([[10, 11, 12, 13, 14]], dtype=torch.int64)
+    tokens_b = torch.tensor([[70, 71, 72, 73, 74]], dtype=torch.int64)
+    expected_a = ple_store.row_ids(["thread-ref-a"], tokens_a, reset=True)
+    expected_b = ple_store.row_ids(["thread-ref-b"], tokens_b, reset=True)
+    barrier = threading.Barrier(2)
+
+    def chunked(request_id, tokens):
+        first = ple_store.row_ids([request_id], tokens[:, :3], reset=True)
+        barrier.wait(timeout=5)
+        second = ple_store.row_ids([request_id], tokens[:, 3:])
+        ple_store.cancel_request(request_id)
+        return torch.cat((first, second), dim=1)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        future_a = pool.submit(chunked, "thread-a", tokens_a)
+        future_b = pool.submit(chunked, "thread-b", tokens_b)
+        actual_a = future_a.result(timeout=10)
+        actual_b = future_b.result(timeout=10)
+
+    assert torch.equal(actual_a, expected_a)
+    assert torch.equal(actual_b, expected_b)
+    fresh_a = ple_store.row_ids(["thread-a"], tokens_a[:, 3:], reset=False)
+    reset_a = ple_store.row_ids(["thread-reset-a"], tokens_a[:, 3:], reset=True)
+    assert torch.equal(fresh_a, reset_a)
 
 
 def test_ple_non_aligned_mask_and_real_checkpoint_rows(ple_store, checkpoint):

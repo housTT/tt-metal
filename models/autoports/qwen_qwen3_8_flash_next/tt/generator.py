@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import secrets
 import time
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 import torch
 
@@ -83,6 +84,46 @@ class GenerationMetrics:
         return report
 
 
+@dataclasses.dataclass
+class _ServingDecodeHost:
+    """One serving decode output after its device-to-host copy."""
+
+    kind: str
+    host: Any
+    rows: int
+    state: Qwen38BatchState | None = None
+
+    def to_torch(self, model: Qwen38FullModel, *, is_tokens: bool) -> torch.Tensor:
+        if is_tokens != (self.kind == "tokens"):
+            raise ValueError(f"decode produced {self.kind}, caller requested {'tokens' if is_tokens else 'logits'}")
+        if self.kind == "tokens":
+            shard = ttnn.get_device_tensors(self.host)[0]
+            result = ttnn.to_torch(shard).reshape(-1)[: self.rows].to(torch.int64)
+            if self.state is not None:
+                self.state.compact_token_readbacks += 1
+            return result
+        logits = model.logits_to_torch(self.host)
+        return logits.reshape(self.rows, 1, model.vocab_size)
+
+
+@dataclasses.dataclass
+class _ServingDecodeOutput:
+    """Opaque submitted output used by the shared asynchronous decode split."""
+
+    kind: str
+    device: Any
+    rows: int
+    state: Qwen38BatchState | None = None
+
+    def read(self, *, blocking: bool) -> _ServingDecodeHost:
+        return _ServingDecodeHost(
+            kind=self.kind,
+            host=self.device.cpu(blocking=blocking),
+            rows=self.rows,
+            state=self.state,
+        )
+
+
 def _resolve_snapshot(model_dir: str | Path) -> Path:
     path = Path(model_dir).expanduser()
     if path.exists():
@@ -119,6 +160,8 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         self.last_generated_tokens: torch.Tensor | None = None
         self.last_prompt_tokens: torch.Tensor | None = None
         self.host_sampling_compatibility_calls = 0
+        self._serving_device_feedback_current = False
+        self._serving_sampling_signature = None
 
     @classmethod
     def get_max_tokens_all_users(cls, **kwargs) -> int:
@@ -158,15 +201,15 @@ class Qwen38Generator(ModelCapabilitiesMixin):
     ) -> None:
         """Readiness helper hook.
 
-        This model keeps cache/page/token buffers model-owned and compiles on
-        the first concrete call.  The hook validates the same fixed-slot shape
-        contract and records sampler parameters without running a hidden CPU or
-        replicated fallback path.
+        This model keeps page/token buffers model-owned; the attention cache is
+        either standalone model state or the exact object adopted from vLLM.
+        Compilation occurs on the first concrete call.  The hook validates the
+        same fixed-slot shape contract and records sampler parameters without
+        running a hidden CPU or replicated fallback path.
         """
 
         del start_pos, empty_slots
-        if kv_cache is not None and kv_cache is not self.model.kv_cache:
-            raise ValueError("kv_cache must be the model-owned stable cache")
+        self.model._require_kv_cache_identity(kv_cache)
         token_tensor = torch.as_tensor(tokens, dtype=torch.int64, device="cpu")
         if token_tensor.ndim == 1:
             token_tensor = token_tensor.unsqueeze(0)
@@ -175,7 +218,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         if page_table is not None:
             pages = torch.as_tensor(page_table, dtype=torch.int32, device="cpu")
             if tuple(pages.shape) != tuple(self.model._default_page_table_host.shape):
-                raise ValueError("compile_prefill page_table shape does not match model-owned KV blocks")
+                raise ValueError("compile_prefill page_table shape does not match active attention-cache blocks")
         if prompt_lens is not None:
             lengths = torch.as_tensor(prompt_lens, dtype=torch.int32).reshape(-1)
             if int(lengths.numel()) != self.model.max_batch:
@@ -202,8 +245,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         """Readiness helper hook for explicit one-token decode state."""
 
         del reset_batch
-        if kv_cache is not None and kv_cache is not self.model.kv_cache:
-            raise ValueError("kv_cache must be the model-owned stable cache")
+        self.model._require_kv_cache_identity(kv_cache)
         torch.as_tensor(tokens, dtype=torch.int64, device="cpu").reshape(self.model.max_batch)
         torch.as_tensor(start_pos, dtype=torch.int32, device="cpu").reshape(self.model.max_batch)
         if page_table is not None:
@@ -231,6 +273,8 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         empty_slots=None,
         read_from_device: bool = True,
         return_all_logits: bool = False,
+        on_device_sampling: bool = False,
+        sampling_params=None,
         **_kwargs,
     ):
         """Low-level mixed-prompt prefill with explicit cache/page state.
@@ -259,6 +303,9 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             page_table = None
         if empty_slots is not None and tuple(int(value) for value in empty_slots) != state.active_slots:
             raise ValueError("empty_slots must match the active fixed-slot cohort")
+        if sampling_params is not None:
+            self._apply_serving_sampling_params(sampling_params, reset_seed=True)
+            on_device_sampling = True
         logits = self.model.prefill_forward(
             token_tensor,
             state=state,
@@ -268,11 +315,75 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             return_all_logits=return_all_logits,
         )
         self.state = state
+        if on_device_sampling:
+            sampled = self.model.sample_logits(logits, state)
+            ttnn.deallocate(logits)
+            self._serving_device_feedback_current = True
+            if not read_from_device:
+                return sampled
+            return self.model.sampled_tokens_to_torch(sampled, state)
+        self._serving_device_feedback_current = False
         if not read_from_device:
             return logits
         host = self.model.logits_to_torch(logits)
         ttnn.deallocate(logits)
-        return host
+        return host.reshape(self.model.max_batch, 1, self.model.vocab_size)
+
+    @staticmethod
+    def _sampling_values(value, name: str, default):
+        raw = getattr(value, name, default)
+        return default if raw is None else raw
+
+    def _apply_serving_sampling_params(self, sampling_params, *, reset_seed: bool = False) -> None:
+        """Apply the subset implemented by the canonical full-model sampler."""
+
+        presence = torch.as_tensor(self._sampling_values(sampling_params, "presence_penalty", 0.0))
+        frequency = torch.as_tensor(self._sampling_values(sampling_params, "frequency_penalty", 0.0))
+        repetition = torch.as_tensor(self._sampling_values(sampling_params, "repetition_penalty", 1.0))
+        enable_log_probs = torch.as_tensor(self._sampling_values(sampling_params, "enable_log_probs", False))
+        if bool(torch.any(presence != 0)) or bool(torch.any(frequency != 0)) or bool(torch.any(repetition != 1)):
+            raise ValueError("Qwen3.8 device sampling requires default penalties; use explicit host compatibility")
+        if bool(torch.any(enable_log_probs)):
+            raise ValueError("Qwen3.8 device sampling does not expose logprobs; use explicit host compatibility")
+
+        top_k = self._sampling_values(sampling_params, "top_k", 1)
+        top_p = self._sampling_values(sampling_params, "top_p", 0.0)
+        temperature = self._sampling_values(sampling_params, "temperature", 1.0)
+        # vLLM encodes greedy as temperature=0 with unrestricted top-k/top-p.
+        # The canonical TT sampler encodes the same policy as forced argmax.
+        # Normalize the representation without introducing an adapter sampler.
+        temperature_tensor = torch.as_tensor(temperature)
+        if bool(torch.all(temperature_tensor == 0)):
+            top_k = torch.ones_like(torch.as_tensor(top_k), dtype=torch.int32)
+            top_p = torch.zeros_like(torch.as_tensor(top_p), dtype=torch.float32)
+            temperature = torch.ones_like(temperature_tensor, dtype=torch.float32)
+        seed = self._sampling_values(sampling_params, "seed", None)
+        if seed is None:
+            raw_seed_values = [None] * self.model.max_batch
+        elif isinstance(seed, (list, tuple)):
+            raw_seed_values = [None if value is None else int(value) for value in seed]
+        else:
+            raw_seed_values = [int(seed)]
+        signature = (
+            tuple(torch.as_tensor(top_k).reshape(-1).tolist()),
+            tuple(torch.as_tensor(top_p).reshape(-1).tolist()),
+            tuple(torch.as_tensor(temperature).reshape(-1).tolist()),
+            tuple(raw_seed_values),
+        )
+        if signature == self._serving_sampling_signature and not reset_seed:
+            return
+        force_argmax = bool(torch.all(torch.as_tensor(top_k) == 1))
+        if force_argmax:
+            seed_values = None
+        else:
+            seed_values = [secrets.randbelow(0x7FFFFFFE) + 1 if value is None else value for value in raw_seed_values]
+        self.model.set_sampling_params(
+            top_k=top_k,
+            top_p=top_p,
+            temperature=temperature,
+            seeds=seed_values,
+        )
+        self._serving_sampling_signature = signature
 
     def decode_forward(
         self,
@@ -289,6 +400,12 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         enable_trace: bool = True,
         on_device_sampling: bool = False,
         host_sampling_compatibility: bool | None = None,
+        sampling_params=None,
+        reset_batch: bool = False,
+        slot_remap=None,
+        serving_mode: bool = False,
+        prompt_tokens=None,
+        output_tokens=None,
         **_kwargs,
     ):
         """Low-level decode used by serving and common logit-based tests.
@@ -302,6 +419,20 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         state = self.state if state is None else state
         if state is None:
             raise RuntimeError("prefill/allocate_batch_state must run before decode")
+        if serving_mode:
+            del prompt_tokens, output_tokens
+            return self._decode_forward_serving(
+                tokens,
+                start_pos=start_pos,
+                page_table=page_table,
+                kv_cache=kv_cache,
+                state=state,
+                read_from_device=read_from_device,
+                enable_trace=enable_trace,
+                sampling_params=sampling_params,
+                reset_batch=reset_batch,
+                slot_remap=slot_remap,
+            )
         if page_table is not None:
             self.model.update_page_table(state, page_table)
             page_table = None
@@ -362,6 +493,104 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         if not read_from_device:
             return logits, None
         return self.model.logits_to_torch(logits), None
+
+    def _decode_forward_serving(
+        self,
+        tokens,
+        *,
+        start_pos,
+        page_table,
+        kv_cache,
+        state: Qwen38BatchState,
+        read_from_device: bool,
+        enable_trace: bool,
+        sampling_params,
+        reset_batch: bool,
+        slot_remap,
+    ):
+        """Canonical vLLM decode without a Python token-feedback writeback."""
+
+        self.model._require_kv_cache_identity(kv_cache)
+        if slot_remap is not None:
+            remap = torch.as_tensor(slot_remap, dtype=torch.int64).reshape(-1)
+            identity = torch.arange(remap.numel(), dtype=remap.dtype)
+            if not torch.equal(remap, identity):
+                raise ValueError("the traced batch-one serving path cannot remap a live request slot")
+        if page_table is not None:
+            self.model.update_page_table(state, page_table)
+
+        values = torch.as_tensor(tokens, dtype=torch.int64, device="cpu").reshape(self.model.max_batch)
+        device_sampling = sampling_params is not None
+        if device_sampling:
+            self._apply_serving_sampling_params(sampling_params)
+            # A reset/layout transition is drained by the runner, so its compact
+            # host token is current and can feed the declared PLE lookup.  During
+            # steady async decode the runner's token may be stale; read the
+            # sampler's persistent token solely for that lookup.  It is never
+            # copied back to the device.
+            if self._serving_device_feedback_current and not reset_batch:
+                ple_values = self.model.sampled_tokens_to_torch(state.token_input, state)
+            else:
+                ple_values = values
+            if enable_trace:
+                _, output = self.model.decode_token_out_traced(state, ple_values.reshape(-1, 1))
+            else:
+                output = self.model.decode_forward(
+                    ple_values,
+                    state=state,
+                    enable_trace=False,
+                    on_device_sampling=True,
+                )
+            self._serving_device_feedback_current = True
+            if read_from_device:
+                return self.model.sampled_tokens_to_torch(output, state)
+            return _ServingDecodeOutput("tokens", output, self.model.max_batch, state)
+
+        # Explicit compatibility mode: vLLM samples full logits on the host,
+        # making its token/position inputs authoritative for this step.
+        self.host_sampling_compatibility_calls += 1
+        self.model.copy_tokens(state, values)
+        if start_pos is not None:
+            positions = torch.as_tensor(start_pos, dtype=torch.int32).reshape(self.model.max_batch)
+            host = ttnn.from_torch(positions, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+            ttnn.copy_host_to_device_tensor(host, state.current_pos)
+            state.position_host_copies += 1
+        if enable_trace:
+            output = self.model.replay_model_only_traced(state, values.reshape(-1, 1))
+            self.model.advance_positions_traced()
+        else:
+            output = self.model.decode_forward(
+                values,
+                state=state,
+                enable_trace=False,
+                on_device_sampling=False,
+            )
+            ttnn.plus_one(state.current_pos, skip_negative_entries=True)
+        self._serving_device_feedback_current = False
+        if read_from_device:
+            return self.model.logits_to_torch(output).reshape(self.model.max_batch, 1, self.model.vocab_size)
+        return _ServingDecodeOutput("logits", output, self.model.max_batch, state)
+
+    def read_decode_output(self, tt_out, *, async_read: bool = False):
+        """Delegate the vLLM submit/read split to the canonical output."""
+
+        if not isinstance(tt_out, _ServingDecodeOutput):
+            return tt_out
+        host = tt_out.read(blocking=not async_read)
+        if not async_read:
+            return host
+        return host, [ttnn.record_event(self.mesh_device, 0)]
+
+    def process_decode_output_host(self, tt_out, *, is_tokens: bool = False) -> torch.Tensor:
+        """Format only; sampling and device feedback have already completed."""
+
+        if isinstance(tt_out, _ServingDecodeOutput):
+            tt_out = self.read_decode_output(tt_out, async_read=False)
+        if isinstance(tt_out, torch.Tensor):
+            return tt_out
+        if not isinstance(tt_out, _ServingDecodeHost):
+            raise TypeError(f"cannot format serving decode output {type(tt_out).__name__}")
+        return tt_out.to_torch(self.model, is_tokens=is_tokens)
 
     def decode_token_out(
         self,

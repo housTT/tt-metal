@@ -249,6 +249,13 @@ class ExpertSlotDirectory:
         with self._lock:
             return tuple(self._records)
 
+    @property
+    def resident_entries(self) -> int:
+        """Number of valid device slots, sampled under the directory lock."""
+
+        with self._lock:
+            return len(self._by_identity)
+
     def waves(self, route_ids: Iterable[int]) -> tuple[tuple[int, ...], ...]:
         unique = _ordered_unique(route_ids)
         return tuple(unique[start : start + self.capacity] for start in range(0, len(unique), self.capacity))
@@ -888,9 +895,7 @@ class QwenDeviceExpertCache:
             # Refuse to alias staging rather than silently corrupt a slot.
             required_depth = max(owner_offsets)
             if required_depth > self.staging_depth:
-                raise ValueError(
-                    f"{self.miss_wave_policy} needs staging depth >= {required_depth} for this miss wave"
-                )
+                raise ValueError(f"{self.miss_wave_policy} needs staging depth >= {required_depth} for this miss wave")
             if self.miss_wave_policy == "owner_threaded":
                 owner_rows = tuple(
                     tuple(item for item in by_owner if item.identity.expert_id % TP_SIZE == owner)
@@ -1076,6 +1081,7 @@ class QwenDeviceExpertCache:
     def metrics(self) -> dict[str, object]:
         return dataclasses.asdict(self._metrics) | {
             "capacity": self.capacity,
+            "device_slot_entries": self.directory.resident_entries,
             "indexed_width": self.indexed_width,
             "device_bytes_per_rank": self.device_bytes_per_rank,
             "packed_host_entries": len(self._packed),

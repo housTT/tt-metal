@@ -177,6 +177,13 @@ class FunctionalDecoder(LightweightModule):
         self.user_recurrent_state = list(user_recurrent_state or [])
         self.user_conv_state = list(user_conv_state or [])
         self.user_ple_conv_state = list(user_ple_conv_state or [])
+        # Request resets must be exact and allocation-free.  Multiplying a
+        # live state by zero both leaks the replaced tensor and preserves any
+        # NaN/Inf values.  Stable zero sources let every request copy clean
+        # state in place before prefill, including after a traced decode.
+        self.user_recurrent_zero = ttnn.zeros_like(self.user_recurrent_state[0]) if self.user_recurrent_state else None
+        self.user_conv_zero = ttnn.zeros_like(self.user_conv_state[0]) if self.user_conv_state else None
+        self.user_ple_conv_zero = ttnn.zeros_like(self.user_ple_conv_state[0]) if self.user_ple_conv_state else None
         self.const = constants or {}
         self.compute_cfg = _hifi4(fp32=True)
         self.sdpa_compute_cfg = _hifi4(fp32=True)
@@ -1471,17 +1478,30 @@ class FunctionalDecoder(LightweightModule):
         positions = ttnn.minimum(positions, self.max_seq_len - 1)
         positions = ttnn.reshape(positions, (1, length))
         q, k, v, gate, index_q, raw_index = self._qsa_projections(x, positions, rot_mats, decode=False)
+        raw_heads = ttnn.permute(raw_index, (0, 2, 1, 3))
+        cache_tokens = int(chunk_page_table.shape[-1]) * self.block_size
+        if not 0 < cache_tokens <= length:
+            raise ValueError(f"QSA cache fill length {cache_tokens} is outside padded chunk [1, {length}]")
         for cache, value in (
             (self.kv_cache[0], k),
             (self.kv_cache[1], v),
-            (self.indexer_cache, ttnn.permute(raw_index, (0, 2, 1, 3))),
+            (self.indexer_cache, raw_heads),
         ):
-            fill = ttnn.typecast(value, cache.dtype)
+            cache_value = value
+            if cache_tokens != length:
+                cache_value = ttnn.slice(
+                    value,
+                    [0, 0, 0, 0],
+                    [int(value.shape[0]), int(value.shape[1]), cache_tokens, int(value.shape[-1])],
+                )
+            fill = ttnn.typecast(cache_value, cache.dtype)
             ttnn.experimental.paged_fill_cache(cache, fill, chunk_page_table, batch_idx=0)
-            _free(fill, value)
+            _free(fill, cache_value)
+            _free(cache_value, value)
         ttnn.deallocate(k)
         ttnn.deallocate(v)
         ttnn.deallocate(raw_index)
+        _free(raw_heads, raw_index)
         selected, valid = self._selected_virtual_tokens(index_q, page_table, positions, rot_mats)
         ttnn.deallocate(index_q)
         attention = self._gathered_qsa_attention(q, selected, valid, page_table)
@@ -1549,13 +1569,10 @@ class FunctionalDecoder(LightweightModule):
     def _reset_user_state(self, user_id: int) -> None:
         s = self.shapes
         if s.layer_type == LINEAR_ATTENTION:
-            self.user_recurrent_state[user_id] = ttnn.multiply(
-                self.user_recurrent_state[user_id],
-                0.0,
-            )
-            self.user_conv_state[user_id] = ttnn.multiply(self.user_conv_state[user_id], 0.0)
+            ttnn.copy(self.user_recurrent_zero, self.user_recurrent_state[user_id])
+            ttnn.copy(self.user_conv_zero, self.user_conv_state[user_id])
         if s.has_ple:
-            self.user_ple_conv_state[user_id] = ttnn.multiply(self.user_ple_conv_state[user_id], 0.0)
+            ttnn.copy(self.user_ple_conv_zero, self.user_ple_conv_state[user_id])
 
     def prefill_forward(
         self,

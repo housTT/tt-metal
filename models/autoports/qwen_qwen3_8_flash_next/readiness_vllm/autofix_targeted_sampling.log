@@ -1,0 +1,87 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/vllm-tt-plugin
+configfile: pyproject.toml
+plugins: anyio-4.13.0, split-0.11.0, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+collecting ... collected 11 items
+
+../../vllm-tt-plugin/tests/tt/test_request_isolation.py::TestBatchIsolation::test_mixed_params_batch ERROR [  9%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_same_seeds_reproduce_across_batches PASSED [ 18%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_specific_seed_reproducible[42] PASSED [ 27%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_specific_seed_reproducible[123] PASSED [ 36%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_specific_seed_reproducible[999] PASSED [ 45%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_specific_seed_reproducible[0] PASSED [ 54%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_batch1_seed_reproducible[1] PASSED [ 63%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_batch1_seed_reproducible[0] PASSED [ 72%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_batch1_no_seed_varied PASSED [ 81%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_uniform_noseed_varied PASSED [ 90%]
+../../vllm-tt-plugin/tests/tt/test_seeding_and_variety.py::TestSeedingAndVariety::test_temperature_varied_between_batches PASSED [100%]
+
+==================================== ERRORS ====================================
+_________ ERROR at setup of TestBatchIsolation.test_mixed_params_batch _________
+
+    @pytest.fixture(autouse=True)
+    def reset_tt_platform_class_state():
+        # Deferred: importing the platform from conftest runs before vLLM has
+        # finished resolving its platform plugins, and that import is circular.
+>       from vllm_tt_plugin.platform import TTPlatform
+
+../../vllm-tt-plugin/tests/conftest.py:23:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+../../vllm-tt-plugin/src/vllm_tt_plugin/platform.py:11: in <module>
+    from vllm.platforms.interface import Platform, PlatformEnum
+../../../.tenstorrent-venv/lib/python3.12/site-packages/vllm/__init__.py:14: in <module>
+    import vllm.env_override  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+../../../.tenstorrent-venv/lib/python3.12/site-packages/vllm/env_override.py:90: in <module>
+    from vllm.utils.torch_utils import is_torch_equal, is_torch_equal_or_newer
+../../../.tenstorrent-venv/lib/python3.12/site-packages/vllm/utils/torch_utils.py:71: in <module>
+    PIN_MEMORY = is_pin_memory_available()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    @cache
+    def is_pin_memory_available() -> bool:
+>       from vllm.platforms import current_platform
+E       ImportError: cannot import name 'current_platform' from 'vllm.platforms' (/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/vllm/platforms/__init__.py)
+
+../../../.tenstorrent-venv/lib/python3.12/site-packages/vllm/utils/platform_utils.py:44: ImportError
+---------------------------- Captured stdout setup -----------------------------
+INFO 08-28 14:21:12 [__init__.py:44] Available plugins for group vllm.platform_plugins:
+INFO 08-28 14:21:12 [__init__.py:46] - tt -> vllm_tt_plugin.entrypoints:platform_plugin
+INFO 08-28 14:21:12 [__init__.py:49] All plugins in this group will be loaded. Set `VLLM_PLUGINS` to control which plugins to load.
+INFO 08-28 14:21:13 [__init__.py:237] Platform plugin tt is activated
+INFO 08-28 14:21:13 [__init__.py:44] Available plugins for group vllm.platform_plugins:
+INFO 08-28 14:21:13 [__init__.py:46] - tt -> vllm_tt_plugin.entrypoints:platform_plugin
+INFO 08-28 14:21:13 [__init__.py:49] All plugins in this group will be loaded. Set `VLLM_PLUGINS` to control which plugins to load.
+INFO 08-28 14:21:13 [__init__.py:237] Platform plugin tt is activated
+---------------------------- Captured stderr setup -----------------------------
+2026-08-28 14:21:13.259 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+=========================== short test summary info ============================
+ERROR ../../vllm-tt-plugin/tests/tt/test_request_isolation.py::TestBatchIsolation::test_mixed_params_batch
+=================== 10 passed, 1 error in 395.82s (0:06:35) ====================
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/ttuser/dev/vllm-tt-plugin
+configfile: pyproject.toml
+plugins: anyio-4.13.0, split-0.11.0, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+collecting ... collected 2 items
+
+../../vllm-tt-plugin/tests/tt/test_build_logprobs_from_topk.py::TestBuildLogprobsFromTopk::test_basic_shape PASSED [ 50%]
+../../vllm-tt-plugin/tests/tt/test_request_isolation.py::TestBatchIsolation::test_mixed_params_batch PASSED [100%]
+
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 2 passed, 2 warnings in 10.76s ========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

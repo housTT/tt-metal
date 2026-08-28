@@ -1044,10 +1044,20 @@ class FusedDecoder(FunctionalDecoder):
 
         s = self.shapes
         length = int(raw_heads.shape[-2])
-        groups = length // s.indexer_compress_ratio
-        grouped = ttnn.reshape(raw_heads, (1, groups, s.indexer_compress_ratio, s.indexer_head_dim))
+        cache_tokens = int(chunk_page_table.shape[-1]) * self.block_size
+        if not 0 < cache_tokens <= length or cache_tokens % s.indexer_compress_ratio:
+            raise ValueError(f"compressed QSA cache fill length {cache_tokens} is invalid for padded chunk {length}")
+        cache_heads = raw_heads
+        if cache_tokens != length:
+            cache_heads = ttnn.slice(
+                raw_heads,
+                [0, 0, 0, 0],
+                [int(raw_heads.shape[0]), int(raw_heads.shape[1]), cache_tokens, int(raw_heads.shape[-1])],
+            )
+        groups = cache_tokens // s.indexer_compress_ratio
+        grouped = ttnn.reshape(cache_heads, (1, groups, s.indexer_compress_ratio, s.indexer_head_dim))
         keys = ttnn.mean(grouped, dim=2, keepdim=False)
-        _free(grouped, raw_heads, keys)
+        _free(grouped, cache_heads, keys)
         keys = ttnn.reshape(keys, (1, 1, groups, s.indexer_head_dim))
         keys = self._rms_norm(keys, self.w["index_k_norm"], s.rms_norm_eps)
         self._ensure_static_block_rope(rot_mats)
@@ -1074,6 +1084,7 @@ class FusedDecoder(FunctionalDecoder):
         )
         _free(fill, keys)
         ttnn.deallocate(keys)
+        _free(cache_heads, raw_heads)
 
     def _qsa_prefill(
         self,
@@ -1090,14 +1101,25 @@ class FusedDecoder(FunctionalDecoder):
         positions = ttnn.reshape(positions, (1, length))
         q, k, v, gate, index_q, raw_index = self._qsa_projections(x, positions, rot_mats, decode=False)
         raw_heads = ttnn.permute(raw_index, (0, 2, 1, 3))
+        cache_tokens = int(chunk_page_table.shape[-1]) * self.block_size
+        if not 0 < cache_tokens <= length:
+            raise ValueError(f"QSA cache fill length {cache_tokens} is outside padded chunk [1, {length}]")
         for cache, value in (
             (self.kv_cache[0], k),
             (self.kv_cache[1], v),
             (self.indexer_cache, raw_heads),
         ):
-            fill = ttnn.typecast(value, cache.dtype)
+            cache_value = value
+            if cache_tokens != length:
+                cache_value = ttnn.slice(
+                    value,
+                    [0, 0, 0, 0],
+                    [int(value.shape[0]), int(value.shape[1]), cache_tokens, int(value.shape[-1])],
+                )
+            fill = ttnn.typecast(cache_value, cache.dtype)
             ttnn.experimental.paged_fill_cache(cache, fill, chunk_page_table, batch_idx=0)
-            _free(fill, value)
+            _free(fill, cache_value)
+            _free(cache_value, value)
         self._compressed_index_prefill(raw_heads, chunk_page_table, chunk_start=chunk_start, rot_mats=rot_mats)
         ttnn.deallocate(k)
         ttnn.deallocate(v)

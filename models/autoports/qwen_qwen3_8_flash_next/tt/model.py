@@ -18,13 +18,10 @@ from __future__ import annotations
 
 import dataclasses
 import gc
-import json
 import math
-import os
 import random
 import time
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Sequence
 
 import torch
@@ -140,16 +137,6 @@ def _lm_head_rank_slices(split_sizes: Sequence[int]) -> tuple[tuple[tuple[int, i
     if offset != per_rank:
         raise ValueError(f"LM-head splits cover {offset} local columns, expected {per_rank}")
     return tuple(result)
-
-
-def _config_namespace(value):
-    """Load this unreleased HF config without depending on one Transformers build."""
-
-    if isinstance(value, dict):
-        return SimpleNamespace(**{key: _config_namespace(item) for key, item in value.items()})
-    if isinstance(value, list):
-        return [_config_namespace(item) for item in value]
-    return value
 
 
 def _shape(value) -> tuple[int, ...]:
@@ -372,7 +359,24 @@ class Qwen38FullModel:
         self.model_only_trace_replays = 0
         self.trace_page_table_changes = 0
         self.last_decode_timing: dict[str, float | int] | None = None
+        self.decode_timing_totals = {
+            "replay_tokens": 0.0,
+            "total_submit_seconds": 0.0,
+            "layer_boundary_seconds": 0.0,
+            "expert_service_seconds": 0.0,
+            "route_read_and_tt_stall_seconds": 0.0,
+            "expert_cache_control_dma_submit_seconds": 0.0,
+            "layer_trace_submit_seconds": 0.0,
+            "ple_service_seconds": 0.0,
+        }
         self.host_preload_report: dict[str, object] | None = None
+        self._attention_cache_owner = "model"
+        self._vllm_kv_cache = None
+        self.attention_cache_lifecycle = {
+            "standalone_allocations": 0,
+            "vllm_adoptions": 0,
+            "standalone_tensors_released": 0,
+        }
         self._sampling_force_argmax = True
         self._sampling_seed_rngs: tuple[random.Random, ...] | None = None
         self.sampling_seed_host_copies = 0
@@ -399,10 +403,12 @@ class Qwen38FullModel:
         **kwargs,
     ) -> "Qwen38FullModel":
         snapshot = Path(model_dir).resolve()
-        # The checkpoint identifies the not-yet-released ``qwen4_exp``
-        # architecture. Runtime construction needs configuration data, not
-        # the HF module implementation, so parse config.json directly.
-        config = _config_namespace(json.loads((snapshot / "config.json").read_text()))
+        from transformers import AutoConfig
+
+        # Transformers supplies validated defaults intentionally omitted from
+        # config.json (for example normalized router probabilities) and
+        # canonicalizes QSA layer names for the runtime.
+        config = AutoConfig.from_pretrained(snapshot, local_files_only=True)
         return cls(snapshot=snapshot, hf_config=config, mesh_device=mesh_device, **kwargs)
 
     def _validate_config(self) -> None:
@@ -617,6 +623,103 @@ class Qwen38FullModel:
             for layer in self.layers
             if layer.shapes.layer_type != LINEAR_ATTENTION
         )
+        self.max_num_blocks = min(
+            (int(layer.max_num_blocks) for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION),
+            default=0,
+        )
+        self.attention_cache_lifecycle["standalone_allocations"] = sum(
+            4 for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION
+        )
+
+    def allocate_vllm_attention_cache(self, cache_shape: Sequence[int]):
+        """Allocate and adopt the exact attention cache object owned by vLLM.
+
+        Qwen3.8 has twelve QSA layers.  Each needs K, V, the QSA indexer's raw
+        paged key cache, and its compressed paged lookup cache.  Both indexer
+        caches are attention state even though vLLM's logical cache accounting
+        describes only the K/V pair.  Linear-attention recurrence, expert
+        stores, and PLE history are intentionally absent and remain model-owned.
+        """
+
+        shape = tuple(int(value) for value in cache_shape)
+        if len(shape) != 4:
+            raise ValueError("vLLM cache shape must be [blocks, local_kv_heads, block, head_dim]")
+        num_blocks, local_heads, block_size, head_dim = shape
+        if num_blocks < math.ceil(self.max_seq_len / BLOCK_SIZE):
+            raise ValueError("vLLM cache pool cannot hold one advertised-context request")
+        if (local_heads, block_size, head_dim) != (1, BLOCK_SIZE, 256):
+            raise ValueError("Qwen3.8 TP2 cache requires one local KV head, 64-token pages, and head_dim=256")
+        if self._trace_ready:
+            self.release_decode_traces()
+
+        cache_dtype = dtype_object(self.precision_config["kv_cache"]["dtype"])
+        allocated = []
+        allocated_tensors = []
+        qsa_layers = [layer for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION]
+        try:
+            for layer in qsa_layers:
+                kv = []
+                for _ in range(2):
+                    tensor = ttnn.zeros(
+                        shape,
+                        dtype=cache_dtype,
+                        layout=ttnn.TILE_LAYOUT,
+                        device=self.mesh_device,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
+                    allocated_tensors.append(tensor)
+                    kv.append(tensor)
+                indexer = ttnn.zeros(
+                    (
+                        num_blocks,
+                        int(layer.shapes.indexer_kv_heads),
+                        BLOCK_SIZE,
+                        int(layer.shapes.indexer_head_dim),
+                    ),
+                    dtype=cache_dtype,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=self.mesh_device,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                allocated_tensors.append(indexer)
+                compressed = ttnn.zeros(
+                    (
+                        num_blocks,
+                        1,
+                        BLOCK_SIZE // int(layer.shapes.indexer_compress_ratio),
+                        int(layer.shapes.indexer_head_dim),
+                    ),
+                    dtype=layer.fused_index_key_cache.dtype,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=self.mesh_device,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                allocated_tensors.append(compressed)
+                allocated.append((*kv, indexer, compressed))
+        except BaseException:
+            for tensor in allocated_tensors:
+                _deallocate(tensor)
+            raise
+
+        old_tensors = [
+            tensor
+            for layer in qsa_layers
+            for tensor in (*layer.kv_cache, layer.indexer_cache, layer.fused_index_key_cache)
+        ]
+        for layer, entry in zip(qsa_layers, allocated):
+            layer.kv_cache = tuple(entry[:2])
+            layer.indexer_cache = entry[2]
+            layer.fused_index_key_cache = entry[3]
+            layer.max_num_blocks = num_blocks
+        self._kv_cache = tuple((layer.shapes.layer_idx, layer.kv_cache, layer.indexer_cache) for layer in qsa_layers)
+        self._vllm_kv_cache = tuple(allocated)
+        self.max_num_blocks = num_blocks
+        self._attention_cache_owner = "vllm"
+        self.attention_cache_lifecycle["vllm_adoptions"] += 1
+        for tensor in old_tensors:
+            _deallocate(tensor)
+            self.attention_cache_lifecycle["standalone_tensors_released"] += 1
+        return self._vllm_kv_cache
 
     def preload_packed_host_experts(self) -> dict[str, object]:
         """Prepack every layer's exact experts before request service."""
@@ -745,8 +848,8 @@ class Qwen38FullModel:
         expected = tuple(self._default_page_table_host.shape)
         if tuple(pages.shape) != expected:
             raise ValueError(f"page_table must have shape {expected}, got {tuple(pages.shape)}")
-        if bool(torch.any(pages < 0)) or bool(torch.any(pages >= self.max_batch * expected[1])):
-            raise ValueError("page table contains a physical block outside the model-owned KV caches")
+        if bool(torch.any(pages < 0)) or bool(torch.any(pages >= self.max_num_blocks)):
+            raise ValueError("page table contains a physical block outside the active attention cache")
         state = Qwen38BatchState(
             token_input=self.decode_token_input,
             current_pos=self.decode_current_pos,
@@ -777,9 +880,11 @@ class Qwen38FullModel:
         state.position_host_copies += 1
         state.page_table_host_copies += 1
         state.generation += 1
-        for layer in self.layers:
-            if layer.host_expert_cache is not None:
-                layer.host_expert_cache.reset()
+        # Expert slots contain immutable model weights and are a model-wide
+        # cache, not request state.  Preserve their directory across requests
+        # so hits remain valid and a new request cannot force an unnecessary
+        # wave of asynchronous H2D reloads.  Per-request GDN/PLE state is reset
+        # separately by each layer and the PLE store below.
         for request_id in state.request_ids:
             self.ple_store.reset_request(request_id)
 
@@ -815,18 +920,22 @@ class Qwen38FullModel:
 
         k = expand(top_k, torch.int32)
         p = expand(top_p, torch.float32)
-        temp = expand(temperature, torch.float32)
+        requested_temp = expand(temperature, torch.float32)
         if bool(torch.any((k < 1) | (k > 32))):
             raise ValueError("top_k must be in [1, 32]")
         if bool(torch.any((p < 0) | (p > 1))):
             raise ValueError("top_p must be in [0, 1]")
-        if bool(torch.any(temp <= 0)):
+        if bool(torch.any(requested_temp <= 0)):
             raise ValueError("temperature must be positive")
-        force_argmax = bool(torch.all(k == 1).item() and torch.all(p == 0).item() and torch.all(temp == 1).item())
+        # Top-k=1 is mathematically argmax regardless of top-p or positive
+        # temperature.  Route that semantic case through the exact global
+        # argmax path instead of asking the fixed-width stochastic candidate
+        # kernel to emulate it.
+        force_argmax = bool(torch.all(k == 1).item())
         if force_argmax != self._sampling_force_argmax and self._trace_ready:
             self.release_decode_traces()
         self._sampling_force_argmax = force_argmax
-        if seeds is None:
+        if force_argmax or seeds is None:
             self._sampling_seed_rngs = None
         else:
             values = (int(seeds),) * self.max_batch if isinstance(seeds, int) else tuple(int(seed) for seed in seeds)
@@ -835,7 +944,18 @@ class Qwen38FullModel:
             self._sampling_seed_rngs = tuple(random.Random(seed) for seed in values)
         _copy_host_to_device(k, self.sampling_k, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
         _copy_host_to_device(p, self.sampling_p, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
-        _copy_host_to_device(temp, self.sampling_temp, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        # ``ttnn.sampling`` consumes inverse temperature (a logits
+        # multiplier), while the generator/vLLM contracts expose the usual
+        # temperature where larger values flatten the distribution.  Keep
+        # this conversion in the canonical full-model sampler so standalone
+        # and serving callers cannot silently disagree.
+        kernel_temp = torch.reciprocal(requested_temp)
+        _copy_host_to_device(
+            kernel_temp,
+            self.sampling_temp,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
 
     def _advance_sampling_seeds(self) -> None:
         """Refresh explicit non-greedy request seeds through the persistent buffer."""
@@ -997,12 +1117,9 @@ class Qwen38FullModel:
                     },
                     "projection_policies": dict(layer.projection_policy_names),
                     "projection_fidelities": {
-                        name: PROJECTION_POLICIES[policy][1]
-                        for name, policy in layer.projection_policy_names.items()
+                        name: PROJECTION_POLICIES[policy][1] for name, policy in layer.projection_policy_names.items()
                     },
-                    "projection_weight_dtypes": {
-                        name: sorted(values) for name, values in projection_dtypes.items()
-                    },
+                    "projection_weight_dtypes": {name: sorted(values) for name, values in projection_dtypes.items()},
                     "cache_policy": layer.cache_policy,
                     "cache_tensor_dtypes": sorted(set(cache_tensors)),
                     "cache_update_dtype": _dtype_name(layer.cache_update_dtype),
@@ -1012,11 +1129,7 @@ class Qwen38FullModel:
                     "norm_compute_fidelity": layer.norm_compute_fidelity,
                     "router_output_dtype": _dtype_name(layer.router_output_dtype),
                     "live_norm_weight_dtypes": sorted(
-                        {
-                            _dtype_name(tensor.dtype)
-                            for name, tensor in layer.w.items()
-                            if "norm" in name
-                        }
+                        {_dtype_name(tensor.dtype) for name, tensor in layer.w.items() if "norm" in name}
                     ),
                     "residual_dtype": layer.residual_dtype,
                     "ccl_payload_dtype": layer.collective_payload_dtype,
@@ -1045,7 +1158,9 @@ class Qwen38FullModel:
             sources[path] = source
 
         material("weight_groups.embedding.dtype", _dtype_name(self.embedding_weight.dtype), "embedding tensor metadata")
-        material("weight_groups.embedding.layout", _layout_name(self.embedding_weight.layout), "embedding tensor metadata")
+        material(
+            "weight_groups.embedding.layout", _layout_name(self.embedding_weight.layout), "embedding tensor metadata"
+        )
         material(
             "weight_groups.final_hyper_down_up.dtype",
             (
@@ -1060,12 +1175,8 @@ class Qwen38FullModel:
             "hifi2",
             "constructed final hyperconnection compute kernel",
         )
-        material(
-            "weight_groups.lm_head.policy", lm_head["policy"], "constructed LMHead1D configuration"
-        )
-        material(
-            "weight_groups.lm_head.dtype", lm_head["weight_dtype"], "constructed LMHead1D weight metadata"
-        )
+        material("weight_groups.lm_head.policy", lm_head["policy"], "constructed LMHead1D configuration")
+        material("weight_groups.lm_head.dtype", lm_head["weight_dtype"], "constructed LMHead1D weight metadata")
         material(
             "weight_groups.lm_head.compute_fidelity",
             lm_head["fidelity"],
@@ -1079,14 +1190,14 @@ class Qwen38FullModel:
             int(self.ple_store.row_cache_capacity),
             "live PLE host store",
         )
-        material("host_backed.ple.table_dtype", str(self.ple_store._tables[0].dtype).removeprefix("torch.").replace("bfloat16", "bf16"), "mmap table tensor")
+        material(
+            "host_backed.ple.table_dtype",
+            str(self.ple_store._tables[0].dtype).removeprefix("torch.").replace("bfloat16", "bf16"),
+            "mmap table tensor",
+        )
         if ple_layer is not None:
-            material(
-                "host_backed.ple.device_staging_dtype", ple_layer.ple_staging.dtype, "live PLE staging object"
-            )
-            material(
-                "host_backed.ple.device_staging_layout", ple_layer.ple_staging.layout, "live PLE staging object"
-            )
+            material("host_backed.ple.device_staging_dtype", ple_layer.ple_staging.dtype, "live PLE staging object")
+            material("host_backed.ple.device_staging_layout", ple_layer.ple_staging.layout, "live PLE staging object")
             material(
                 "host_backed.ple.prefill_chunk_rows",
                 int(ple_layer.ple_staging.prefill_rows),
@@ -1155,19 +1266,16 @@ class Qwen38FullModel:
             "all constructed QSA layers",
         )
         cache_dtype_values = {
-            dtype
-            for layer in layers
-            if layer["type"] != LINEAR_ATTENTION
-            for dtype in layer["cache_tensor_dtypes"]
+            dtype for layer in layers if layer["type"] != LINEAR_ATTENTION for dtype in layer["cache_tensor_dtypes"]
         }
         material(
             "kv_cache.dtype",
             next(iter(cache_dtype_values)) if len(cache_dtype_values) == 1 else sorted(cache_dtype_values),
             "live QSA K/V and index cache tensor metadata",
         )
-        norm_tensor_dtypes = {
-            dtype for layer in layers for dtype in layer["live_norm_weight_dtypes"]
-        } | {_dtype_name(self.final_norm_weight.dtype)}
+        norm_tensor_dtypes = {dtype for layer in layers for dtype in layer["live_norm_weight_dtypes"]} | {
+            _dtype_name(self.final_norm_weight.dtype)
+        }
         material(
             "weight_exceptions.norms.dtype",
             next(iter(norm_tensor_dtypes)) if len(norm_tensor_dtypes) == 1 else sorted(norm_tensor_dtypes),
@@ -1283,9 +1391,13 @@ class Qwen38FullModel:
             layout=ttnn.ROW_MAJOR_LAYOUT,
         )
         chunks = []
-        for start, _, padded in layer.prefill_chunk_plan(seq_len):
+        for start, logical, _ in layer.prefill_chunk_plan(seq_len):
             first = start // BLOCK_SIZE
-            last = (start + padded) // BLOCK_SIZE
+            # vLLM allocates pages for logical prompt tokens, not for the
+            # model's internal 128-row compute padding.  Passing padded pages
+            # here makes an unallocated zero-filled block-table tail writable;
+            # when the real page is physical block 0, padding overwrites it.
+            last = (start + math.ceil(logical / BLOCK_SIZE) * BLOCK_SIZE) // BLOCK_SIZE
             chunks.append(
                 _upload_replicated(
                     row_host[:, first:last],
@@ -1311,12 +1423,12 @@ class Qwen38FullModel:
         Physical 128-token chunk/page/tile padding is entirely internal.  Each
         active fixed slot may have a different logical length.  ``kv_cache``
         is accepted to make ownership explicit; when supplied it must be the
-        model-owned cache identity returned by :attr:`kv_cache`.
+        active runtime's stable cache identity (model-owned standalone or the
+        exact attention object adopted from vLLM).
         """
 
         self._require_state_buffers(state)
-        if kv_cache is not None and kv_cache is not self.kv_cache:
-            raise ValueError("this optimized stack supports only its stable model-owned KV cache")
+        self._require_kv_cache_identity(kv_cache)
         if page_table is not None:
             self.update_page_table(state, page_table)
         lengths = state.prompt_lens if prompt_lens is None else torch.as_tensor(prompt_lens, dtype=torch.int32)
@@ -1411,6 +1523,19 @@ class Qwen38FullModel:
     def kv_cache(self):
         return self._kv_cache
 
+    @property
+    def vllm_kv_cache(self):
+        return self._vllm_kv_cache
+
+    def _require_kv_cache_identity(self, kv_cache) -> None:
+        if kv_cache is None:
+            return
+        if kv_cache is self.kv_cache:
+            return
+        if self._vllm_kv_cache is not None and kv_cache is self._vllm_kv_cache:
+            return
+        raise ValueError("KV cache must be the stable cache object owned by the active runtime")
+
     def _stage_active_ple_decode(self, layer, state: Qwen38BatchState, ple_input_ids: torch.Tensor):
         """Lookup only live requests while preserving the fixed device batch."""
 
@@ -1468,8 +1593,7 @@ class Qwen38FullModel:
         """
 
         self._require_state_buffers(state)
-        if kv_cache is not None and kv_cache is not self.kv_cache:
-            raise ValueError("kv_cache must be the model-owned stable cache")
+        self._require_kv_cache_identity(kv_cache)
         if page_table is not None:
             self.update_page_table(state, page_table)
         if prompt_lens is not None and not torch.equal(torch.as_tensor(prompt_lens).reshape(-1), state.prompt_lens):
@@ -1697,6 +1821,17 @@ class Qwen38FullModel:
             "trace_replay_index": self.trace_replays,
             "layers": per_layer,
         }
+        self.decode_timing_totals["replay_tokens"] += 1.0
+        for name in (
+            "total_submit_seconds",
+            "layer_boundary_seconds",
+            "expert_service_seconds",
+            "route_read_and_tt_stall_seconds",
+            "expert_cache_control_dma_submit_seconds",
+            "layer_trace_submit_seconds",
+            "ple_service_seconds",
+        ):
+            self.decode_timing_totals[name] += float(self.last_decode_timing[name])
 
     def decode_token_out_traced(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor):
         if self._trace_ready and self._trace_execution_mode != "token_out":
@@ -1715,6 +1850,8 @@ class Qwen38FullModel:
         This mode is excluded from token-out measurements.
         """
 
+        if self._trace_ready and self._trace_execution_mode != "model_only":
+            self.release_decode_traces()
         if not self._trace_ready:
             self.capture_decode_traces(state, ple_input_ids, execution_mode="model_only")
             return self.trace_logits
@@ -1771,8 +1908,11 @@ class Qwen38FullModel:
         return {
             f"expert_{name}": sum(float(metrics.get(name, 0)) for metrics in expert_metrics)
             for name in (
+                "requests",
+                "waves",
                 "hits",
                 "misses",
+                "evictions",
                 "packed_host_hits",
                 "packed_host_misses",
                 "h2d_bytes",
@@ -1786,13 +1926,37 @@ class Qwen38FullModel:
             )
         } | {
             "ple_lookup_calls": float(ple["lookup_calls"]),
+            "ple_selected_rows": float(ple["selected_rows"]),
+            "ple_unique_rows": float(ple["unique_rows"]),
             "ple_table_rows_read": float(ple["table_rows_read"]),
             "ple_table_bytes_read": float(ple["table_bytes_read"]),
+            "ple_host_assembly_bytes": float(ple["h2d_bytes"]),
             "ple_lookup_seconds": float(ple["lookup_seconds"]),
             "ple_device_h2d_bytes": float(ple_device.get("h2d_bytes", 0)),
+            "ple_device_logical_h2d_bytes": float(ple_device.get("logical_h2d_bytes", 0)),
             "ple_device_h2d_seconds": float(ple_device.get("h2d_seconds", 0)),
             "ple_device_deferred_uploads": float(ple_device.get("deferred_uploads", 0)),
             "ple_device_completion_syncs": float(ple_device.get("completion_syncs", 0)),
+        }
+
+    def host_service_gauges(self) -> dict[str, float]:
+        """Compact non-monotonic host-store occupancy and preload snapshot."""
+
+        experts = [layer.host_expert_cache.metrics() for layer in self.layers if layer.host_expert_cache is not None]
+        ple = self.ple_store.metrics()
+        preload = self.host_preload_report or {}
+        return {
+            "expert_layers": float(len(experts)),
+            "expert_device_slot_capacity": sum(float(item.get("capacity", 0)) for item in experts),
+            "expert_device_slot_entries": sum(float(item.get("device_slot_entries", 0)) for item in experts),
+            "expert_packed_host_entries": sum(float(item.get("packed_host_entries", 0)) for item in experts),
+            "expert_packed_host_bytes": sum(float(item.get("packed_host_bytes", 0)) for item in experts),
+            "expert_device_bytes_per_rank": sum(float(item.get("device_bytes_per_rank", 0)) for item in experts),
+            "expert_preload_entries": float(preload.get("loaded_entries", 0)),
+            "expert_preload_bytes": float(preload.get("packed_host_bytes", 0)),
+            "expert_preload_seconds": float(preload.get("seconds", 0)),
+            "ple_row_cache_entries": float(ple["row_cache_entries"]),
+            "ple_history_entries": float(ple["history_entries"]),
         }
 
     def runtime_fallback_audit(self, state: Qwen38BatchState) -> dict[str, object]:
@@ -1815,7 +1979,7 @@ class Qwen38FullModel:
                 "unchanged_page_table_refresh": False,
             },
             "ownership": {
-                "kv_cache": "model",
+                "kv_cache": self._attention_cache_owner,
                 "recurrence": "model",
                 "page_table": "state with stable model buffer",
                 "tokens_and_positions": "device feedback after request reset",
@@ -1835,6 +1999,7 @@ class Qwen38FullModel:
                 "page_table_unchanged_skips": state.page_table_unchanged_skips,
                 "compact_token_readbacks": state.compact_token_readbacks,
                 "sampling_seed_host_copies": self.sampling_seed_host_copies,
+                "attention_cache_lifecycle": dict(self.attention_cache_lifecycle),
             },
             "ple": self.ple_store.metrics(),
             "host_preload": self.host_preload_report,

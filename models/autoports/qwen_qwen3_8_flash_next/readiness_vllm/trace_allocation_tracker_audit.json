@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "model": "Qwen/Qwen3.8-Flash-Next",
+  "environment": {
+    "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+    "trace_mode": "decode_only",
+    "sample_on_device_mode": "all",
+    "max_model_len": 262144,
+    "max_num_seqs": 1,
+    "block_size": 64,
+    "trace_region_size": 1073741824
+  },
+  "server_log": "readiness_vllm/autofix_chat_template/server.log",
+  "completed_http_200_requests": 7,
+  "last_request_boundary": {
+    "completed_requests": 7,
+    "device_trace_replays": 1033,
+    "model_only_trace_replays": 0,
+    "host_sampling_compatibility_calls": 0,
+    "attention_cache_owner": "vllm"
+  },
+  "generic_active_trace_allocation_warnings": 0,
+  "unsafe_live_allocation_errors": 0,
+  "prohibited_host_work": {
+    "activation_roundtrip": false,
+    "expert_projection": false,
+    "kv_or_recurrence": false,
+    "optimized_sampling_or_argmax": false,
+    "per_token_position_refresh": false,
+    "ple_projection": false,
+    "token_feedback_reconstruction": false,
+    "unchanged_page_table_refresh": false
+  },
+  "inherited_object_lifetime_protocol": {
+    "transient_state_snapshots": "restored and deallocated before older trace replay",
+    "retained_ingress_front_back_and_terminal_outputs": "regenerated before consumption and explicitly marked corruptible",
+    "persistent_inputs": "token, position, page table, sampling controls, QSA cache, recurrence, and host staging are allocated before capture"
+  },
+  "prior_control": [
+    "doc/full_model/reduced_split_trace_alloc_tracker.xml",
+    "doc/full_model/full48_tokenout_trace_alloc_tracker.xml",
+    "doc/full_model/AUTODEBUG_TRACE_ALLOC.md"
+  ],
+  "cleanup": "readiness_vllm/autofix_chat_template/process_cleanup_audit.json",
+  "verdict": "pass"
+}
