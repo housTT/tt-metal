@@ -223,8 +223,15 @@ void kernel_main() {
 #else
     fabric_connection.open();
 
-    auto* fabric_direction_connection =
-        direction ? &fabric_connection.get_backward_connection() : &fabric_connection.get_forward_connection();
+    tt::tt_fabric::WorkerToFabricEdmSender* fabric_direction_connection = nullptr;
+    if (direction) {
+        if (fabric_connection.has_backward_connection()) {
+            fabric_direction_connection = &fabric_connection.get_backward_connection();
+        }
+    } else if (fabric_connection.has_forward_connection()) {
+        fabric_direction_connection = &fabric_connection.get_forward_connection();
+    }
+    ASSERT(fabric_direction_connection != nullptr || !detail::valid_targets(direction));
 #endif
     // pre-populate packet headers
     auto pkt_scatter_hdr = PacketHeaderPool::allocate_header();

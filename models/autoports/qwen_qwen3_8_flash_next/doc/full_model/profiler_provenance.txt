@@ -1,0 +1,88 @@
+Qwen3.8-Flash-Next full-model profiler provenance
+Date: 2026-08-27 America/New_York
+Target: P300 Blackhole 1x2, devices 0,1, FABRIC_1D
+Runtime: repo-local functional_decoder/ttenv.sh
+
+Accepted capture command, repeated with QWEN38_FULL_MODEL_PROFILE_LAYERS=0,
+1, and 3 and the corresponding layer0_gdn/layer1_ple_gdn/layer3_qsa
+output directory:
+
+source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+TT_VISIBLE_DEVICES=0,1 \
+TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto \
+RUN_QWEN38_FULL_MODEL_PROFILE=1 QWEN38_FULL_MODEL_PROFILE_MODE=decode \
+QWEN38_FULL_MODEL_PROFILE_LAYERS=<0|1|3> \
+timeout 2400 python -m tracy -p -r --op-support-count=2000 \
+  --dump-device-data-mid-run --check-exit-code \
+  -o models/autoports/qwen_qwen3_8_flash_next/doc/full_model/tracy_reduced_decode/<layer-dir> \
+  -m pytest -q --tt-arch blackhole \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model_perf.py::test_reduced_full_model_profile_window
+
+Each pytest node passed and Tracy postprocessed without a missing-op error.
+No accepted capture emitted "Profiler DRAM buffers were full". The profiler
+test uses one real representative decoder layer plus the real token embedding,
+final hyperconnection/norm, vocabulary-sharded LM head, Sampling1D, and
+position trace. The unmeasured warm prefill is one token. The signposted
+token-out and sampling windows are unchanged real decode operations.
+
+Rejected capture:
+
+The first capture selected layers 0,1,3 in one process. The pytest computation
+passed, but pre-signpost trace preparation overflowed the per-RISC device
+profiler buffers and Tracy rejected postprocessing with:
+
+  AssertionError: Device data missing: Op 2634753 not present in
+  cpp_device_perf_report.csv for device 1
+
+That capture is not used. The accepted one-layer isolation is the same
+capacity-safe pattern used by the preceding multichip decoder stage.
+
+Raw ops CSV content SHA-256 and compressed artifact SHA-256:
+
+layer0_gdn:
+  raw 758e05eae205aa88f89b99f5cf5f5d8f1701cee2c3aced6666b87c50b538d875
+  xz  0b92b99e89237471661f272631bea165bec95c3e194856340223e536d9cf742e
+layer1_ple_gdn:
+  raw 137390ae5f41c56609ac6b1c589eaad0f8e906d624603df139e4753c34d24f7f
+  xz  470a521c1a21fc9e1047d3b7f403a9c8882acdd9c524703147dcc79fde0d776a
+layer3_qsa:
+  raw 94bfe015ca565c76a6a2f859ec5ecd7975cb04b5f809e891c0018d6d8a6e147f
+  xz  7b2c39c57426514a0d04e113fcf2438ff057dad15fcfc248b7e64021666834eb
+
+Offline report command, repeated for every accepted raw CSV:
+
+tt-perf-report <raw.csv> \
+  --start-signpost FULL_MODEL_REDUCED_TOKEN_OUT \
+  --end-signpost FULL_MODEL_REDUCED_TOKEN_OUT_END \
+  --no-color --no-host-ops --active-experts 10 --no-advice \
+  --csv <layer-dir>/token_out_report.csv \
+  --summary-file <layer-dir>/token_out_summary.csv
+
+tt-perf-report <raw.csv> \
+  --start-signpost FULL_MODEL_REDUCED_SAMPLING \
+  --end-signpost FULL_MODEL_REDUCED_SAMPLING_END \
+  --no-color --no-host-ops --active-experts 10 --no-advice \
+  --csv <layer-dir>/sampling_report.csv \
+  --summary-file <layer-dir>/sampling_summary.csv
+
+Filtered report SHA-256:
+
+layer0_gdn token-out 78425e4b934994642fc11c3f43c1bbd83ec379972c724870812de76401a3a44a
+layer0_gdn sampling  227da7bb65bdde366914262b135fd3df3f3c267dbf5283c497cd828aca065cc9
+layer1_ple_gdn token-out ac93167c6811f53bb9ac63652b80a897cf1d17d4097b24c522f39c89936ded15
+layer1_ple_gdn sampling  658bfc17b92aa4633a2fbaa2458f2231c358b7dd298bd79cd16b0c92ea93a8ff
+layer3_qsa token-out cb6269e802c59050d9a8250038843c7f3d080315ee17cf3562ce6bd89d63c610
+layer3_qsa sampling  ae657a308007d712c0a35076a16d1658b0e0dfe64c9e86ce4bb038b8daf9c8a5
+
+Signpost-filtered merged device totals:
+
+  layer0_gdn:     token-out 195 ops / 3995.579 us; sampling 3 ops / 534.749 us
+  layer1_ple_gdn: token-out 265 ops / 4411.602 us; sampling 3 ops / 535.116 us
+  layer3_qsa:     token-out 285 ops / 5350.275 us; sampling 3 ops / 537.020 us
+
+The sampling window is exactly untilize/unpad, vocabulary-shard all-gather,
+and ArgMax writing uint32 output. It is about 0.535 ms and is not dominant in
+the current 608.555 ms measured full token-out path. A representative final
+submit is 487.758 ms, including 397.370 ms exact expert service and 0.887 ms
+PLE service. Sampling1D full-vocabulary greedy therefore remains canonical;
+the LM-head/sampler contract needs no workaround.

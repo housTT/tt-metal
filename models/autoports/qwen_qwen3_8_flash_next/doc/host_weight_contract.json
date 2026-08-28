@@ -88,15 +88,25 @@
     "canonical_decode_state_bytes_per_device": 260702208,
     "additional_prefill_user_state_bytes_per_device": 208928768,
     "all_runtime_state_bytes_per_device": 469630976,
+    "full_model_rope_table_bytes_per_device": 67108864,
+    "full_model_persistent_page_token_position_sampler_bytes_per_device": 26712,
+    "full_model_endpoint_runtime_bytes_per_device": 67135576,
     "shared_decode_workspace_l1_bytes_per_worker": 120832,
     "shared_decode_workspace_l1_actual_bytes_per_device": 12976128,
     "shared_decode_workspace_l1_bank_reserved_bytes_per_device": 13291520,
-    "planned_total_bytes_per_device": 10103303168,
-    "headroom_bytes_per_device": 24122217472,
+    "planned_total_bytes_per_device": 10170438744,
+    "headroom_bytes_per_device": 24055081896,
     "fits": true
   },
+  "full_model_eager_batch32_seq4096_capacity": {
+    "planned_total_bytes_per_device": 23558946904,
+    "headroom_bytes_per_device": 10666573736,
+    "fits": true,
+    "evidence": "full_model/full48_batch32_eager_fixed_slots.xml",
+    "scope": "All 48 host-backed layers and real generator endpoints, fixed batch 32 with active slots 0 and 31, 30 inactive rows, mixed prompt lengths 1 and 33, distinct page tables, two device-sampled eager decode tokens, reset, and request-history isolation."
+  },
   "validation": {
-    "cpu_contract_tests": "12 exact host-cache/PLE/capacity cases are included in the final 32-pass current-source static matrix recorded in optimized_multichip_decoder/final_static_and_fallback.xml",
+    "cpu_contract_tests": "12 exact host-cache/PLE/capacity cases plus the generator policy contract are included in the final 13-pass full-model current-source static matrix recorded in full_model/static_host_contracts_rereview.xml; the inherited optimized stage also retains its older 32-pass matrix in optimized_multichip_decoder/final_static_and_fallback.xml",
     "expert_slot_cases": [
       "cold",
       "hit",
@@ -132,13 +142,32 @@
       "two simultaneously live GDN layer traces sharing one L1 state workspace",
       "allocation-tracked 12-case current-source acceptance suite",
       "watcher-clean four-case segmented trace suite",
-      "per-window expert/PLE selected and unique rows, bytes, bandwidth, lookup, transfer, overlap, and stall counters"
+      "per-window expert/PLE selected and unique rows, bytes, bandwidth, lookup, transfer, overlap, and stall counters",
+      "full 48-layer AIME24 201-token non-aligned prefill plus 99 repeated traced teacher-forcing transitions with prefill top-5/top-100 100% and decode top-5/top-100 100%",
+      "full 48-layer exact-host-store token-out trace with device sampling, feedback, positions, and unchanged page table",
+      "trace-allocation-tracked reduced and full-48 split token-out capture/replay with every younger allocation freed or marked safe before replay",
+      "non-greedy top-k/top-p split trace with deterministic per-step seed publication, direct device token feedback, position coherence, changed/unchanged page tables, and sampled/greedy trace invalidation",
+      "full 48-layer eager batch-32 fixed-slot generation with mixed non-aligned prompts, inactive rows, distinct page tables, repeated reset, and PLE request isolation",
+      "three-prompt 128-token exact-chat-template qualitative suite with fresh HF controls and traced on-device TT sampling"
+    ],
+    "full_model_artifacts": [
+      "full_model/aime24_teacher_99_l1_workspace_final.xml",
+      "full_model/aime24_autoregressive_100_final.json",
+      "full_model/aime24_autoregressive_100_report_final.json",
+      "full_model/cold_warm_chunked_prefill_final.xml",
+      "full_model/full48_tokenout_watcher_fixed.xml",
+      "full_model/full48_tokenout_trace_alloc_tracker.xml",
+      "full_model/non_greedy_split_trace_final.xml",
+      "full_model/full48_batch32_eager_fixed_slots.xml",
+      "full_model/qualitative_shared_suite_final.json",
+      "full_model/static_host_contracts_rereview.xml",
+      "full_model/batch1_prompt128_generate128_performance_final.xml"
     ]
   },
   "blocking_limitation": null,
   "measured_limitations": [
     "Exact demand-loaded prefill is substantially slower than resident optimized prefill because a large routed-expert union is serviced in bounded waves.",
     "Token decode does not speed up on TP2 after exact host service, canonical-state DRAM movement, gathers, and one or two fixed collectives are included.",
-    "Host-backed decode is batch one; the resident optimized multichip path retains the validated batch-32 contract."
+    "Host-backed segmented token-out tracing is batch one; the all-48 host-backed eager fixed-slot path is validated at batch 32 and context 4096."
   ]
 }

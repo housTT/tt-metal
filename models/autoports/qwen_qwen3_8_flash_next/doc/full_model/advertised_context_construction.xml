@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="56.115" timestamp="2026-08-27T22:51:48.897248-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_full_model" name="test_full_model_advertised_context_construction[blackhole-True-device_params0]" time="56.021"><properties><property name="start_timestamp" value="2026-08-27T22:51:48" /><property name="end_timestamp" value="2026-08-27T22:52:45" /></properties><failure message="AssertionError: assert (1, 1, 262144, 64) == (1, 1, 262144, 128)&#10;  &#10;  At index 3 diff: 64 != 128&#10;  &#10;  Full diff:&#10;    (&#10;        1,&#10;        1,...&#10;  &#10;  ...Full output truncated (4 lines hidden), use '-vv' to show">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x70ed1451fdb0&gt;, 'l1_small_size': 24576, 'trace_region_size': 1073741824}
+
+    @pytest.mark.skipif(
+        os.getenv("RUN_QWEN38_CONTEXT_CAPACITY") != "1",
+        reason="explicit advertised-context full-stack capacity gate",
+    )
+    @pytest.mark.timeout(1200)
+    @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+    def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_params):
+        """Construct every weight/cache/endpoint at the HF 262,144-token limit."""
+
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        model = Qwen38FullModel(
+            snapshot=H.MODEL_SNAPSHOT,
+            hf_config=H.target_config(),
+            mesh_device=bh_1d_mesh_device,
+            max_batch=1,
+            max_seq_len=262_144,
+        )
+        try:
+            assert model.is_full_stack
+            assert len(model.layers) == 48
+            assert len(model.kv_cache) == 12
+            assert tuple(model._default_page_table_host.shape) == (1, 4096)
+&gt;           assert tuple(model.rot_mats[0].shape) == (1, 1, 262_144, 128)
+E           AssertionError: assert (1, 1, 262144, 64) == (1, 1, 262144, 128)
+E
+E             At index 3 diff: 64 != 128
+E
+E             Full diff:
+E               (
+E                   1,
+E                   1,...
+E
+E             ...Full output truncated (4 lines hidden), use '-vv' to show
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py:450: AssertionError</failure></testcase></testsuite></testsuites>

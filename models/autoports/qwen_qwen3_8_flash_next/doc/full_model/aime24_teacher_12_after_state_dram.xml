@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="183.839" timestamp="2026-08-27T22:27:57.017800-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_full_model" name="test_full_model_aime24_teacher_forcing_accuracy[blackhole-True-device_params0]" time="183.741"><properties><property name="start_timestamp" value="2026-08-27T22:27:57" /><property name="decode_top1_percent" value="33.33333432674408" /><property name="prefill_top1_percent" value="100.0" /><property name="decode_top5_percent" value="83.33333134651184" /><property name="prefill_top5_percent" value="100.0" /><property name="decode_top100_percent" value="91.66666865348816" /><property name="prefill_top100_percent" value="100.0" /><property name="end_timestamp" value="2026-08-27T22:31:00" /></properties><failure message="assert 83.33333134651184 &gt;= 98.0">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x7dcaba3b27f0&gt;, 'l1_small_size': 24576, 'trace_region_size': 1073741824}
+record_property = &lt;function record_property.&lt;locals&gt;.append_property at 0x7dca83e9c2c0&gt;
+
+    @pytest.mark.skipif(os.getenv("RUN_QWEN38_ACCURACY") != "1", reason="explicit full-stack accuracy gate")
+    @pytest.mark.timeout(1800)
+    @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+    def test_full_model_aime24_teacher_forcing_accuracy(bh_1d_mesh_device, device_params, record_property):
+        from transformers import AutoTokenizer
+
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        model = Qwen38FullModel(
+            snapshot=H.MODEL_SNAPSHOT,
+            hf_config=H.target_config(),
+            mesh_device=bh_1d_mesh_device,
+            max_batch=1,
+            max_seq_len=4096,
+        )
+        generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
+        try:
+            report = run_teacher_forcing(
+                generator,
+                REFERENCE,
+                enable_trace=True,
+                decode_rows=int(os.getenv("QWEN38_TEACHER_ROWS", "99")),
+            )
+            print({"teacher_forcing_accuracy": report})
+            for key in ("top1_percent", "top5_percent", "top100_percent"):
+                record_property(f"decode_{key}", report[key])
+                record_property(f"prefill_{key}", report["prefill"][key])
+&gt;           assert report["top5_percent"] &gt;= 98.0
+E           assert 83.33333134651184 &gt;= 98.0
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py:444: AssertionError</failure></testcase></testsuite></testsuites>

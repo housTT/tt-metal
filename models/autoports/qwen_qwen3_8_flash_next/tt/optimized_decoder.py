@@ -96,7 +96,7 @@ class OptimizedDecoder(FusedDecoder):
     DEFAULT_SEPARATE_EXPERT_CORES = 20
     DEFAULT_SEPARATE_EXPERT_IN0_BLOCK_W = 16
     DEFAULT_DECODE_1D_CONFIG = (
-        "gdn_qkv_b_a@0:55,in_proj_z:48,gdn_out:20,"
+        "in_proj_z:48,gdn_out:20,"
         "attn_hc_down_inject:10,mlp_hc_down_inject:10,"
         "attn_hc_up:80,mlp_hc_up:80,moe_input:40,shared_down_proj:40,"
         "qsa_input:110,attn_out:20,ple_key_value:100"

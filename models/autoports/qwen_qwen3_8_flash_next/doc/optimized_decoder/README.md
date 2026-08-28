@@ -1,5 +1,14 @@
 # Qwen3.8-Flash-Next optimized decoder
 
+> **Downstream full-model correction (2026-08-27):** the layer-0
+> `gdn_qkv_b_a@0:55` candidate reported below passed the original one-token
+> decoder gate but failed the new 12-transition optimized/host-backed HF
+> trajectory. It has been removed from `DEFAULT_DECODE_1D_CONFIG`; all other
+> selected precision, fidelity, cache, activation, and 1D roles are unchanged.
+> The current trajectory is 0.999825 -> 0.998188 PCC and the full 99-row AIME24
+> gate is 91.92/100/100% top-1/top-5/top-100. Historical tables below retain
+> the original optimization-stage measurements rather than relabeling them.
+
 This stage delivers the single-P300c optimized decoder for
 `Qwen/Qwen3.8-Flash-Next`. The runtime is
 `../../tt/optimized_decoder.py`; the dedicated tests instantiate the exact

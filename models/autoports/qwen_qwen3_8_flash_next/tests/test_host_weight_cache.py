@@ -373,9 +373,10 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
             "host_expert_cache_and_staging_bytes_per_device",
             "ple_staging_bytes_per_device",
             "all_runtime_state_bytes_per_device",
+            "full_model_endpoint_runtime_bytes_per_device",
         )
     )
-    assert expected_total == 10_103_303_168
+    assert expected_total == 10_170_438_744
     assert capacity["planned_total_bytes_per_device"] == expected_total
     assert capacity["headroom_bytes_per_device"] == capacity["dram_bytes_per_device"] - expected_total
     assert capacity["fits"] is True

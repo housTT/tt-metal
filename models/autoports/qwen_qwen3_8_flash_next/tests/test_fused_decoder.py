@@ -67,6 +67,16 @@ def test_real_weights_hf_prefill_decode_pcc(monkeypatch, mesh_device, layer_idx)
     functional_gates.test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx)
 
 
+@pytest.mark.skipif(
+    functional_gates.os.getenv("RUN_QWEN38_PROGRESSING_HF_DIAGNOSTIC") != "1",
+    reason="explicit HF state diagnostic",
+)
+@pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+def test_real_weights_progressing_decode_against_hf(monkeypatch, mesh_device, layer_idx):
+    _fused(monkeypatch)
+    functional_gates.test_real_weights_progressing_decode_against_hf(mesh_device, layer_idx)
+
+
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 def test_decode_trace_replay_and_determinism(monkeypatch, mesh_device, layer_idx):
     _fused(monkeypatch)

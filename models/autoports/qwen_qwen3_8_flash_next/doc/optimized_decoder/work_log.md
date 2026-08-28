@@ -513,3 +513,19 @@ created locally.
 Primary stage commit: `d7baac46495` (`Add optimized Qwen3.8 Flash Next
 decoder`). The follow-up signoff commit contains only this work-log completion;
 nothing was pushed.
+
+## Downstream full-model correction (2026-08-27)
+
+The full-model stage added the previously missing asserted 12-transition HF
+trajectory and fused/optimized wrappers. That gate proved the historical
+layer-0 `gdn_qkv_b_a@0:55` 1D candidate numerically invalid over recurrent
+progression even though it passed this stage's first-token check. Removing
+only that role changed host-backed layer-0 PCC from approximately
+0.96066 -> 0.91035 to 0.999825 -> 0.998188 and changed the 12-row full-stack
+top-5/top-100 result from 83.33/91.67% to 100/100%. The final 99-row AIME24
+result is 91.92/100/100% top-1/top-5/top-100.
+
+`DEFAULT_DECODE_1D_CONFIG` therefore no longer contains this role. All other
+optimization-stage dtype/fidelity/cache/activation/1D choices remain. Exact
+commands, rejected controls, and artifacts are recorded in
+`../full_model/AUTOFIX.md` and `../full_model/work_log.md`.

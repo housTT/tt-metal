@@ -30,14 +30,12 @@ def test_optimized_class_and_source_contract():
     assert OptimizedDecoder.DEFAULT_DECODE_EXPERT_MODE == "indexed"
     assert OptimizedDecoder.DEFAULT_PREFILL_OUTPUT == "l1"
     assert OptimizedDecoder.DEFAULT_DRAM_SHARDED_ROLES == ("qsa_input", "attn_out")
-    assert "gdn_qkv_b_a@0:55" in OptimizedDecoder.DEFAULT_DECODE_1D_CONFIG
-    assert (
-        OptimizedDecoder._parse_decode_1d_config(OptimizedDecoder.DEFAULT_DECODE_1D_CONFIG, layer_idx=0)["gdn_qkv_b_a"]
-        == 55
-    )
-    assert "gdn_qkv_b_a" not in OptimizedDecoder._parse_decode_1d_config(
-        OptimizedDecoder.DEFAULT_DECODE_1D_CONFIG, layer_idx=1
-    )
+    assert "gdn_qkv_b_a" not in OptimizedDecoder.DEFAULT_DECODE_1D_CONFIG
+    # The former layer-0 55-core packed projection passed one-token PCC but
+    # accumulated severe repeated-transition error.  Keep the parser's scoped-role
+    # support without advertising that rejected geometry.
+    assert OptimizedDecoder._parse_decode_1d_config("gdn_qkv_b_a@0:55", layer_idx=0) == {"gdn_qkv_b_a": 55}
+    assert OptimizedDecoder._parse_decode_1d_config("gdn_qkv_b_a@0:55", layer_idx=1) == {}
     for role in ("in_proj_z", "gdn_out", "moe_input", "qsa_input", "ple_key_value"):
         assert f"{role}:" in OptimizedDecoder.DEFAULT_DECODE_1D_CONFIG
     source = inspect.getsource(OptimizedDecoder)
@@ -62,6 +60,16 @@ def test_prefill_plan_accepts_non_aligned_boundaries(monkeypatch, seq_len):
 def test_real_weights_hf_prefill_decode_pcc(monkeypatch, mesh_device, layer_idx):
     _optimized(monkeypatch)
     functional_gates.test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx)
+
+
+@pytest.mark.skipif(
+    functional_gates.os.getenv("RUN_QWEN38_PROGRESSING_HF_DIAGNOSTIC") != "1",
+    reason="explicit HF state diagnostic",
+)
+@pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+def test_real_weights_progressing_decode_against_hf(monkeypatch, mesh_device, layer_idx):
+    _optimized(monkeypatch)
+    functional_gates.test_real_weights_progressing_decode_against_hf(mesh_device, layer_idx)
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)

@@ -1389,9 +1389,13 @@ class MultichipDecoder(OptimizedDecoder):
             dtype=ttnn.bfloat16,
         )
         _functional_decoder._free(weighted_hidden, down)
-        for tensor in (sparsity, gate_up_bank, down_bank):
-            if tensor is not None and tensor.is_allocated():
-                ttnn.deallocate(tensor)
+        if sparsity is not None and sparsity.is_allocated():
+            ttnn.deallocate(sparsity)
+        # ``ttnn.concat`` may return an alias when a prefill wave contains a
+        # single expert.  Preserve the fixed-address cache slots in that case;
+        # they must remain valid for later decode misses and trace capture.
+        _functional_decoder._free(gate_up_bank, *(slot.gate_up for slot in stable_slots))
+        _functional_decoder._free(down_bank, *(slot.down for slot in stable_slots))
         out = ttnn.experimental.fast_reduce_nc(down, dims=[1])
         ttnn.deallocate(down)
         return ttnn.reshape(ttnn.unsqueeze_to_4D(out), (1, 1, 32, s.hidden_size))
@@ -1459,8 +1463,11 @@ class MultichipDecoder(OptimizedDecoder):
             dtype=ttnn.bfloat16,
         )
         _functional_decoder._free(weighted, down)
-        for tensor in (sparsity, gate_up_bank, down_bank):
-            ttnn.deallocate(tensor)
+        ttnn.deallocate(sparsity)
+        # A last prefill wave can contain exactly one selected expert, for
+        # which concat is permitted to alias the persistent slot tensor.
+        _functional_decoder._free(gate_up_bank, *(slot.gate_up for slot in ordered_slots))
+        _functional_decoder._free(down_bank, *(slot.down for slot in ordered_slots))
         out = ttnn.experimental.fast_reduce_nc(down, dims=[1])
         ttnn.deallocate(down)
         return ttnn.reshape(ttnn.unsqueeze_to_4D(out), (1, 1, tokens, s.hidden_size))

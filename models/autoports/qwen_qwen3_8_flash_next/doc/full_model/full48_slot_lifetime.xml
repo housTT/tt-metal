@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="53.367" timestamp="2026-08-27T21:37:09.137685-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_full_model" name="test_full_48_layer_token_out_trace_smoke[blackhole-True-device_params0]" time="53.237"><properties><property name="start_timestamp" value="2026-08-27T21:37:09" /><property name="end_timestamp" value="2026-08-27T21:38:02" /></properties><failure message="RuntimeError: expert slots require exactly two device shards">models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py:265: in test_full_48_layer_token_out_trace_smoke
+    output = generator.generate_batch(
+models/autoports/qwen_qwen3_8_flash_next/tt/generator.py:562: in generate_batch
+    for _ in self.generate(*args, **kwargs):
+models/autoports/qwen_qwen3_8_flash_next/tt/generator.py:511: in generate
+    next_tokens = self.decode_token_out(
+models/autoports/qwen_qwen3_8_flash_next/tt/generator.py:346: in decode_token_out
+    _, output = self.model.decode_token_out_traced(state, ids)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/model.py:1056: in decode_token_out_traced
+    self.capture_decode_traces(state, ple_input_ids)
+models/autoports/qwen_qwen3_8_flash_next/tt/model.py:964: in capture_decode_traces
+    self._warm_trace_programs(state, ple_input_ids)
+models/autoports/qwen_qwen3_8_flash_next/tt/model.py:932: in _warm_trace_programs
+    HostBackedSegmentedDecodeTrace.warm_programs(
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:2248: in warm_programs
+    layer.service_decode_front(front)
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:1854: in service_decode_front
+    plan = self.host_expert_cache.ensure_indexed(route_ids)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/host_weight_cache.py:666: in ensure_indexed
+    plan = self.directory.ensure(self.layer_idx, requested, self._load_slot)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/host_weight_cache.py:303: in ensure
+    loader(slot, identity, generation)
+models/autoports/qwen_qwen3_8_flash_next/tt/host_weight_cache.py:612: in _load_slot
+    raise RuntimeError("expert slots require exactly two device shards")
+E   RuntimeError: expert slots require exactly two device shards</failure></testcase></testsuite></testsuites>

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 
 import pytest
 import torch
@@ -141,6 +142,88 @@ def test_real_weights_hf_prefill_decode_pcc(mesh_device, layer_idx):
     decode_pcc = H.pcc(expected_decode, actual_decode)
     print(f"PCCEVIDENCE real layer={layer_idx} decode_pcc={decode_pcc:.8f}")
     assert decode_pcc >= H.PCC_BAR
+
+
+@pytest.mark.skipif(os.getenv("RUN_QWEN38_PROGRESSING_HF_DIAGNOSTIC") != "1", reason="explicit HF state diagnostic")
+@pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+def test_real_weights_progressing_decode_against_hf(mesh_device, layer_idx):
+    """Compare persistent TT state with cache-free HF over twelve decode rows."""
+
+    torch.manual_seed(20260828 + layer_idx)
+    config = H.target_config()
+    state = H.load_real_layer_state(layer_idx)
+    seq_len, decode_rows = 33, 12
+    max_seq_len = 4096 if layer_idx == 3 else 128
+    hidden = (torch.randn(1, seq_len + decode_rows, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    cos, sin = H.rope_tables(max_seq_len)
+    ple = None
+    if layer_idx == 1:
+        ple = (torch.randn(1, seq_len + decode_rows, 2560, dtype=torch.bfloat16) * 0.02).contiguous()
+
+    hf_layer = H.build_hf_layer(config, layer_idx, state, ple_embeddings=None if ple is None else ple[:, :seq_len])
+    expected_prefill = H.hf_forward(
+        hf_layer,
+        hidden[:, :seq_len],
+        cos,
+        sin,
+        ple_embeddings=None if ple is None else ple[:, :seq_len],
+    )
+    layer = FunctionalDecoder.from_state_dict(
+        state,
+        hf_config=config,
+        layer_idx=layer_idx,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=max_seq_len,
+    )
+    kwargs = {}
+    if ple is not None:
+        kwargs["ple_embeddings"] = _upload(ple[:, :seq_len].unsqueeze(0), mesh_device)
+    if layer_idx == 3:
+        page_host = H.shuffled_page_table(max_seq_len)
+        page, chunk_pages, rot = _paged_inputs(layer, mesh_device, page_host, cos, sin, seq_len)
+        kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+    actual_prefill = layer.prefill_forward(_upload(hidden[:, :seq_len].unsqueeze(0), mesh_device), **kwargs)
+    ttnn.synchronize_device(mesh_device)
+    actual_prefill_host = ttnn.to_torch(actual_prefill).squeeze(0)
+    prefill_pcc = H.pcc(expected_prefill, actual_prefill_host)
+    layer.prepare_decode_state()
+
+    pccs = []
+    for step in range(decode_rows):
+        stop = seq_len + step + 1
+        if ple is not None:
+            hf_layer.ple.ple_embedding.value = ple[:, :stop]
+        expected = H.hf_forward(
+            hf_layer,
+            hidden[:, :stop],
+            cos,
+            sin,
+            ple_embeddings=None if ple is None else ple[:, :stop],
+        )[:, -1:]
+        current_pos = _upload(
+            torch.tensor([stop - 1], dtype=torch.int32),
+            mesh_device,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        decode_kwargs = {"current_pos": current_pos}
+        if ple is not None:
+            decode_kwargs["ple_embeddings"] = _upload(ple[:, stop - 1 : stop].unsqueeze(0), mesh_device)
+        if layer_idx == 3:
+            decode_kwargs.update(page_table=page, rot_mats=rot)
+        actual = layer.decode_forward(
+            _upload(hidden[:, stop - 1 : stop].unsqueeze(0), mesh_device),
+            **decode_kwargs,
+        )
+        ttnn.synchronize_device(mesh_device)
+        actual_host = ttnn.to_torch(actual).squeeze(0)
+        pccs.append(H.pcc(expected, actual_host))
+        ttnn.deallocate(actual)
+    print(f"PROGRESSING_HF_PCC layer={layer_idx} prefill={prefill_pcc:.8f} decode={pccs}")
+    assert prefill_pcc >= H.PCC_BAR
+    assert min(pccs) >= H.PCC_BAR
+    return {"prefill_pcc": prefill_pcc, "decode_pccs": pccs}
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)

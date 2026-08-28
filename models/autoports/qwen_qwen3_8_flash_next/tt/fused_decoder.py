@@ -21,11 +21,10 @@ from models.demos.blackhole.qwen36.tt.gdn.fused_chunk import chunk_gated_delta_r
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import l2_norm_ttnn
 
 from .functional_decoder import (
-    FunctionalDecoder,
     QSA_BLOCK_TOPK,
+    FunctionalDecoder,
     _embedding_tiled_output,
     _free,
-    _hifi4,
     _pad_seq,
     _round_up,
     _shape,
@@ -137,9 +136,10 @@ class FusedDecoder(FunctionalDecoder):
                 widened = ttnn.typecast(w[name], ttnn.float32)
                 w[name] = widened
             # Split persistent decode taps remove concat/slice state movement.
-            # Batch one fits comfortably in distributed L1; larger supported
-            # batches use DRAM so exact batch-32 capacity is unchanged.
-            tap_memory = ttnn.L1_MEMORY_CONFIG if layer.max_batch == 1 else ttnn.DRAM_MEMORY_CONFIG
+            # Canonical state stays in DRAM so a live L1 prefill residual
+            # cannot overlap it; multichip decode hydrates its declared shared
+            # L1 workspace immediately before executing a layer.
+            tap_memory = ttnn.DRAM_MEMORY_CONFIG
             layer.fused_conv_state = tuple(
                 ttnn.zeros(
                     (layer.max_batch, 1, 1, s.linear_qkv_width),
@@ -150,14 +150,11 @@ class FusedDecoder(FunctionalDecoder):
                 )
                 for _ in range(s.linear_conv_kernel_dim - 1)
             )
-            # Place the batch-one persistent state in distributed L1 once;
-            # tracing a DRAM->L1 reshard on every token allocates inside the
-            # capture.  Larger supported batches retain DRAM and therefore
-            # preserve the functional decoder's exact capacity contract.
-            if layer.max_batch == 1:
-                recurrent_l1 = ttnn.to_memory_config(layer.recurrent_state, ttnn.L1_MEMORY_CONFIG)
-                ttnn.deallocate(layer.recurrent_state)
-                layer.recurrent_state = recurrent_l1
+            # Keep the large recurrent matrix in DRAM.  The batch-one L1
+            # placement used by the original fused path corrupts repeated
+            # decode transitions once temporary L1 allocations overlap the
+            # persistent interleaved tensor; the progressing-HF gate catches
+            # the resulting abrupt state drift after a few tokens.
             norm_one = ttnn.ones(
                 (1, 1, 1, s.linear_key_head_dim),
                 dtype=ttnn.float32,
@@ -245,7 +242,7 @@ class FusedDecoder(FunctionalDecoder):
             scaled = ttnn.multiply(w["ple_norm_query"], 1.0 / math.sqrt(s.hidden_size))
             ttnn.deallocate(w["ple_norm_query"])
             w["ple_norm_query"] = scaled
-            ple_state_memory = ttnn.L1_MEMORY_CONFIG if layer.max_batch == 1 else ttnn.DRAM_MEMORY_CONFIG
+            ple_state_memory = ttnn.DRAM_MEMORY_CONFIG
             layer.fused_ple_conv_state = tuple(
                 ttnn.zeros(
                     (layer.max_batch, 1, 1, s.hc_hidden_size),
@@ -781,7 +778,12 @@ class FusedDecoder(FunctionalDecoder):
         heads = s.linear_num_value_heads
         key_dim = s.linear_key_head_dim
         value_dim = s.linear_value_head_dim
-        state_memory = ttnn.L1_MEMORY_CONFIG if batch == 1 else ttnn.DRAM_MEMORY_CONFIG
+        # Standalone fused decode keeps its canonical state in DRAM; the
+        # multichip wrapper temporarily binds the same field to its shared L1
+        # workspace.  Follow that active owner so multichip recurrence remains
+        # entirely L1 while standalone updates cannot silently migrate the
+        # canonical state back to the unsafe persistent-L1 placement.
+        state_memory = self.recurrent_state.memory_config()
 
         # l2_norm(q) / sqrt(K) == rms_norm(q, eps/K) / K.  This
         # collapses the functional five-op normalization plus scale to two ops.

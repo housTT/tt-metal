@@ -381,6 +381,63 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
     host_backed.close_host_backing()
 
 
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_PROGRESSING_HF_DIAGNOSTIC") != "1",
+    reason="explicit multichip HF trajectory diagnostic",
+)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_host_backed_layer0_progressing_decode_against_hf(bh_1d_mesh_device, device_params):
+    """Compare the real host-backed TP2 layer with HF across twelve transitions."""
+
+    torch.manual_seed(20260828)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    config = H.target_config()
+    state = H.load_real_layer_state(0)
+    seq_len, decode_rows = 33, 12
+    hidden = (torch.randn(1, seq_len + decode_rows, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+    cos, sin = H.rope_tables(128)
+    hf_layer = H.build_hf_layer(config, 0, state)
+    expected_prefill = H.hf_forward(hf_layer, hidden[:, :seq_len], cos, sin)
+
+    layer = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=config,
+        layer_idx=0,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+    )
+    actual_prefill = layer.prefill_forward(_replicated_upload(hidden[:, :seq_len].unsqueeze(0), mesh_device))
+    ttnn.synchronize_device(mesh_device)
+    prefill_pcc = H.pcc(expected_prefill, _rank_zero_host(actual_prefill).squeeze(0))
+    ttnn.deallocate(actual_prefill)
+    layer.prepare_decode_state()
+
+    pccs = []
+    for step in range(decode_rows):
+        stop = seq_len + step + 1
+        expected = H.hf_forward(hf_layer, hidden[:, :stop], cos, sin)[:, -1:]
+        current_pos = _replicated_upload(
+            torch.tensor([stop - 1], dtype=torch.int32),
+            mesh_device,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        actual = layer.decode_forward(
+            _replicated_upload(hidden[:, stop - 1 : stop].unsqueeze(0), mesh_device),
+            current_pos=current_pos,
+        )
+        ttnn.synchronize_device(mesh_device)
+        pccs.append(H.pcc(expected, _rank_zero_host(actual).squeeze(0)))
+        ttnn.deallocate(actual)
+        ttnn.deallocate(current_pos)
+    print(f"PROGRESSING_MC_HF_PCC layer=0 prefill={prefill_pcc:.8f} decode={pccs}")
+    assert prefill_pcc >= H.PCC_BAR
+    assert min(pccs) >= H.PCC_BAR
+    layer.close_host_backing()
+
+
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_host_backed_real_ple_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
     """Real PLE prefill/history/decode plus EP2 experts match optimized TTNN."""
