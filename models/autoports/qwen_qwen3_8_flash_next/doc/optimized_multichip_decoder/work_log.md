@@ -336,4 +336,5 @@ remain active. A post-stress source-backed mesh open/close passed.
 
 Independent review result: `clean-pass` in `STAGE_REVIEW.md`.
 
-Stage-owned payload commit SHA: pending local commit.
+Stage-owned payload commit SHA: `5b8898664b3bb09c3db14ec80999c52859967a9d`.
+No push was performed.
