@@ -92,3 +92,4 @@ The second fresh `$stage-review` also returned `more-work-needed`: top-level pos
 The final fresh `$stage-review` returned `clean-pass` with no required work. It independently verified 31 primary/replicate/anomaly/selected result artifacts against config IDs and all 61 precision leaves, byte-identical final post-selection aliases, deterministic 17-artifact candidate regeneration, capacity-equivalent context provenance, both Pareto plots, and the authoritative 24-pass/13-skip static result. The isolated stage checkpoint SHA is appended by the follow-up ledger commit below. No push was performed.
 
 - Stage checkpoint: `21ee1fdf260` (`Add Qwen3.8 Flash Next datatype sweep`)
+- Required ignored-CSV artifact checkpoint: `0f8133dbcf2` (`Track Qwen3.8 datatype sweep CSV results`); the repository-wide `*.csv` ignore rule required an explicit force-add, and the writer now emits LF line endings.
