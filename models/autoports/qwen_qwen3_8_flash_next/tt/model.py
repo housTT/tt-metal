@@ -20,6 +20,7 @@ import dataclasses
 import gc
 import json
 import math
+import os
 import random
 import time
 from pathlib import Path
@@ -45,9 +46,9 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     MultichipDecoder,
     MultichipDecodeStateWorkspace,
 )
-from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import _hifi2
+from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import _hifi2, _lofi
 from models.common.modules.lazy_weight import LazyWeight
-from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig
+from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig, _create_dram_sharded_mem_config
 from models.common.modules.sampling.sampling_1d import Sampling1D, Sampling1DConfig
 
 MODEL_ID = "Qwen/Qwen3.8-Flash-Next"
@@ -65,6 +66,73 @@ LM_HEAD_COLUMNS_PER_RANK = 32_768
 PAD_TOKEN_ID = 248_044
 EOS_TOKEN_IDS = (248_046, 248_044)
 REQUIRED_L1_SMALL_SIZE = 24_576
+
+
+@dataclasses.dataclass(frozen=True)
+class LMHeadPolicySpec:
+    """Static LM-head geometry; dtype objects are resolved only at model load."""
+
+    weight_dtype: str
+    fidelity: str
+    logits_dtype: str | None = None
+    dram_splits: int | None = None
+    worker_grid: tuple[int, int] | None = None
+    in0_block_w: int | None = None
+
+    @property
+    def dram_sharded(self) -> bool:
+        return self.dram_splits is not None
+
+    @property
+    def worker_cores(self) -> int | None:
+        return None if self.worker_grid is None else math.prod(self.worker_grid)
+
+    @property
+    def sampler_dtype(self) -> str:
+        return self.logits_dtype or self.weight_dtype
+
+    def split_sizes(self, columns_per_rank: int) -> tuple[int, ...]:
+        per_rank = VOCAB_SIZE // 2
+        if self.dram_splits is not None:
+            if per_rank % self.dram_splits:
+                raise ValueError(f"local vocabulary {per_rank} is not divisible by {self.dram_splits} splits")
+            return (per_rank // self.dram_splits,) * self.dram_splits
+        return tuple(min(columns_per_rank, per_rank - offset) for offset in range(0, per_rank, columns_per_rank))
+
+
+# The DRAM frontier keeps exact logical local-vocabulary slices while allowing
+# the kernel's ordinary physical N padding. The one-split/per_core_N=97 point
+# is retained as an explicit L1-capacity probe; capacity-directed points stay
+# at <=25 N tiles per worker and include the common ~668-columns/core bound.
+LM_HEAD_POLICIES = {
+    "bf16_hifi2": LMHeadPolicySpec("bf16", "hifi2"),
+    "bf16_lofi": LMHeadPolicySpec("bf16", "lofi"),
+    "bfp8_hifi2": LMHeadPolicySpec("bfp8", "hifi2"),
+    "bfp8_lofi": LMHeadPolicySpec("bfp8", "lofi"),
+    "bfp4_lofi": LMHeadPolicySpec("bfp4", "lofi", logits_dtype="bf16"),
+    "bfp8_hifi2_dram_s1_c40": LMHeadPolicySpec("bfp8", "hifi2", dram_splits=1, worker_grid=(10, 4), in0_block_w=2),
+    "bfp8_hifi2_dram_s4_c40": LMHeadPolicySpec("bfp8", "hifi2", dram_splits=4, worker_grid=(10, 4), in0_block_w=2),
+    "bfp8_hifi2_dram_s5_c40": LMHeadPolicySpec("bfp8", "hifi2", dram_splits=5, worker_grid=(10, 4), in0_block_w=2),
+    "bfp8_hifi2_dram_s5_c40_b1": LMHeadPolicySpec("bfp8", "hifi2", dram_splits=5, worker_grid=(10, 4), in0_block_w=1),
+    "bfp8_hifi2_dram_s8_c40": LMHeadPolicySpec("bfp8", "hifi2", dram_splits=8, worker_grid=(10, 4), in0_block_w=2),
+    "bfp8_hifi2_dram_s10_c20": LMHeadPolicySpec("bfp8", "hifi2", dram_splits=10, worker_grid=(10, 2), in0_block_w=4),
+}
+
+
+def _lm_head_rank_slices(split_sizes: Sequence[int]) -> tuple[tuple[tuple[int, int], ...], ...]:
+    """Return the exact checkpoint slices placed on each TP rank, split-major."""
+
+    per_rank = VOCAB_SIZE // 2
+    result = []
+    offset = 0
+    for split_size in split_sizes:
+        result.append(
+            tuple((rank * per_rank + offset, rank * per_rank + offset + int(split_size)) for rank in range(2))
+        )
+        offset += int(split_size)
+    if offset != per_rank:
+        raise ValueError(f"LM-head splits cover {offset} local columns, expected {per_rank}")
+    return tuple(result)
 
 
 def _config_namespace(value):
@@ -188,7 +256,9 @@ class Qwen38FullModel:
         layer_indices: Sequence[int] | None = None,
         expert_cache_slots: int = 10,
         packed_host_experts: int = 512,
+        prepack_host_experts: bool | None = None,
         lm_head_columns_per_rank: int = LM_HEAD_COLUMNS_PER_RANK,
+        lm_head_policy: str | None = None,
     ):
         _require_target_mesh(mesh_device)
         self.snapshot = Path(snapshot).resolve()
@@ -219,6 +289,7 @@ class Qwen38FullModel:
                     f"{_functional_decoder.QSA_BLOCK_TOPK} selector; got {self.max_seq_len}"
                 )
         self.is_full_stack = self.layer_indices == all_layers
+        self.prepack_host_experts = self.is_full_stack if prepack_host_experts is None else bool(prepack_host_experts)
 
         self.checkpoint = SafetensorCheckpoint(self.snapshot)
         self.ple_store = Qwen38PLEHostStore(self.checkpoint)
@@ -239,13 +310,17 @@ class Qwen38FullModel:
         self.trace_replays = 0
         self.trace_page_table_changes = 0
         self.last_decode_timing: dict[str, float | int] | None = None
+        self.host_preload_report: dict[str, object] | None = None
         self._sampling_force_argmax = True
         self._sampling_seed_rngs: tuple[random.Random, ...] | None = None
         self.sampling_seed_host_copies = 0
+        self.lm_head_policy = str(lm_head_policy or os.getenv("QWEN38_LM_HEAD_POLICY", "bfp8_hifi2"))
 
         try:
-            self._load_endpoints(lm_head_columns_per_rank)
+            self._load_endpoints(lm_head_columns_per_rank, self.lm_head_policy)
             self._load_layers(expert_cache_slots, packed_host_experts)
+            if self.prepack_host_experts:
+                self.preload_packed_host_experts()
             self._load_rope()
             self._build_sampler()
             self._allocate_persistent_decode_inputs()
@@ -285,7 +360,7 @@ class Qwen38FullModel:
         for index in range(int(cfg.num_hidden_layers)):
             decoder_shapes(self.hf_config, index)
 
-    def _load_endpoints(self, lm_head_columns_per_rank: int) -> None:
+    def _load_endpoints(self, lm_head_columns_per_rank: int, lm_head_policy: str) -> None:
         """Load one endpoint tensor at a time; no full model host residency."""
 
         prefix = "model.language_model"
@@ -327,35 +402,87 @@ class Qwen38FullModel:
 
         if lm_head_columns_per_rank <= 0 or lm_head_columns_per_rank % 32:
             raise ValueError("lm_head_columns_per_rank must be a positive multiple of 32")
-        per_rank = VOCAB_SIZE // 2
-        split_sizes = []
-        remaining = per_rank
-        while remaining:
-            size = min(int(lm_head_columns_per_rank), remaining)
-            split_sizes.append(size)
-            remaining -= size
+        if lm_head_policy not in LM_HEAD_POLICIES:
+            raise ValueError(f"unknown LM-head policy {lm_head_policy!r}; expected one of {tuple(LM_HEAD_POLICIES)}")
+        policy = LM_HEAD_POLICIES[lm_head_policy]
+        lm_head_dtype = {
+            "bf16": ttnn.bfloat16,
+            "bfp8": ttnn.bfloat8_b,
+            "bfp4": ttnn.bfloat4_b,
+        }[policy.weight_dtype]
+        lm_head_compute = {"hifi2": _hifi2, "lofi": _lofi}[policy.fidelity]()
+        split_sizes = policy.split_sizes(int(lm_head_columns_per_rank))
+        rank_slices = _lm_head_rank_slices(split_sizes)
+
+        program_configs = None
+        weights_memcfgs = None
+        input_memcfg = ttnn.DRAM_MEMORY_CONFIG
+        dram_cores = None
+        if policy.dram_sharded:
+            assert policy.worker_grid is not None
+            assert policy.worker_cores is not None
+            assert policy.in0_block_w is not None
+            grid_x, grid_y = policy.worker_grid
+            core_grid = ttnn.CoreGrid(x=grid_x, y=grid_y)
+            k_tiles_per_worker = (HIDDEN_SIZE // 32) // policy.worker_cores
+            if (HIDDEN_SIZE // 32) % policy.worker_cores or k_tiles_per_worker % policy.in0_block_w:
+                raise ValueError(f"invalid exact DRAM K geometry for {lm_head_policy}")
+            input_memcfg = ttnn.create_sharded_memory_config(
+                (32, HIDDEN_SIZE // policy.worker_cores),
+                core_grid,
+                ttnn.ShardStrategy.WIDTH,
+                ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
+            )
+            program_configs = []
+            for split_size in split_sizes:
+                n_tiles = split_size // 32
+                program_configs.append(
+                    ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
+                        in0_block_w=policy.in0_block_w,
+                        per_core_M=1,
+                        per_core_N=math.ceil(n_tiles / policy.worker_cores),
+                        fused_activation=None,
+                    )
+                )
+
+            dram_size = self.mesh_device.dram_grid_size()
+            dram_grid = ttnn.CoreRangeSet(
+                {
+                    ttnn.CoreRange(
+                        ttnn.CoreCoord(0, 0),
+                        ttnn.CoreCoord(int(dram_size.x) - 1, int(dram_size.y) - 1),
+                    )
+                }
+            )
+            dram_cores = int(dram_size.x) * int(dram_size.y)
+            weights_memcfgs = [
+                _create_dram_sharded_mem_config(
+                    k=HIDDEN_SIZE,
+                    n=split_size,
+                    dram_grid=dram_grid,
+                    dram_cores=dram_cores,
+                )
+                for split_size in split_sizes
+            ]
 
         lm_weight = self.checkpoint.tensor("lm_head.weight")
         if tuple(lm_weight.shape) != (VOCAB_SIZE, HIDDEN_SIZE):
             raise ValueError(f"unexpected LM-head shape {tuple(lm_weight.shape)}")
         lazy_weights = []
-        offset = 0
-        for split_index, split_size in enumerate(split_sizes):
-            rank_parts = [
-                lm_weight[rank * per_rank + offset : rank * per_rank + offset + split_size].transpose(0, 1)
-                for rank in range(2)
-            ]
+        for split_index, (split_size, split_rank_slices) in enumerate(zip(split_sizes, rank_slices)):
+            rank_parts = [lm_weight[start:end].transpose(0, 1) for start, end in split_rank_slices]
             combined = torch.cat(rank_parts, dim=-1).contiguous().reshape(1, 1, HIDDEN_SIZE, 2 * split_size)
+            weight_memcfg = ttnn.DRAM_MEMORY_CONFIG if weights_memcfgs is None else weights_memcfgs[split_index]
             lazy_weights.append(
                 LazyWeight(
                     source=combined,
-                    dtype=ttnn.bfloat16,
+                    dtype=lm_head_dtype,
                     device=self.mesh_device,
                     layout=ttnn.TILE_LAYOUT,
-                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    memory_config=weight_memcfg,
                 )
             )
-            offset += split_size
         del lm_weight
         gc.collect()
         self.lm_head = LMHead1D.from_config(
@@ -364,12 +491,18 @@ class Qwen38FullModel:
                 mesh_device=self.mesh_device,
                 dim=HIDDEN_SIZE,
                 max_batch_size=self.max_batch,
-                compute_kernel_config=_hifi2(),
-                lm_head_dtype=ttnn.bfloat16,
+                program_configs=program_configs,
+                compute_kernel_config=lm_head_compute,
+                lm_head_dtype=lm_head_dtype,
                 output_memcfg=ttnn.DRAM_MEMORY_CONFIG,
-                input_memcfg=ttnn.DRAM_MEMORY_CONFIG,
+                input_memcfg=input_memcfg,
+                weights_memcfgs=weights_memcfgs,
             )
         )
+        self.lm_head_policy_spec = policy
+        self.lm_head_split_sizes = split_sizes
+        self.lm_head_rank_slices = rank_slices
+        self.lm_head_dram_cores = dram_cores
         self.lm_head.load_device_weights()
         # Device values are now materialized.  Drop the sizeable source tensors
         # retained by LazyWeight so endpoint loading cannot become transient
@@ -405,6 +538,27 @@ class Qwen38FullModel:
             for layer in self.layers
             if layer.shapes.layer_type != LINEAR_ATTENTION
         )
+
+    def preload_packed_host_experts(self) -> dict[str, object]:
+        """Prepack every layer's exact experts before request service."""
+
+        started = time.perf_counter()
+        layers = {
+            str(layer.shapes.layer_idx): layer.host_expert_cache.preload_packed_host()
+            for layer in self.layers
+            if layer.host_expert_cache is not None
+        }
+        self.host_preload_report = {
+            "seconds": time.perf_counter() - started,
+            "layers": layers,
+            "loaded_entries": sum(int(value["loaded_entries"]) for value in layers.values()),
+            "packed_host_bytes": sum(
+                int(layer.host_expert_cache.packed_host_bytes)
+                for layer in self.layers
+                if layer.host_expert_cache is not None
+            ),
+        }
+        return self.host_preload_report
 
     def _load_rope(self) -> None:
         rotary_dim = int(self.text_config.head_dim * float(self.text_config.partial_rotary_factor))
@@ -674,9 +828,91 @@ class Qwen38FullModel:
         ttnn.deallocate(mixed)
         return ttnn.reshape(hidden, (1, 1, rows, HIDDEN_SIZE))
 
+    def lm_head_configuration(self) -> dict[str, object]:
+        """Serializable geometry used by focused A/B evidence."""
+
+        policy = self.lm_head_policy_spec
+        return {
+            "policy": self.lm_head_policy,
+            "weight_dtype": policy.weight_dtype,
+            "logits_dtype": policy.sampler_dtype,
+            "fidelity": policy.fidelity,
+            "dram_sharded": policy.dram_sharded,
+            "split_sizes": self.lm_head_split_sizes,
+            "rank_slices": self.lm_head_rank_slices,
+            "worker_grid": policy.worker_grid,
+            "worker_cores": policy.worker_cores,
+            "in0_block_w": policy.in0_block_w,
+            "dram_cores": self.lm_head_dram_cores,
+            "per_dram_reader_n": (
+                None
+                if self.lm_head_dram_cores is None
+                else tuple(math.ceil((size // 32) / self.lm_head_dram_cores) for size in self.lm_head_split_sizes)
+            ),
+            "per_core_n": (
+                None
+                if not policy.dram_sharded
+                else tuple(int(config.per_core_N) for config in self.lm_head.config.program_configs)
+            ),
+            "physical_output_tiles": (
+                None
+                if not policy.dram_sharded
+                else tuple(
+                    int(config.per_core_N) * int(policy.worker_cores) for config in self.lm_head.config.program_configs
+                )
+            ),
+            "program_configs": tuple(repr(config) for config in self.lm_head.config.program_configs),
+            "input_memory_config": repr(self.lm_head.config.input_memcfg),
+            "weight_memory_configs": tuple(repr(config) for config in self.lm_head.config.weights_memcfgs),
+        }
+
+    def _project_hidden_logits_one_tile(self, hidden) -> object:
+        """Project at most one physical tile, sharding input only for the DRAM frontier."""
+
+        policy = self.lm_head_policy_spec
+        if policy.dram_sharded:
+            sharded = hidden
+            owns_sharded = not hidden.memory_config().is_sharded()
+            if owns_sharded:
+                sharded = ttnn.interleaved_to_sharded(hidden, self.lm_head.config.input_memcfg)
+            logits = self.lm_head(sharded)
+            if owns_sharded:
+                ttnn.deallocate(sharded)
+        else:
+            logits = self.lm_head(hidden)
+        if policy.sampler_dtype == "bf16" and policy.weight_dtype != "bf16":
+            sampler_logits = ttnn.typecast(logits, dtype=ttnn.bfloat16)
+            ttnn.deallocate(logits)
+            logits = sampler_logits
+        return logits
+
+    def project_hidden_logits(self, hidden) -> object:
+        """Project BF16 hidden rows while retaining the exact local-vocabulary order.
+
+        The specialized DRAM program accepts one 32-row physical tile. Decode,
+        last-token prefill, and batch 1--32 use that direct path. The diagnostic
+        ``return_all_logits`` path tiles larger M and concatenates logical rows,
+        avoiding an incompatible program-config or a second weight copy.
+        """
+
+        rows = math.prod(_shape(hidden)[:-1])
+        if not self.lm_head_policy_spec.dram_sharded or rows <= 32:
+            return self._project_hidden_logits_one_tile(hidden)
+
+        outputs = []
+        for start in range(0, rows, 32):
+            end = min(start + 32, rows)
+            chunk = ttnn.slice(hidden, [0, 0, start, 0], [1, 1, end, HIDDEN_SIZE])
+            outputs.append(self._project_hidden_logits_one_tile(chunk))
+            _functional_decoder._free(chunk, hidden)
+        logits = ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        for output in outputs:
+            _functional_decoder._free(output, logits)
+        return logits
+
     def project_logits(self, residual) -> object:
         hidden = self.final_hidden(residual)
-        logits = self.lm_head(hidden)
+        logits = self.project_hidden_logits(hidden)
         ttnn.deallocate(hidden)
         return logits
 
@@ -1075,7 +1311,11 @@ class Qwen38FullModel:
         ttnn.execute_trace(self.mesh_device, self.ingress_trace_id, cq_id=0, blocking=False)
         layer_seconds = 0.0
         expert_seconds = 0.0
+        route_stall_seconds = 0.0
+        cache_submit_seconds = 0.0
+        trace_submit_seconds = 0.0
         ple_seconds = 0.0
+        per_layer = []
         for trace in self.layer_traces:
             kwargs = {}
             if trace.layer.shapes.has_ple:
@@ -1084,7 +1324,18 @@ class Qwen38FullModel:
             trace.replay(**kwargs)
             layer_seconds += time.perf_counter() - layer_started
             expert_seconds += float(trace.last_timing["expert_service_seconds"])
+            route_stall_seconds += float(trace.last_timing["route_read_and_tt_stall_seconds"])
+            cache_submit_seconds += float(trace.last_timing["cache_control_dma_submit_seconds"])
+            trace_submit_seconds += float(trace.last_timing["front_trace_seconds"])
+            trace_submit_seconds += float(trace.last_timing["back_trace_seconds"])
             ple_seconds += float(trace.last_timing["ple_seconds"])
+            per_layer.append(
+                {
+                    "layer": int(trace.layer.shapes.layer_idx),
+                    "type": str(trace.layer.shapes.layer_type),
+                    **{key: value for key, value in trace.last_timing.items() if isinstance(value, (int, float))},
+                }
+            )
         ttnn.execute_trace(self.mesh_device, self.terminal_trace_id, cq_id=0, blocking=False)
         self._advance_sampling_seeds()
         ttnn.execute_trace(self.mesh_device, self.sampling_trace_id, cq_id=0, blocking=False)
@@ -1094,8 +1345,12 @@ class Qwen38FullModel:
             "total_submit_seconds": time.perf_counter() - started,
             "layer_boundary_seconds": layer_seconds,
             "expert_service_seconds": expert_seconds,
+            "route_read_and_tt_stall_seconds": route_stall_seconds,
+            "expert_cache_control_dma_submit_seconds": cache_submit_seconds,
+            "layer_trace_submit_seconds": trace_submit_seconds,
             "ple_service_seconds": ple_seconds,
             "trace_replay_index": self.trace_replays,
+            "layers": per_layer,
         }
 
     def decode_token_out_traced(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor):
@@ -1156,9 +1411,48 @@ class Qwen38FullModel:
 
     # ------------------------------------------------------------------ audit
 
+    def host_service_totals(self) -> dict[str, float]:
+        """Snapshot numeric host-boundary counters for decode-window deltas."""
+
+        expert_metrics = [
+            layer.host_expert_cache.metrics() for layer in self.layers if layer.host_expert_cache is not None
+        ]
+        ple = self.ple_store.metrics()
+        ple_device = next(
+            (layer.ple_staging.metrics() for layer in self.layers if layer.ple_staging is not None),
+            {},
+        )
+        return {
+            f"expert_{name}": sum(float(metrics.get(name, 0)) for metrics in expert_metrics)
+            for name in (
+                "hits",
+                "misses",
+                "packed_host_hits",
+                "packed_host_misses",
+                "h2d_bytes",
+                "zero_d2d_bytes",
+                "source_pack_seconds",
+                "h2d_seconds",
+                "index_h2d_bytes",
+                "index_upload_seconds",
+                "deferred_dma_misses",
+                "dma_completion_syncs",
+            )
+        } | {
+            "ple_lookup_calls": float(ple["lookup_calls"]),
+            "ple_table_rows_read": float(ple["table_rows_read"]),
+            "ple_table_bytes_read": float(ple["table_bytes_read"]),
+            "ple_lookup_seconds": float(ple["lookup_seconds"]),
+            "ple_device_h2d_bytes": float(ple_device.get("h2d_bytes", 0)),
+            "ple_device_h2d_seconds": float(ple_device.get("h2d_seconds", 0)),
+            "ple_device_deferred_uploads": float(ple_device.get("deferred_uploads", 0)),
+            "ple_device_completion_syncs": float(ple_device.get("completion_syncs", 0)),
+        }
+
     def runtime_fallback_audit(self, state: Qwen38BatchState) -> dict[str, object]:
         return {
             "declared_host_work": {
+                "model_load_exact_expert_prepack": self.prepack_host_experts,
                 "expert_route_id_read_and_exact_weight_dma": True,
                 "ple_ngram_hash_row_lookup_and_dma": True,
                 "caller_visible_compact_token_readback": True,
@@ -1179,7 +1473,11 @@ class Qwen38FullModel:
                 "recurrence": "model",
                 "page_table": "state with stable model buffer",
                 "tokens_and_positions": "device feedback after request reset",
-                "expert_store": "per-layer exact mmap source and fixed TT slots",
+                "expert_store": (
+                    "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots"
+                    if self.prepack_host_experts
+                    else "per-layer exact mmap source, lazy packed-host cache, and fixed TT slots"
+                ),
                 "ple_store": "shared exact mmap table with request-isolated two-token history",
             },
             "counters": {
@@ -1192,6 +1490,11 @@ class Qwen38FullModel:
                 "sampling_seed_host_copies": self.sampling_seed_host_copies,
             },
             "ple": self.ple_store.metrics(),
+            "host_preload": self.host_preload_report,
+            "ple_device_staging": next(
+                (layer.ple_staging.metrics() for layer in self.layers if layer.ple_staging is not None),
+                None,
+            ),
             "experts": {
                 str(layer.shapes.layer_idx): layer.host_expert_cache.metrics()
                 for layer in self.layers

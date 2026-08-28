@@ -75,7 +75,7 @@ _FULL_TEXT_ENDPOINT_ROWS = (
     ("final_hc_norm", (1, 10_240), "bf16", 1),
     ("final_hc_down", (10_240, 320), "bfp8", 1),
     ("final_hc_up", (320, 10_240), "bfp8", 1),
-    ("lm_head_vocab_tp", (2_560, 124_160), "bf16", 1),
+    ("lm_head_vocab_tp", (2_560, 124_160), "bfp8", 1),
 )
 
 
@@ -180,8 +180,8 @@ def test_non_expert_weight_inventory_from_checkpoint_metadata(checkpoint):
     decoder_bytes = _inventory_bytes(_DECODER_NON_EXPERT_ROWS)
     endpoint_bytes = _inventory_bytes(_FULL_TEXT_ENDPOINT_ROWS)
     assert decoder_bytes == 3_479_858_176
-    assert endpoint_bytes == 1_279_016_960
-    assert decoder_bytes + endpoint_bytes == 4_758_875_136
+    assert endpoint_bytes == 981_032_960
+    assert decoder_bytes + endpoint_bytes == 4_460_891_136
 
 
 def test_checkpoint_capacity_constants_and_manifests(checkpoint, ple_store):
@@ -248,6 +248,36 @@ def test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failur
     with expect_error(OSError, "rank-1"):
         directory.ensure(0, [5], fail)
     assert not directory.records[0].valid
+
+
+def test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid(expect_error):
+    serial = ExpertSlotDirectory(4)
+    batched = ExpertSlotDirectory(4)
+    serial_loads = []
+    batched_loads = []
+    for route in ([7, 11, 13, 17], [11, 19, 17, 23], [29, 19, 31, 23], [31, 29, 37, 41]):
+        serial_plan = serial.ensure(6, route, lambda *load: serial_loads.append(load))
+
+        def load_batch(loads):
+            batched_loads.extend(loads)
+
+        batched_plan = batched.ensure_batched(6, route, load_batch)
+        assert batched_plan == serial_plan
+        assert batched.records == serial.records
+    assert batched_loads == serial_loads
+
+    before = batched.ensure_batched(6, [29, 37, 43, 47], lambda _loads: None)
+    assert before.hits == (29, 37)
+
+    def fail(_loads):
+        raise OSError("batched owner submission failed")
+
+    with expect_error(OSError, "owner submission"):
+        batched.ensure_batched(6, [29, 53, 37, 59], fail)
+    records = batched.records
+    assert any(record.valid and record.identity == ExpertIdentity(6, 29) for record in records)
+    assert any(record.valid and record.identity == ExpertIdentity(6, 37) for record in records)
+    assert sum(not record.valid for record in records) == 2
 
 
 def test_slot_directory_prefill_wave_partition_is_exact():
@@ -362,7 +392,7 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
     assert json.loads(json.dumps(payload))["ple_table_bytes"] == PLE_TABLE_BYTES
     contract_path = Path(__file__).resolve().parents[1] / "doc" / "host_weight_contract.json"
     contract = json.loads(contract_path.read_text())
-    assert contract["expert_cache"]["device_bytes_per_rank_full_48_layer_stack"] == 1_459_814_400
+    assert contract["expert_cache"]["device_bytes_per_rank_full_48_layer_stack"] == 1_592_524_800
     capacity = contract["full_stack_capacity"]
     expected_total = sum(
         capacity[name]
@@ -376,7 +406,7 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
             "full_model_endpoint_runtime_bytes_per_device",
         )
     )
-    assert expected_total == 10_170_438_744
+    assert expected_total == 10_005_165_144
     assert capacity["planned_total_bytes_per_device"] == expected_total
     assert capacity["headroom_bytes_per_device"] == capacity["dram_bytes_per_device"] - expected_total
     assert capacity["fits"] is True

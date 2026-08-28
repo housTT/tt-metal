@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "source_digest": "e85ca93a2fc788bcd70095d93284f538ab2f2ae30754b0ed7523c1bbe6a631d6",
+  "target": "P300 Blackhole 1x2, devices 0,1, FABRIC_1D",
+  "watcher_enabled": false,
+  "captures": {
+    "layer0_gdn_decode": {
+      "ops": 195,
+      "device_time_us": 3212.8545,
+      "op_to_op_gap_us": 125283.258,
+      "sampling_device_time_us": 490.6185,
+      "lm_head_device_time_us": 895.083,
+      "dram_roofline_percent": 27.2,
+      "modeled_dram_gbps": 139,
+      "raw_operations_sha256": "1f96ce2ffb32021451b8eda9e19ef152901d0318d549bf3ea0ea9b52e2f0d0f3"
+    },
+    "layer1_ple_gdn_decode": {
+      "ops": 265,
+      "device_time_us": 3632.219,
+      "op_to_op_gap_us": 153876.052,
+      "sampling_device_time_us": 491.174,
+      "lm_head_device_time_us": 898.501,
+      "dram_roofline_percent": 25.8,
+      "modeled_dram_gbps": 132,
+      "raw_operations_sha256": "5800c39ace9ed8a6e183d16532a38cd43a8885a9ccd6664dfda33efea41abdbd"
+    },
+    "layer3_qsa_decode": {
+      "ops": 285,
+      "device_time_us": 4573.6495,
+      "op_to_op_gap_us": 143111.638,
+      "sampling_device_time_us": 491.517,
+      "lm_head_device_time_us": 896.83,
+      "dram_roofline_percent": 18.1,
+      "modeled_dram_gbps": 92,
+      "raw_operations_sha256": "36e2bd1846f23353cc026cde859bcfcfa3bc7e088eaead5a60b6d4e9b55a73c8"
+    },
+    "layer0_gdn_prefill": {
+      "ops": 201,
+      "device_time_us": 5736.4725,
+      "op_to_op_gap_us": 6367.533,
+      "dram_roofline_percent": 17.9,
+      "modeled_dram_gbps": 92,
+      "raw_operations_sha256": "3a2157498c82fe3346cefc8c50359a16778110204071c261d2792b4d41f00a7d"
+    }
+  },
+  "terminal_floor": {
+    "mean_lm_head_device_time_us": 896.804667,
+    "mean_sampling_device_time_us": 491.103167,
+    "lm_head_plus_sampling_ms": 1.387908
+  },
+  "conclusions": [
+    "The selected endpoint contains four contiguous local-vocabulary BFP8/HiFi2 matmul rows totaling 0.895-0.899 ms plus a 0.491 ms traced greedy sampling window.",
+    "Sampling is one local-vocabulary all-gather, untilize/unpad, and device argmax; no generic terminal TopKDeviceOperation is present.",
+    "TopKDeviceOperation rows in token-out are the exact top-10 expert router.",
+    "Every LM-head row receives DRAM-sharded advice, but the exact real-weight DRAM s5/c40 A/B is 36.24% slower and remains rejected.",
+    "The largest decode gaps surround expert-slot copies and correspond to the separately measured compact-route and exact host cache/DMA boundary."
+  ]
+}

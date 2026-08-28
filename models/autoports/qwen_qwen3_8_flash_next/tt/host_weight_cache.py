@@ -17,10 +17,12 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import os
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -201,7 +203,7 @@ class Qwen38ExpertHostSource:
             self.read_seconds += elapsed
         return PackedExpert(gate_up_by_rank, down_by_rank)
 
-    def metrics(self) -> dict[str, int | float]:
+    def metrics(self) -> dict[str, object]:
         with self._lock:
             return {
                 "checkpoint_expert_reads": self.host_reads,
@@ -326,6 +328,92 @@ class ExpertSlotDirectory:
             self.validate(plan)
             return plan
 
+    def ensure_batched(self, layer_idx: int, expert_ids: Iterable[int], batch_loader) -> SlotPlan:
+        """Ensure one wave while deferring miss submission to ``batch_loader``.
+
+        Slot selection, generations, LRU clocks, hits, and evictions are
+        computed in the same router order as :meth:`ensure`.  The batch loader
+        may change only the submission order of the reserved misses.  Miss
+        metadata is published only after the whole batch has been submitted;
+        on failure every reserved slot remains invalid.
+        """
+
+        requested = _ordered_unique(expert_ids)
+        if len(requested) > self.capacity:
+            raise ValueError(f"wave has {len(requested)} experts but cache capacity is {self.capacity}")
+        for expert_id in requested:
+            if not 0 <= expert_id < EXPERTS:
+                raise ValueError(f"expert id {expert_id} outside [0, {EXPERTS})")
+
+        identities = tuple(ExpertIdentity(int(layer_idx), expert_id) for expert_id in requested)
+        protected = set(identities)
+        hits = []
+        misses = []
+        evictions = []
+        reserved: list[tuple[int, ExpertIdentity, int, int]] = []
+        reserved_slots: set[int] = set()
+        with self._lock:
+            for identity in identities:
+                slot = self._by_identity.get(identity)
+                if slot is not None and self._records[slot].valid:
+                    self._clock += 1
+                    record = self._records[slot]
+                    self._records[slot] = dataclasses.replace(record, last_used=self._clock)
+                    hits.append(identity.expert_id)
+                    continue
+
+                candidates = [
+                    index
+                    for index, record in enumerate(self._records)
+                    if index not in reserved_slots and (not record.valid or record.identity not in protected)
+                ]
+                if not candidates:
+                    raise RuntimeError("slot replacement would evict an expert protected by the current wave")
+                slot = min(
+                    candidates,
+                    key=lambda index: (self._records[index].valid, self._records[index].last_used, index),
+                )
+                old = self._records[slot]
+                if old.identity is not None:
+                    self._by_identity.pop(old.identity, None)
+                    if old.valid:
+                        evictions.append(old.identity)
+                generation = old.generation + 1
+                self._records[slot] = SlotRecord(None, generation, self._clock, False)
+                self._clock += 1
+                reserved.append((slot, identity, generation, self._clock))
+                reserved_slots.add(slot)
+                misses.append(identity.expert_id)
+
+            try:
+                if reserved:
+                    batch_loader(tuple((slot, identity, generation) for slot, identity, generation, _ in reserved))
+            except Exception:
+                for slot, _identity, generation, _last_used in reserved:
+                    self._records[slot] = SlotRecord(None, generation, 0, False)
+                raise
+
+            for slot, identity, generation, last_used in reserved:
+                self._records[slot] = SlotRecord(identity, generation, last_used, True)
+                self._by_identity[identity] = slot
+
+            active = set(identities)
+            plan = SlotPlan(
+                layer_idx=int(layer_idx),
+                requested=requested,
+                slot_expert_ids=tuple(
+                    record.identity.expert_id if record.valid and record.identity is not None else 0
+                    for record in self._records
+                ),
+                active_slots=tuple(record.valid and record.identity in active for record in self._records),
+                generations=tuple(record.generation for record in self._records),
+                hits=tuple(hits),
+                misses=tuple(misses),
+                evictions=tuple(evictions),
+            )
+            self.validate(plan)
+            return plan
+
     def ensure_ordered(self, layer_idx: int, expert_ids: Iterable[int], loader) -> SlotPlan:
         """Place requested experts in slots 0..N-1 in the given order.
 
@@ -427,14 +515,38 @@ class ExpertCacheMetrics:
     h2d_bytes: int = 0
     source_pack_seconds: float = 0.0
     h2d_seconds: float = 0.0
+    zero_d2d_bytes: int = 0
+    deferred_dma_misses: int = 0
+    dma_completion_syncs: int = 0
     index_h2d_bytes: int = 0
     index_upload_seconds: float = 0.0
+    preload_entries: int = 0
+    preload_seconds: float = 0.0
+    policy_waves: int = 0
+    policy_misses: int = 0
+    policy_prepare_seconds: float = 0.0
+    policy_submit_seconds: float = 0.0
+    policy_h2d_submit_seconds: float = 0.0
+    policy_d2d_submit_seconds: float = 0.0
+    owner_0_misses: int = 0
+    owner_1_misses: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
 class DeviceExpertSlot:
     gate_up: object
     down: object
+
+
+@dataclasses.dataclass(frozen=True)
+class PreparedExpertSlotLoad:
+    slot: int
+    identity: ExpertIdentity
+    generation: int
+    packed: object
+    gate_shards: tuple[object, ...]
+    down_shards: tuple[object, ...]
+    staging_index: int
 
 
 def _replicated_device_zeros(mesh_device, shape: tuple[int, ...], *, dtype):
@@ -476,6 +588,8 @@ class QwenDeviceExpertCache:
         capacity: int = 10,
         packed_host_capacity: int = 64,
         indexed_width: int = 10,
+        miss_wave_policy: str | None = None,
+        staging_depth: int | None = None,
     ):
         import ttnn
 
@@ -490,6 +604,17 @@ class QwenDeviceExpertCache:
         self.packed_host_capacity = int(packed_host_capacity)
         if self.packed_host_capacity < 0:
             raise ValueError("packed host cache capacity cannot be negative")
+        self.miss_wave_policy = miss_wave_policy or os.getenv("QWEN38_HOST_MISS_WAVE_POLICY", "serial")
+        if self.miss_wave_policy not in {"serial", "owner_partitioned", "owner_coalesced", "owner_threaded"}:
+            raise ValueError(
+                "expert miss-wave policy must be serial, owner_partitioned, owner_coalesced, or owner_threaded, "
+                f"got {self.miss_wave_policy!r}"
+            )
+        self.staging_depth = int(
+            staging_depth if staging_depth is not None else os.getenv("QWEN38_HOST_STAGING_DEPTH", "1")
+        )
+        if not 1 <= self.staging_depth <= self.capacity:
+            raise ValueError("expert upload staging depth must be between one and cache capacity")
         self.slots = tuple(
             DeviceExpertSlot(
                 gate_up=_replicated_device_zeros(
@@ -508,11 +633,37 @@ class QwenDeviceExpertCache:
         slot_devices = tuple(shard.device() for shard in ttnn.get_device_tensors(self.slots[0].gate_up))
         if len(slot_devices) != TP_SIZE:
             raise RuntimeError("expert upload staging requires exactly two physical ranks")
-        # One fixed rank-local upload pair is reused serially for every miss.
-        # It prevents transient device allocations from colliding with live
-        # front/back trace allocations while adding only one expert's storage
-        # per rank (rather than one staging pair per cache slot).
+        # Fixed rank-local upload pairs prevent transient device allocations
+        # from colliding with live trace allocations. Depth one is the selected
+        # baseline. Deeper env-gated A/Bs can isolate staging reuse dependency
+        # from owner grouping/thread submission without changing slot storage.
         self.upload_by_rank = tuple(
+            tuple(
+                DeviceExpertSlot(
+                    gate_up=ttnn.from_torch(
+                        torch.zeros((1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE), dtype=torch.bfloat16),
+                        dtype=ttnn.bfloat4_b,
+                        layout=ttnn.TILE_LAYOUT,
+                        device=device,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    ),
+                    down=ttnn.from_torch(
+                        torch.zeros((1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE), dtype=torch.bfloat16),
+                        dtype=ttnn.bfloat4_b,
+                        layout=ttnn.TILE_LAYOUT,
+                        device=device,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    ),
+                )
+                for _ in range(self.staging_depth)
+            )
+            for device in slot_devices
+        )
+        # EP2 assigns every routed expert to exactly one rank.  Keep one
+        # immutable zero expert on each rank so a miss uploads only the owner
+        # weights; the non-owner half is reset with local D2D instead of
+        # transferring a known-zero 2.64 MiB shard over PCIe.
+        self.zero_by_rank = tuple(
             DeviceExpertSlot(
                 gate_up=ttnn.from_torch(
                     torch.zeros((1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE), dtype=torch.bfloat16),
@@ -554,11 +705,13 @@ class QwenDeviceExpertCache:
         self._packed: OrderedDict[ExpertIdentity, tuple[tuple[object, object], tuple[object, object]]] = OrderedDict()
         self._published_indices: tuple[int, ...] | None = tuple(range(self.capacity))
         self._metrics = ExpertCacheMetrics()
+        self._next_staging_by_owner = [0] * TP_SIZE
+        self._owner_h2d_executor: ThreadPoolExecutor | None = None
         self._lock = threading.RLock()
 
     @property
     def device_bytes_per_rank(self) -> int:
-        return (self.capacity + 1) * EXPERT_PACKED_BYTES_PER_RANK
+        return (self.capacity + 1 + self.staging_depth) * EXPERT_PACKED_BYTES_PER_RANK
 
     @property
     def packed_host_bytes(self) -> int:
@@ -568,6 +721,28 @@ class QwenDeviceExpertCache:
 
     def waves(self, route_ids: Iterable[int]) -> tuple[tuple[int, ...], ...]:
         return self.directory.waves(route_ids)
+
+    def preload_packed_host(self) -> dict[str, int | float]:
+        """Materialize every exact expert in the bounded packed-host cache.
+
+        This is a model-load operation only: it moves checkpoint read and
+        device-native packing out of token service without changing routes,
+        slot residency, or any device bytes.  The full 512-entry capacity is
+        required so the preload cannot silently evict earlier experts.
+        """
+
+        if self.packed_host_capacity < EXPERTS:
+            raise ValueError(f"preloading needs packed_host_capacity >= {EXPERTS}")
+        started = time.perf_counter()
+        before = len(self._packed)
+        with self._lock:
+            for expert_id in range(EXPERTS):
+                self._host_packed(ExpertIdentity(self.layer_idx, expert_id))
+        elapsed = time.perf_counter() - started
+        loaded = len(self._packed) - before
+        self._metrics.preload_entries += loaded
+        self._metrics.preload_seconds += elapsed
+        return {"loaded_entries": loaded, "seconds": elapsed, "packed_host_entries": len(self._packed)}
 
     def _host_packed(self, identity: ExpertIdentity):
         import ttnn
@@ -601,7 +776,13 @@ class QwenDeviceExpertCache:
                 self._packed.popitem(last=False)
         return packed
 
-    def _load_slot(self, slot: int, identity: ExpertIdentity, _generation: int) -> None:
+    def _prepare_slot_load(
+        self,
+        slot: int,
+        identity: ExpertIdentity,
+        generation: int,
+        staging_index: int = 0,
+    ) -> PreparedExpertSlotLoad:
         import ttnn
 
         packed = self._host_packed(identity)
@@ -610,23 +791,193 @@ class QwenDeviceExpertCache:
         down_shards = ttnn.get_device_tensors(target.down)
         if len(gate_shards) != TP_SIZE or len(down_shards) != TP_SIZE:
             raise RuntimeError("expert slots require exactly two device shards")
+        return PreparedExpertSlotLoad(slot, identity, generation, packed, gate_shards, down_shards, staging_index)
 
-        def upload_rank(rank: int) -> None:
-            # A host copy to an extracted shard broadcasts through its parent
-            # mesh. The dedicated physical staging tensor receives only this
-            # rank's TP shard, then local D2D preserves the slot address.
-            staging = self.upload_by_rank[rank]
-            ttnn.copy_host_to_device_tensor(packed[rank][0], staging.gate_up)
-            ttnn.copy_host_to_device_tensor(packed[rank][1], staging.down)
-            ttnn.copy(staging.gate_up, gate_shards[rank])
-            ttnn.copy(staging.down, down_shards[rank])
+    def _enqueue_prepared_h2d(self, prepared: PreparedExpertSlotLoad) -> float:
+        import ttnn
 
+        owner = prepared.identity.expert_id % TP_SIZE
         started = time.perf_counter()
-        for rank in range(TP_SIZE):
-            upload_rank(rank)
-        ttnn.synchronize_device(self.mesh_device)
-        self._metrics.h2d_seconds += time.perf_counter() - started
-        self._metrics.h2d_bytes += TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
+        # A host copy to an extracted shard broadcasts through its parent
+        # mesh.  Upload only the checkpoint-owning shard into its physical
+        # staging tensor, then use rank-local D2D for both the owner copy and
+        # the exact-zero non-owner reset.  All work stays ordered on CQ0 before
+        # the following indexed expert trace.
+        staging = self.upload_by_rank[owner][prepared.staging_index]
+        ttnn.copy_host_to_device_tensor(prepared.packed[owner][0], staging.gate_up)
+        ttnn.copy_host_to_device_tensor(prepared.packed[owner][1], staging.down)
+        return time.perf_counter() - started
+
+    def _enqueue_prepared_d2d(self, prepared: PreparedExpertSlotLoad) -> float:
+        import ttnn
+
+        owner = prepared.identity.expert_id % TP_SIZE
+        non_owner = 1 - owner
+        started = time.perf_counter()
+        staging = self.upload_by_rank[owner][prepared.staging_index]
+        ttnn.copy(staging.gate_up, prepared.gate_shards[owner])
+        ttnn.copy(staging.down, prepared.down_shards[owner])
+        zero = self.zero_by_rank[non_owner]
+        ttnn.copy(zero.gate_up, prepared.gate_shards[non_owner])
+        ttnn.copy(zero.down, prepared.down_shards[non_owner])
+        # Do not fence each miss.  All uploads, rank-local copies, the compact
+        # index update, and the consuming back trace use CQ0.  Completion is
+        # therefore observed at the next required route-id read (or the final
+        # compact token read), which preserves exactness while allowing a
+        # whole layer's miss wave to be queued without per-expert stalls.
+        return time.perf_counter() - started
+
+    def _account_submitted(self, prepared: Sequence[PreparedExpertSlotLoad], enqueue_seconds: float) -> None:
+        self._metrics.h2d_seconds += enqueue_seconds
+        self._metrics.h2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
+        self._metrics.zero_d2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
+        self._metrics.deferred_dma_misses += len(prepared)
+
+    def _owner_executor(self) -> ThreadPoolExecutor:
+        if self._owner_h2d_executor is None:
+            executor = ThreadPoolExecutor(max_workers=TP_SIZE, thread_name_prefix="qwen-owner-h2d")
+            # ThreadPoolExecutor starts workers lazily. Force both workers to
+            # exist before any timed wave so lifecycle cost is not mistaken
+            # for H2D submission cost.
+            barrier = threading.Barrier(TP_SIZE)
+            tuple(executor.map(lambda _owner: barrier.wait(), range(TP_SIZE)))
+            self._owner_h2d_executor = executor
+        return self._owner_h2d_executor
+
+    def _load_slot(self, slot: int, identity: ExpertIdentity, generation: int) -> None:
+        owner = identity.expert_id % TP_SIZE
+        staging_index = self._next_staging_by_owner[owner] % self.staging_depth
+        self._next_staging_by_owner[owner] += 1
+        prepared = self._prepare_slot_load(slot, identity, generation, staging_index)
+        elapsed = self._enqueue_prepared_h2d(prepared) + self._enqueue_prepared_d2d(prepared)
+        self._account_submitted((prepared,), elapsed)
+
+    def _load_slots_owner_partitioned(self, loads: tuple[tuple[int, ExpertIdentity, int], ...]) -> None:
+        prepare_started = time.perf_counter()
+        owner_offsets = [0] * TP_SIZE
+        prepared_rows = []
+        for load in loads:
+            owner = load[1].expert_id % TP_SIZE
+            prepared_rows.append(self._prepare_slot_load(*load, owner_offsets[owner] % self.staging_depth))
+            owner_offsets[owner] += 1
+        prepared = tuple(prepared_rows)
+        self._metrics.policy_prepare_seconds += time.perf_counter() - prepare_started
+
+        by_owner = tuple(sorted(prepared, key=lambda value: value.identity.expert_id % TP_SIZE))
+        submit_started = time.perf_counter()
+        h2d_seconds = 0.0
+        d2d_seconds = 0.0
+        if self.miss_wave_policy == "owner_partitioned":
+            for item in by_owner:
+                h2d_seconds += self._enqueue_prepared_h2d(item)
+                d2d_seconds += self._enqueue_prepared_d2d(item)
+        else:
+            # Coalescing must retain every owner payload until its later D2D.
+            # Refuse to alias staging rather than silently corrupt a slot.
+            required_depth = max(owner_offsets)
+            if required_depth > self.staging_depth:
+                raise ValueError(
+                    f"{self.miss_wave_policy} needs staging depth >= {required_depth} for this miss wave"
+                )
+            if self.miss_wave_policy == "owner_threaded":
+                owner_rows = tuple(
+                    tuple(item for item in by_owner if item.identity.expert_id % TP_SIZE == owner)
+                    for owner in range(TP_SIZE)
+                )
+
+                def enqueue_owner(rows):
+                    return sum(self._enqueue_prepared_h2d(item) for item in rows)
+
+                h2d_seconds = sum(self._owner_executor().map(enqueue_owner, owner_rows))
+            else:
+                h2d_seconds = sum(self._enqueue_prepared_h2d(item) for item in by_owner)
+            # Threaded work above is physical-owner H2D only. Peer-zero D2D is
+            # deliberately serialized here because each miss touches both
+            # devices, so per-owner D2D workers would not be device-disjoint.
+            d2d_seconds = sum(self._enqueue_prepared_d2d(item) for item in prepared)
+        self._account_submitted(prepared, h2d_seconds + d2d_seconds)
+        self._metrics.policy_submit_seconds += time.perf_counter() - submit_started
+        self._metrics.policy_h2d_submit_seconds += h2d_seconds
+        self._metrics.policy_d2d_submit_seconds += d2d_seconds
+        self._metrics.policy_waves += 1
+        self._metrics.policy_misses += len(prepared)
+        self._metrics.owner_0_misses += sum(item.identity.expert_id % TP_SIZE == 0 for item in prepared)
+        self._metrics.owner_1_misses += sum(item.identity.expert_id % TP_SIZE == 1 for item in prepared)
+
+    def probe_completed_owner_h2d(self, expert_id: int) -> dict[str, int | float]:
+        """Time only one packed owner shard's two H2D copies to completion.
+
+        Host lookup/packing happens before the timer.  No slot D2D, peer-zero
+        reset, directory/index update, mesh synchronization, or model work is
+        included.  A physical-device CQ0 event provides the completion edge,
+        and the byte denominator is the actual packed owner payload.
+        """
+
+        import ttnn
+
+        identity = ExpertIdentity(self.layer_idx, int(expert_id))
+        if not 0 <= identity.expert_id < EXPERTS:
+            raise ValueError(f"expert id {identity.expert_id} outside [0, {EXPERTS})")
+        with self._lock:
+            packed = self._host_packed(identity)
+            owner = identity.expert_id % TP_SIZE
+            staging = self.upload_by_rank[owner][0]
+            started = time.perf_counter()
+            ttnn.copy_host_to_device_tensor(packed[owner][0], staging.gate_up)
+            ttnn.copy_host_to_device_tensor(packed[owner][1], staging.down)
+            enqueued = time.perf_counter()
+            completion = ttnn.record_event(staging.gate_up.device(), 0)
+            ttnn.event_synchronize(completion)
+            completed = time.perf_counter()
+        elapsed = completed - started
+        return {
+            "expert_id": identity.expert_id,
+            "owner_rank": owner,
+            "owner_h2d_bytes": EXPERT_PACKED_BYTES_PER_RANK,
+            "enqueue_seconds": enqueued - started,
+            "completion_wait_seconds": completed - enqueued,
+            "completed_seconds": elapsed,
+            "completed_gb_per_second": EXPERT_PACKED_BYTES_PER_RANK / elapsed / 1e9,
+        }
+
+    def probe_completed_dual_owner_h2d(self, expert_ids: tuple[int, int] = (0, 1)) -> dict[str, int | float]:
+        """Time one independent packed H2D on each physical rank concurrently."""
+
+        import ttnn
+
+        identities = tuple(ExpertIdentity(self.layer_idx, int(expert_id)) for expert_id in expert_ids)
+        if tuple(identity.expert_id % TP_SIZE for identity in identities) != tuple(range(TP_SIZE)):
+            raise ValueError("dual-owner H2D probe needs one expert owned by rank 0 followed by one owned by rank 1")
+        if any(not 0 <= identity.expert_id < EXPERTS for identity in identities):
+            raise ValueError("dual-owner H2D probe expert id is out of range")
+        with self._lock:
+            packed = tuple(self._host_packed(identity) for identity in identities)
+
+            def enqueue_owner(owner: int) -> None:
+                staging = self.upload_by_rank[owner][0]
+                ttnn.copy_host_to_device_tensor(packed[owner][owner][0], staging.gate_up)
+                ttnn.copy_host_to_device_tensor(packed[owner][owner][1], staging.down)
+
+            started = time.perf_counter()
+            tuple(self._owner_executor().map(enqueue_owner, range(TP_SIZE)))
+            enqueued = time.perf_counter()
+            completions = tuple(
+                ttnn.record_event(self.upload_by_rank[owner][0].gate_up.device(), 0) for owner in range(TP_SIZE)
+            )
+            for completion in completions:
+                ttnn.event_synchronize(completion)
+            completed = time.perf_counter()
+        elapsed = completed - started
+        transferred_bytes = TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
+        return {
+            "rank_0_expert_id": identities[0].expert_id,
+            "rank_1_expert_id": identities[1].expert_id,
+            "owner_h2d_bytes": transferred_bytes,
+            "enqueue_seconds": enqueued - started,
+            "completion_wait_seconds": completed - enqueued,
+            "completed_seconds": elapsed,
+            "completed_gb_per_second": transferred_bytes / elapsed / 1e9,
+        }
 
     def ensure_wave(self, expert_ids: Iterable[int]) -> SlotPlan:
         with self._lock:
@@ -663,7 +1014,14 @@ class QwenDeviceExpertCache:
         if len(requested) != self.indexed_width:
             raise ValueError(f"indexed request needs {self.indexed_width} experts, got {len(requested)}")
         with self._lock:
-            plan = self.directory.ensure(self.layer_idx, requested, self._load_slot)
+            if self.miss_wave_policy != "serial":
+                plan = self.directory.ensure_batched(
+                    self.layer_idx,
+                    requested,
+                    self._load_slots_owner_partitioned,
+                )
+            else:
+                plan = self.directory.ensure(self.layer_idx, requested, self._load_slot)
             slot_by_expert = {
                 expert_id: slot
                 for slot, (expert_id, active) in enumerate(zip(plan.slot_expert_ids, plan.active_slots))
@@ -701,23 +1059,35 @@ class QwenDeviceExpertCache:
     def reset(self) -> None:
         self.directory.reset()
         self._published_indices = None
+        self._next_staging_by_owner = [0] * TP_SIZE
 
-    def metrics(self) -> dict[str, int | float]:
+    def metrics(self) -> dict[str, object]:
         return dataclasses.asdict(self._metrics) | {
             "capacity": self.capacity,
             "indexed_width": self.indexed_width,
             "device_bytes_per_rank": self.device_bytes_per_rank,
             "packed_host_entries": len(self._packed),
             "packed_host_bytes": self.packed_host_bytes,
+            "miss_wave_policy": self.miss_wave_policy,
+            "staging_depth": self.staging_depth,
+            "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
         }
 
     def close(self) -> None:
         import ttnn
 
+        if self._owner_h2d_executor is not None:
+            self._owner_h2d_executor.shutdown()
+            self._owner_h2d_executor = None
         if self.local_indices.is_allocated():
             ttnn.deallocate(self.local_indices)
-        for staging in self.upload_by_rank:
-            for tensor in (staging.gate_up, staging.down):
+        for rank_staging in self.upload_by_rank:
+            for staging in rank_staging:
+                for tensor in (staging.gate_up, staging.down):
+                    if tensor.is_allocated():
+                        ttnn.deallocate(tensor)
+        for zero in self.zero_by_rank:
+            for tensor in (zero.gate_up, zero.down):
                 if tensor.is_allocated():
                     ttnn.deallocate(tensor)
         for slot in self.slots:
@@ -953,11 +1323,20 @@ class PLEDeviceStaging:
         self.h2d_bytes = 0
         self.logical_h2d_bytes = 0
         self.h2d_seconds = 0.0
+        self.deferred_uploads = 0
+        self.completion_syncs = 0
+        # ``copy_host_to_device_tensor`` may outlive the Python call.  Retain
+        # the most recent packed host tensor until the next PLE service call;
+        # every PLE layer reaches an exact route-id read after consuming it,
+        # so that later call is a completion boundary without another fence.
+        self._pending_source = None
 
-    @staticmethod
-    def _upload_replicated(mesh_device, host: torch.Tensor, target) -> None:
+    def _upload_replicated(self, host: torch.Tensor, target) -> None:
         import ttnn
 
+        # The prior call's PLE projection and following MoE route read have
+        # completed on CQ0 before another row can be staged.
+        self._pending_source = None
         source = ttnn.from_torch(host, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
         shards = ttnn.get_device_tensors(target)
         if len(shards) != TP_SIZE:
@@ -966,7 +1345,8 @@ class PLEDeviceStaging:
         # parent mesh.  PLE is identical on both ranks, so one broadcast is the
         # intended TP2 transfer (expert shards deliberately use local D2D).
         ttnn.copy_host_to_device_tensor(source, shards[0])
-        ttnn.synchronize_device(mesh_device)
+        self._pending_source = source
+        self.deferred_uploads += 1
 
     def upload_prefill(self, embeddings: torch.Tensor, *, logical: int):
         host = torch.as_tensor(embeddings, dtype=torch.bfloat16, device="cpu")
@@ -978,7 +1358,7 @@ class PLEDeviceStaging:
         if logical != self.prefill_rows:
             host = torch.nn.functional.pad(host, (0, 0, 0, self.prefill_rows - logical))
         started = time.perf_counter()
-        self._upload_replicated(self.mesh_device, host, self.prefill)
+        self._upload_replicated(host, self.prefill)
         self.h2d_seconds += time.perf_counter() - started
         self.h2d_bytes += TP_SIZE * self.prefill_rows * PLE_EMBED_DIM * 2
         self.logical_h2d_bytes += TP_SIZE * logical * PLE_EMBED_DIM * 2
@@ -994,22 +1374,29 @@ class PLEDeviceStaging:
         if tuple(host.shape) != expected:
             raise ValueError(f"PLE decode staging expected {expected}, got {tuple(host.shape)}")
         started = time.perf_counter()
-        self._upload_replicated(self.mesh_device, host, self.decode)
+        self._upload_replicated(host, self.decode)
         self.h2d_seconds += time.perf_counter() - started
         self.h2d_bytes += TP_SIZE * self.max_batch * PLE_EMBED_DIM * 2
         self.logical_h2d_bytes += TP_SIZE * self.max_batch * PLE_EMBED_DIM * 2
         return self.decode
 
-    def metrics(self) -> dict[str, int | float]:
+    def metrics(self) -> dict[str, object]:
         return {
             "h2d_bytes": self.h2d_bytes,
             "logical_h2d_bytes": self.logical_h2d_bytes,
             "h2d_seconds": self.h2d_seconds,
+            "deferred_uploads": self.deferred_uploads,
+            "completion_syncs": self.completion_syncs,
+            "h2d_timing_scope": "host enqueue; completion is charged at the following exact route-id boundary",
         }
 
     def close(self) -> None:
         import ttnn
 
+        if self._pending_source is not None:
+            ttnn.synchronize_device(self.mesh_device)
+            self.completion_syncs += 1
+            self._pending_source = None
         for tensor in (self.prefill, self.decode):
             if tensor.is_allocated():
                 ttnn.deallocate(tensor)

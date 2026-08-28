@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="7.658" timestamp="2026-08-28T04:28:51.871038-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_full_model" name="test_reduced_real_weight_embedding_to_terminal_gather_smoke[blackhole-True-device_params0]" time="7.572"><properties><property name="start_timestamp" value="2026-08-28T04:28:51" /><property name="lm_head_policy" value="bfp4_lofi" /><property name="lm_head_configuration" value="{&quot;dram_cores&quot;: null, &quot;dram_sharded&quot;: false, &quot;fidelity&quot;: &quot;lofi&quot;, &quot;in0_block_w&quot;: null, &quot;input_memory_config&quot;: &quot;MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)&quot;, &quot;logits_dtype&quot;: &quot;bf16&quot;, &quot;per_core_n&quot;: null, &quot;per_dram_reader_n&quot;: null, &quot;physical_output_tiles&quot;: null, &quot;policy&quot;: &quot;bfp4_lofi&quot;, &quot;program_configs&quot;: [&quot;None&quot;, &quot;None&quot;, &quot;None&quot;, &quot;None&quot;], &quot;rank_slices&quot;: [[[0, 32768], [124160, 156928]], [[32768, 65536], [156928, 189696]], [[65536, 98304], [189696, 222464]], [[98304, 124160], [222464, 248320]]], &quot;split_sizes&quot;: [32768, 32768, 32768, 25856], &quot;weight_dtype&quot;: &quot;bfp4&quot;, &quot;weight_memory_configs&quot;: [&quot;MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)&quot;, &quot;MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)&quot;, &quot;MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)&quot;, &quot;MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)&quot;], &quot;worker_cores&quot;: null, &quot;worker_grid&quot;: null}" /><property name="lm_head_row_mean_seconds" value="0.0007257608553378045" /><property name="lm_head_pcc" value="0.9762449860572815" /><property name="lm_head_top5_overlap" value="4" /><property name="lm_head_top100_overlap" value="67" /><property name="lm_head_device_greedy" value="1798" /><property name="lm_head_device_topk_topp" value="210344" /><property name="lm_head_all_rows_shape" value="None" /><property name="end_timestamp" value="2026-08-28T04:28:59" /></properties><failure message="assert 0.9762449860572815 &gt;= 0.995">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x705dc1579740&gt;, 'l1_small_size': 24576, 'trace_region_size': 1073741824}
+record_property = &lt;function record_property.&lt;locals&gt;.append_property at 0x705dc15a14e0&gt;
+
+    @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+    def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_device, device_params, record_property):
+        """Isolate endpoint collectives and check real checkpoint top-k numerics."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        model = Qwen38FullModel(
+            snapshot=H.MODEL_SNAPSHOT,
+            hf_config=H.target_config(),
+            mesh_device=bh_1d_mesh_device,
+            max_batch=1,
+            max_seq_len=128,
+            layer_indices=(0,),
+            lm_head_policy=os.getenv("QWEN38_LM_HEAD_POLICY", "bfp8_hifi2"),
+        )
+        try:
+            state = model.new_batch_state([1], request_ids=("endpoint",))
+            model.copy_tokens(state, torch.tensor([17], dtype=torch.int64))
+            residual = model.embed_tokens(model.decode_token_input)
+            gathered = model.layers[-1].gather_residual(residual)
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            assert tuple(gathered.shape) == (1, 1, 1, 10_240)
+            ttnn.deallocate(gathered)
+    
+            hidden_tt = model.final_hidden(residual)
+            row_seconds = []
+            logits = None
+            for iteration in range(8):
+                started = time.perf_counter()
+                candidate = model.project_hidden_logits(hidden_tt)
+                ttnn.synchronize_device(bh_1d_mesh_device)
+                elapsed = time.perf_counter() - started
+                if iteration:
+                    row_seconds.append(elapsed)
+                if logits is not None:
+                    ttnn.deallocate(logits)
+                logits = candidate
+            tt_logits = model.logits_to_torch(logits).reshape(-1)
+            sampled = model.sample_logits(logits, state)
+            sampled_token = int(model.sampled_tokens_to_torch(sampled, state)[0])
+            model.set_sampling_params(top_k=5, top_p=0.9, temperature=0.8, seeds=[12_345])
+            sampled_topk = model.sample_logits(logits, state)
+            sampled_topk_token = int(model.sampled_tokens_to_torch(sampled_topk, state)[0])
+    
+            configuration = model.lm_head_configuration()
+            all_rows_shape = None
+            if configuration["dram_sharded"]:
+                hidden33 = ttnn.repeat(hidden_tt, (1, 1, 33, 1))
+                all_rows = model.project_hidden_logits(hidden33)
+                ttnn.synchronize_device(bh_1d_mesh_device)
+                all_rows_host = model.logits_to_torch(all_rows)
+                all_rows_shape = tuple(all_rows_host.shape)
+                assert all_rows_shape == (1, 1, 33, VOCAB_SIZE)
+                assert torch.equal(all_rows_host[..., 0, :], all_rows_host[..., -1, :])
+                ttnn.deallocate(all_rows)
+                ttnn.deallocate(hidden33)
+            ttnn.deallocate(hidden_tt)
+            ttnn.deallocate(residual)
+            ttnn.deallocate(logits)
+    
+            prefix = "model.language_model"
+            hidden = model.checkpoint.tensor(f"{prefix}.embed_tokens.weight")[17].float()
+            hyper = hidden.repeat(4)
+            groups = hyper.reshape(4, 2_560)
+            groups = groups * torch.rsqrt(groups.square().mean(-1, keepdim=True) + 1e-6)
+            norm_weight = model.checkpoint.tensor(f"{prefix}.hyper_connection_mixer.hc_norm.weight").float()
+            normed = groups.flatten() * (1.0 + norm_weight)
+            down = model.checkpoint.tensor(f"{prefix}.hyper_connection_mixer.input_mix_weight_down.weight").float()
+            up = model.checkpoint.tensor(f"{prefix}.hyper_connection_mixer.input_mix_weight_up.weight").float()
+            mixing = torch.sigmoid(
+                torch.nn.functional.linear(torch.nn.functional.silu(torch.nn.functional.linear(normed, down) / 4.0), up)
+            ).reshape(4, 2_560)
+            final_hidden = (mixing * normed.reshape(4, 2_560)).mean(0)
+            lm_head = model.checkpoint.tensor("lm_head.weight").float()
+            reference = torch.mv(lm_head, final_hidden)
+            centered_tt = tt_logits - tt_logits.mean()
+            centered_reference = reference - reference.mean()
+            pcc = float(
+                torch.dot(centered_tt, centered_reference)
+                / torch.sqrt(torch.dot(centered_tt, centered_tt) * torch.dot(centered_reference, centered_reference))
+            )
+            reference_top5 = set(torch.topk(reference, 5).indices.tolist())
+            reference_top100 = set(torch.topk(reference, 100).indices.tolist())
+            tt_top5 = torch.topk(tt_logits, 5).indices.tolist()
+            tt_top100 = torch.topk(tt_logits, 100).indices.tolist()
+            top5_overlap = len(reference_top5.intersection(tt_top5))
+            top100_overlap = len(reference_top100.intersection(tt_top100))
+            host_argmax = int(torch.argmax(tt_logits))
+            tt_top5_set = set(tt_top5)
+            row_mean = sum(row_seconds) / len(row_seconds)
+            print(
+                {
+                    "lm_head": configuration,
+                    "row_seconds": row_seconds,
+                    "row_mean_seconds": row_mean,
+                    "pcc": pcc,
+                    "top5_overlap": top5_overlap,
+                    "top100_overlap": top100_overlap,
+                    "device_token": sampled_token,
+                    "host_argmax": host_argmax,
+                    "device_topk_topp_token": sampled_topk_token,
+                    "all_rows_shape": all_rows_shape,
+                }
+            )
+            record_property("lm_head_policy", model.lm_head_policy)
+            record_property("lm_head_configuration", json.dumps(configuration, sort_keys=True))
+            record_property("lm_head_row_mean_seconds", row_mean)
+            record_property("lm_head_pcc", pcc)
+            record_property("lm_head_top5_overlap", top5_overlap)
+            record_property("lm_head_top100_overlap", top100_overlap)
+            record_property("lm_head_device_greedy", sampled_token)
+            record_property("lm_head_device_topk_topp", sampled_topk_token)
+            record_property("lm_head_all_rows_shape", str(all_rows_shape))
+&gt;           assert pcc &gt;= 0.995
+E           assert 0.9762449860572815 &gt;= 0.995
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py:238: AssertionError</failure></testcase></testsuite></testsuites>

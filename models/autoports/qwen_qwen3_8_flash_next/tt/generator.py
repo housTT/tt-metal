@@ -12,6 +12,7 @@ logit-based tests; it is never the measured token-out path.
 from __future__ import annotations
 
 import dataclasses
+import os
 import time
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -38,6 +39,7 @@ class GenerationMetrics:
     prefill_seconds: float = 0.0
     decode_capture_seconds: float = 0.0
     decode_step_seconds: list[float] = dataclasses.field(default_factory=list)
+    decode_step_breakdown: list[dict[str, object]] = dataclasses.field(default_factory=list)
     sampling_mode: str = "device"
     traced: bool = True
     teacher_forced: bool = False
@@ -52,7 +54,7 @@ class GenerationMetrics:
 
         steady = self.decode_step_seconds[1:] if len(self.decode_step_seconds) > 1 else self.decode_step_seconds
         total = sum(steady)
-        return {
+        report = {
             "ttft_seconds": self.ttft_seconds,
             "prefill_seconds": self.prefill_seconds,
             "decode_capture_seconds": self.decode_capture_seconds,
@@ -64,6 +66,21 @@ class GenerationMetrics:
             "traced": self.traced,
             "teacher_forced": self.teacher_forced,
         }
+        if self.decode_step_breakdown:
+            timeline = (
+                self.decode_step_breakdown[1:] if len(self.decode_step_breakdown) > 1 else self.decode_step_breakdown
+            )
+
+            def percentile(name: str, fraction: float) -> float:
+                values = sorted(float(row[name]) for row in timeline)
+                if not values:
+                    return 0.0
+                return values[min(len(values) - 1, int((len(values) - 1) * fraction + 0.5))]
+
+            report["decode_completed_wall_p50_seconds"] = percentile("completed_wall_seconds", 0.50)
+            report["decode_completed_wall_p95_seconds"] = percentile("completed_wall_seconds", 0.95)
+            report["decode_timeline"] = timeline
+        return report
 
 
 def _resolve_snapshot(model_dir: str | Path) -> Path:
@@ -526,17 +543,21 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             yield TokenResult(token=int(first[0]), text=self.tokenizer.decode([int(first[0])]))
 
         finished = torch.tensor([int(token) in EOS_TOKEN_IDS for token in first], dtype=torch.bool)
+        collect_decode_timeline = os.getenv("QWEN38_COLLECT_DECODE_TIMELINE") == "1"
         for step in range(1, max_new_tokens):
             if stop_on_eos and teacher is None and bool(torch.all(finished)):
                 break
+            host_before = self.model.host_service_totals() if collect_decode_timeline else None
             step_started = time.perf_counter()
             if sampling_mode == "device":
+                token_out_started = time.perf_counter()
                 next_tokens = self.decode_token_out(
                     feedback_host,
                     state=state,
                     enable_trace=enable_trace,
                     read_from_device=True,
                 )
+                token_out_seconds = time.perf_counter() - token_out_started
             else:
                 if enable_trace:
                     logits_tt = self.model.replay_model_only_traced(state, feedback_host.reshape(-1, 1))
@@ -561,8 +582,29 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                 else:
                     ttnn.plus_one(state.current_pos, skip_negative_entries=True)
                     ttnn.deallocate(logits_tt)
+                token_out_seconds = time.perf_counter() - step_started
+            sync_started = time.perf_counter()
             ttnn.synchronize_device(self.mesh_device)
-            metrics.decode_step_seconds.append(time.perf_counter() - step_started)
+            post_read_sync_seconds = time.perf_counter() - sync_started
+            completed_wall_seconds = time.perf_counter() - step_started
+            metrics.decode_step_seconds.append(completed_wall_seconds)
+            if collect_decode_timeline:
+                host_after = self.model.host_service_totals()
+                timing = dict(self.model.last_decode_timing or {})
+                submit_seconds = float(timing.get("total_submit_seconds", 0.0))
+                metrics.decode_step_breakdown.append(
+                    {
+                        "step": step,
+                        "completed_wall_seconds": completed_wall_seconds,
+                        "token_out_call_seconds": token_out_seconds,
+                        "compact_read_and_completion_seconds": max(0.0, token_out_seconds - submit_seconds),
+                        "post_read_sync_seconds": post_read_sync_seconds,
+                        "model_submit": timing,
+                        "host_service_delta": {
+                            key: float(host_after[key]) - float(host_before[key]) for key in host_after
+                        },
+                    }
+                )
             generated.append(next_tokens.clone())
             if teacher is not None:
                 self.model.copy_tokens(state, teacher[:, step])

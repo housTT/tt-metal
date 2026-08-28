@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import inspect
+import hashlib
 import json
 import os
 import time
@@ -24,8 +25,51 @@ from models.autoports.qwen_qwen3_8_flash_next.demo.full_model import (
 )
 from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
 from models.autoports.qwen_qwen3_8_flash_next.tt.generator import Qwen38Generator, build_generator
-from models.autoports.qwen_qwen3_8_flash_next.tt.model import REQUIRED_L1_SMALL_SIZE, VOCAB_SIZE, Qwen38FullModel
+from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import PLEDeviceStaging
+from models.autoports.qwen_qwen3_8_flash_next.tt.model import (
+    HIDDEN_SIZE,
+    LM_HEAD_POLICIES,
+    REQUIRED_L1_SMALL_SIZE,
+    VOCAB_SIZE,
+    Qwen38FullModel,
+    _lm_head_rank_slices,
+)
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import FABRIC_PACKET_BYTES, MultichipDecoder
+
+_SOURCE_DIGEST_PATHS = (
+    "tt/functional_decoder.py",
+    "tt/generator.py",
+    "tt/host_weight_cache.py",
+    "tt/model.py",
+    "tt/multichip_decoder.py",
+    "tt/optimized_decoder.py",
+    "tests/test_full_model.py",
+)
+
+
+def _source_provenance() -> dict[str, object]:
+    """Bind retained evidence to the exact dirty source bytes used by pytest."""
+
+    root = Path(__file__).parents[1]
+    digest = hashlib.sha256()
+    files = {}
+    for relative in _SOURCE_DIGEST_PATHS:
+        payload = (root / relative).read_bytes()
+        file_digest = hashlib.sha256(payload).hexdigest()
+        files[relative] = file_digest
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(payload)
+        digest.update(b"\0")
+    return {"algorithm": "sha256", "digest": digest.hexdigest(), "files": files}
+
+
+def _record_source_provenance(record_property) -> dict[str, object]:
+    provenance = _source_provenance()
+    record_property("source_digest_algorithm", provenance["algorithm"])
+    record_property("source_digest", provenance["digest"])
+    record_property("source_digest_files", json.dumps(provenance["files"], sort_keys=True))
+    return provenance
 
 
 def _device_params(*, trace_region_size=1_073_741_824, l1_small_size=REQUIRED_L1_SMALL_SIZE):
@@ -52,7 +96,50 @@ def test_generator_interface_and_policy_are_explicit():
     assert "ttnn.plus_one(state.current_pos" in source
     assert "Sampling1D" in source
     assert "argmax" not in inspect.getsource(Qwen38FullModel.decode_token_out_traced)
+    assert "synchronize_device" not in inspect.getsource(PLEDeviceStaging._upload_replicated)
     assert Qwen38Generator.required_device_params["l1_small_size"] == REQUIRED_L1_SMALL_SIZE
+
+
+def test_lm_head_dram_frontier_has_exact_vocab_and_tile_geometry():
+    """Keep every A/B point sampler-safe before touching weights or hardware."""
+
+    frontier = {name: policy for name, policy in LM_HEAD_POLICIES.items() if policy.dram_sharded}
+    assert tuple(frontier) == (
+        "bfp8_hifi2_dram_s1_c40",
+        "bfp8_hifi2_dram_s4_c40",
+        "bfp8_hifi2_dram_s5_c40",
+        "bfp8_hifi2_dram_s5_c40_b1",
+        "bfp8_hifi2_dram_s8_c40",
+        "bfp8_hifi2_dram_s10_c20",
+    )
+    expected_per_core_n = (97, 25, 20, 20, 13, 20)
+    local_vocab = VOCAB_SIZE // 2
+    for (name, policy), per_core_n in zip(frontier.items(), expected_per_core_n):
+        split_sizes = policy.split_sizes(32_768)
+        rank_slices = _lm_head_rank_slices(split_sizes)
+        assert policy.weight_dtype == "bfp8"
+        assert policy.fidelity == "hifi2"
+        assert sum(split_sizes) == local_vocab
+        assert all(split_size % 32 == 0 for split_size in split_sizes)
+        assert policy.worker_cores is not None
+        assert (HIDDEN_SIZE // 32) % policy.worker_cores == 0
+        assert ((HIDDEN_SIZE // 32) // policy.worker_cores) % policy.in0_block_w == 0
+        assert all(
+            (split_size // 32 + policy.worker_cores - 1) // policy.worker_cores == per_core_n
+            for split_size in split_sizes
+        )
+        if name != "bfp8_hifi2_dram_s1_c40":
+            assert per_core_n <= 25
+
+        offset = 0
+        for split_size, slices in zip(split_sizes, rank_slices):
+            assert slices == (
+                (offset, offset + split_size),
+                (local_vocab + offset, local_vocab + offset + split_size),
+            )
+            offset += split_size
+        assert offset == local_vocab
+    assert LM_HEAD_POLICIES["bfp4_lofi"].sampler_dtype == "bf16"
 
 
 def test_autoregressive_writer_emits_runner_contract(tmp_path):
@@ -73,9 +160,10 @@ def test_autoregressive_writer_emits_runner_contract(tmp_path):
 
 
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
-def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_device, device_params):
+def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_device, device_params, record_property):
     """Isolate endpoint collectives and check real checkpoint top-k numerics."""
 
+    _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -84,20 +172,50 @@ def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_devic
         max_batch=1,
         max_seq_len=128,
         layer_indices=(0,),
+        lm_head_policy=os.getenv("QWEN38_LM_HEAD_POLICY", "bfp8_hifi2"),
     )
     try:
-        model.copy_tokens(
-            model.new_batch_state([1], request_ids=("endpoint",)),
-            torch.tensor([17], dtype=torch.int64),
-        )
+        state = model.new_batch_state([1], request_ids=("endpoint",))
+        model.copy_tokens(state, torch.tensor([17], dtype=torch.int64))
         residual = model.embed_tokens(model.decode_token_input)
         gathered = model.layers[-1].gather_residual(residual)
         ttnn.synchronize_device(bh_1d_mesh_device)
         assert tuple(gathered.shape) == (1, 1, 1, 10_240)
         ttnn.deallocate(gathered)
 
-        logits = model.project_logits(residual)
+        hidden_tt = model.final_hidden(residual)
+        row_seconds = []
+        logits = None
+        for iteration in range(8):
+            started = time.perf_counter()
+            candidate = model.project_hidden_logits(hidden_tt)
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            elapsed = time.perf_counter() - started
+            if iteration:
+                row_seconds.append(elapsed)
+            if logits is not None:
+                ttnn.deallocate(logits)
+            logits = candidate
         tt_logits = model.logits_to_torch(logits).reshape(-1)
+        sampled = model.sample_logits(logits, state)
+        sampled_token = int(model.sampled_tokens_to_torch(sampled, state)[0])
+        model.set_sampling_params(top_k=5, top_p=0.9, temperature=0.8, seeds=[12_345])
+        sampled_topk = model.sample_logits(logits, state)
+        sampled_topk_token = int(model.sampled_tokens_to_torch(sampled_topk, state)[0])
+
+        configuration = model.lm_head_configuration()
+        all_rows_shape = None
+        if configuration["dram_sharded"]:
+            hidden33 = ttnn.repeat(hidden_tt, (1, 1, 33, 1))
+            all_rows = model.project_hidden_logits(hidden33)
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            all_rows_host = model.logits_to_torch(all_rows)
+            all_rows_shape = tuple(all_rows_host.shape)
+            assert all_rows_shape == (1, 1, 33, VOCAB_SIZE)
+            assert torch.equal(all_rows_host[..., 0, :], all_rows_host[..., -1, :])
+            ttnn.deallocate(all_rows)
+            ttnn.deallocate(hidden33)
+        ttnn.deallocate(hidden_tt)
         ttnn.deallocate(residual)
         ttnn.deallocate(logits)
 
@@ -116,10 +234,50 @@ def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_devic
         final_hidden = (mixing * normed.reshape(4, 2_560)).mean(0)
         lm_head = model.checkpoint.tensor("lm_head.weight").float()
         reference = torch.mv(lm_head, final_hidden)
+        centered_tt = tt_logits - tt_logits.mean()
+        centered_reference = reference - reference.mean()
+        pcc = float(
+            torch.dot(centered_tt, centered_reference)
+            / torch.sqrt(torch.dot(centered_tt, centered_tt) * torch.dot(centered_reference, centered_reference))
+        )
+        reference_top5 = set(torch.topk(reference, 5).indices.tolist())
         reference_top100 = set(torch.topk(reference, 100).indices.tolist())
+        tt_top5 = torch.topk(tt_logits, 5).indices.tolist()
         tt_top100 = torch.topk(tt_logits, 100).indices.tolist()
+        top5_overlap = len(reference_top5.intersection(tt_top5))
+        top100_overlap = len(reference_top100.intersection(tt_top100))
+        host_argmax = int(torch.argmax(tt_logits))
+        tt_top5_set = set(tt_top5)
+        row_mean = sum(row_seconds) / len(row_seconds)
+        print(
+            {
+                "lm_head": configuration,
+                "row_seconds": row_seconds,
+                "row_mean_seconds": row_mean,
+                "pcc": pcc,
+                "top5_overlap": top5_overlap,
+                "top100_overlap": top100_overlap,
+                "device_token": sampled_token,
+                "host_argmax": host_argmax,
+                "device_topk_topp_token": sampled_topk_token,
+                "all_rows_shape": all_rows_shape,
+            }
+        )
+        record_property("lm_head_policy", model.lm_head_policy)
+        record_property("lm_head_configuration", json.dumps(configuration, sort_keys=True))
+        record_property("lm_head_row_mean_seconds", row_mean)
+        record_property("lm_head_pcc", pcc)
+        record_property("lm_head_top5_overlap", top5_overlap)
+        record_property("lm_head_top100_overlap", top100_overlap)
+        record_property("lm_head_device_greedy", sampled_token)
+        record_property("lm_head_device_topk_topp", sampled_topk_token)
+        record_property("lm_head_all_rows_shape", str(all_rows_shape))
+        assert pcc >= 0.995
+        assert sampled_token == host_argmax
+        assert sampled_topk_token in tt_top5_set
+        assert top5_overlap >= 4
+        assert top100_overlap >= 98
         assert int(torch.argmax(tt_logits)) in reference_top100
-        assert len(reference_top100.intersection(tt_top100)) >= 98
     finally:
         model.close(best_effort=True)
 
@@ -438,6 +596,7 @@ def test_reduced_mixed_prompts_inactive_row_and_eager_decode(bh_1d_mesh_device, 
 def test_full_48_layer_batch32_eager_fixed_slots(bh_1d_mesh_device, device_params, record_property):
     """Prove the serving-facing eager cohort at the largest supported batch."""
 
+    _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -445,6 +604,10 @@ def test_full_48_layer_batch32_eager_fixed_slots(bh_1d_mesh_device, device_param
         mesh_device=bh_1d_mesh_device,
         max_batch=32,
         max_seq_len=4096,
+        # Full-model performance/Watcher gates exercise the selected model-load
+        # preload.  This capability test skips the host-only preload because it
+        # cannot affect device capacity, fixed-slot state, or eager semantics.
+        prepack_host_experts=False,
     )
     generator = Qwen38Generator(model, object())
     prompts = torch.full((32, 33), model.pad_token_id, dtype=torch.int64)
@@ -519,8 +682,8 @@ def test_full_48_layer_batch32_eager_fixed_slots(bh_1d_mesh_device, device_param
         record_property("active_slots", "0,31")
         record_property("prompt_lens", "1,33")
         record_property("repeated_active_outputs", first_output[[0, 31]].tolist())
-        record_property("planned_bytes_per_device", 23_558_946_904)
-        record_property("headroom_bytes_per_device", 10_666_573_736)
+        record_property("planned_bytes_per_device", 23_393_673_304)
+        record_property("headroom_bytes_per_device", 10_831_847_336)
     finally:
         generator.close()
 
@@ -648,6 +811,9 @@ def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_pa
         mesh_device=bh_1d_mesh_device,
         max_batch=1,
         max_seq_len=262_144,
+        # Exact packed-host residency is orthogonal to device context capacity
+        # and is proven by the selected full-model performance/Watcher gates.
+        prepack_host_experts=False,
     )
     try:
         assert model.is_full_stack
@@ -691,12 +857,26 @@ REFERENCE = Path(__file__).parents[1] / "doc/full_model/readiness_aime24_chat.re
 QUALITATIVE_REFERENCE = Path(__file__).parents[1] / "doc/full_model/qualitative_shared_suite.refpt"
 
 
+def _evidence_dir() -> Path:
+    """Keep later-stage refreshes from overwriting completed-stage evidence."""
+
+    output = Path(
+        os.getenv(
+            "QWEN38_EVIDENCE_DIR",
+            str(Path(__file__).parents[1] / "doc/full_model"),
+        )
+    )
+    output.mkdir(parents=True, exist_ok=True)
+    return output
+
+
 @pytest.mark.skipif(os.getenv("RUN_QWEN38_ACCURACY") != "1", reason="explicit full-stack accuracy gate")
 @pytest.mark.timeout(1800)
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
 def test_full_model_aime24_prefill_accuracy(bh_1d_mesh_device, device_params, record_property):
     from transformers import AutoTokenizer
 
+    _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -723,6 +903,7 @@ def test_full_model_aime24_prefill_accuracy(bh_1d_mesh_device, device_params, re
 def test_full_model_aime24_teacher_forcing_accuracy(bh_1d_mesh_device, device_params, record_property):
     from transformers import AutoTokenizer
 
+    _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -795,9 +976,10 @@ def test_full_model_eager_and_traced_teacher_prefix_match(bh_1d_mesh_device, dev
 @pytest.mark.skipif(os.getenv("RUN_QWEN38_ACCURACY") != "1", reason="explicit full-stack accuracy gate")
 @pytest.mark.timeout(1800)
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
-def test_full_model_aime24_autoregressive_quality(bh_1d_mesh_device, device_params):
+def test_full_model_aime24_autoregressive_quality(bh_1d_mesh_device, device_params, record_property):
     from transformers import AutoTokenizer
 
+    provenance = _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -809,7 +991,8 @@ def test_full_model_aime24_autoregressive_quality(bh_1d_mesh_device, device_para
     generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
     try:
         report = run_autoregressive(generator, REFERENCE, enable_trace=True)
-        output_dir = Path(__file__).parents[1] / "doc/full_model"
+        report["source_provenance"] = provenance
+        output_dir = _evidence_dir()
         write_report(report, output_dir / "aime24_autoregressive_100_report_final.json")
         write_autoregressive_artifacts(report, output_dir)
         print({"autoregressive": report})
@@ -827,6 +1010,7 @@ def test_full_model_shared_qualitative_suite(bh_1d_mesh_device, device_params, r
 
     from transformers import AutoTokenizer
 
+    provenance = _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -838,7 +1022,8 @@ def test_full_model_shared_qualitative_suite(bh_1d_mesh_device, device_params, r
     generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
     try:
         report = run_qualitative_suite(generator, QUALITATIVE_REFERENCE, enable_trace=True)
-        write_report(report, Path(__file__).parents[1] / "doc/full_model/qualitative_shared_suite_final.json")
+        report["source_provenance"] = provenance
+        write_report(report, _evidence_dir() / "qualitative_shared_suite_final.json")
         print({"qualitative_shared_suite": report})
         record_property("prompt_ids", ",".join(item["id"] for item in report["prompts"]))
         record_property("generation_length", report["metadata"]["generation_length"])
@@ -858,6 +1043,7 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
 
     from transformers import AutoTokenizer
 
+    provenance = _record_source_provenance(record_property)
     reference = torch.load(REFERENCE, map_location="cpu", weights_only=False)
     prompt = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)[:, :128]
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
@@ -867,6 +1053,8 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
         mesh_device=bh_1d_mesh_device,
         max_batch=1,
         max_seq_len=4096,
+        prepack_host_experts=os.getenv("QWEN38_PREPACK_ALL_EXPERTS", "1") == "1",
+        lm_head_policy=os.getenv("QWEN38_LM_HEAD_POLICY", "bfp8_hifi2"),
     )
     generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
     try:
@@ -885,10 +1073,32 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
         assert model.trace_replays == 126
         report = {
             "workload": {"batch": 1, "prompt_tokens": 128, "generated_tokens": 128},
+            "source_provenance": provenance,
             "metrics": generator.last_metrics.report(),
             "last_decode_timing": model.last_decode_timing,
+            "host_preload": model.host_preload_report,
             "runtime_fallback_audit": model.runtime_fallback_audit(generator.state),
         }
+        expert_metrics = tuple(report["runtime_fallback_audit"]["experts"].values())
+        report["host_service_totals"] = {
+            name: sum(float(metrics.get(name, 0)) for metrics in expert_metrics)
+            for name in (
+                "hits",
+                "misses",
+                "packed_host_hits",
+                "packed_host_misses",
+                "h2d_bytes",
+                "zero_d2d_bytes",
+                "source_pack_seconds",
+                "h2d_seconds",
+                "index_h2d_bytes",
+                "index_upload_seconds",
+                "deferred_dma_misses",
+                "dma_completion_syncs",
+            )
+        }
+        if "QWEN38_EVIDENCE_DIR" in os.environ:
+            write_report(report, _evidence_dir() / "full_model_performance.json")
         print({"full_model_performance": report})
         for key, value in report["metrics"].items():
             record_property(key, value)
@@ -896,6 +1106,8 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
             record_property(key, value)
         for key, value in report["runtime_fallback_audit"]["prohibited_host_work"].items():
             record_property(f"prohibited_{key}", value)
+        for key, value in report["host_service_totals"].items():
+            record_property(f"host_service_{key}", value)
         record_property("generator_host_sampling_compatibility_calls", generator.host_sampling_compatibility_calls)
         assert report["metrics"]["traced"] is True
         assert report["metrics"]["sampling_mode"] == "device"
@@ -912,6 +1124,7 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
 def test_full_model_cold_and_warm_chunked_prefill(bh_1d_mesh_device, device_params, record_property):
     """Repeat prompt128 through real expert/PLE stores without full host residency."""
 
+    _record_source_provenance(record_property)
     reference = torch.load(REFERENCE, map_location="cpu", weights_only=False)
     prompt = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)[:, :128]
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
@@ -921,6 +1134,7 @@ def test_full_model_cold_and_warm_chunked_prefill(bh_1d_mesh_device, device_para
         mesh_device=bh_1d_mesh_device,
         max_batch=1,
         max_seq_len=4096,
+        prepack_host_experts=False,
     )
     generator = Qwen38Generator(model, object())
 

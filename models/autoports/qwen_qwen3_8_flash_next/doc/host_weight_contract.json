@@ -7,10 +7,9 @@
   "declared_host_boundaries": {
     "expert_decode": [
       "D2H compact sorted top-10 expert ids from rank 0",
-      "mmap one exact checkpoint expert on each miss",
-      "pack the exact full-K BFP4 gate/up and down matrices on expert_id % 2 and exact zeros on the non-owner",
-      "H2D only missed owner/zero expert pairs through fixed per-rank staging",
-      "local D2D copy into fixed generation-checked slots"
+      "mmap and deterministically prepack every exact full-K BFP4 checkpoint expert once at full-model load; reduced/cold-warm validation may preserve lazy exact packing",
+      "H2D only the exact missed owner shard through fixed owner-rank staging",
+      "local D2D owner copy plus exact immutable-zero peer reset into fixed generation-checked slots"
     ],
     "expert_prefill": [
       "D2H compact unique routed expert ids",
@@ -22,6 +21,7 @@
       "CPU EOS-aware n-gram hash with isolated two-token request history",
       "mmap only selected BF16 table rows",
       "H2D exact assembled [batch, sequence, 2560] rows into stable staging",
+      "defer upload completion to the next exact consuming route boundary on CQ0 while retaining the host source",
       "PLE projection, gating, convolution, recurrence, and residual stay on TT"
     ],
     "forbidden": [
@@ -37,23 +37,47 @@
     "active_experts_per_token": 10,
     "device_slots_per_layer": 10,
     "upload_staging_experts_per_rank_per_layer": 1,
+    "immutable_zero_experts_per_rank_per_layer": 1,
     "packed_host_cache_experts_per_layer": 512,
     "packed_host_cache_bytes_per_layer_at_capacity": 1418342400,
     "packed_host_cache_bytes_full_stack_at_capacity": 68080435200,
+    "full_model_default_preload": "all 512 exact experts for each of 48 layers are packed at model load; 24,576 entries and 68,080,435,200 bytes",
+    "measured_preload_seconds": 240.97895782500564,
     "packed_host_zero_storage": "one shared exact-zero BFP4 rank shard per layer; cached experts retain only their exact owner shard",
     "parallelism": "EP2 deterministic owner expert_id % 2; shared expert remains TP2",
     "rank_local_gate_up_shape": [1, 1, 2560, 1280],
     "rank_local_down_shape": [1, 1, 640, 2560],
     "device_dtype": "BFP4_B",
     "packed_bytes_per_rank_per_expert": 2764800,
-    "device_bytes_per_rank_per_layer_including_staging": 30412800,
-    "device_bytes_per_rank_full_48_layer_stack": 1459814400,
-    "cold_decode_h2d_bytes_both_ranks": 55296000,
+    "device_bytes_per_rank_per_layer_including_staging": 33177600,
+    "device_bytes_per_rank_full_48_layer_stack": 1592524800,
+    "cold_decode_h2d_bytes_owner_only": 27648000,
+    "cold_decode_zero_d2d_bytes_non_owner": 27648000,
     "hit_decode_h2d_bytes": 0,
     "checkpoint_bf16_bytes_read_per_miss": 9830400,
     "replacement": "stable indexed generation-checked LRU slots for traced decode; deterministic generation-checked LRU waves for prefill",
-    "trace_index_contract": "a persistent replicated uint16 slot-index row changes router order without relocating hit expert weights; the back trace consumes stable slot addresses",
-    "failure_semantics": "publish a generation only after both ranks and projections upload; invalidate the slot on any failure"
+    "trace_index_contract": "a persistent replicated uint16 slot-index row changes router order without relocating hit expert weights; owner H2D, non-owner zero D2D, index publication, and the consuming back trace remain ordered on CQ0 with completion observed at the next compact route/token boundary",
+    "failure_semantics": "publish a generation only after the owner upload and exact non-owner D2D zero reset are successfully enqueued; invalidate on a submission failure, and surface asynchronous device failures at the next mandatory route/token completion boundary"
+  },
+  "host_staging_policy": {
+    "selected_miss_wave_policy": "serial",
+    "selected_staging_depth": 1,
+    "selected_creates_thread_pool": false,
+    "completed_cache_service_gbps": 6.820373,
+    "completed_cache_service_p50_ms": 4.051894,
+    "completed_cache_service_p95_ms": 4.077123,
+    "raw_x4_gbps_per_link": 7.876923,
+    "raw_two_link_gbps": 15.753846,
+    "pure_single_owner_gbps": 6.127343,
+    "pure_dual_owner_gbps": 6.497517,
+    "pure_dual_fraction_of_raw_two_link": 0.41244,
+    "refuted_exact_candidates": [
+      "serial staging depths 2 and 10",
+      "owner-partitioned depths 1, 2, and 10",
+      "owner-coalesced depth 10",
+      "owner-threaded depth 10 with a prestarted reused executor"
+    ],
+    "next_boundary": "native batched TTNN H2D submission with one call/event per physical owner; first require a pure-dual result materially above 6.497517 GB/s"
   },
   "ple_table": {
     "layer_zero_based": 1,
@@ -75,15 +99,19 @@
     "device_prefill_staging_shape": [1, 1, 128, 2560],
     "device_decode_staging_shape": [1, 1, 1, 2560],
     "device_staging_physical_bytes_per_rank": 819200
+    ,
+    "trace_completion_contract": "decode H2D enqueue is nonblocking; CQ0 ordering makes the following exact route-id read the completion boundary; close performs the only final mesh synchronization",
+    "selected_decode_deferred_uploads": 126,
+    "selected_decode_completion_syncs": 0
   },
   "full_stack_capacity": {
     "dram_bytes_per_device": 34225520640,
     "runtime_trace_reserve_bytes_per_device": 1073741824,
     "max_context_cache_bytes_per_device": 2340421632,
     "decoder_non_expert_weight_bytes_per_device": 3479858176,
-    "full_text_endpoint_weight_bytes_per_device": 1279016960,
-    "non_expert_weight_allowance_bytes_per_device": 4758875136,
-    "host_expert_cache_and_staging_bytes_per_device": 1459814400,
+    "full_text_endpoint_weight_bytes_per_device": 981032960,
+    "non_expert_weight_allowance_bytes_per_device": 4460891136,
+    "host_expert_cache_and_staging_bytes_per_device": 1592524800,
     "ple_staging_bytes_per_device": 819200,
     "canonical_decode_state_bytes_per_device": 260702208,
     "additional_prefill_user_state_bytes_per_device": 208928768,
@@ -94,19 +122,19 @@
     "shared_decode_workspace_l1_bytes_per_worker": 120832,
     "shared_decode_workspace_l1_actual_bytes_per_device": 12976128,
     "shared_decode_workspace_l1_bank_reserved_bytes_per_device": 13291520,
-    "planned_total_bytes_per_device": 10170438744,
-    "headroom_bytes_per_device": 24055081896,
+    "planned_total_bytes_per_device": 10005165144,
+    "headroom_bytes_per_device": 24220355496,
     "fits": true
   },
   "full_model_eager_batch32_seq4096_capacity": {
-    "planned_total_bytes_per_device": 23558946904,
-    "headroom_bytes_per_device": 10666573736,
+    "planned_total_bytes_per_device": 23393673304,
+    "headroom_bytes_per_device": 10831847336,
     "fits": true,
-    "evidence": "full_model/full48_batch32_eager_fixed_slots.xml",
+    "evidence": "optimized_full_model/final_frozen_batch32_and_context_capacity.xml",
     "scope": "All 48 host-backed layers and real generator endpoints, fixed batch 32 with active slots 0 and 31, 30 inactive rows, mixed prompt lengths 1 and 33, distinct page tables, two device-sampled eager decode tokens, reset, and request-history isolation."
   },
   "validation": {
-    "cpu_contract_tests": "12 exact host-cache/PLE/capacity cases plus the generator policy contract are included in the final 13-pass full-model current-source static matrix recorded in full_model/static_host_contracts_rereview.xml; the inherited optimized stage also retains its older 32-pass matrix in optimized_multichip_decoder/final_static_and_fallback.xml",
+    "cpu_contract_tests": "Exact host-cache/PLE/capacity cases plus multichip policy/fallback/non-aligned and generator contracts are included in the frozen-source 36-pass matrix recorded in optimized_full_model/final_frozen_static_contracts.xml",
     "expert_slot_cases": [
       "cold",
       "hit",
@@ -148,7 +176,11 @@
       "trace-allocation-tracked reduced and full-48 split token-out capture/replay with every younger allocation freed or marked safe before replay",
       "non-greedy top-k/top-p split trace with deterministic per-step seed publication, direct device token feedback, position coherence, changed/unchanged page tables, and sampled/greedy trace invalidation",
       "full 48-layer eager batch-32 fixed-slot generation with mixed non-aligned prompts, inactive rows, distinct page tables, repeated reset, and PLE request isolation",
-      "three-prompt 128-token exact-chat-template qualitative suite with fresh HF controls and traced on-device TT sampling"
+      "three-prompt 128-token exact-chat-template qualitative suite with fresh HF controls and traced on-device TT sampling",
+      "optimized full-model batch-1 128+128 token-out benchmark with aggregate expert/PLE boundary counters",
+      "optimized full-model batch-32 fixed-slot and 262,144-token construction gates",
+      "optimized full-model split greedy, top-k/top-p, mixed non-aligned prompt, inactive-row, and changed-only page-table gates",
+      "optimized full-model Watcher-clean 48-layer token-out and isolated GDN/PLE+GDN/QSA Tracy captures"
     ],
     "full_model_artifacts": [
       "full_model/aime24_teacher_99_l1_workspace_final.xml",
@@ -161,13 +193,32 @@
       "full_model/full48_batch32_eager_fixed_slots.xml",
       "full_model/qualitative_shared_suite_final.json",
       "full_model/static_host_contracts_rereview.xml",
-      "full_model/batch1_prompt128_generate128_performance_final.xml"
+      "full_model/batch1_prompt128_generate128_performance_final.xml",
+      "optimized_full_model/final_frozen_batch1_prompt128_generate128_no_timeline.xml",
+      "optimized_full_model/final_frozen_performance_no_timeline/full_model_performance.json",
+      "optimized_full_model/final_frozen_performance/full_model_performance.json",
+      "optimized_full_model/lazy_timeline/full_model_performance.json",
+      "optimized_full_model/autofix_cache_service_serial_depth1_same_source.xml",
+      "optimized_full_model/autofix_pure_completed_dual_owner_h2d_reused_executor.xml",
+      "optimized_full_model/final_frozen_cold_warm.xml",
+      "optimized_full_model/final_frozen_aime_prefill_teacher_autoreg.xml",
+      "optimized_full_model/final_frozen_accuracy/aime24_autoregressive_100_report_final.json",
+      "optimized_full_model/final_frozen_qualitative/qualitative_shared_suite_final.json",
+      "optimized_full_model/final_frozen_split_sampling_mixed_contracts.xml",
+      "optimized_full_model/final_frozen_sampler_strategy_ab.xml",
+      "optimized_full_model/final_frozen_batch32_and_context_capacity.xml",
+      "optimized_full_model/final_frozen_full48_watcher_alloc_tracker.xml",
+      "optimized_full_model/final_frozen_static_contracts.xml",
+      "optimized_full_model/final_frozen_profiler/perf_summary.json",
+      "optimized_full_model/final_frozen_lm_head_bfp8_hifi2.xml",
+      "optimized_full_model/lower_bound.csv",
+      "optimized_full_model/optimization_matrix.csv"
     ]
   },
-  "blocking_limitation": null,
+  "blocking_limitation": "No exact Python-level cache scheduling candidate improved selected serial depth 1. Reaching the raw two-link opportunity requires a native batched TTNN H2D submission/event boundary that the current Python cache API does not expose.",
   "measured_limitations": [
-    "Exact demand-loaded prefill is substantially slower than resident optimized prefill because a large routed-expert union is serviced in bounded waves.",
-    "Token decode does not speed up on TP2 after exact host service, canonical-state DRAM movement, gathers, and one or two fixed collectives are included.",
+    "Deterministically prepacking 24,576 exact host experts adds 240.979 seconds and 68,080,435,200 bytes to model load, but removes source packing from request TTFT and decode.",
+    "Selected token-out is 231.489929 ms/token against an optimistic 176.813899 ms/token physical lower bound. Pure concurrent-owner staging reaches 6.497517 GB/s, only 41.244% of the raw two-link ceiling; exact Python-level depth/grouping/coalescing/threading candidates were slower.",
     "Host-backed segmented token-out tracing is batch one; the all-48 host-backed eager fixed-slot path is validated at batch 32 and context 4096."
   ]
 }

@@ -6,13 +6,20 @@ from __future__ import annotations
 
 import inspect
 import os
+import time
 
 import pytest
 import torch
 
 import ttnn
 from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
-from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import Qwen38PLEHostStore, SafetensorCheckpoint
+from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import (
+    EXPERT_PACKED_BYTES_PER_RANK,
+    Qwen38ExpertHostSource,
+    Qwen38PLEHostStore,
+    QwenDeviceExpertCache,
+    SafetensorCheckpoint,
+)
 from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import HF_ADVERTISED_CONTEXT
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     FABRIC_PACKET_BYTES,
@@ -155,13 +162,13 @@ def test_multichip_class_and_memory_contract():
     assert plan.standard_bfp4_fits is False
     assert plan.max_bfp4_fraction == pytest.approx(0.4442310248480903)
     assert plan.max_compressed_bfp4_fraction == pytest.approx(0.2449097278071385)
-    assert plan.host_expert_cache_bytes == 1_459_814_400
+    assert plan.host_expert_cache_bytes == 1_592_524_800
     assert plan.ple_staging_bytes == 819_200
     assert plan.decode_state_bytes == 260_702_208
     assert plan.prefill_state_bytes == 208_928_768
     assert plan.all_runtime_state_bytes == 469_630_976
     assert plan.transient_l1_state_bytes_per_worker == 120_832
-    assert plan.host_backed_stack_bytes == 10_103_303_168
+    assert plan.host_backed_stack_bytes == 10_236_013_568
     assert plan.host_backed_stack_fits is True
 
 
@@ -376,9 +383,215 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
     assert H.pcc(expected, actual) >= 0.995
     assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
     metrics = host_backed.host_expert_cache.metrics()
-    assert metrics["misses"] >= 10 and metrics["h2d_bytes"] == metrics["misses"] * 5_529_600
-    assert metrics["device_bytes_per_rank"] == 30_412_800
+    assert metrics["misses"] >= 10 and metrics["h2d_bytes"] == metrics["misses"] * 2_764_800
+    assert metrics["zero_d2d_bytes"] == metrics["h2d_bytes"]
+    assert metrics["device_bytes_per_rank"] == 33_177_600
     host_backed.close_host_backing()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_HOST_DMA_BENCH") != "1",
+    reason="explicit completed owner-H2D bandwidth benchmark",
+)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device_params, record_property):
+    """Measure completed, not enqueue-only, exact expert-cache service."""
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    layer = MultichipDecoder.from_checkpoint_host_backed(
+        H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        layer_idx=0,
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+        packed_host_experts=512,
+    )
+    cache = layer.host_expert_cache
+    try:
+        preload = cache.preload_packed_host()
+        completed = []
+        for wave_index in range(20):
+            first = wave_index * 10
+            before = cache.metrics()
+            started = time.perf_counter()
+            cache.ensure_indexed(range(first, first + 10))
+            enqueued = time.perf_counter()
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            finished = time.perf_counter()
+            elapsed = finished - started
+            after = cache.metrics()
+            owner_bytes = int(after["h2d_bytes"] - before["h2d_bytes"])
+            assert owner_bytes == 10 * 2_764_800
+            assert int(after["zero_d2d_bytes"] - before["zero_d2d_bytes"]) == owner_bytes
+            completed.append(
+                {
+                    "wave": wave_index,
+                    "owner_h2d_bytes": owner_bytes,
+                    "enqueue_seconds": enqueued - started,
+                    "completion_wait_seconds": finished - enqueued,
+                    "completed_seconds": elapsed,
+                    "owner_gb_per_second": owner_bytes / elapsed / 1e9,
+                }
+            )
+        measured = completed[1:]
+        completed_seconds = sorted(row["completed_seconds"] for row in measured)
+        enqueue_seconds = sorted(row["enqueue_seconds"] for row in measured)
+        completion_wait_seconds = sorted(row["completion_wait_seconds"] for row in measured)
+        total_bytes = sum(row["owner_h2d_bytes"] for row in measured)
+        aggregate_bandwidth = total_bytes / sum(completed_seconds) / 1e9
+        p50_seconds = completed_seconds[(len(completed_seconds) - 1) // 2]
+        p95_seconds = completed_seconds[max(0, (95 * len(completed_seconds) + 99) // 100 - 1)]
+        enqueue_p50_seconds = enqueue_seconds[(len(enqueue_seconds) - 1) // 2]
+        enqueue_p95_seconds = enqueue_seconds[max(0, (95 * len(enqueue_seconds) + 99) // 100 - 1)]
+        wait_p50_seconds = completion_wait_seconds[(len(completion_wait_seconds) - 1) // 2]
+        wait_p95_seconds = completion_wait_seconds[
+            max(0, (95 * len(completion_wait_seconds) + 99) // 100 - 1)
+        ]
+        # Untimed exactness guard for both EP2 owners after the last completed
+        # wave. This catches staging alias/reordering errors without polluting
+        # any service sample above.
+        for expert_id in (198, 199):
+            slot_index, record = next(
+                (slot_index, record)
+                for slot_index, record in enumerate(cache.directory.records)
+                if record.valid and record.identity.expert_id == expert_id
+            )
+            exact = layer.host_expert_source.load(expert_id)
+            slot = cache.slots[slot_index]
+            for rank in range(2):
+                gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
+                down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
+                assert H.pcc(exact.gate_up_by_rank[rank], gate_host) >= 0.99
+                assert H.pcc(exact.down_by_rank[rank], down_host) >= 0.99
+        mean_bandwidth = aggregate_bandwidth
+        p50_bandwidth = 10 * EXPERT_PACKED_BYTES_PER_RANK / p50_seconds / 1e9
+        print(
+            {
+                "preload": preload,
+                "policy": cache.metrics()["miss_wave_policy"],
+                "staging_depth": cache.metrics()["staging_depth"],
+                "completed_cache_service": completed,
+                "cache_metrics": cache.metrics(),
+                "aggregate_owner_h2d_gb_per_second": aggregate_bandwidth,
+                "enqueue_p50_seconds": enqueue_p50_seconds,
+                "enqueue_p95_seconds": enqueue_p95_seconds,
+                "completion_wait_p50_seconds": wait_p50_seconds,
+                "completion_wait_p95_seconds": wait_p95_seconds,
+                "completed_p50_seconds": p50_seconds,
+                "completed_p95_seconds": p95_seconds,
+            }
+        )
+        record_property("completed_owner_h2d_mean_gb_per_second", mean_bandwidth)
+        record_property("completed_owner_h2d_p50_gb_per_second", p50_bandwidth)
+        record_property("cache_service_policy", cache.metrics()["miss_wave_policy"])
+        record_property("cache_service_staging_depth", cache.metrics()["staging_depth"])
+        record_property("cache_service_enqueue_p50_seconds", enqueue_p50_seconds)
+        record_property("cache_service_enqueue_p95_seconds", enqueue_p95_seconds)
+        record_property("cache_service_completion_wait_p50_seconds", wait_p50_seconds)
+        record_property("cache_service_completion_wait_p95_seconds", wait_p95_seconds)
+        record_property("completed_cache_service_p50_seconds", p50_seconds)
+        record_property("completed_cache_service_p95_seconds", p95_seconds)
+        record_property("completed_owner_h2d_waves", len(completed))
+        assert mean_bandwidth > 0
+    finally:
+        layer.close_host_backing()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_HOST_DMA_BENCH") != "1",
+    reason="explicit pure completed owner-H2D bandwidth benchmark",
+)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_host_backed_pure_completed_owner_h2d_bandwidth(bh_1d_mesh_device, device_params, record_property):
+    """Measure packed source-to-physical-staging H2D and its final event only."""
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    checkpoint = SafetensorCheckpoint(H.MODEL_SNAPSHOT)
+    source = Qwen38ExpertHostSource(checkpoint, layer_idx=0)
+    cache = QwenDeviceExpertCache(
+        bh_1d_mesh_device,
+        source,
+        capacity=10,
+        packed_host_capacity=32,
+        indexed_width=10,
+    )
+    try:
+        # One completed warmup per physical owner removes cache-construction
+        # residue from the measured CQ0 event boundary.
+        cache.probe_completed_owner_h2d(0)
+        cache.probe_completed_owner_h2d(1)
+        rows = [cache.probe_completed_owner_h2d(expert_id) for expert_id in range(2, 22)]
+        assert all(row["owner_h2d_bytes"] == EXPERT_PACKED_BYTES_PER_RANK for row in rows)
+        completed_seconds = sorted(float(row["completed_seconds"]) for row in rows)
+        total_bytes = sum(int(row["owner_h2d_bytes"]) for row in rows)
+        aggregate_bandwidth = total_bytes / sum(completed_seconds) / 1e9
+        p50_seconds = completed_seconds[(len(completed_seconds) - 1) // 2]
+        p95_seconds = completed_seconds[max(0, (95 * len(completed_seconds) + 99) // 100 - 1)]
+        print(
+            {
+                "pure_completed_owner_h2d": rows,
+                "aggregate_gb_per_second": aggregate_bandwidth,
+                "completed_p50_seconds": p50_seconds,
+                "completed_p95_seconds": p95_seconds,
+                "bytes_per_sample": EXPERT_PACKED_BYTES_PER_RANK,
+            }
+        )
+        record_property("pure_owner_h2d_aggregate_gb_per_second", aggregate_bandwidth)
+        record_property("pure_owner_h2d_completed_p50_seconds", p50_seconds)
+        record_property("pure_owner_h2d_completed_p95_seconds", p95_seconds)
+        assert aggregate_bandwidth > 0
+    finally:
+        cache.close()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_HOST_DMA_BENCH") != "1",
+    reason="explicit pure completed dual-owner H2D bandwidth benchmark",
+)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_host_backed_pure_completed_dual_owner_h2d_bandwidth(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """Measure only two concurrent source-to-physical-staging H2D transfers."""
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    checkpoint = SafetensorCheckpoint(H.MODEL_SNAPSHOT)
+    source = Qwen38ExpertHostSource(checkpoint, layer_idx=0)
+    cache = QwenDeviceExpertCache(
+        bh_1d_mesh_device,
+        source,
+        capacity=10,
+        packed_host_capacity=32,
+        indexed_width=10,
+    )
+    try:
+        cache.probe_completed_dual_owner_h2d((0, 1))
+        rows = [cache.probe_completed_dual_owner_h2d((2, 3)) for _ in range(20)]
+        transferred_bytes = 2 * EXPERT_PACKED_BYTES_PER_RANK
+        assert all(row["owner_h2d_bytes"] == transferred_bytes for row in rows)
+        completed_seconds = sorted(float(row["completed_seconds"]) for row in rows)
+        total_bytes = sum(int(row["owner_h2d_bytes"]) for row in rows)
+        aggregate_bandwidth = total_bytes / sum(completed_seconds) / 1e9
+        p50_seconds = completed_seconds[(len(completed_seconds) - 1) // 2]
+        p95_seconds = completed_seconds[max(0, (95 * len(completed_seconds) + 99) // 100 - 1)]
+        print(
+            {
+                "pure_completed_dual_owner_h2d": rows,
+                "aggregate_gb_per_second": aggregate_bandwidth,
+                "completed_p50_seconds": p50_seconds,
+                "completed_p95_seconds": p95_seconds,
+                "bytes_per_sample": transferred_bytes,
+            }
+        )
+        record_property("pure_dual_owner_h2d_aggregate_gb_per_second", aggregate_bandwidth)
+        record_property("pure_dual_owner_h2d_completed_p50_seconds", p50_seconds)
+        record_property("pure_dual_owner_h2d_completed_p95_seconds", p95_seconds)
+        assert aggregate_bandwidth > 0
+    finally:
+        cache.close()
 
 
 @pytest.mark.skipif(

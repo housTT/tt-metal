@@ -89,7 +89,7 @@ BFP4_TILE_BYTES = 576
 ROW_PARALLEL_ROLES = frozenset({"attn_out", "shared_down_proj"})
 HOST_EXPERT_SLOTS = 10
 HOST_PACKED_EXPERTS = 512
-FULL_STACK_EXPERT_CACHE_BYTES_PER_DEVICE = 48 * (HOST_EXPERT_SLOTS + 1) * EXPERT_PACKED_BYTES_PER_RANK
+FULL_STACK_EXPERT_CACHE_BYTES_PER_DEVICE = 48 * (HOST_EXPERT_SLOTS + 2) * EXPERT_PACKED_BYTES_PER_RANK
 PLE_STAGING_BYTES_PER_DEVICE = (128 + 32) * 2560 * 2
 # Persistent batch-one decode state is canonical in DRAM.  The exact optimized
 # L1 compute tensors are staged only while one layer executes, so the 36 GDN
@@ -161,7 +161,7 @@ class MultichipMemoryPlan:
 
     @property
     def host_expert_cache_bytes(self) -> int:
-        return 48 * (self.host_expert_slots + 1) * EXPERT_PACKED_BYTES_PER_RANK
+        return 48 * (self.host_expert_slots + 2) * EXPERT_PACKED_BYTES_PER_RANK
 
     @property
     def decode_state_bytes(self) -> int:
@@ -919,6 +919,7 @@ class MultichipDecoder(OptimizedDecoder):
         primary._host_route_ids = None
         primary._host_route_rows = None
         primary._host_logical_route_rows = None
+        primary._last_host_service_timing = None
         primary._host_boundary_active = False
         primary._host_segmented_trace_active = False
         primary.fractured_residual = fractured_residual
@@ -1854,12 +1855,22 @@ class MultichipDecoder(OptimizedDecoder):
     def service_decode_front(self, front: HostDecodeFront):
         """Declared D2H ids plus exact indexed expert service between TT segments."""
 
+        route_started = time.perf_counter()
         host = ttnn.to_torch(ttnn.get_device_tensors(front.route_ids)[0]).reshape(-1)
         route_ids = tuple(int(value) for value in host[: self.shapes.num_experts_per_tok].tolist())
+        route_seconds = time.perf_counter() - route_started
         if len(route_ids) != len(set(route_ids)):
             raise RuntimeError(f"router returned duplicate top-k expert ids: {route_ids}")
+        cache_started = time.perf_counter()
         plan = self.host_expert_cache.ensure_indexed(route_ids)
         self.host_expert_cache.validate(plan)
+        self._last_host_service_timing = {
+            # With nonblocking layer traces, this compact read is the exact TT
+            # completion boundary and therefore includes dependent back/front
+            # device work queued since the preceding boundary.
+            "route_read_and_tt_stall_seconds": route_seconds,
+            "cache_control_dma_submit_seconds": time.perf_counter() - cache_started,
+        }
         return route_ids, plan
 
     def _hyper_inject_preserve(self, hyper_input, block_output, injection):
@@ -2461,19 +2472,32 @@ class HostBackedSegmentedDecodeTrace:
                     raise ValueError("PLE inputs were passed to a layer without PLE")
 
                 front_started = time.perf_counter()
-                ttnn.execute_trace(self.layer.mesh_device, self.front_trace_id, cq_id=0, blocking=True)
+                # The compact route-id read in ``service_decode_front`` is the
+                # required completion boundary for this segment.  Submitting
+                # the trace nonblocking avoids an extra host wait before that
+                # read while preserving CQ0 ordering.
+                ttnn.execute_trace(self.layer.mesh_device, self.front_trace_id, cq_id=0, blocking=False)
                 front_seconds = time.perf_counter() - front_started
                 service_started = time.perf_counter()
                 route_ids, plan = self.layer.service_decode_front(self.front)
                 service_seconds = time.perf_counter() - service_started
+                service_timing = self.layer._last_host_service_timing
                 back_started = time.perf_counter()
-                ttnn.execute_trace(self.layer.mesh_device, self.back_trace_id, cq_id=0, blocking=True)
+                # The following layer's front trace is data-dependent and is
+                # submitted on the same command queue.  Its route-id read is
+                # the next completion boundary, so blocking here only adds an
+                # avoidable host/device round trip.  For the final layer, the
+                # terminal/sampling traces and compact token read preserve the
+                # same ordering.
+                ttnn.execute_trace(self.layer.mesh_device, self.back_trace_id, cq_id=0, blocking=False)
                 back_seconds = time.perf_counter() - back_started
             self.last_route_ids = route_ids
             self.last_timing = {
                 "ple_seconds": ple_seconds,
                 "front_trace_seconds": front_seconds,
                 "expert_service_seconds": service_seconds,
+                "route_read_and_tt_stall_seconds": float(service_timing["route_read_and_tt_stall_seconds"]),
+                "cache_control_dma_submit_seconds": float(service_timing["cache_control_dma_submit_seconds"]),
                 "back_trace_seconds": back_seconds,
                 "total_seconds": time.perf_counter() - started,
                 "expert_hits": len(plan.hits),
