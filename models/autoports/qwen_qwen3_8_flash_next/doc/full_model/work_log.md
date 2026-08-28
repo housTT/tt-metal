@@ -357,8 +357,11 @@ The first independent xhigh stage review returned `more-work-needed` for the
 unclassified trace-allocation warning, missing shared qualitative suite,
 unexercised non-greedy trace/seed path, and lack of all-48 batch>1 evidence.
 Every finding above was fixed with current-source artifacts before the fresh
-rereview. Final verdict and local commit SHAs are appended after review and
-commit. Nothing is pushed.
+rereview. The fresh independent `$stage-review` report is
+`STAGE_REVIEW.md`; its literal final verdict is `clean-pass` with no required
+work. The stage-owned implementation and evidence are committed locally as
+`8fca123037bb9e40de300a88671601a9f6e5364f` (`Add Qwen3.8 Flash Next full
+model`). Nothing is pushed.
 
 ## Declared limitations
 
