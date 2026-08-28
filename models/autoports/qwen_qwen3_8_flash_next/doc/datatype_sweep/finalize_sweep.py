@@ -531,7 +531,7 @@ def main() -> None:
         "rejection_reason",
     ]
     with (ROOT / "sweep_results.csv").open("w", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=csv_fields)
+        writer = csv.DictWriter(output, fieldnames=csv_fields, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             flat = {key: row.get(key) for key in csv_fields}
