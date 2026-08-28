@@ -844,3 +844,11 @@ nonblocking note was that the newest focused watcher rerun is capacity 1; the
 retained capacity-2 watcher artifact directly exercises and passes the
 promoted BFP4/LoFi DRAM15 policy. The full verdict is retained in
 `STAGE_REVIEW.md`.
+
+## Local commit
+
+The optimized-decoder implementation, tests, documentation, and retained
+evidence were committed locally as
+`f00119daaa7adbb65d36948f0e79de76dbf79f51`. The follow-up ledger-only commit
+is reported in the stage handoff because a commit cannot record its own SHA.
+No commit was pushed.
