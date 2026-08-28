@@ -2,7 +2,7 @@
 
 Status: implementation and all requested hardware gates are complete. The
 final fresh independent stage review returned `clean-pass`; the local stage
-commit is pending.
+implementation commit is recorded below.
 
 ## Scope and target
 
@@ -367,5 +367,7 @@ Limitations:
   0.998950699/1.0 to functional with bitwise decode; the original failure and
   refuted no-program-cache-clear control are both preserved.
 - Final fresh stage rereview after AutoFix: `clean-pass`.
-- Stage implementation commit: pending; never push.
-- Commit-ledger documentation commit: pending; never push.
+- Stage implementation commit:
+  `389f48ba6030b6d380aa3d214a03d25748e005cd`; never pushed.
+- Commit-ledger documentation commit: this docs-only follow-up; its SHA is
+  reported at handoff because a commit cannot contain its own SHA; never push.
