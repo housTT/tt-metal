@@ -156,6 +156,8 @@ class Qwen38ExpertHostSource:
         self.host_reads = 0
         self.host_bytes = 0
         self.read_seconds = 0.0
+        self._zero_gate_up = torch.zeros((1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE), dtype=torch.bfloat16)
+        self._zero_down = torch.zeros((1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE), dtype=torch.bfloat16)
         self._lock = threading.RLock()
 
     @property
@@ -189,8 +191,8 @@ class Qwen38ExpertHostSource:
         )
         down_full = down.transpose(0, 1).contiguous().reshape(1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE)
         owner = expert_id % TP_SIZE
-        gate_up_by_rank = tuple(gate_up if rank == owner else torch.zeros_like(gate_up) for rank in range(TP_SIZE))
-        down_by_rank = tuple(down_full if rank == owner else torch.zeros_like(down_full) for rank in range(TP_SIZE))
+        gate_up_by_rank = tuple(gate_up if rank == owner else self._zero_gate_up for rank in range(TP_SIZE))
+        down_by_rank = tuple(down_full if rank == owner else self._zero_down for rank in range(TP_SIZE))
 
         elapsed = time.perf_counter() - started
         with self._lock:
@@ -425,6 +427,8 @@ class ExpertCacheMetrics:
     h2d_bytes: int = 0
     source_pack_seconds: float = 0.0
     h2d_seconds: float = 0.0
+    index_h2d_bytes: int = 0
+    index_upload_seconds: float = 0.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -471,6 +475,7 @@ class QwenDeviceExpertCache:
         *,
         capacity: int = 10,
         packed_host_capacity: int = 64,
+        indexed_width: int = 10,
     ):
         import ttnn
 
@@ -479,6 +484,9 @@ class QwenDeviceExpertCache:
         self.layer_idx = source.layer_idx
         self.directory = ExpertSlotDirectory(capacity)
         self.capacity = int(capacity)
+        self.indexed_width = int(indexed_width)
+        if not 1 <= self.indexed_width <= self.capacity:
+            raise ValueError("indexed expert width must be positive and no larger than the device cache")
         self.packed_host_capacity = int(packed_host_capacity)
         if self.packed_host_capacity < 0:
             raise ValueError("packed host cache capacity cannot be negative")
@@ -531,7 +539,20 @@ class QwenDeviceExpertCache:
             mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
+        self._packed_zero = (
+            ttnn.from_torch(
+                source._zero_gate_up,
+                dtype=ttnn.bfloat4_b,
+                layout=ttnn.TILE_LAYOUT,
+            ),
+            ttnn.from_torch(
+                source._zero_down,
+                dtype=ttnn.bfloat4_b,
+                layout=ttnn.TILE_LAYOUT,
+            ),
+        )
         self._packed: OrderedDict[ExpertIdentity, tuple[tuple[object, object], tuple[object, object]]] = OrderedDict()
+        self._published_indices: tuple[int, ...] | None = tuple(range(self.capacity))
         self._metrics = ExpertCacheMetrics()
         self._lock = threading.RLock()
 
@@ -541,7 +562,9 @@ class QwenDeviceExpertCache:
 
     @property
     def packed_host_bytes(self) -> int:
-        return len(self._packed) * TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
+        # Every expert stores one exact owner shard and reuses one common
+        # packed-zero shard for its non-owner rank.
+        return (len(self._packed) + 1) * EXPERT_PACKED_BYTES_PER_RANK
 
     def waves(self, route_ids: Iterable[int]) -> tuple[tuple[int, ...], ...]:
         return self.directory.waves(route_ids)
@@ -556,14 +579,18 @@ class QwenDeviceExpertCache:
             return cached
         started = time.perf_counter()
         source = self.source.load(identity.expert_id)
+        owner = identity.expert_id % TP_SIZE
         ranks = []
         for rank in range(TP_SIZE):
-            ranks.append(
-                (
-                    ttnn.from_torch(source.gate_up_by_rank[rank], dtype=ttnn.bfloat4_b, layout=ttnn.TILE_LAYOUT),
-                    ttnn.from_torch(source.down_by_rank[rank], dtype=ttnn.bfloat4_b, layout=ttnn.TILE_LAYOUT),
+            if rank == owner:
+                ranks.append(
+                    (
+                        ttnn.from_torch(source.gate_up_by_rank[rank], dtype=ttnn.bfloat4_b, layout=ttnn.TILE_LAYOUT),
+                        ttnn.from_torch(source.down_by_rank[rank], dtype=ttnn.bfloat4_b, layout=ttnn.TILE_LAYOUT),
+                    )
                 )
-            )
+            else:
+                ranks.append(self._packed_zero)
         packed = tuple(ranks)
         self._metrics.packed_host_misses += 1
         self._metrics.source_pack_seconds += time.perf_counter() - started
@@ -583,16 +610,20 @@ class QwenDeviceExpertCache:
         down_shards = ttnn.get_device_tensors(target.down)
         if len(gate_shards) != TP_SIZE or len(down_shards) != TP_SIZE:
             raise RuntimeError("expert slots require exactly two device shards")
-        started = time.perf_counter()
-        for rank in range(TP_SIZE):
+
+        def upload_rank(rank: int) -> None:
             # A host copy to an extracted shard broadcasts through its parent
-            # mesh.  The dedicated physical staging tensor receives only this
-            # rank's TP shard, then a local D2D copy preserves the slot address.
+            # mesh. The dedicated physical staging tensor receives only this
+            # rank's TP shard, then local D2D preserves the slot address.
             staging = self.upload_by_rank[rank]
             ttnn.copy_host_to_device_tensor(packed[rank][0], staging.gate_up)
             ttnn.copy_host_to_device_tensor(packed[rank][1], staging.down)
             ttnn.copy(staging.gate_up, gate_shards[rank])
             ttnn.copy(staging.down, down_shards[rank])
+
+        started = time.perf_counter()
+        for rank in range(TP_SIZE):
+            upload_rank(rank)
         ttnn.synchronize_device(self.mesh_device)
         self._metrics.h2d_seconds += time.perf_counter() - started
         self._metrics.h2d_bytes += TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
@@ -617,15 +648,64 @@ class QwenDeviceExpertCache:
             self._metrics.evictions += len(plan.evictions)
             return plan
 
+    def ensure_indexed(self, expert_ids: Iterable[int]) -> SlotPlan:
+        """Keep experts in LRU slots and publish router-order slot indices.
+
+        The indexed sparse kernels consume a stable bank of slot addresses and
+        a small device-resident index row.  Updating that row lets a route hit
+        an expert in any resident slot, avoiding a weight reload solely because
+        router order changed between tokens.
+        """
+
+        import ttnn
+
+        requested = tuple(int(value) for value in expert_ids)
+        if len(requested) != self.indexed_width:
+            raise ValueError(f"indexed request needs {self.indexed_width} experts, got {len(requested)}")
+        with self._lock:
+            plan = self.directory.ensure(self.layer_idx, requested, self._load_slot)
+            slot_by_expert = {
+                expert_id: slot
+                for slot, (expert_id, active) in enumerate(zip(plan.slot_expert_ids, plan.active_slots))
+                if active
+            }
+            active_indices = tuple(slot_by_expert[expert_id] for expert_id in requested)
+            indices = active_indices + tuple(slot for slot in range(self.capacity) if slot not in active_indices)
+            if indices != self._published_indices:
+                started = time.perf_counter()
+                host_indices = ttnn.from_torch(
+                    torch.tensor(indices, dtype=torch.int16).reshape(1, 1, 1, -1),
+                    dtype=ttnn.uint16,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                )
+                index_shards = ttnn.get_device_tensors(self.local_indices)
+                if len(index_shards) != TP_SIZE:
+                    raise RuntimeError("expert route indices require exactly two device shards")
+                # Like PLE, the index row is replicated. A write through one
+                # mesh shard broadcasts the same compact row to both ranks and
+                # is ordered before the following back trace on CQ0.
+                ttnn.copy_host_to_device_tensor(host_indices, index_shards[0])
+                self._published_indices = indices
+                self._metrics.index_upload_seconds += time.perf_counter() - started
+                self._metrics.index_h2d_bytes += TP_SIZE * self.capacity * 2
+            self._metrics.requests += 1
+            self._metrics.waves += 1
+            self._metrics.hits += len(plan.hits)
+            self._metrics.misses += len(plan.misses)
+            self._metrics.evictions += len(plan.evictions)
+            return plan
+
     def validate(self, plan: SlotPlan) -> None:
         self.directory.validate(plan)
 
     def reset(self) -> None:
         self.directory.reset()
+        self._published_indices = None
 
     def metrics(self) -> dict[str, int | float]:
         return dataclasses.asdict(self._metrics) | {
             "capacity": self.capacity,
+            "indexed_width": self.indexed_width,
             "device_bytes_per_rank": self.device_bytes_per_rank,
             "packed_host_entries": len(self._packed),
             "packed_host_bytes": self.packed_host_bytes,

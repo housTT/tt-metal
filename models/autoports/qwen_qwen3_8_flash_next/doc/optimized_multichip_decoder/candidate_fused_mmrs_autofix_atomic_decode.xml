@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="1" skipped="0" tests="2" time="25.051" timestamp="2026-08-27T18:54:39.760026-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_qsa_output_fused_matmul_reduce_scatter[blackhole-True-decode-device_params0]" time="4.786"><properties><property name="start_timestamp" value="2026-08-27T18:54:39" /><property name="end_timestamp" value="2026-08-27T18:54:44" /></properties><failure message="RuntimeError: shape '[1, 1, 0, 10240]' is invalid for input of size 2560">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+mode = 'decode'
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mode", ("decode", "prefill"))
+    def test_qsa_output_fused_matmul_reduce_scatter(bh_1d_mesh_device, device_params, mode):
+        """Measure the model-applicable fused QSA output projection plus TP2 RS."""
+
+        if os.environ.get("QWEN38_MC_RUN_FUSED_CCL", "0") != "1":
+            pytest.skip("set QWEN38_MC_RUN_FUSED_CCL=1 for the fused matmul-CCL experiment")
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        layer = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=H.target_config(),
+            layer_idx=3,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=4096,
+        )
+        weight = layer.w["attn_out"]
+        m = 1 if mode == "decode" else 32
+        k_local = int(weight.shape[-2])
+        n = int(weight.shape[-1])
+        torch.manual_seed(2026)
+        x = _upload(torch.randn(1, 1, m, k_local, dtype=torch.bfloat16), mesh_device)
+        group = layer.weight_group_by_id[id(weight)]
+        compute_cfg = layer.projection_compute_cfgs[group]
+        ccl = TT_CCL(mesh_device)
+        ttnn.synchronize_device(mesh_device)
+
+        def sync_invoke():
+            partial = layer._linear_impl(x, weight, dtype=ttnn.bfloat16)
+            return (layer._reduce_scatter_block(partial),)
+
+        if mode == "decode":
+            program, ring_intermediate, persistent_output = build_mmrs_decode_state(
+                mesh_device,
+                m,
+                k_local,
+                n,
+                MultichipDecoder.TP_SIZE,
+                dtype=ttnn.bfloat16,
+            )
+            # Linear reduce-scatter carries the two endpoint directions in
+            # separate input-sized halves.  The Qwen36 helper's single-half
+            # buffer is the Ring contract, so allocate the model-applicable
+            # Linear persistent shape explicitly for this experiment.
+            ttnn.deallocate(ring_intermediate)
+            intermediate = _upload(torch.zeros(2, 1, m, n, dtype=torch.bfloat16), mesh_device)
+
+            def fused_invoke():
+                return (
+                    matmul_reduce_scatter_decode(
+                        x,
+                        weight,
+                        ccl,
+                        intermediate,
+                        persistent_output,
+                        program,
+                        compute_cfg,
+                        layer.collective_topology,
+                    ),
+                )
+
+        else:
+
+            def fused_invoke():
+                return (
+                    matmul_reduce_scatter_prefill(
+                        x,
+                        weight,
+                        ccl,
+                        compute_cfg,
+                        layer.collective_topology,
+                        MultichipDecoder.TP_SIZE,
+                        ttnn.bfloat16,
+                    ),
+                )
+
+        sync_output = sync_invoke()[0]
+        fused_output = fused_invoke()[0]
+        ttnn.synchronize_device(mesh_device)
+&gt;       sync_host = _fractured_host(sync_output)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:1395:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+tensor = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 6.6016e-01, -1.1953e+00,  ..., -2.5781e-01,  1.2891e+00]]]], sha...5e-03,  ...,  7.3438e-01,  2.6875e+00]]]], shape=Shape([1, 1, 1, 1280]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _fractured_host(tensor):
+        shards = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(tensor)]
+        grouped = torch.cat(shards, dim=-1)
+&gt;       return grouped.reshape(1, 1, grouped.shape[-2] // 4, 10240)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       RuntimeError: shape '[1, 1, 0, 10240]' is invalid for input of size 2560
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:100: RuntimeError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:54:40.943 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_qsa_output_fused_matmul_reduce_scatter[blackhole-True-prefill-device_params0]" time="20.201"><properties><property name="start_timestamp" value="2026-08-27T18:54:44" /><property name="end_timestamp" value="2026-08-27T18:55:04" /></properties><error message="failed on setup with &quot;RuntimeError: TT_THROW @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/llrt/llrt.cpp:594: tt::exception&#10;info:&#10;Device 0: Timed out while waiting for active ethernet core 28-25 to become active again. Try resetting the board. Minimum tt-firmware version is 18.10.0&#10;backtrace:&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xc7e028) [0x71ff29c7e028]&#10; --- tt::llrt::internal_::return_to_base_firmware_and_wait_for_heartbeat(int, tt::xy_pair const&amp;, int)&#10; --- tt::tt_metal::RiscFirmwareInitializer::assert_active_ethernet_cores_to_reset(int)&#10; --- tt::tt_metal::RiscFirmwareInitializer::teardown(std::unordered_set&lt;tt::tt_metal::InitializerKey, std::hash&lt;tt::tt_metal::InitializerKey&gt;, std::equal_to&lt;tt::tt_metal::InitializerKey&gt;, std::allocator&lt;tt::tt_metal::InitializerKey&gt; &gt;&amp;)&#10; --- tt::tt_metal::MetalContext::teardown()&#10; --- tt::tt_metal::MetalContext::initialize(tt::tt_metal::DispatchCoreConfig const&amp;, unsigned char, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, unsigned long, bool)&#10; --- tt::tt_metal::MetalContext::initialize_device_manager(std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned char, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long, bool, bool)&#10; --- tt::tt_metal::experimental::CreateDevices(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned char, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, unsigned long, bool, bool)&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::ScopedDevices::ScopedDevices(std::vector&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt;, std::allocator&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt; &gt; &gt; const&amp;, std::vector&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt;, std::allocator&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt; &gt; &gt; const&amp;, unsigned long, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;)&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x88f7fd) [0x71ff2d88f7fd]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x71ff2d3681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x3887) [0x1616a07]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1613100]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16125fe]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x2965) [0x1615ae5]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x71ff7442a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x71ff7442a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]&quot;">request = &lt;SubRequest 'bh_1d_mesh_device' for &lt;Function test_qsa_output_fused_matmul_reduce_scatter[blackhole-True-prefill-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole', silicon_arch_blackhole = True
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+
+    @pytest.fixture(scope="function")
+    def bh_1d_mesh_device(request, silicon_arch_name, silicon_arch_blackhole, device_params):
+        # Generic blackhole configuration
+        # This configures an [m,n] blackhole mesh device to appear as a [1,m*n] line or ring
+        # Implements wraparound in rackboxes
+        import ttnn
+
+        if ttnn.get_num_devices() not in [1, 2, 4, 8, 32]:
+            pytest.skip()
+
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+        updated_device_params = get_updated_device_params(device_params)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+
+&gt;       mesh_device = ttnn.open_mesh_device(
+            mesh_shape=ttnn.MeshShape(ttnn.get_num_devices(), 1),
+            **updated_device_params,
+        )
+
+conftest.py:750:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_shape = MeshShape([2, 1]), l1_small_size = 0, trace_region_size = 100000000
+num_command_queues = 1
+dispatch_core_config = &lt;ttnn.device.DispatchCoreConfig object at 0x71fed8772fd0&gt;
+offset = None, physical_device_ids = [], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+
+        """
+&gt;       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_THROW @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/llrt/llrt.cpp:594: tt::exception
+E       info:
+E       Device 0: Timed out while waiting for active ethernet core 28-25 to become active again. Try resetting the board. Minimum tt-firmware version is 18.10.0
+E       backtrace:
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xc7e028) [0x71ff29c7e028]
+E        --- tt::llrt::internal_::return_to_base_firmware_and_wait_for_heartbeat(int, tt::xy_pair const&amp;, int)
+E        --- tt::tt_metal::RiscFirmwareInitializer::assert_active_ethernet_cores_to_reset(int)
+E        --- tt::tt_metal::RiscFirmwareInitializer::teardown(std::unordered_set&lt;tt::tt_metal::InitializerKey, std::hash&lt;tt::tt_metal::InitializerKey&gt;, std::equal_to&lt;tt::tt_metal::InitializerKey&gt;, std::allocator&lt;tt::tt_metal::InitializerKey&gt; &gt;&amp;)
+E        --- tt::tt_metal::MetalContext::teardown()
+E        --- tt::tt_metal::MetalContext::initialize(tt::tt_metal::DispatchCoreConfig const&amp;, unsigned char, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, unsigned long, bool)
+E        --- tt::tt_metal::MetalContext::initialize_device_manager(std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned char, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long, bool, bool)
+E        --- tt::tt_metal::experimental::CreateDevices(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned char, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::vector&lt;unsigned int, std::allocator&lt;unsigned int&gt; &gt; const&amp;, unsigned long, bool, bool)
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::ScopedDevices::ScopedDevices(std::vector&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt;, std::allocator&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt; &gt; &gt; const&amp;, std::vector&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt;, std::allocator&lt;tt::tt_metal::distributed::MaybeRemote&lt;int&gt; &gt; &gt; const&amp;, unsigned long, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;)
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x88f7fd) [0x71ff2d88f7fd]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x71ff2d3681b4]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x3887) [0x1616a07]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1613100]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16125fe]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x2965) [0x1615ae5]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x71ff7442a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x71ff7442a28b]
+E        --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/distributed/distributed.py:671: RuntimeError</error><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:54:44.599 | INFO     | conftest:pytest_runtest_teardown:1213 - In custom teardown, open device ids: {0, 1}
+
+</system-err></testcase></testsuite></testsuites>

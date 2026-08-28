@@ -49,6 +49,10 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import Optimi
 
 TP_SIZE = 2
 TARGET_MESH = (1, 2)
+# The mesh must be opened with this router payload before constructing a
+# decoder; the hardware tests and context contract expose the same setting.
+COLLECTIVE_NUM_LINKS = 2
+FABRIC_PACKET_BYTES = 8192
 RESIDUAL_SHARD_WIDTH = 1280
 DRAM_BYTES_PER_DEVICE = 34_225_520_640
 RUNTIME_RESERVE_BYTES = 1 << 30
@@ -82,9 +86,9 @@ BFP2_TILE_BYTES = 320
 BFP4_TILE_BYTES = 576
 # BF16 row-parallel partials retain the PCC gate while halving QSA collective
 # payload versus FP32 partials.
-ROW_PARALLEL_ROLES = frozenset()
+ROW_PARALLEL_ROLES = frozenset({"attn_out", "shared_down_proj"})
 HOST_EXPERT_SLOTS = 10
-HOST_PACKED_EXPERTS = 16
+HOST_PACKED_EXPERTS = 512
 FULL_STACK_EXPERT_CACHE_BYTES_PER_DEVICE = 48 * (HOST_EXPERT_SLOTS + 1) * EXPERT_PACKED_BYTES_PER_RANK
 PLE_STAGING_BYTES_PER_DEVICE = (128 + 32) * 2560 * 2
 # Persistent batch-one decode state is canonical in DRAM.  The exact optimized
@@ -719,12 +723,15 @@ class MultichipDecoder(OptimizedDecoder):
 
     TP_SIZE = TP_SIZE
     TARGET_MESH = TARGET_MESH
+    COLLECTIVE_NUM_LINKS = COLLECTIVE_NUM_LINKS
+    FABRIC_PACKET_BYTES = FABRIC_PACKET_BYTES
     OPTIMIZATION_MANIFEST = OptimizedDecoder.OPTIMIZATION_MANIFEST + (
         "p300_1x2_tensor_parallel_heads_and_experts",
         "rank_local_paged_kv_cache",
         "replicated_indexer_selection",
         "persistent_within_stream_fractured_residual",
         "qsa_and_moe_output_reduce_scatter",
+        "two_link_8192_byte_fabric_payload",
         "gdn_output_column_parallel",
         "distributed_hyperconnection_rmsnorm_and_projections",
         "exact_checkpoint_host_expert_cache",
@@ -784,6 +791,12 @@ class MultichipDecoder(OptimizedDecoder):
         host_expert_source = kwargs.pop("host_expert_source", None)
         expert_cache_slots = int(kwargs.pop("expert_cache_slots", HOST_EXPERT_SLOTS))
         packed_host_experts = int(kwargs.pop("packed_host_experts", HOST_PACKED_EXPERTS))
+        collective_num_links = int(kwargs.pop("collective_num_links", COLLECTIVE_NUM_LINKS))
+        if collective_num_links not in (1, 2):
+            raise ValueError("P300 TP2 collective_num_links must be 1 or 2")
+        row_parallel_dtype = kwargs.pop("row_parallel_dtype", "bf16")
+        if row_parallel_dtype not in {"bf16", "fp32"}:
+            raise ValueError("row_parallel_dtype must be 'bf16' or 'fp32'")
         ple_store = kwargs.pop("ple_store", None)
         decode_state_workspace = kwargs.pop("decode_state_workspace", None)
         fractured_residual = bool(kwargs.pop("fractured_residual", True))
@@ -824,7 +837,11 @@ class MultichipDecoder(OptimizedDecoder):
         # Disable incompatible global-width configs for local QSA projections;
         # sparse MoE gets the legal TP-local geometry below.
         if is_qsa:
-            local_kwargs.setdefault("decode_1d_config", "")
+            # Decode is M=1, so keep both dominant QSA projections width
+            # sharded on their legal TP-local grids.  This avoids an
+            # interleaved activation round trip without changing the
+            # fractured inter-layer residual ABI or public logical shape.
+            local_kwargs.setdefault("decode_1d_config", "qsa_input:110,attn_out:20")
             local_kwargs.setdefault("prefill_config", "")
             local_kwargs.setdefault("dram_sharded_role", "")
             # This exact optimized-baseline candidate already clears QSA PCC
@@ -835,7 +852,12 @@ class MultichipDecoder(OptimizedDecoder):
             # The optimized auxiliary DRAM-sharded weights preserve the
             # pre-fracture full width.  The fixed S topology instead owns
             # compact local weights and must never select those stale copies.
-            local_kwargs["dram_sharded_role"] = ""
+            requested_dram_roles = {
+                role.strip() for role in local_kwargs.get("dram_sharded_role", "").split(",") if role.strip()
+            }
+            if requested_dram_roles - {"qsa_input", "attn_out"}:
+                raise ValueError("fractured residual supports DRAM sharding only for qsa_input and attn_out")
+            local_kwargs.setdefault("dram_sharded_role", "")
         local_kwargs.setdefault(
             "optimization_policy",
             "expert_bfp4_lofi_g40b16_d40b5" if expert_parallel else "expert_bfp4_lofi_g20b16_d40b5",
@@ -887,7 +909,8 @@ class MultichipDecoder(OptimizedDecoder):
         primary.tp_size = TP_SIZE
         primary.collective_topology = ttnn.Topology.Linear
         primary.collective_axis = 1
-        primary.collective_num_links = 1
+        primary.collective_num_links = collective_num_links
+        primary.row_parallel_dtype = row_parallel_dtype
         primary.memory_plan = MultichipMemoryPlan()
         primary.host_expert_source = host_expert_source
         primary.host_expert_cache = None
@@ -1292,7 +1315,7 @@ class MultichipDecoder(OptimizedDecoder):
         route_ids = self._read_compact_route_ids()
         if len(route_ids) != s.num_experts_per_tok:
             raise RuntimeError(f"decode selected {len(route_ids)} unique experts, expected {s.num_experts_per_tok}")
-        plan = self.host_expert_cache.ensure_ordered(route_ids)
+        plan = self.host_expert_cache.ensure_indexed(route_ids)
         self.host_expert_cache.validate(plan)
         if self._decode_expert_weights is None:
             raise RuntimeError("host indexed decode is missing selected route weights")
@@ -1305,15 +1328,24 @@ class MultichipDecoder(OptimizedDecoder):
         return output
 
     def _routed_experts_indexed_ready(self, x, route_weights):
-        """TT-only indexed expert graph for already serviced ordered slots."""
+        """TT-only indexed expert graph for already serviced stable slots."""
 
         s = self.shapes
-        ordered_slots = self.host_expert_cache.slots[: s.num_experts_per_tok]
-        gate_up_bank = ttnn.concat([slot.gate_up for slot in ordered_slots], dim=1)
-        down_bank = ttnn.concat([slot.down for slot in ordered_slots], dim=1)
+        stable_slots = self.host_expert_cache.slots
+        gate_up_bank = ttnn.concat([slot.gate_up for slot in stable_slots], dim=1)
+        down_bank = ttnn.concat([slot.down for slot in stable_slots], dim=1)
         local_indices = self.host_expert_cache.local_indices
+        cache_capacity = self.host_expert_cache.capacity
+        if cache_capacity == s.num_experts_per_tok:
+            padded_route_weights = route_weights
+        else:
+            padded_route_weights = ttnn.pad(
+                route_weights,
+                [(0, 0), (0, 0), (0, 0), (0, cache_capacity - s.num_experts_per_tok)],
+                0.0,
+            )
         grouped_x = ttnn.reshape(x, (1, 1, 32, s.hidden_size))
-        sparsity = ttnn.to_layout(route_weights, ttnn.ROW_MAJOR_LAYOUT)
+        sparsity = ttnn.to_layout(padded_route_weights, ttnn.ROW_MAJOR_LAYOUT)
         gate_up_sparse = ttnn.sparse_matmul(
             grouped_x,
             gate_up_bank,
@@ -1328,7 +1360,7 @@ class MultichipDecoder(OptimizedDecoder):
             dtype=ttnn.bfloat16,
         )
         _functional_decoder._free(grouped_x, x, gate_up_sparse)
-        gate_up = ttnn.reshape(gate_up_sparse, (1, s.num_experts_per_tok, 32, 2 * s.moe_intermediate_size))
+        gate_up = ttnn.reshape(gate_up_sparse, (1, cache_capacity, 32, 2 * s.moe_intermediate_size))
         _functional_decoder._free(gate_up_sparse, gate_up)
         gate = self._slice_last(gate_up, 0, s.moe_intermediate_size)
         up = self._slice_last(gate_up, s.moe_intermediate_size, 2 * s.moe_intermediate_size)
@@ -1336,10 +1368,12 @@ class MultichipDecoder(OptimizedDecoder):
         hidden = ttnn.multiply(gate, up, input_tensor_a_activations=[ttnn.UnaryOpType.SILU])
         ttnn.deallocate(gate)
         ttnn.deallocate(up)
-        selected_weights = ttnn.permute(route_weights, (0, 3, 2, 1))
+        selected_weights = ttnn.permute(padded_route_weights, (0, 3, 2, 1))
         weighted_hidden = ttnn.multiply(hidden, selected_weights)
         ttnn.deallocate(hidden)
-        _functional_decoder._free(selected_weights, route_weights, weighted_hidden)
+        _functional_decoder._free(selected_weights, padded_route_weights, weighted_hidden)
+        if padded_route_weights is not route_weights:
+            _functional_decoder._free(padded_route_weights, route_weights, weighted_hidden)
         down = ttnn.sparse_matmul(
             weighted_hidden,
             down_bank,
@@ -1624,7 +1658,7 @@ class MultichipDecoder(OptimizedDecoder):
 
     def _linear(self, x, weight, *, dtype=ttnn.bfloat16):
         role = self.weight_role_by_id.get(id(weight))
-        if role in ROW_PARALLEL_ROLES and dtype == ttnn.bfloat16:
+        if self.row_parallel_dtype == "fp32" and role in ROW_PARALLEL_ROLES and dtype == ttnn.bfloat16:
             dtype = ttnn.float32
         return self._linear_impl(x, weight, dtype=dtype)
 
@@ -1811,13 +1845,13 @@ class MultichipDecoder(OptimizedDecoder):
         return self._decode_router_host(attention)
 
     def service_decode_front(self, front: HostDecodeFront):
-        """Declared D2H ids plus exact ordered expert H2D between TT segments."""
+        """Declared D2H ids plus exact indexed expert service between TT segments."""
 
         host = ttnn.to_torch(ttnn.get_device_tensors(front.route_ids)[0]).reshape(-1)
         route_ids = tuple(int(value) for value in host[: self.shapes.num_experts_per_tok].tolist())
         if len(route_ids) != len(set(route_ids)):
             raise RuntimeError(f"router returned duplicate top-k expert ids: {route_ids}")
-        plan = self.host_expert_cache.ensure_ordered(route_ids)
+        plan = self.host_expert_cache.ensure_indexed(route_ids)
         self.host_expert_cache.validate(plan)
         return route_ids, plan
 
@@ -1838,7 +1872,7 @@ class MultichipDecoder(OptimizedDecoder):
         return out
 
     def _decode_back_host(self, front: HostDecodeFront):
-        """TT trace segment from fixed ordered expert slots to layer output."""
+        """TT trace segment from fixed indexed expert slots to layer output."""
 
         routed = self._routed_experts_indexed_ready(front.work, front.route_weights)
         local = ttnn.add(routed, front.shared)

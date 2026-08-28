@@ -1,0 +1,15 @@
+Command:
+  source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+  torch.empty((128, 2560), dtype=torch.bfloat16, pin_memory=True)
+
+Result:
+  torch=2.11.0+cpu
+  pin_memory_success=False
+  error_type=RuntimeError
+  error=pin_memory=True requires a CUDA or other accelerator backend; no pinned memory allocator is available on this system.
+
+Conclusion:
+  The installed CPU-only torch build exposes no pinned-host allocator. The
+  selected path therefore keeps exact contiguous CPU staging and lets the TT
+  runtime own host-to-device transfer staging; it must not pretend pageable
+  torch storage is pinned.

@@ -1,0 +1,33 @@
+Qwen3.8-Flash-Next adapted async-CCL evidence recovery
+Date: 2026-08-27 America/New_York
+
+The three passing JUnit files are retained, but their original pytest
+invocations used `-s` without `junit_logging=all`, so the passing shells do not
+embed stdout. The exact command and result records below were recovered
+byte-for-byte from the local Codex session transcript that created those XMLs:
+
+  /home/ttuser/.codex/sessions/2026/08/27/rollout-2026-08-27T17-54-22-01a04537-8940-7630-8870-6e9956c2e42e.jsonl
+
+Adapted async, transcript records 775 and 784:
+  command record SHA-256: 4bad709422e4bd58eaf64943bb2e24f03507438120d1d7ce0ce46fd01fcf78a7
+  output record SHA-256:  5e42132f738d019ba7a5e8b5f82510a30ada133238c94eb33e46e5aa6e506abe
+  command: source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh && export TT_VISIBLE_DEVICES=0,1 && export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto && export QWEN38_MC_PERF_LAYERS=0 && export QWEN38_MC_PERF_DECODE_REPLAYS=10 && export QWEN38_MC_COLLECTIVE_MODE=async && pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py::test_host_backed_warmed_prefill_and_segmented_decode --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/optimized_multichip_decoder/candidate_async_ccl_adapted_layer0.xml
+  result: MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.606673 host_prefill_ms=161.128189 baseline_traced_decode_ms=1.108342 host_segmented_decode_ms=4.824999 host_decode_p50_ms=2.646448 speedup=0.229708 efficiency=0.114854 ple_ms=0.000000 front_trace_ms=1.182002 expert_service_ms=3.226882 back_trace_ms=0.408039 expert_requests=47 expert_hits=119 expert_misses=343 h2d_bytes=1896652800 decode_replays=10
+
+Contemporaneous synchronous control, transcript records 788 and 796:
+  command record SHA-256: c2e9fb5d7a69b719ff69ec0908ba5a71861d1f38c0301a580aa85e5097b9a841
+  output record SHA-256:  d50fad463d4c1386840d57b097d8e3264deca16a4f4471f099c35ce93502c3f2
+  command: source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh && export TT_VISIBLE_DEVICES=0,1 && export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto && export QWEN38_MC_PERF_LAYERS=0 && export QWEN38_MC_PERF_DECODE_REPLAYS=10 && export QWEN38_MC_COLLECTIVE_MODE=sync && pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py::test_host_backed_warmed_prefill_and_segmented_decode --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/optimized_multichip_decoder/candidate_async_ccl_sync_control_layer0.xml
+  result: MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.595847 host_prefill_ms=157.879783 baseline_traced_decode_ms=1.108402 host_segmented_decode_ms=4.783126 host_decode_p50_ms=2.465614 speedup=0.231732 efficiency=0.115866 ple_ms=0.000000 front_trace_ms=1.022997 expert_service_ms=3.342874 back_trace_ms=0.408392 expert_requests=47 expert_hits=119 expert_misses=343 h2d_bytes=1896652800 decode_replays=10
+
+Retuned adapted async, transcript records 817 and 824:
+  command record SHA-256: eb88ad3a2b3c810b831e1d885075de2bce6ac9a8ea63bc4748ccbb9a10b83ee8
+  output record SHA-256:  4352c8eb5d482c3e5587ad33230c0c181901629bb827a8829faf4de9e831b442
+  command: source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh && export TT_VISIBLE_DEVICES=0,1 && export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto && export QWEN38_MC_PERF_LAYERS=0 && export QWEN38_MC_PERF_DECODE_REPLAYS=10 && export QWEN38_MC_COLLECTIVE_MODE=async_tuned && pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py::test_host_backed_warmed_prefill_and_segmented_decode --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/optimized_multichip_decoder/candidate_async_ccl_tuned_adapted_layer0.xml
+  result: MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.653428 host_prefill_ms=161.117915 baseline_traced_decode_ms=1.109232 host_segmented_decode_ms=4.854956 host_decode_p50_ms=2.640665 speedup=0.228474 efficiency=0.114237 ple_ms=0.000000 front_trace_ms=1.192313 expert_service_ms=3.245455 back_trace_ms=0.409085 expert_requests=47 expert_hits=119 expert_misses=343 h2d_bytes=1896652800 decode_replays=10
+
+The adapted implementation used preallocated semaphore tensors and model
+shapes, then changed worker/buffer tuning for the retuned pass. Both async
+variants preserved the accepted PCC but lost to the synchronous control in
+prefill and segmented decode. The temporary async source was therefore
+removed after the evidence-backed rejection.

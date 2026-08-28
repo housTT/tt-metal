@@ -1,0 +1,56 @@
+Qwen3.8-Flash-Next optimized host-backed multichip decoder profiler provenance
+Date: 2026-08-27 America/New_York
+Target: P300 Blackhole dies 0,1; fixed 1x2 mesh; FABRIC_1D
+Selected mode: exact host-backed EP2, packed host capacity 512, ten device
+slots, stable indexed decode LRU, exact mmap PLE, fractured residual ABI, BF16
+row-parallel partials, QSA decode 1D qsa_input:110 and attn_out:20, two CCL
+links, and 8,192-byte maximum fabric payload.
+
+Environment:
+  source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+  export TT_VISIBLE_DEVICES=0,1
+  export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto
+
+Capture command, once with <layer>=0,1,3 and the matching <output> directory:
+  QWEN38_MC_PROFILE_DIRECT_DECODE=1 QWEN38_MC_PROFILE_HOST_ONLY=1 \
+  QWEN38_MC_PERF_DECODE_REPLAYS=1 QWEN38_MC_PERF_LAYERS=<layer> \
+  timeout 2400 python -m tracy -p -r --op-support-count=2000 \
+  --dump-device-data-mid-run --check-exit-code -o <output> -m pytest -q \
+  --tt-arch blackhole \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py::test_host_backed_warmed_prefill_and_segmented_decode
+
+The command used no collective or packet environment override: the measured
+settings came from the final decoder/test defaults. All three profiler tests
+passed. `final_fabric_contract.xml` independently reads the live fabric value
+as 8,192 bytes and asserts the decoder's two-link default.
+
+The capture logs were checked for "Profiler DRAM buffers were full",
+unmatched-op, and missing-device-data records before packaging; none occurred.
+Redundant multi-gigabyte `.logs`, device timeline, and host Tracy intermediates
+were moved to the desktop trash. The raw TT op reports named and hashed below,
+processed phase CSVs, summaries/PNGs, and full human tables are retained.
+
+Raw report uncompressed-content SHA-256 (stored as `.csv.xz` to satisfy the
+checkout's 500 KiB per-file limit):
+  fa7860baa8ddf2099e7303667f12a5dfcb0ae18ac4b9089ffe87226a89c4a270  tracy_final/layer0_gdn/reports/2026_08_27_20_05_46/ops_perf_results_2026_08_27_20_05_46.csv.xz
+  71eb818cd9195143862652d4e5c5b84c8eec92c633d21af7ce60061bfb3440d7  tracy_final/layer1_ple_gdn/reports/2026_08_27_20_06_43/ops_perf_results_2026_08_27_20_06_43.csv.xz
+  36d395b336a739790a7db538817d4420504a6ab9d1896aa2513f02bfa79b5cb9  tracy_final/layer3_qsa/reports/2026_08_27_20_07_35/ops_perf_results_2026_08_27_20_07_35.csv.xz
+
+Packed-file SHA-256:
+  08e645cc6f10f20f38795394561b837540857690d9b52569db318419ad5797cc  layer0 raw report
+  7aac73cb9935e13aa5bd33f39afde716e1c486f8409d18f74ada276b968f658c  layer1 raw report
+  ca2b89b3551f4eb8619fea080f8599f45434713168dcc1b08c1faeb15f85a908  layer3 raw report
+
+For each unpacked raw report and phase PREFILL/DECODE, the exact
+transformation was:
+  xz -dk <raw.csv.xz>
+  tt-perf-report <raw.csv> \
+  --start-signpost MC_HOST_<PHASE>_L<layer> \
+  --end-signpost MC_HOST_<PHASE>_L<layer>_END \
+  --no-color --no-host-ops --active-experts 10 \
+  --csv <phase>_report.csv --summary-file <phase>_summary.csv
+
+The same filters were rerun without `--csv` and with `--no-summary` to retain
+the complete human tables and actionable advice in `<phase>_table.txt`. Every
+one of the twelve offline report commands exited zero. Device profiler capture
+is separate from watcher validation by design.

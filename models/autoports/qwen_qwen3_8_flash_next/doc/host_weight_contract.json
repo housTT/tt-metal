@@ -37,7 +37,10 @@
     "active_experts_per_token": 10,
     "device_slots_per_layer": 10,
     "upload_staging_experts_per_rank_per_layer": 1,
-    "packed_host_cache_experts_per_layer": 16,
+    "packed_host_cache_experts_per_layer": 512,
+    "packed_host_cache_bytes_per_layer_at_capacity": 1418342400,
+    "packed_host_cache_bytes_full_stack_at_capacity": 68080435200,
+    "packed_host_zero_storage": "one shared exact-zero BFP4 rank shard per layer; cached experts retain only their exact owner shard",
     "parallelism": "EP2 deterministic owner expert_id % 2; shared expert remains TP2",
     "rank_local_gate_up_shape": [1, 1, 2560, 1280],
     "rank_local_down_shape": [1, 1, 640, 2560],
@@ -48,7 +51,8 @@
     "cold_decode_h2d_bytes_both_ranks": 55296000,
     "hit_decode_h2d_bytes": 0,
     "checkpoint_bf16_bytes_read_per_miss": 9830400,
-    "replacement": "deterministic ordered slots for traced decode; deterministic generation-checked LRU waves for prefill",
+    "replacement": "stable indexed generation-checked LRU slots for traced decode; deterministic generation-checked LRU waves for prefill",
+    "trace_index_contract": "a persistent replicated uint16 slot-index row changes router order without relocating hit expert weights; the back trace consumes stable slot addresses",
     "failure_semantics": "publish a generation only after both ranks and projections upload; invalidate the slot on any failure"
   },
   "ple_table": {
@@ -64,6 +68,10 @@
     "host_table_bytes": 102400491520,
     "eos_token_id": 248044,
     "history_tokens_per_request": 2,
+    "host_row_cache_capacity": 8192,
+    "lookup_contract": "torch.unique deduplicates each exact batched request, then per-shard index_select gathers only misses from safetensors mmap handles",
+    "chunk_contract": "128 logical rows per device prefill staging wave; public non-aligned tails are padded, masked, and sliced internally",
+    "pinned_host_staging": "unavailable in torch 2.11.0+cpu on this host; contiguous CPU rows are handed to TT runtime staging",
     "device_prefill_staging_shape": [1, 1, 128, 2560],
     "device_decode_staging_shape": [1, 1, 1, 2560],
     "device_staging_physical_bytes_per_rank": 819200
@@ -88,7 +96,7 @@
     "fits": true
   },
   "validation": {
-    "cpu_contract_tests": "12 exact host-cache/PLE/capacity cases are included in the final 32-pass current-source static matrix recorded in multichip_decoder/expert_ep2_final_static_contracts.xml",
+    "cpu_contract_tests": "12 exact host-cache/PLE/capacity cases are included in the final 32-pass current-source static matrix recorded in optimized_multichip_decoder/final_static_and_fallback.xml",
     "expert_slot_cases": [
       "cold",
       "hit",
@@ -98,7 +106,8 @@
       "stale generation",
       "upload failure invalidation",
       "prefill wave partition",
-      "ordered trace replacement"
+      "ordered trace replacement",
+      "stable indexed LRU exercised by real-route segmented decode"
     ],
     "ple_cases": [
       "HF row-id parity",
@@ -109,7 +118,8 @@
       "cancel",
       "request isolation",
       "non-aligned valid mask",
-      "row-cache hit"
+      "row-cache hit",
+      "129-token distinct-row cache capacity sweep with exact repeated output"
     ],
     "hardware_correctness": [
       "layer 0 host-backed EP2 prefill and first-token decode versus OptimizedDecoder",
@@ -121,7 +131,8 @@
       "100-token exact GDN, PLE, route, output, and QSA cache stress",
       "two simultaneously live GDN layer traces sharing one L1 state workspace",
       "allocation-tracked 12-case current-source acceptance suite",
-      "watcher-clean four-case segmented trace suite"
+      "watcher-clean four-case segmented trace suite",
+      "per-window expert/PLE selected and unique rows, bytes, bandwidth, lookup, transfer, overlap, and stall counters"
     ]
   },
   "blocking_limitation": null,

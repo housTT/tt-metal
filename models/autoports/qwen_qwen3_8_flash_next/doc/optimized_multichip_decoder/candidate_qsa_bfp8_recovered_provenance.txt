@@ -1,0 +1,17 @@
+Qwen3.8-Flash-Next QSA BFP8 candidate evidence recovery
+Date: 2026-08-27 America/New_York
+
+`candidate_qsa_bfp8_hifi2.xml` is a passing JUnit shell created by a `-s`
+invocation that did not set `junit_logging=all`. The exact command and result
+were recovered byte-for-byte from records 1096 and 1100 of:
+
+  /home/ttuser/.codex/sessions/2026/08/27/rollout-2026-08-27T17-54-22-01a04537-8940-7630-8870-6e9956c2e42e.jsonl
+
+  command record SHA-256: 560cbabed7a84a8b39afd4043729ad8ed4d961c7d905447bb8afe946d507b27f
+  output record SHA-256:  1e5c62ae6a26548b981bd33694848f4d0062478be02ddaef10a48858eb9b8148
+  command: source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh && export TT_VISIBLE_DEVICES=0,1 && export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto && export QWEN38_MC_PERF_LAYERS=3 && export QWEN38_MC_PERF_DECODE_REPLAYS=100 && export QWEN38_MC_QSA_INPUT_POLICY=bfp8_hifi2 && export QWEN38_MC_ATTENTION_OUTPUT_POLICY=bfp8_hifi2 && pytest -q -s models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py::test_host_backed_warmed_prefill_and_segmented_decode --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/optimized_multichip_decoder/candidate_qsa_bfp8_hifi2.xml
+  result: MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99963421 decode_pcc=0.99979824 prefill_seq=33 baseline_prefill_ms=43.757809 host_prefill_ms=164.832324 baseline_traced_decode_ms=2.861422 host_segmented_decode_ms=3.022568 host_decode_p50_ms=2.996534 speedup=0.946686 efficiency=0.473343 ple_ms=0.000000 front_trace_ms=2.523691 expert_service_ms=0.090191 back_trace_ms=0.406327 expert_requests=135 expert_hits=1041 expert_misses=309 h2d_bytes=1708646400 decode_replays=100
+
+The candidate preserved the loose 0.995 gate but changed both accepted QSA
+PCC baselines (0.99972457 prefill and 0.99988294 decode) and slowed prefill,
+so BF16 activation/collective payload remains selected.

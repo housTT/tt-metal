@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="10.379" timestamp="2026-08-27T19:44:24.951020-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3]" time="10.320"><properties><property name="start_timestamp" value="2026-08-27T19:44:24" /><property name="end_timestamp" value="2026-08-27T19:44:35" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=3 phase=prefill mode=exact-host-ep2 end_to_end_ms=163.180329 service_window_ms=128.287284 expert_requests=15 expert_waves=15 expert_hits=0 expert_misses=147 expert_evictions=147 packed_host_hits=147 packed_host_misses=0 checkpoint_reads=0 checkpoint_bytes=0 checkpoint_read_ms=0.000000 checkpoint_gbps=0.000000 source_pack_ms=0.000000 expert_h2d_bytes=812851200 expert_h2d_ms=128.287284 expert_h2d_gbps=6.336179 index_h2d_bytes=0 index_upload_ms=0.000000 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972475
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=3 phase=decode mode=exact-host-ep2 end_to_end_ms=304.277899 service_window_ms=7.984861 expert_requests=100 expert_waves=100 expert_hits=1000 expert_misses=0 expert_evictions=0 packed_host_hits=0 packed_host_misses=0 checkpoint_reads=0 checkpoint_bytes=0 checkpoint_read_ms=0.000000 checkpoint_gbps=0.000000 source_pack_ms=0.000000 expert_h2d_bytes=0 expert_h2d_ms=0.000000 expert_h2d_gbps=0.000000 index_h2d_bytes=0 index_upload_ms=0.000000 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=7.984861
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972475 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.703246 host_prefill_ms=163.180329 baseline_traced_decode_ms=2.861046 host_segmented_decode_ms=3.042779 host_decode_p50_ms=3.028039 speedup=0.940274 efficiency=0.470137 ple_ms=0.000000 front_trace_ms=2.545771 expert_service_ms=0.079849 back_trace_ms=0.414743 expert_requests=135 expert_hits=1041 expert_misses=303 h2d_bytes=1675468800 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 19:44:26.042 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 19:44:34.216 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 19:44:34.260 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 19:44:34.260 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 19:44:34.423 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 19:44:34.570 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 19:44:34.857 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 19:44:34.972 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 19:44:35.277 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase></testsuite></testsuites>

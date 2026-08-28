@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="3" time="33.651" timestamp="2026-08-27T18:09:37.591761-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0]" time="12.676"><properties><property name="start_timestamp" value="2026-08-27T18:09:37" /><property name="end_timestamp" value="2026-08-27T18:09:50" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=0 phase=prefill mode=exact-host-ep2 end_to_end_ms=2062.024321 service_window_ms=2028.227294 expert_requests=16 expert_waves=16 expert_hits=0 expert_misses=156 expert_evictions=156 packed_host_hits=0 packed_host_misses=156 checkpoint_reads=156 checkpoint_bytes=1533542400 checkpoint_read_ms=348.978577 checkpoint_gbps=4.394374 source_pack_ms=1884.476510 expert_h2d_bytes=862617600 expert_h2d_ms=143.750784 expert_h2d_gbps=6.000785 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942303
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=0 phase=decode mode=exact-host-ep2 end_to_end_ms=241.879507 service_window_ms=98.542642 expert_requests=100 expert_waves=100 expert_hits=986 expert_misses=14 expert_evictions=14 packed_host_hits=8 packed_host_misses=6 checkpoint_reads=6 checkpoint_bytes=58982400 checkpoint_read_ms=12.649715 checkpoint_gbps=4.662745 source_pack_ms=72.647009 expert_h2d_bytes=77414400 expert_h2d_ms=12.414404 expert_h2d_gbps=6.235853 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=13.481229
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942303 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.594422 host_prefill_ms=2062.024321 baseline_traced_decode_ms=1.106391 host_segmented_decode_ms=2.418795 host_decode_p50_ms=1.544800 speedup=0.457414 efficiency=0.228707 ple_ms=0.000000 front_trace_ms=1.021390 expert_service_ms=0.985426 back_trace_ms=0.406906 expert_requests=137 expert_hits=1012 expert_misses=350 h2d_bytes=1935360000 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:09:38.732 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 18:09:45.009 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-27 18:09:47.398 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 18:09:47.416 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 18:09:47.416 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 18:09:49.478 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 18:09:49.567 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 18:09:49.678 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 18:09:50.032 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 18:09:50.275 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1]" time="10.123"><properties><property name="start_timestamp" value="2026-08-27T18:09:50" /><property name="end_timestamp" value="2026-08-27T18:10:00" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=1 phase=prefill mode=exact-host-ep2 end_to_end_ms=1506.770508 service_window_ms=1477.257414 expert_requests=12 expert_waves=12 expert_hits=0 expert_misses=114 expert_evictions=114 packed_host_hits=0 packed_host_misses=114 checkpoint_reads=114 checkpoint_bytes=1120665600 checkpoint_read_ms=248.289140 checkpoint_gbps=4.513551 source_pack_ms=1371.067788 expert_h2d_bytes=630374400 expert_h2d_ms=104.716799 expert_h2d_gbps=6.019802 ple_selected_rows=528 ple_unique_rows=528 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.337165 ple_stage_logical_h2d_bytes=337920 ple_stage_physical_h2d_bytes=1310720 ple_h2d_ms=1.135662 ple_h2d_gbps=1.154146 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949104
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=1 phase=decode mode=exact-host-ep2 end_to_end_ms=349.164781 service_window_ms=155.623151 expert_requests=100 expert_waves=100 expert_hits=976 expert_misses=24 expert_evictions=24 packed_host_hits=17 packed_host_misses=7 checkpoint_reads=7 checkpoint_bytes=68812800 checkpoint_read_ms=14.214146 checkpoint_gbps=4.841149 source_pack_ms=83.140103 expert_h2d_bytes=132710400 expert_h2d_ms=20.971512 expert_h2d_gbps=6.328127 ple_selected_rows=1600 ple_unique_rows=1600 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=3.906093 ple_stage_logical_h2d_bytes=1024000 ple_stage_physical_h2d_bytes=1024000 ple_h2d_ms=9.578823 ple_h2d_gbps=0.106902 overlap_ms=0.000000 stall_ms=38.026620
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=1 weights=real-checkpoint activation_sha256=32d818347c60f0ff368b717427f9cff0ae8876b7a7b054fa465ddb27118d3037 prefill_pcc=0.99949104 decode_pcc=0.99984211 prefill_seq=33 baseline_prefill_ms=20.077512 host_prefill_ms=1506.770508 baseline_traced_decode_ms=1.484069 host_segmented_decode_ms=3.491648 host_decode_p50_ms=2.367539 speedup=0.425034 efficiency=0.212517 ple_ms=0.312100 front_trace_ms=1.519349 expert_service_ms=1.244131 back_trace_ms=0.408159 expert_requests=129 expert_hits=995 expert_misses=283 h2d_bytes=1564876800 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:09:50.608 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 18:09:57.892 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 18:09:57.912 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 18:09:57.913 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 18:09:59.419 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 18:09:59.487 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 18:09:59.635 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+2026-08-27 18:10:00.071 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1
+2026-08-27 18:10:00.421 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L1_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3]" time="10.732"><properties><property name="start_timestamp" value="2026-08-27T18:10:00" /><property name="end_timestamp" value="2026-08-27T18:10:11" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=3 phase=prefill mode=exact-host-ep2 end_to_end_ms=1944.345042 service_window_ms=1898.854298 expert_requests=15 expert_waves=15 expert_hits=0 expert_misses=147 expert_evictions=147 packed_host_hits=0 packed_host_misses=147 checkpoint_reads=147 checkpoint_bytes=1445068800 checkpoint_read_ms=321.353010 checkpoint_gbps=4.496827 source_pack_ms=1762.512920 expert_h2d_bytes=812851200 expert_h2d_ms=136.341378 expert_h2d_gbps=5.961882 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=3 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99972457
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=3 phase=decode mode=exact-host-ep2 end_to_end_ms=311.064099 service_window_ms=13.234727 expert_requests=100 expert_waves=100 expert_hits=1000 expert_misses=0 expert_evictions=0 packed_host_hits=0 packed_host_misses=0 checkpoint_reads=0 checkpoint_bytes=0 checkpoint_read_ms=0.000000 checkpoint_gbps=0.000000 source_pack_ms=0.000000 expert_h2d_bytes=0 expert_h2d_ms=0.000000 expert_h2d_gbps=0.000000 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=13.234727
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=3 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99972457 decode_pcc=0.99988294 prefill_seq=33 baseline_prefill_ms=43.775160 host_prefill_ms=1944.345042 baseline_traced_decode_ms=2.861591 host_segmented_decode_ms=3.110641 host_decode_p50_ms=3.100912 speedup=0.919936 efficiency=0.459968 ple_ms=0.000000 front_trace_ms=2.565163 expert_service_ms=0.132347 back_trace_ms=0.409862 expert_requests=135 expert_hits=1041 expert_misses=303 h2d_bytes=1675468800 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:10:00.761 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 18:10:08.278 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3
+2026-08-27 18:10:08.322 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L3_END
+2026-08-27 18:10:08.322 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3
+2026-08-27 18:10:10.267 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L3_END
+2026-08-27 18:10:10.386 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3
+2026-08-27 18:10:10.673 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L3_END
+2026-08-27 18:10:10.871 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3
+2026-08-27 18:10:11.183 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L3_END
+
+</system-err></testcase></testsuite></testsuites>

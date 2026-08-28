@@ -20,6 +20,12 @@ from models.autoports.qwen_qwen3_8_flash_next.tests.test_optimized_decoder_perf 
 from models.autoports.qwen_qwen3_8_flash_next.tt import functional_decoder as _functional_decoder
 from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import Qwen38PLEHostStore, SafetensorCheckpoint
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
+    COLLECTIVE_NUM_LINKS as DEFAULT_COLLECTIVE_NUM_LINKS,
+)
+from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
+    FABRIC_PACKET_BYTES as DEFAULT_FABRIC_PACKET_BYTES,
+)
+from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     HostBackedSegmentedDecodeTrace,
     MultichipDecoder,
 )
@@ -32,6 +38,39 @@ PROFILE_HOST_ONLY = os.environ.get("QWEN38_MC_PROFILE_HOST_ONLY", "0") == "1"
 PREFILL_SEQ_LEN = 128
 HOST_PREFILL_SEQ_LEN = int(os.environ.get("QWEN38_MC_HOST_PREFILL_SEQ_LEN", "33"))
 RESIDUAL_TOPOLOGY_REPLAYS = int(os.environ.get("QWEN38_MC_RESIDUAL_TOPOLOGY_REPLAYS", "100"))
+HOST_EXPERT_SLOTS = int(os.environ.get("QWEN38_MC_HOST_EXPERT_SLOTS", "10"))
+HOST_PACKED_EXPERTS = int(os.environ.get("QWEN38_MC_HOST_PACKED_EXPERTS", "512"))
+COLLECTIVE_NUM_LINKS = int(os.environ.get("QWEN38_MC_COLLECTIVE_NUM_LINKS", str(DEFAULT_COLLECTIVE_NUM_LINKS)))
+FABRIC_PACKET_BYTES = int(os.environ.get("QWEN38_MC_FABRIC_PACKET_BYTES", str(DEFAULT_FABRIC_PACKET_BYTES)))
+
+
+def _candidate_layer_kwargs():
+    candidates = {
+        "QWEN38_MC_DECODE_1D_CONFIG": "decode_1d_config",
+        "QWEN38_MC_PREFILL_CONFIG": "prefill_config",
+        "QWEN38_MC_DRAM_SHARDED_ROLE": "dram_sharded_role",
+        "QWEN38_MC_OPTIMIZATION_POLICY": "optimization_policy",
+        "QWEN38_MC_SHARED_PROJECTION_POLICY": "shared_projection_policy",
+        "QWEN38_MC_GDN_PROJECTION_POLICY": "gdn_projection_policy",
+        "QWEN38_MC_QSA_INPUT_POLICY": "qsa_input_policy",
+        "QWEN38_MC_ATTENTION_OUTPUT_POLICY": "attention_output_policy",
+        "QWEN38_MC_ROW_PARALLEL_DTYPE": "row_parallel_dtype",
+    }
+    return {argument: os.environ[name] for name, argument in candidates.items() if name in os.environ}
+
+
+def _fabric_router(max_packet_payload_size_bytes):
+    config = ttnn._ttnn.fabric.FabricRouterConfig()
+    config.max_packet_payload_size_bytes = int(max_packet_payload_size_bytes)
+    return config
+
+
+PERF_DEVICE_PARAMS = {
+    "fabric_config": ttnn.FabricConfig.FABRIC_1D,
+    "trace_region_size": 100_000_000,
+}
+if FABRIC_PACKET_BYTES != 4352:
+    PERF_DEVICE_PARAMS["fabric_router_config"] = _fabric_router(FABRIC_PACKET_BYTES)
 
 
 def _upload(tensor, mesh_device, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
@@ -68,6 +107,74 @@ def _sha256_tensors(*tensors: torch.Tensor) -> str:
     for tensor in tensors:
         digest.update(tensor.contiguous().view(torch.uint8).numpy().tobytes())
     return digest.hexdigest()
+
+
+def _host_service_snapshot(layer) -> dict[str, int | float]:
+    """Snapshot every exact host boundary counter with stable prefixes."""
+
+    snapshot = {f"expert_{name}": value for name, value in layer.host_expert_cache.metrics().items()}
+    snapshot.update({f"source_{name}": value for name, value in layer.host_expert_source.metrics().items()})
+    if layer.host_ple_store is not None:
+        snapshot.update({f"ple_{name}": value for name, value in layer.host_ple_store.metrics().items()})
+    if layer.ple_staging is not None:
+        snapshot.update({f"ple_stage_{name}": value for name, value in layer.ple_staging.metrics().items()})
+    return snapshot
+
+
+def _host_service_delta(before, after) -> dict[str, int | float]:
+    return {name: after[name] - before.get(name, 0) for name in after if isinstance(after[name], (int, float))}
+
+
+def _rate_gbps(byte_count: int | float, seconds: int | float) -> float:
+    return float(byte_count) / float(seconds) / 1.0e9 if seconds else 0.0
+
+
+def _print_host_service_evidence(*, layer_idx, phase, delta, end_to_end_seconds, service_seconds):
+    """Emit auditable expert/PLE lookup and transfer accounting for one window."""
+
+    source_pack = float(delta.get("expert_source_pack_seconds", 0.0))
+    expert_h2d = float(delta.get("expert_h2d_seconds", 0.0))
+    ple_lookup = float(delta.get("ple_lookup_seconds", 0.0))
+    ple_h2d = float(delta.get("ple_stage_h2d_seconds", 0.0))
+    # The current boundary is deliberately serialized.  Anything left in the
+    # measured service window is route-id D2H, directory work, synchronization,
+    # or host scheduling and is reported as unattributed stall.
+    overlap = 0.0
+    accounted = source_pack + expert_h2d + ple_lookup + ple_h2d
+    stall = max(0.0, float(service_seconds) - accounted)
+    print(
+        "MC_HOST_SERVICE_EVIDENCE "
+        f"mesh=1x2 layer={layer_idx} phase={phase} mode=exact-host-ep2 "
+        f"end_to_end_ms={end_to_end_seconds * 1000.0:.6f} "
+        f"service_window_ms={service_seconds * 1000.0:.6f} "
+        f"expert_requests={int(delta.get('expert_requests', 0))} "
+        f"expert_waves={int(delta.get('expert_waves', 0))} "
+        f"expert_hits={int(delta.get('expert_hits', 0))} "
+        f"expert_misses={int(delta.get('expert_misses', 0))} "
+        f"expert_evictions={int(delta.get('expert_evictions', 0))} "
+        f"packed_host_hits={int(delta.get('expert_packed_host_hits', 0))} "
+        f"packed_host_misses={int(delta.get('expert_packed_host_misses', 0))} "
+        f"checkpoint_reads={int(delta.get('source_checkpoint_expert_reads', 0))} "
+        f"checkpoint_bytes={int(delta.get('source_checkpoint_bytes', 0))} "
+        f"checkpoint_read_ms={float(delta.get('source_checkpoint_read_seconds', 0.0)) * 1000.0:.6f} "
+        f"checkpoint_gbps={_rate_gbps(delta.get('source_checkpoint_bytes', 0), delta.get('source_checkpoint_read_seconds', 0.0)):.6f} "
+        f"source_pack_ms={source_pack * 1000.0:.6f} "
+        f"expert_h2d_bytes={int(delta.get('expert_h2d_bytes', 0))} "
+        f"expert_h2d_ms={expert_h2d * 1000.0:.6f} "
+        f"expert_h2d_gbps={_rate_gbps(delta.get('expert_h2d_bytes', 0), expert_h2d):.6f} "
+        f"index_h2d_bytes={int(delta.get('expert_index_h2d_bytes', 0))} "
+        f"index_upload_ms={float(delta.get('expert_index_upload_seconds', 0.0)) * 1000.0:.6f} "
+        f"ple_selected_rows={int(delta.get('ple_selected_rows', 0))} "
+        f"ple_unique_rows={int(delta.get('ple_unique_rows', 0))} "
+        f"ple_table_rows_read={int(delta.get('ple_table_rows_read', 0))} "
+        f"ple_table_bytes={int(delta.get('ple_table_bytes_read', 0))} "
+        f"ple_lookup_ms={ple_lookup * 1000.0:.6f} "
+        f"ple_stage_logical_h2d_bytes={int(delta.get('ple_stage_logical_h2d_bytes', 0))} "
+        f"ple_stage_physical_h2d_bytes={int(delta.get('ple_stage_h2d_bytes', 0))} "
+        f"ple_h2d_ms={ple_h2d * 1000.0:.6f} "
+        f"ple_h2d_gbps={_rate_gbps(delta.get('ple_stage_h2d_bytes', 0), ple_h2d):.6f} "
+        f"overlap_ms={overlap * 1000.0:.6f} stall_ms={stall * 1000.0:.6f}"
+    )
 
 
 def _capture_gdn_prefill_pipeline(layer):
@@ -591,7 +698,7 @@ def test_warmed_prefill_and_traced_decode(bh_1d_mesh_device, device_params, laye
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 @pytest.mark.parametrize(
     "device_params",
-    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+    [PERF_DEVICE_PARAMS],
     indirect=True,
 )
 def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
@@ -618,6 +725,10 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
         mesh_device=mesh_device,
         max_batch=1,
         max_seq_len=max_seq_len,
+        expert_cache_slots=HOST_EXPERT_SLOTS,
+        packed_host_experts=HOST_PACKED_EXPERTS,
+        collective_num_links=COLLECTIVE_NUM_LINKS,
+        **_candidate_layer_kwargs(),
     )
     prefill_seq_len = HOST_PREFILL_SEQ_LEN
     hidden_host, _, _ = _real_activations(layer_idx)
@@ -667,6 +778,7 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
     signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
     _profile_checkpoint(mesh_device)
     signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+    prefill_service_before = _host_service_snapshot(host_backed)
     started = time.perf_counter()
     if layer_idx == 1:
         host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
@@ -674,7 +786,25 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
         host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
     ttnn.synchronize_device(mesh_device)
     host_prefill_ms = (time.perf_counter() - started) * 1000.0
+    prefill_service_after = _host_service_snapshot(host_backed)
     signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+    prefill_service_delta = _host_service_delta(prefill_service_before, prefill_service_after)
+    prefill_accounted_seconds = sum(
+        float(prefill_service_delta.get(name, 0.0))
+        for name in (
+            "expert_source_pack_seconds",
+            "expert_h2d_seconds",
+            "ple_lookup_seconds",
+            "ple_stage_h2d_seconds",
+        )
+    )
+    _print_host_service_evidence(
+        layer_idx=layer_idx,
+        phase="prefill",
+        delta=prefill_service_delta,
+        end_to_end_seconds=host_prefill_ms / 1000.0,
+        service_seconds=prefill_accounted_seconds,
+    )
     prefill_pcc = H.pcc(
         ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
         _fractured_host(host_prefill),
@@ -753,6 +883,7 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
         segmented.replay(**replay_kwargs)
     _profile_checkpoint(mesh_device)
     signpost(f"MC_HOST_DECODE_L{layer_idx}")
+    decode_service_before = _host_service_snapshot(host_backed)
     samples = []
     segment_totals = {
         "ple_seconds": 0.0,
@@ -767,6 +898,8 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
         for name in segment_totals:
             segment_totals[name] += segmented.last_timing[name]
     signpost(f"MC_HOST_DECODE_L{layer_idx}_END")
+    decode_service_after = _host_service_snapshot(host_backed)
+    decode_service_delta = _host_service_delta(decode_service_before, decode_service_after)
     host_decode_ms = statistics.fmean(samples)
     host_decode_p50_ms = statistics.median(samples)
     speedup = baseline_decode_ms / host_decode_ms
@@ -775,6 +908,13 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
     assert list(_fractured_host(segmented.output).shape) == [1, 1, 1, 10240]
     metrics = host_backed.host_expert_cache.metrics()
     timing_ms = {name: seconds * 1000.0 / DECODE_REPLAYS for name, seconds in segment_totals.items()}
+    _print_host_service_evidence(
+        layer_idx=layer_idx,
+        phase="decode",
+        delta=decode_service_delta,
+        end_to_end_seconds=sum(samples) / 1000.0,
+        service_seconds=segment_totals["ple_seconds"] + segment_totals["expert_service_seconds"],
+    )
     print(
         f"MC_HOST_PERFEVIDENCE mesh=1x2 layer={layer_idx} weights=real-checkpoint "
         f"activation_sha256={activation_hash} prefill_pcc={prefill_pcc:.8f} decode_pcc={host_decode_pcc:.8f} "

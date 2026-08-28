@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="24.610" timestamp="2026-08-27T18:13:48.860952-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0]" time="13.993"><properties><property name="start_timestamp" value="2026-08-27T18:13:48" /><property name="end_timestamp" value="2026-08-27T18:14:03" /></properties><failure message="RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/sparse/sparse_matmul_device_operation.cpp:215: sparsity.logical_volume() == batch_length&#10;info:&#10;sparsity logical_volume (10) must equal batch_length (20) [sparsity_shape=Shape([1, 1, 1, 10]), is_input_a_sparse=false, is_input_b_sparse=true]&#10;backtrace:&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xfbe56d) [0x7761101be56d]&#10; --- ttnn::prim::SparseMatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SparseMatmulParams const&amp;, ttnn::prim::SparseMatmulInputs const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim27SparseMatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7761101c55c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim27SparseMatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7761101bed48]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim13sparse_matmulERKNS_6TensorES3_S3_RKSt8optionalIS1_ES4_IjEbbRKS4_IKN2tt8tt_metal12MemoryConfigEES4_IKNSA_8DataTypeEERKS4_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENSL_33MatmulMultiCoreReuseProgramConfigENSL_42MatmulMultiCoreReuseMultiCastProgramConfigENSL_44MatmulMultiCoreReuseMultiCast1DProgramConfigENSL_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENSL_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEES4_IKNS_19ComputeKernelConfigEERKS4_IKNS9_7xy_pairEERKS4_IKNSA_4TileEERKS4_IKNSA_12experimental20GlobalCircularBufferEERKS4_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEES7_+0x7e) [0x7761101bc8de]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul13sparse_matmulERKNS_6TensorES4_S4_RKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEESt8optionalIjEbbRKSF_IKN2tt8tt_metal12MemoryConfigEESF_IKNSI_8DataTypeEESF_IKNS_19ComputeKernelConfigEESF_IKNS_5types8CoreGridEERKSF_IKNSI_4TileEERKSF_IS2_ERKSF_IKNSI_12experimental20GlobalCircularBufferEERKSF_IN4ttsl10StrongTypeIhNSI_14SubDeviceIdTagEEEES15_+0x113) [0x7761101e07d3]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x77dfd9) [0x77611237dfd9]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x776111f681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x77615902a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x77615902a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            expert_cache_slots=HOST_EXPERT_SLOTS,
+            packed_host_experts=HOST_PACKED_EXPERTS,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, _ = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        activation_parts = [hidden_host[:, :, : prefill_seq_len + 1]]
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            activation_parts.append(prefill_ple)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+        prefill_activation_hash = _sha256_tensors(*activation_parts)
+
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        prefill_service_before = _host_service_snapshot(host_backed)
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        prefill_service_after = _host_service_snapshot(host_backed)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_service_delta = _host_service_delta(prefill_service_before, prefill_service_after)
+        prefill_accounted_seconds = sum(
+            float(prefill_service_delta.get(name, 0.0))
+            for name in (
+                "expert_source_pack_seconds",
+                "expert_h2d_seconds",
+                "ple_lookup_seconds",
+                "ple_stage_h2d_seconds",
+            )
+        )
+        _print_host_service_evidence(
+            layer_idx=layer_idx,
+            phase="prefill",
+            delta=prefill_service_delta,
+            end_to_end_seconds=host_prefill_ms / 1000.0,
+            service_seconds=prefill_accounted_seconds,
+        )
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+        print(
+            "MC_HOST_PREFILL_PCC "
+            f"mesh=1x2 layer={layer_idx} logical_seq={prefill_seq_len} "
+            f"logical_input_sha256={prefill_activation_hash} pcc={prefill_pcc:.8f}"
+        )
+        assert prefill_pcc &gt;= H.PCC_BAR
+        ttnn.deallocate(baseline_prefill)
+        ttnn.deallocate(host_prefill)
+
+        host_backed.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, prefill_seq_len : prefill_seq_len + 1], mesh_device)
+        host_decode_hidden = _fractured_upload(hidden_host[:, :, prefill_seq_len : prefill_seq_len + 1], mesh_device)
+        current_pos = _upload(
+            torch.tensor([prefill_seq_len], dtype=torch.int32),
+            mesh_device,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        baseline_decode_kwargs["current_pos"] = current_pos
+        host_capture_kwargs["current_pos"] = current_pos
+        if layer_idx == 1:
+            decode_ids = token_ids[:, prefill_seq_len:]
+            decode_ple = reference_store.prepare(("perf-reference",), decode_ids)
+            activation_parts.append(decode_ple)
+            baseline_decode_kwargs["ple_embeddings"] = _upload(decode_ple.unsqueeze(0), mesh_device)
+            host_capture_kwargs.update(ple_input_ids=decode_ids, request_ids=("perf-host",))
+        activation_hash = _sha256_tensors(*activation_parts)
+
+        if PROFILE_HOST_ONLY:
+            if not PROFILE_DIRECT_DECODE:
+                raise RuntimeError("QWEN38_MC_PROFILE_HOST_ONLY requires QWEN38_MC_PROFILE_DIRECT_DECODE=1")
+            # Count-7 latency already measures the unchanged optimized baseline.
+            # Host-only Tracy processes omit its decode setup so profiler capacity
+            # is spent entirely on the final segmented path.
+            baseline_decode_ms = float("nan")
+            baseline_decode_host = None
+            _profile_checkpoint(mesh_device)
+        else:
+            baseline.prepare_decode_state()
+            baseline_warm = baseline.decode_forward(decode_hidden, **baseline_decode_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            ttnn.deallocate(baseline_warm)
+            baseline.prepare_decode_state()
+            baseline_trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+            baseline_output = baseline.decode_forward(decode_hidden, **baseline_decode_kwargs)
+            ttnn.end_trace_capture(mesh_device, baseline_trace_id, cq_id=0)
+            ttnn.synchronize_device(mesh_device)
+            baseline_decode_host = ttnn.to_torch(ttnn.get_device_tensors(baseline_output)[0])
+            for _ in range(3):
+                ttnn.execute_trace(mesh_device, baseline_trace_id, cq_id=0, blocking=True)
+            _profile_checkpoint(mesh_device)
+            signpost(f"MC_BASELINE_DECODE_L{layer_idx}")
+            started = time.perf_counter()
+            for _ in range(DECODE_REPLAYS):
+                ttnn.execute_trace(mesh_device, baseline_trace_id, cq_id=0, blocking=False)
+            ttnn.synchronize_device(mesh_device)
+            baseline_decode_ms = (time.perf_counter() - started) * 1000.0 / DECODE_REPLAYS
+            signpost(f"MC_BASELINE_DECODE_L{layer_idx}_END")
+            ttnn.release_trace(mesh_device, baseline_trace_id)
+            ttnn.deallocate(baseline_output)
+
+&gt;       segmented = HostBackedSegmentedDecodeTrace.capture(host_backed, host_decode_hidden, **host_capture_kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:842:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:2306: in capture
+    warm_output = layer._decode_back_host(warm_front)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:1843: in _decode_back_host
+    routed = self._routed_experts_indexed_ready(front.work, front.route_weights)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:1317: in _routed_experts_indexed_ready
+    gate_up_sparse = ttnn.sparse_matmul(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.sparse_matmul', function=&lt;ttnn._ttnn.operations.matmul.sparse_matmul_t...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor(&lt;buffer is not allocated&gt;, shape=Shape([1, 1, 32, 2560]), dtype=DataType::BFLOAT16, layout=Layout::TILE),... 0.0156,  ..., -0.0391, -0.0234]]]], shape=Shape([1, 20, 2560, 1280]), dtype=DataType::BFLOAT4_B, layout=Layout::TILE))
+function_kwargs = {'compute_kernel_config': &lt;ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x774fd2fc1500&gt;, 'dtype': ... 19]]]], shape=Shape([1, 1, 1, 10]), dtype=DataType::UINT16, layout=Layout::ROW_MAJOR), 'is_input_b_sparse': True, ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/sparse/sparse_matmul_device_operation.cpp:215: sparsity.logical_volume() == batch_length
+E               info:
+E               sparsity logical_volume (10) must equal batch_length (20) [sparsity_shape=Shape([1, 1, 1, 10]), is_input_a_sparse=false, is_input_b_sparse=true]
+E               backtrace:
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xfbe56d) [0x7761101be56d]
+E                --- ttnn::prim::SparseMatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SparseMatmulParams const&amp;, ttnn::prim::SparseMatmulInputs const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim27SparseMatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7761101c55c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim27SparseMatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7761101bed48]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim13sparse_matmulERKNS_6TensorES3_S3_RKSt8optionalIS1_ES4_IjEbbRKS4_IKN2tt8tt_metal12MemoryConfigEES4_IKNSA_8DataTypeEERKS4_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENSL_33MatmulMultiCoreReuseProgramConfigENSL_42MatmulMultiCoreReuseMultiCastProgramConfigENSL_44MatmulMultiCoreReuseMultiCast1DProgramConfigENSL_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENSL_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEES4_IKNS_19ComputeKernelConfigEERKS4_IKNS9_7xy_pairEERKS4_IKNSA_4TileEERKS4_IKNSA_12experimental20GlobalCircularBufferEERKS4_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEES7_+0x7e) [0x7761101bc8de]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul13sparse_matmulERKNS_6TensorES4_S4_RKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEESt8optionalIjEbbRKSF_IKN2tt8tt_metal12MemoryConfigEESF_IKNSI_8DataTypeEESF_IKNS_19ComputeKernelConfigEESF_IKNS_5types8CoreGridEERKSF_IKNSI_4TileEERKSF_IS2_ERKSF_IKNSI_12experimental20GlobalCircularBufferEERKSF_IN4ttsl10StrongTypeIhNSI_14SubDeviceIdTagEEEES15_+0x113) [0x7761101e07d3]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x77dfd9) [0x77611237dfd9]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x776111f681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x77615902a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x77615902a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=0 phase=prefill mode=exact-host-ep2 end_to_end_ms=152.132549 service_window_ms=136.074781 expert_requests=8 expert_waves=8 expert_hits=0 expert_misses=156 expert_evictions=156 packed_host_hits=156 packed_host_misses=0 checkpoint_reads=0 checkpoint_bytes=0 checkpoint_read_ms=0.000000 checkpoint_gbps=0.000000 source_pack_ms=0.000000 expert_h2d_bytes=862617600 expert_h2d_ms=136.074781 expert_h2d_gbps=6.339291 index_h2d_bytes=0 index_upload_ms=0.000000 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942327
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:13:49.964 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 18:13:56.414 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-27 18:14:02.451 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 18:14:02.469 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 18:14:02.469 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 18:14:02.621 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 18:14:02.707 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 18:14:02.818 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+
+</system-err></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1]" time="9.715"><properties><property name="start_timestamp" value="2026-08-27T18:14:03" /><property name="end_timestamp" value="2026-08-27T18:14:13" /></properties><failure message="RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/sparse/sparse_matmul_device_operation.cpp:215: sparsity.logical_volume() == batch_length&#10;info:&#10;sparsity logical_volume (10) must equal batch_length (20) [sparsity_shape=Shape([1, 1, 1, 10]), is_input_a_sparse=false, is_input_b_sparse=true]&#10;backtrace:&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xfbe56d) [0x7761101be56d]&#10; --- ttnn::prim::SparseMatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SparseMatmulParams const&amp;, ttnn::prim::SparseMatmulInputs const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim27SparseMatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7761101c55c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim27SparseMatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7761101bed48]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim13sparse_matmulERKNS_6TensorES3_S3_RKSt8optionalIS1_ES4_IjEbbRKS4_IKN2tt8tt_metal12MemoryConfigEES4_IKNSA_8DataTypeEERKS4_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENSL_33MatmulMultiCoreReuseProgramConfigENSL_42MatmulMultiCoreReuseMultiCastProgramConfigENSL_44MatmulMultiCoreReuseMultiCast1DProgramConfigENSL_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENSL_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEES4_IKNS_19ComputeKernelConfigEERKS4_IKNS9_7xy_pairEERKS4_IKNSA_4TileEERKS4_IKNSA_12experimental20GlobalCircularBufferEERKS4_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEES7_+0x7e) [0x7761101bc8de]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul13sparse_matmulERKNS_6TensorES4_S4_RKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEESt8optionalIjEbbRKSF_IKN2tt8tt_metal12MemoryConfigEESF_IKNSI_8DataTypeEESF_IKNS_19ComputeKernelConfigEESF_IKNS_5types8CoreGridEERKSF_IKNSI_4TileEERKSF_IS2_ERKSF_IKNSI_12experimental20GlobalCircularBufferEERKSF_IN4ttsl10StrongTypeIhNSI_14SubDeviceIdTagEEEES15_+0x113) [0x7761101e07d3]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x77dfd9) [0x77611237dfd9]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x776111f681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x77615902a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x77615902a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 1
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+            expert_cache_slots=HOST_EXPERT_SLOTS,
+            packed_host_experts=HOST_PACKED_EXPERTS,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, _ = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        activation_parts = [hidden_host[:, :, : prefill_seq_len + 1]]
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            activation_parts.append(prefill_ple)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+        prefill_activation_hash = _sha256_tensors(*activation_parts)
+
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        prefill_service_before = _host_service_snapshot(host_backed)
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        prefill_service_after = _host_service_snapshot(host_backed)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_service_delta = _host_service_delta(prefill_service_before, prefill_service_after)
+        prefill_accounted_seconds = sum(
+            float(prefill_service_delta.get(name, 0.0))
+            for name in (
+                "expert_source_pack_seconds",
+                "expert_h2d_seconds",
+                "ple_lookup_seconds",
+                "ple_stage_h2d_seconds",
+            )
+        )
+        _print_host_service_evidence(
+            layer_idx=layer_idx,
+            phase="prefill",
+            delta=prefill_service_delta,
+            end_to_end_seconds=host_prefill_ms / 1000.0,
+            service_seconds=prefill_accounted_seconds,
+        )
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+        print(
+            "MC_HOST_PREFILL_PCC "
+            f"mesh=1x2 layer={layer_idx} logical_seq={prefill_seq_len} "
+            f"logical_input_sha256={prefill_activation_hash} pcc={prefill_pcc:.8f}"
+        )
+        assert prefill_pcc &gt;= H.PCC_BAR
+        ttnn.deallocate(baseline_prefill)
+        ttnn.deallocate(host_prefill)
+
+        host_backed.prepare_decode_state()
+        decode_hidden = _upload(hidden_host[:, :, prefill_seq_len : prefill_seq_len + 1], mesh_device)
+        host_decode_hidden = _fractured_upload(hidden_host[:, :, prefill_seq_len : prefill_seq_len + 1], mesh_device)
+        current_pos = _upload(
+            torch.tensor([prefill_seq_len], dtype=torch.int32),
+            mesh_device,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        baseline_decode_kwargs["current_pos"] = current_pos
+        host_capture_kwargs["current_pos"] = current_pos
+        if layer_idx == 1:
+            decode_ids = token_ids[:, prefill_seq_len:]
+            decode_ple = reference_store.prepare(("perf-reference",), decode_ids)
+            activation_parts.append(decode_ple)
+            baseline_decode_kwargs["ple_embeddings"] = _upload(decode_ple.unsqueeze(0), mesh_device)
+            host_capture_kwargs.update(ple_input_ids=decode_ids, request_ids=("perf-host",))
+        activation_hash = _sha256_tensors(*activation_parts)
+
+        if PROFILE_HOST_ONLY:
+            if not PROFILE_DIRECT_DECODE:
+                raise RuntimeError("QWEN38_MC_PROFILE_HOST_ONLY requires QWEN38_MC_PROFILE_DIRECT_DECODE=1")
+            # Count-7 latency already measures the unchanged optimized baseline.
+            # Host-only Tracy processes omit its decode setup so profiler capacity
+            # is spent entirely on the final segmented path.
+            baseline_decode_ms = float("nan")
+            baseline_decode_host = None
+            _profile_checkpoint(mesh_device)
+        else:
+            baseline.prepare_decode_state()
+            baseline_warm = baseline.decode_forward(decode_hidden, **baseline_decode_kwargs)
+            ttnn.synchronize_device(mesh_device)
+            ttnn.deallocate(baseline_warm)
+            baseline.prepare_decode_state()
+            baseline_trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+            baseline_output = baseline.decode_forward(decode_hidden, **baseline_decode_kwargs)
+            ttnn.end_trace_capture(mesh_device, baseline_trace_id, cq_id=0)
+            ttnn.synchronize_device(mesh_device)
+            baseline_decode_host = ttnn.to_torch(ttnn.get_device_tensors(baseline_output)[0])
+            for _ in range(3):
+                ttnn.execute_trace(mesh_device, baseline_trace_id, cq_id=0, blocking=True)
+            _profile_checkpoint(mesh_device)
+            signpost(f"MC_BASELINE_DECODE_L{layer_idx}")
+            started = time.perf_counter()
+            for _ in range(DECODE_REPLAYS):
+                ttnn.execute_trace(mesh_device, baseline_trace_id, cq_id=0, blocking=False)
+            ttnn.synchronize_device(mesh_device)
+            baseline_decode_ms = (time.perf_counter() - started) * 1000.0 / DECODE_REPLAYS
+            signpost(f"MC_BASELINE_DECODE_L{layer_idx}_END")
+            ttnn.release_trace(mesh_device, baseline_trace_id)
+            ttnn.deallocate(baseline_output)
+
+&gt;       segmented = HostBackedSegmentedDecodeTrace.capture(host_backed, host_decode_hidden, **host_capture_kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:842:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:2306: in capture
+    warm_output = layer._decode_back_host(warm_front)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:1843: in _decode_back_host
+    routed = self._routed_experts_indexed_ready(front.work, front.route_weights)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/qwen_qwen3_8_flash_next/tt/multichip_decoder.py:1317: in _routed_experts_indexed_ready
+    gate_up_sparse = ttnn.sparse_matmul(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.sparse_matmul', function=&lt;ttnn._ttnn.operations.matmul.sparse_matmul_t...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (ttnn.Tensor(&lt;buffer is not allocated&gt;, shape=Shape([1, 1, 32, 2560]), dtype=DataType::BFLOAT16, layout=Layout::TILE),...  ...,  0.0000e+00,  0.0000e+00]]]], shape=Shape([1, 20, 2560, 1280]), dtype=DataType::BFLOAT4_B, layout=Layout::TILE))
+function_kwargs = {'compute_kernel_config': &lt;ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x774fd2e66340&gt;, 'dtype': ... 17]]]], shape=Shape([1, 1, 1, 10]), dtype=DataType::UINT16, layout=Layout::ROW_MAJOR), 'is_input_b_sparse': True, ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/sparse/sparse_matmul_device_operation.cpp:215: sparsity.logical_volume() == batch_length
+E               info:
+E               sparsity logical_volume (10) must equal batch_length (20) [sparsity_shape=Shape([1, 1, 1, 10]), is_input_a_sparse=false, is_input_b_sparse=true]
+E               backtrace:
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xfbe56d) [0x7761101be56d]
+E                --- ttnn::prim::SparseMatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::SparseMatmulParams const&amp;, ttnn::prim::SparseMatmulInputs const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim27SparseMatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x214) [0x7761101c55c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim27SparseMatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7761101bed48]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim13sparse_matmulERKNS_6TensorES3_S3_RKSt8optionalIS1_ES4_IjEbbRKS4_IKN2tt8tt_metal12MemoryConfigEES4_IKNSA_8DataTypeEERKS4_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENSL_33MatmulMultiCoreReuseProgramConfigENSL_42MatmulMultiCoreReuseMultiCastProgramConfigENSL_44MatmulMultiCoreReuseMultiCast1DProgramConfigENSL_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENSL_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEES4_IKNS_19ComputeKernelConfigEERKS4_IKNS9_7xy_pairEERKS4_IKNSA_4TileEERKS4_IKNSA_12experimental20GlobalCircularBufferEERKS4_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEES7_+0x7e) [0x7761101bc8de]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul13sparse_matmulERKNS_6TensorES4_S4_RKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEESt8optionalIjEbbRKSF_IKN2tt8tt_metal12MemoryConfigEESF_IKNSI_8DataTypeEESF_IKNS_19ComputeKernelConfigEESF_IKNS_5types8CoreGridEERKSF_IKNSI_4TileEERKSF_IS2_ERKSF_IKNSI_12experimental20GlobalCircularBufferEERKSF_IN4ttsl10StrongTypeIhNSI_14SubDeviceIdTagEEEES15_+0x113) [0x7761101e07d3]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x77dfd9) [0x77611237dfd9]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x776111f681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1612910]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x11b30) [0x1624cb0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x77615902a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x77615902a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=1 phase=prefill mode=exact-host-ep2 end_to_end_ms=117.874028 service_window_ms=101.425175 expert_requests=6 expert_waves=6 expert_hits=0 expert_misses=114 expert_evictions=114 packed_host_hits=114 packed_host_misses=0 checkpoint_reads=0 checkpoint_bytes=0 checkpoint_read_ms=0.000000 checkpoint_gbps=0.000000 source_pack_ms=0.000000 expert_h2d_bytes=630374400 expert_h2d_ms=100.840947 expert_h2d_gbps=6.251175 index_h2d_bytes=0 index_upload_ms=0.000000 ple_selected_rows=528 ple_unique_rows=528 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.349108 ple_stage_logical_h2d_bytes=337920 ple_stage_physical_h2d_bytes=1310720 ple_h2d_ms=0.235120 ple_h2d_gbps=5.574685 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=1 logical_seq=33 logical_input_sha256=a8e2cddff765cb0425602607bd0f89c884a1d4b1c01eafa1d9d94d5175de07ba pcc=0.99949080
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:14:03.326 | INFO     | conftest:pytest_runtest_teardown:1213 - In custom teardown, open device ids: {0, 1}
+2026-08-27 18:14:03.610 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 18:14:12.627 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1
+2026-08-27 18:14:12.648 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L1_END
+2026-08-27 18:14:12.648 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1
+2026-08-27 18:14:12.766 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L1_END
+2026-08-27 18:14:12.831 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1
+2026-08-27 18:14:12.979 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L1_END
+
+</system-err></testcase></testsuite></testsuites>

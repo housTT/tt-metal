@@ -15,6 +15,7 @@ from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
 from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import Qwen38PLEHostStore, SafetensorCheckpoint
 from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import HF_ADVERTISED_CONTEXT
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
+    FABRIC_PACKET_BYTES,
     HostBackedSegmentedDecodeTrace,
     MultichipDecoder,
     MultichipDecodeStateWorkspace,
@@ -23,6 +24,19 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     _rank_local_state,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import OptimizedDecoder
+
+
+def _multichip_device_params(*, trace_region_size=None):
+    fabric_router_config = ttnn._ttnn.fabric.FabricRouterConfig()
+    fabric_router_config.max_packet_payload_size_bytes = FABRIC_PACKET_BYTES
+    params = {
+        "fabric_config": ttnn.FabricConfig.FABRIC_1D,
+        "fabric_router_config": fabric_router_config,
+    }
+    if trace_region_size is not None:
+        params["trace_region_size"] = trace_region_size
+    return params
+
 
 LAYER_KINDS = (0, 1, 3)
 
@@ -133,6 +147,8 @@ def _capture_routing(layer, captures):
 def test_multichip_class_and_memory_contract():
     assert issubclass(MultichipDecoder, OptimizedDecoder)
     assert MultichipDecoder.TARGET_MESH == (1, 2)
+    assert MultichipDecoder.COLLECTIVE_NUM_LINKS == 2
+    assert MultichipDecoder.FABRIC_PACKET_BYTES == 8192
     plan = MultichipMemoryPlan()
     assert plan.standard_bfp4_expert_bytes == 33_973_862_400
     assert plan.uniform_bfp2_expert_bytes == 18_874_368_000
@@ -247,7 +263,18 @@ def test_multichip_prefill_plan_preserves_non_aligned_contract(seq_len):
     assert plan[-1][1] == ((seq_len - 1) % 128) + 1
 
 
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_multichip_fabric_packet_contract(bh_1d_mesh_device, device_params):
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    actual_packet_bytes = ttnn._ttnn.fabric.get_tt_fabric_max_payload_size_bytes()
+    print(
+        f"MC_FABRIC_CONTRACT mesh=1x2 packet_bytes={actual_packet_bytes} "
+        f"collective_num_links={MultichipDecoder.COLLECTIVE_NUM_LINKS}"
+    )
+    assert actual_packet_bytes == MultichipDecoder.FABRIC_PACKET_BYTES
+
+
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_multichip_layer0_decode_structural_smoke(bh_1d_mesh_device, device_params):
     """Run local GDN/MoE graphs plus their collectives on the target P300."""
 
@@ -286,7 +313,7 @@ def test_multichip_layer0_decode_structural_smoke(bh_1d_mesh_device, device_para
     assert torch.equal(rank_outputs[0], rank_outputs[1])
 
 
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
     """Real route-id D2H, EP2 expert H2D, and TT math match optimized TTNN."""
 
@@ -354,7 +381,7 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
     host_backed.close_host_backing()
 
 
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_host_backed_real_ple_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
     """Real PLE prefill/history/decode plus EP2 experts match optimized TTNN."""
 
@@ -423,7 +450,7 @@ def test_host_backed_real_ple_decode_matches_optimized_reference(bh_1d_mesh_devi
     host_backed.close_host_backing()
 
 
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
     """EP2 output matches optimized TTNN while TP2 QSA caches stay exact."""
 
@@ -522,7 +549,7 @@ def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_
 
 @pytest.mark.parametrize(
     "device_params",
-    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+    [_multichip_device_params(trace_region_size=100_000_000)],
     indirect=True,
 )
 def test_host_backed_segmented_trace_replay_matches_direct_qsa_decode(bh_1d_mesh_device, device_params):
@@ -555,13 +582,13 @@ def test_host_backed_segmented_trace_replay_matches_direct_qsa_decode(bh_1d_mesh
     expected = []
     expected_routes = []
     page, _, rot = _paged_inputs(direct, mesh_device, page_host, cos, sin, 1)
-    direct_ensure_ordered = direct.host_expert_cache.ensure_ordered
+    direct_ensure_indexed = direct.host_expert_cache.ensure_indexed
 
     def record_direct_routes(route_ids):
         expected_routes.append(tuple(int(value) for value in route_ids))
-        return direct_ensure_ordered(route_ids)
+        return direct_ensure_indexed(route_ids)
 
-    direct.host_expert_cache.ensure_ordered = record_direct_routes
+    direct.host_expert_cache.ensure_indexed = record_direct_routes
     for hidden, position in steps:
         output = direct.decode_forward(
             _replicated_upload(hidden, mesh_device),
@@ -629,7 +656,7 @@ def test_host_backed_segmented_trace_replay_matches_direct_qsa_decode(bh_1d_mesh
 
 @pytest.mark.parametrize(
     "device_params",
-    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+    [_multichip_device_params(trace_region_size=100_000_000)],
     indirect=True,
 )
 @pytest.mark.parametrize("layer_idx", (0, 1))
@@ -689,13 +716,13 @@ def test_host_backed_gdn_segmented_trace_progression(bh_1d_mesh_device, device_p
     expected = []
     expected_routes = []
     expected_states = []
-    direct_ensure_ordered = direct.host_expert_cache.ensure_ordered
+    direct_ensure_indexed = direct.host_expert_cache.ensure_indexed
 
     def record_direct_routes(route_ids):
         expected_routes.append(tuple(int(value) for value in route_ids))
-        return direct_ensure_ordered(route_ids)
+        return direct_ensure_indexed(route_ids)
 
-    direct.host_expert_cache.ensure_ordered = record_direct_routes
+    direct.host_expert_cache.ensure_indexed = record_direct_routes
     for step, (hidden, position) in enumerate(steps):
         decode_kwargs = {
             "current_pos": _replicated_upload(position, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
@@ -842,7 +869,7 @@ def test_host_backed_gdn_segmented_trace_progression(bh_1d_mesh_device, device_p
     assert all(not tensor.is_allocated() for tensor in workspace_tensors)
 
 
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_host_backed_shared_decode_state_workspace_stack(bh_1d_mesh_device, device_params):
     """Two real GDN layers share one fixed L1 workspace and DRAM state."""
 
@@ -911,7 +938,7 @@ def test_host_backed_shared_decode_state_workspace_stack(bh_1d_mesh_device, devi
 
 @pytest.mark.parametrize(
     "device_params",
-    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 200_000_000}],
+    [_multichip_device_params(trace_region_size=200_000_000)],
     indirect=True,
 )
 def test_host_backed_shared_workspace_segmented_trace_stack(bh_1d_mesh_device, device_params):
@@ -946,13 +973,13 @@ def test_host_backed_shared_workspace_segmented_trace_stack(bh_1d_mesh_device, d
     ]
     for layer_idx, layer in enumerate(oracle_layers):
         layer.prepare_decode_state()
-        ensure_ordered = layer.host_expert_cache.ensure_ordered
+        ensure_indexed = layer.host_expert_cache.ensure_indexed
 
-        def record_routes(route_ids, *, _layer_idx=layer_idx, _ensure=ensure_ordered):
+        def record_routes(route_ids, *, _layer_idx=layer_idx, _ensure=ensure_indexed):
             expected_routes[_layer_idx].append(tuple(int(value) for value in route_ids))
             return _ensure(route_ids)
 
-        layer.host_expert_cache.ensure_ordered = record_routes
+        layer.host_expert_cache.ensure_indexed = record_routes
     for step, (hidden0, hidden1, position) in enumerate(steps):
         pos = _replicated_upload(position, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
         outputs = (
@@ -1064,7 +1091,7 @@ def test_host_backed_shared_workspace_segmented_trace_stack(bh_1d_mesh_device, d
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_multichip_real_weights_match_optimized_baseline(bh_1d_mesh_device, device_params, layer_idx):
     """Direct TTNN optimized-baseline PCC for GDN, PLE+GDN and QSA."""
 
@@ -1224,7 +1251,7 @@ def test_multichip_real_weights_match_optimized_baseline(bh_1d_mesh_device, devi
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 @pytest.mark.parametrize(
     "device_params",
-    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 64_000_000}],
+    [_multichip_device_params(trace_region_size=64_000_000)],
     indirect=True,
 )
 def test_multichip_decode_trace_replay_determinism(bh_1d_mesh_device, device_params, layer_idx):
@@ -1284,7 +1311,7 @@ def test_multichip_decode_trace_replay_determinism(bh_1d_mesh_device, device_par
     assert all(torch.equal(replay_outputs[0], output) for output in replay_outputs[1:])
 
 
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_multichip_stacked_decoder_layout_contract(bh_1d_mesh_device, device_params):
     """One fractured residual flows across GDN, PLE+GDN, and QSA layers."""
 
@@ -1340,7 +1367,7 @@ def test_multichip_stacked_decoder_layout_contract(bh_1d_mesh_device, device_par
 
 
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-@pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D}], indirect=True)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_multichip_batch32_decode_contract(bh_1d_mesh_device, device_params, layer_idx):
     """Match the optimized baseline for 32 distinct users and cache rows."""
 
@@ -1435,7 +1462,7 @@ def test_multichip_batch32_decode_contract(bh_1d_mesh_device, device_params, lay
 @pytest.mark.timeout(600)
 @pytest.mark.parametrize(
     "device_params",
-    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 64_000_000}],
+    [_multichip_device_params(trace_region_size=64_000_000)],
     indirect=True,
 )
 def test_multichip_qsa_trace_at_advertised_context(bh_1d_mesh_device, device_params):

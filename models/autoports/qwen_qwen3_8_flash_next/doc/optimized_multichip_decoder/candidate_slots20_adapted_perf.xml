@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="11.707" timestamp="2026-08-27T18:15:20.433997-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0]" time="11.655"><properties><property name="start_timestamp" value="2026-08-27T18:15:20" /><property name="end_timestamp" value="2026-08-27T18:15:32" /></properties><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=0 phase=prefill mode=exact-host-ep2 end_to_end_ms=153.253806 service_window_ms=137.232294 expert_requests=8 expert_waves=8 expert_hits=0 expert_misses=156 expert_evictions=156 packed_host_hits=156 packed_host_misses=0 checkpoint_reads=0 checkpoint_bytes=0 checkpoint_read_ms=0.000000 checkpoint_gbps=0.000000 source_pack_ms=0.000000 expert_h2d_bytes=862617600 expert_h2d_ms=137.232294 expert_h2d_gbps=6.285821 index_h2d_bytes=0 index_upload_ms=0.000000 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=0.000000
+MC_HOST_PREFILL_PCC mesh=1x2 layer=0 logical_seq=33 logical_input_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 pcc=0.99942327
+MC_HOST_SERVICE_EVIDENCE mesh=1x2 layer=0 phase=decode mode=exact-host-ep2 end_to_end_ms=235.158034 service_window_ms=57.325696 expert_requests=100 expert_waves=100 expert_hits=994 expert_misses=6 expert_evictions=6 packed_host_hits=1 packed_host_misses=5 checkpoint_reads=5 checkpoint_bytes=49152000 checkpoint_read_ms=8.511489 checkpoint_gbps=5.774783 source_pack_ms=41.037064 expert_h2d_bytes=33177600 expert_h2d_ms=5.156851 expert_h2d_gbps=6.433694 index_h2d_bytes=3440 index_upload_ms=2.296374 ple_selected_rows=0 ple_unique_rows=0 ple_table_rows_read=0 ple_table_bytes=0 ple_lookup_ms=0.000000 ple_stage_logical_h2d_bytes=0 ple_stage_physical_h2d_bytes=0 ple_h2d_ms=0.000000 ple_h2d_gbps=0.000000 overlap_ms=0.000000 stall_ms=11.131781
+MC_HOST_PERFEVIDENCE mesh=1x2 layer=0 weights=real-checkpoint activation_sha256=cbad722c3db96e00b48faf5843304ab4d9e81fc9dfe3128908b139ffad0c0c13 prefill_pcc=0.99942327 decode_pcc=0.99996978 prefill_seq=33 baseline_prefill_ms=17.557842 host_prefill_ms=153.253806 baseline_traced_decode_ms=1.106188 host_segmented_decode_ms=2.351580 host_decode_p50_ms=1.878439 speedup=0.470402 efficiency=0.235201 ple_ms=0.000000 front_trace_ms=1.021560 expert_service_ms=0.573257 back_trace_ms=0.752492 expert_requests=121 expert_hits=1022 expert_misses=340 h2d_bytes=1880064000 decode_replays=100
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 18:15:21.569 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 18:15:27.941 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+2026-08-27 18:15:29.690 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0
+2026-08-27 18:15:29.707 | INFO     | tracy:signpost:49 - MC_BASELINE_PREFILL_L0_END
+2026-08-27 18:15:29.707 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0
+2026-08-27 18:15:29.861 | INFO     | tracy:signpost:49 - MC_HOST_PREFILL_L0_END
+2026-08-27 18:15:29.948 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0
+2026-08-27 18:15:30.059 | INFO     | tracy:signpost:49 - MC_BASELINE_DECODE_L0_END
+2026-08-27 18:15:31.859 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0
+2026-08-27 18:15:32.095 | INFO     | tracy:signpost:49 - MC_HOST_DECODE_L0_END
+
+</system-err></testcase></testsuite></testsuites>
