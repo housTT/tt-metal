@@ -365,5 +365,12 @@ evidence, an honest segmented-ABI boundary report, and a direct tracker-enabled
 full-48 vLLM rerun. The fresh independent rereview then returned **clean-pass**
 with no P0/P1/P2 findings; see `doc/vllm_integration/STAGE_REVIEW.md`.
 
-Stage-owned local commit SHAs are appended after the commits below. Nothing is
-pushed.
+Stage-owned local code/evidence commits:
+
+- tt-metal integration and readiness evidence:
+  `42561c74faf3f5a5c74ef367a784ad6ed698353b`;
+- vLLM TT plugin registration and sampling-capability routing:
+  `561eee7c77ad822ecb64436ad801ae099de1b108`.
+
+The plugin worktree still contains a pre-existing, unstaged Qwen3.6 platform
+hunk; it was explicitly excluded from the Qwen3.8 commit. Nothing was pushed.
