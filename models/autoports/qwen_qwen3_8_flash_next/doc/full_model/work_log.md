@@ -450,3 +450,8 @@ documentation concern identified stale pre-repair wording in `README.md`; the
 README was refreshed immediately afterward to describe the restored passing
 checker and canonical sidecars. Unrelated pre-existing untracked profiler
 artifacts remain excluded from the repair checkpoint.
+
+The stage-owned runner-repair implementation, canonical evidence, refreshed
+static matrix, and independent review are committed locally as
+`a544627aabd51d6de68d72f4013793089044ba0f` (`Fix Qwen3.8 full-model runner
+verification`). Nothing is pushed.
