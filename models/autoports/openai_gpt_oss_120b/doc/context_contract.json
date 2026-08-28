@@ -1,0 +1,51 @@
+{
+  "model_id": "openai/gpt-oss-120b",
+  "model_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "hf_advertised_context_length": 131072,
+  "functional_decoder": {
+    "mesh_shape": [
+      1,
+      1
+    ],
+    "target_devices": [
+      "P150",
+      "P150x2",
+      "P150x4"
+    ],
+    "parallelization_scope": "single-device functional stage; P150x2/P150x4 collectives are deferred to multichip-decoder",
+    "page_size": 64,
+    "layer_kinds": [
+      "sliding_attention",
+      "full_attention"
+    ],
+    "sliding_window": 128,
+    "configured_context_length": 131072,
+    "supported_context_length": 131072,
+    "tested_prefill_context_lengths": {
+      "sliding_attention": [1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 4095, 4096, 4097, 131071, 131072],
+      "full_attention": [1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 4095, 4096, 4097, 131071, 131072]
+    },
+    "largest_prefill_context_tested": 131072,
+    "largest_decode_position_tested": 131071,
+    "largest_decode_context_tested": 131072,
+    "largest_correctness_batch_tested": 2,
+    "largest_capacity_batch_tested": 32,
+    "batch_32_context_per_user": 131072,
+    "trace_decode": true,
+    "non_aligned_lengths_tested": [1, 31, 33, 63, 65, 127, 129, 4095, 4097, 131071],
+    "capability_reduction": null,
+    "status": "functional_decoder_complete"
+  },
+  "provenance": {
+    "hf_config": "models/demos/gpt_oss/configs/gpt-oss-120b/config.json",
+    "checkpoint_index": "model.safetensors.index.json",
+    "page_table_dtype": "int32",
+    "kv_cache_layout": "paged",
+    "correctness_logs": {
+      "length_one_and_boundaries": "functional_decoder/correctness/length_one_and_boundaries.log.gz",
+      "real_weight_acceptance": "functional_decoder/correctness/real_weight_acceptance.log.gz",
+      "chunk_boundaries": "functional_decoder/correctness/chunk_boundaries.log.gz",
+      "advertised_context_prefill": "functional_decoder/correctness/max_prefill_context.log.gz"
+    }
+  }
+}
