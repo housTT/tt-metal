@@ -8,66 +8,76 @@ Verdict: clean-pass
 
 ## Other Concerns
 
-- The advertised-context construction JSON/XML artifacts intentionally retain the displaced shared-HiFi2 construction IDs, while the context-candidate JSONs now name the final selected config separately and state `construction_capacity_equivalent_to_selected=true`. I do not classify this as required work because the recorded rationale is exact for this capacity question: the displaced construction and final selected-derived capacity policy have identical weight dtypes, KV geometry, KV dtype, and endpoint footprint, and differ only in shared-projection compute fidelity, which does not change allocated tensor bytes.
-- The host-backed measurement regime still has material host H2D timing variance. This is now controlled for selection rather than dismissed: the challenged rows are reranked from current-source anomaly-control cohorts, raw measurements remain in `sweep_results.json`, and the displaced shared-HiFi2 transient is kept only under the explicitly named anomaly-control directory.
-- The qualitative shared suite is prompt-format correct and mechanically non-degenerate, but it is not a semantic-quality proof. `qualitative_review.md` accurately classifies the 128-token explanation/coding truncation and does not present that diagnostic as replacing the AIME24 full-model top-1/top-5/top-100 gate.
-- No vLLM adapter was reviewed. The stage explicitly records that vLLM integration was not started; the later vLLM stage must prove it consumes `selected_precision_config.json`.
-- The worktree is live and dirty/untracked across stage-owned files plus broader model-bringup artifacts. That is acceptable for this review, but the main agent's post-review checkpoint must isolate only stage-owned changes.
+- `sweep_results.csv` is still matched by the repository-wide `*.csv` ignore rule, so it had to be force-tracked. I do not classify this as required work because `git ls-files --error-unmatch` resolves it, the committed CSV is LF-only, it parses as 16 result rows with the same 30 fields and config order as `sweep_results.json`, and temp-copy `finalize_sweep.py` regeneration reproduced it byte-for-byte.
+- The retained result corpus contains two source digests because earlier primary sweep rows are preserved alongside current-source anomaly-control/post-selection rows. I do not classify this as required work: each selection cohort has one internally consistent digest, the close promoted selected policy and displaced shared-HiFi2 finalist were both rerun under current digest `8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72`, raw measurements retain their digests, and the final selected normal-construction teacher-forcing/token-out artifacts use the current default source.
+- The advertised-context construction JSONs intentionally retain the displaced shared-HiFi2 construction IDs. This is acceptable for this capacity-only evidence because the context-candidate JSONs explicitly name the final selected config, set `construction_capacity_equivalent_to_selected=true`, and explain that the reused construction differs only in shared-projection compute fidelity, not allocated tensor dtype, geometry, KV cache, endpoint footprint, or capacity bytes.
+- Host-backed exact expert H2D timing remains variable enough to affect wall-clock throughput samples. The stage now treats this as controlled evidence rather than dismissing it: the challenged rows have current-source controls, the selected policy uses a three-sample current-source median, the displaced finalist uses a two-sample current-source median, and the transient slow displaced-policy sample is retained only under an explicitly named anomaly-control path.
+- The qualitative shared suite is prompt-format correct and mechanically non-degenerate, but it is not a semantic quality proof. `qualitative_review.md` accurately labels the fixed 128-token explanation/coding truncation, and comparison against prior full-model/optimized-full-model qualitative artifacts shows the same cap-shaped behavior rather than a new datatype-stage regression.
+- The post-selection logs contain nanobind reference-leak warnings during teardown. I do not classify these as required datatype-sweep work because the corresponding JUnit XMLs pass with zero failures/errors, the devices close cleanly in the logs, and the warnings do not mention precision-policy, cache, trace replay, host-weight semantics, or output corruption.
+- No vLLM adapter was reviewed. The stage explicitly records that vLLM integration was not started; the later vLLM stage must still prove that its adapter consumes `selected_precision_config.json`.
 
 ## Hard-Check Gaps
 
-- I did not run TT hardware, reserve/reset devices, start servers, run vLLM, or rerun full-model tests. This review was static/read-only except for overwriting this report, per the review instruction.
-- I did not regenerate the context construction artifacts under the exact final selected LoFi shared-projection config. Existing context artifacts are accepted only because the context candidates and `context_contract.json` explicitly document the displaced construction IDs and prove capacity equivalence for the fields that affect cache/context memory.
-- I did not require a new empirical run for the displaced-policy artifact relocation. Static checks show the top-level post-selection XML aliases are byte-identical to the nested final-selected XMLs, and a direct search found no displaced-policy ID under `post_selection/`.
+- I did not run TT hardware, reserve/reset devices, start servers, run vLLM, or rerun full-model hardware tests. This review is static/read-only except for overwriting this report, per the review instruction.
+- I did not require a fresh advertised-context construction under the exact final selected shared-LoFi config because the retained BFP8/BF16 context-candidate artifacts record and justify capacity equivalence for the only fields relevant to context/capacity.
+- I did not require semantic acceptance of the fixed-cap qualitative suite. The stage uses AIME24 top-1/top-5/top-100 and traced teacher-forcing throughput for datatype selection, while qualitative evidence is prompt-format/prohibited-fallback/non-degeneration coverage.
 
 ## Anomaly Ledger
 
-- Observed anomaly: Prior post-selection XML/log aliases described the displaced shared-HiFi2 policy.
-  Evidence: Current `post_selection/teacher_forcing_selected.xml`, `post_selection/token_out.xml`, `post_selection/qualitative.xml`, and `post_selection/precision_smoke.xml` are byte-identical to their nested `result_final_selected.xml` counterparts. Parsed XML/JSON show final `config_id=qsa_bfp8_hifi2_lm_head_bf16_hifi2`, source digest `8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72`, selected teacher-forcing 4.386243 tokens/s/user, selected token-out 4.317901 tokens/s/user, and 61/61 consumed policy leaves. `rg` found no `qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2`, `result_current_exact`, or `88b0cdba` match under `post_selection/`.
-  Affected path: Final selected-policy post-selection provenance.
-  Control or comparison: Displaced policy artifacts now live under `anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/`, including `historical_post_selection_88b/`, `transient_h2d/`, and explicitly named control subdirectories.
-  Likely subsystem: Artifact retention/naming after winner promotion.
-  Investigation performed: Compared top-level and nested XML hashes, parsed JUnit properties, searched post-selection logs/XML/JSON for old policy IDs, and listed the displaced-policy anomaly-control directory.
+- Observed anomaly: The required CSV artifact is ignored by the repository-wide `*.csv` rule.
+  Evidence: `git check-ignore -v --no-index models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/sweep_results.csv` reports `.gitignore:8:*.csv`; `git ls-files --error-unmatch` resolves the CSV as tracked. The file is 99,596 bytes, SHA256 `953c17aeadf2c694c662ae041985bae30d98baf22f4a7ee8d72e9027e635387b`, contains no CR bytes, ends in LF, parses as 16 rows, and its field values match `sweep_results.json`.
+  Affected path: Required sweep ledger artifact.
+  Control or comparison: A temp-copy run of `finalize_sweep.py` reproduced `sweep_results.json`, `sweep_results.csv`, and `selected_precision_config.json` byte-for-byte and printed `{"evaluated": 16, "passing": 14, "selected": "qsa_bfp8_hifi2_lm_head_bf16_hifi2"}`.
+  Likely subsystem: Artifact tracking/generation for ignored CSV files.
+  Investigation performed: Checked git tracking/ignore status, parsed CSV and JSON, compared JSON-serialized CSV fields against ledger rows, inspected the `csv.DictWriter(..., lineterminator="\n")` writer, and regenerated in a temporary copy outside the worktree.
   Resolution: fixed.
 
-- Observed anomaly: Candidate generation previously used mutable `selected_precision_config.json` as its base and could drift after winner promotion.
-  Evidence: `make_candidates.py` now uses `BASELINE_SEED = ROOT / "baseline_precision_config.json"`. `python models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/make_candidates.py --check` returned `{"artifacts": 17, "reproducible": true}`. `baseline_precision_config.json` is byte-identical to `candidates/baseline_optimized_bfp4lofi_bfp8hifi2.json`, and `selected_precision_config.json` is byte-identical to `candidates/qsa_bfp8_hifi2_lm_head_bf16_hifi2.json`.
-  Affected path: Reproducibility of `candidate_matrix.json`, `candidates/*.json`, and regenerated sweep ledgers.
-  Control or comparison: A static audit over 31 primary, replicate, anomaly-control, and selected result artifacts found zero config-ID or 61-leaf policy mismatches against the retained candidate JSONs. `static_contracts_final.xml` includes passing `test_datatype_sweep_candidate_matrix_is_reproducible_and_matches_results`.
-  Likely subsystem: Artifact-generation script base policy and candidate/result guardrails.
-  Investigation performed: Ran `make_candidates.py --check`, inspected `make_candidates.py`, inspected `finalize_sweep.py`, compared selected/baseline hashes, and checked candidate/result leaves.
+- Observed anomaly: Candidate-generation and result-policy drift had previously been possible.
+  Evidence: Current `make_candidates.py` uses `BASELINE_SEED = ROOT / "baseline_precision_config.json"`, and `python models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/make_candidates.py --check` returned `{"artifacts": 17, "reproducible": true}`. `selected_precision_config.json` is byte-identical to `candidates/qsa_bfp8_hifi2_lm_head_bf16_hifi2.json`. A direct audit of 30 primary, replicate, anomaly-control, and selected teacher-forcing result JSONs found zero config-ID mismatches and zero 61-leaf propagation mismatches against their candidate JSONs.
+  Affected path: Reproducibility of `candidate_matrix.json`, `candidates/*.json`, `selected_precision_config.json`, and sweep result rows.
+  Control or comparison: `static_contracts_final.xml` includes passing `test_datatype_sweep_candidate_matrix_is_reproducible_and_matches_results`; `finalize_sweep.py` independently checks result config IDs and expected precision-propagation leaves.
+  Likely subsystem: Candidate generation base policy and result-finalization guardrails.
+  Investigation performed: Inspected `make_candidates.py` and `finalize_sweep.py`, ran the candidate check, compared selected/candidate bytes, and independently validated all retained result propagation checks.
   Resolution: fixed.
 
-- Observed anomaly: Host H2D service time variance materially changes throughput samples.
-  Evidence: The selected `qsa_bfp8_hifi2_lm_head_bf16_hifi2` row uses three current-source anomaly-control samples with median 4.384021 tokens/s/user and roughly 16.6-16.8 s expert H2D, while its older primary row remains retained but unused at 4.050711 tokens/s/user and 32.267 s H2D. The displaced shared-HiFi2 finalist uses two current-source controls with median 4.366890 tokens/s/user, and the preserved transient has the same miss/byte class but much larger H2D time.
-  Affected path: Sweep ranking and fastest-passing selected policy.
-  Control or comparison: `sweep_results.json` records selection cohorts and raw retained measurements for selected, displaced finalist, GDN LoFi, BF16 KV, BF16 LM head, QSA LoFi, and residual BFP8 rows.
+- Observed anomaly: Host H2D service-time variance materially changes some throughput samples.
+  Evidence: `sweep_results.json` records the selected `qsa_bfp8_hifi2_lm_head_bf16_hifi2` row as a three-sample current-source anomaly-control median at 4.384021 traced teacher-forcing tokens/s/user, while the displaced shared-HiFi2 finalist uses a two-sample current-source median at 4.366890. The preserved displaced transient has the same 50,059 misses and 138,403,123,200 H2D bytes as its normal control but much larger H2D time.
+  Affected path: Pareto ranking and fastest-passing policy selection.
+  Control or comparison: Raw measurements and host counters remain in `sweep_results.json`; the selected final normal-construction teacher-forcing artifact measures 4.386243 tokens/s/user with 50,069 misses, 138,430,771,200 H2D bytes, 16.805 s H2D time, 102 PLE lookups, and 3,480 real PLE rows.
   Likely subsystem: Host-backed exact expert DMA submission/runtime scheduling variance.
-  Investigation performed: Parsed `sweep_results.json` raw measurements and checked the host counters recorded in candidate-result artifacts.
+  Investigation performed: Parsed selection cohorts, raw measurements, source digests, and host-service counters from candidate-result artifacts.
   Resolution: controlled.
 
 - Observed anomaly: Context construction evidence uses displaced shared-HiFi2 config IDs rather than exact final selected config IDs.
-  Evidence: `context_contract_candidates/kv_bfp8.json` and `kv_bf16.json` both record `selected_config_id=qsa_bfp8_hifi2_lm_head_bf16_hifi2`, the displaced `construction_evidence_config_id`, `construction_capacity_equivalent_to_selected=true`, and an exact equivalence reason. BFP8 context records 262,144 tokens, 2,340,421,632 cache bytes/device, and 24,220,969,896 bytes/device headroom; BF16 records 262,144 tokens, 4,227,858,432 cache bytes/device, and 22,333,533,096 bytes/device headroom. The referenced construction and non-aligned evidence paths all exist.
-  Affected path: Context-capability evidence labeling.
-  Control or comparison: `doc/context_contract.json` mirrors both context candidates, keeps `capability_reduction=null`, and preserves 262,144 supported context tokens. Selected post-selection precision propagation separately proves the final selected runtime policy.
+  Evidence: `context_contract_candidates/kv_bfp8.json` and `kv_bf16.json` record `selected_config_id=qsa_bfp8_hifi2_lm_head_bf16_hifi2`, `construction_capacity_equivalent_to_selected=true`, and exact equivalence rationale. BFP8 capacity remains 262,144 tokens with 2,340,421,632 cache bytes/device and 24,220,969,896 bytes/device headroom; BF16 capacity remains 262,144 tokens with 4,227,858,432 cache bytes/device and 22,333,533,096 bytes/device headroom.
+  Affected path: Context/capability evidence labeling.
+  Control or comparison: `doc/context_contract.json` mirrors both datatype-sweep context candidates, keeps `capability_reduction=null`, and preserves `current_supported_context=262144`. Referenced BFP8 and BF16 construction JSONs exist and report 48-layer construction with 36 QSA cache tensors at `max_seq_len=262144`.
   Likely subsystem: Context-capacity evidence reuse after final winner promotion.
-  Investigation performed: Parsed context candidate JSONs, `context_contract.json`, selected config, and referenced path existence.
+  Investigation performed: Parsed `doc/context_contract.json`, context candidate JSONs, construction JSONs, and referenced non-aligned evidence paths.
   Resolution: controlled.
 
-- Observed anomaly: Qualitative explanation/coding outputs are incomplete under the fixed 128-token cap.
-  Evidence: `post_selection/qualitative/qualitative_shared_suite_final.json` records chat prompt mode, tokenizer chat-template rendering with `add_generation_prompt=True`, three prompt IDs, generation length 128, final selected config, and all 61 precision leaves consumed. Manual review classifies explanation as coherent but incomplete, coding as still in reasoning, and summarization as complete/correct; HF controls are also capped/truncated for explanation/coding.
+- Observed anomaly: Qualitative explanation/coding outputs are incomplete at the fixed 128-token cap.
+  Evidence: `post_selection/qualitative/qualitative_shared_suite_final.json` records chat prompt mode, tokenizer `apply_chat_template(add_generation_prompt=True)`, prompt IDs `explanation`, `coding`, and `summarization`, generation length 128, final selected config ID, 61/61 consumed precision leaves, and non-degenerate HF/TT mechanical reviews. Manual review records explanation as coherent but incomplete, coding as still in reasoning, and summarization as complete/correct; HF controls are also capped/truncated for explanation/coding.
   Affected path: Prompt-based qualitative evidence.
-  Control or comparison: `qualitative_review.md` and the qualitative JSON record HF controls, TT completions, prompt-format metadata, runtime fallback audits, and non-degenerate mechanical checks.
-  Likely subsystem: Fixed qualitative generation cap and reasoning-model output format, not datatype policy selection.
-  Investigation performed: Read `qualitative_review.md`, inspected qualitative metadata, and sampled the HF/TT completions.
+  Control or comparison: `qualitative_review.md` records the limitation; prior `doc/full_model/qualitative_shared_suite_final.json` and `doc/optimized_full_model/qualitative_shared_suite_final.json` show the same fixed-cap qualitative shape, so this is not a new datatype-stage regression.
+  Likely subsystem: Fixed qualitative generation cap and reasoning-model output format.
+  Investigation performed: Read the qualitative-check skill, qualitative review, selected qualitative JSON, and prior full-model qualitative artifacts.
   Resolution: controlled.
 
 - Observed anomaly: An earlier wrong-mesh static run failed.
-  Evidence: `static_contracts_wrong_mesh.xml` records 1x1 fixture failures. The authoritative `static_contracts_final.xml` records 37 collected tests: 24 passed, 13 explicitly gated skipped, 0 failures, and 0 errors.
+  Evidence: `static_contracts_wrong_mesh.xml` records failures from a 1x1 fixture. The authoritative `static_contracts_final.xml` records 37 collected tests: 24 passed, 13 explicitly gated skipped, 0 failures, and 0 errors.
   Affected path: Static validation provenance.
-  Control or comparison: `static_contracts_final.xml`.
-  Likely subsystem: Test fixture/environment setup.
-  Investigation performed: Parsed JUnit summaries and skipped-test messages.
+  Control or comparison: `static_contracts_final.xml` on the correct 1x2 fixture.
+  Likely subsystem: Test environment setup.
+  Investigation performed: Parsed JUnit summaries and inspected passing/skipped test names.
+  Resolution: controlled.
+
+- Observed anomaly: Post-selection logs print nanobind reference-leak warnings at teardown.
+  Evidence: `post_selection/teacher_forcing_selected.log`, `post_selection/token_out.log`, and `post_selection/qualitative.log` end with nanobind ref-leak warnings followed by JIT telemetry and clean device close messages; their JUnit XML aliases each report zero failures and zero errors.
+  Affected path: Test teardown diagnostics.
+  Control or comparison: Passing `post_selection/*.xml` and clean UMD cluster close messages in the same logs.
+  Likely subsystem: TTNN/nanobind binding teardown, not datatype policy/runtime output.
+  Investigation performed: Inspected post-selection log tails and parsed corresponding JUnit XML summaries.
   Resolution: controlled.
 
 ## Scope Inspected
@@ -95,6 +105,9 @@ Verdict: clean-pass
   - `models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/qualitative_review.md`
   - `models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/top1_perf_pareto.png`
   - `models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/top5_perf_pareto.png`
+  - `models/autoports/qwen_qwen3_8_flash_next/doc/full_model/readiness_aime24_chat.refpt`
+  - `models/autoports/qwen_qwen3_8_flash_next/doc/full_model/qualitative_shared_suite_final.json`
+  - `models/autoports/qwen_qwen3_8_flash_next/doc/optimized_full_model/qualitative_shared_suite_final.json`
   - `models/autoports/qwen_qwen3_8_flash_next/doc/context_contract.json`
   - `models/autoports/qwen_qwen3_8_flash_next/doc/host_weight_contract.json`
 
@@ -115,14 +128,15 @@ Verdict: clean-pass
   - `models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/update_host_contract.py`
 
 - Commands run:
-  - `sed`, `nl`, `rg --files`, `rg`, `find`, `file`, `sha256sum`, `git rev-parse`, and `git status --short` for source/artifact inspection.
+  - `sed` over `stage-review`, `datatype-sweep`, `qualitative-check`, stage README/work log, precision plumbing, and selected tests.
+  - `git status --short`, `git log --oneline`, `git show --stat/--name-status`, `git ls-files`, `git check-ignore -v --no-index`, and scoped `git diff --check`.
+  - `find`, `rg`, `file`, and log `tail` for artifact/source discovery and stale-path checks.
   - `python models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/make_candidates.py --check`.
-  - Python read-only JSON/XML audits over `sweep_results.json`, `sweep_results.csv`, candidate files, primary/replicate/anomaly-control results, post-selection XML/JSON/logs, context contracts, host-weight contract, qualitative evidence, and JUnit XML summaries.
-  - Python `ast.parse` checks over the datatype-sweep scripts, `test_host_weight_cache.py`, and `tt/precision_config.py`.
-  - `git diff --check --` scoped to datatype-sweep/default-policy source and contract files.
+  - Temp-copy `finalize_sweep.py` regeneration outside the worktree, comparing regenerated `sweep_results.json`, `sweep_results.csv`, and `selected_precision_config.json` byte-for-byte against the committed artifacts.
+  - Python read-only audits over JSON/CSV/XML artifacts for ledger parity, 30 result/candidate propagation matches, selected post-selection metrics, host fallback flags, context capacity, qualitative controls, AIME24 reference shape, AIME100 evidence, JUnit summaries, image metadata, source digests, and AST parseability.
 
 ## Residual Risk
 
-- Hardware was intentionally not rerun. The clean-pass verdict depends on the recorded full-model, post-selection, context, and static artifacts being the accepted evidence for this stage.
-- Later vLLM/serving integration still needs an explicit propagation check through its adapter once that adapter exists.
-- The main agent still needs to append this clean review result and create isolated local checkpoint commit(s) for stage-owned changes before marking the broader stage handoff complete.
+- Hardware evidence was not rerun during this review. The clean-pass verdict depends on the recorded candidate, post-selection, context, qualitative, and static artifacts being the accepted evidence for this stage.
+- Some non-finalist sweep rows remain historical-source measurements. The stage records their source digests and raw measurements; if a later consumer wants a fully same-source performance table, it can rerun those rows, but no required datatype-sweep gate remains open.
+- Later vLLM/serving integration still needs its own default-policy propagation check once a vLLM adapter exists.
