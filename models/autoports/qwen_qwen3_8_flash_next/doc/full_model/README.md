@@ -205,10 +205,11 @@ but exhaust the 128-token ceiling before completion, consistent with the HF
 control's long visible xhigh reasoning. Exact prompt formatting, raw HF/TT
 tokens and outputs, and the prompt-by-prompt human verdict are in
 `qualitative_prompt_format.json`, `qualitative_shared_suite_final.json`, and
-`QUALITATIVE_REVIEW.md`. The common readiness-check degeneracy script is not
-present in this checkout, so the stage uses the documented `_degeneracy`
-substitute (dominant token, adjacent repeats, repeated four-grams, and Latin
-letter fraction) plus direct human review.
+`QUALITATIVE_REVIEW.md`. The restored common readiness-check degeneracy script
+consumes `autoregressive_meta.json` and `tt_completion.txt` and passes with
+adjacent duplication 0.0 and trigram-loop fraction 0.0759. The model-local
+`_degeneracy` metrics (dominant token, adjacent repeats, repeated four-grams,
+and Latin letter fraction) plus direct human review remain additional evidence.
 
 ## Performance interpretation and limitations
 

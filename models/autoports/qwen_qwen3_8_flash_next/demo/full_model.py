@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Accuracy and qualitative runners for the Qwen3.8 full-model stage.
 
-The checkout does not yet contain ``models.common.readiness_check``.  These
-functions implement its three required surfaces against the same reference
-artifact schema: one prompt, 100 HF greedy tokens, and the HF top-100 set for
-every generation position.
+The checkout does not yet contain the shared readiness generator harness; it
+only carries the runner-side degeneracy checker.  These functions implement
+the harness's three required surfaces against the same reference artifact
+schema: one prompt, 100 HF greedy tokens, and the HF top-100 set for every
+generation position.
 """
 
 from __future__ import annotations
@@ -248,11 +249,34 @@ def write_report(report: dict, output: str | Path) -> None:
     Path(output).write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n")
 
 
+def write_autoregressive_artifacts(report: dict, output_dir: str | Path) -> None:
+    """Write the canonical readiness sidecars consumed by runner-side gates."""
+
+    required = {"prompt_tokens", "generation_tokens", "hf_tokens", "tt_tokens", "hf_completion", "tt_completion"}
+    missing = required - report.keys()
+    if missing:
+        raise ValueError(f"autoregressive report is missing {sorted(missing)}")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "schema_version": 1,
+        "source": "models.autoports.qwen_qwen3_8_flash_next.demo.full_model.run_autoregressive",
+        "prompt_tokens": int(report["prompt_tokens"]),
+        "generation_tokens": int(report["generation_tokens"]),
+        "hf": {"token_ids": [int(token) for token in report["hf_tokens"]]},
+        "tt": {"token_ids": [int(token) for token in report["tt_tokens"]]},
+    }
+    write_report(metadata, output_dir / "autoregressive_meta.json")
+    (output_dir / "hf_completion.txt").write_text(str(report["hf_completion"]) + "\n", encoding="utf-8")
+    (output_dir / "tt_completion.txt").write_text(str(report["tt_completion"]) + "\n", encoding="utf-8")
+
+
 __all__ = [
     "load_reference",
     "run_autoregressive",
     "run_prefill_check",
     "run_qualitative_suite",
     "run_teacher_forcing",
+    "write_autoregressive_artifacts",
     "write_report",
 ]

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from models.autoports.qwen_qwen3_8_flash_next.demo.full_model import (
     run_prefill_check,
     run_qualitative_suite,
     run_teacher_forcing,
+    write_autoregressive_artifacts,
     write_report,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
@@ -51,6 +53,23 @@ def test_generator_interface_and_policy_are_explicit():
     assert "Sampling1D" in source
     assert "argmax" not in inspect.getsource(Qwen38FullModel.decode_token_out_traced)
     assert Qwen38Generator.required_device_params["l1_small_size"] == REQUIRED_L1_SMALL_SIZE
+
+
+def test_autoregressive_writer_emits_runner_contract(tmp_path):
+    report = {
+        "prompt_tokens": 3,
+        "generation_tokens": 2,
+        "hf_tokens": [7, 8],
+        "tt_tokens": [7, 9],
+        "hf_completion": "HF completion",
+        "tt_completion": "TT completion",
+    }
+    write_autoregressive_artifacts(report, tmp_path)
+    metadata = json.loads((tmp_path / "autoregressive_meta.json").read_text())
+    assert metadata["hf"]["token_ids"] == [7, 8]
+    assert metadata["tt"]["token_ids"] == [7, 9]
+    assert (tmp_path / "hf_completion.txt").read_text() == "HF completion\n"
+    assert (tmp_path / "tt_completion.txt").read_text() == "TT completion\n"
 
 
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
@@ -790,7 +809,9 @@ def test_full_model_aime24_autoregressive_quality(bh_1d_mesh_device, device_para
     generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
     try:
         report = run_autoregressive(generator, REFERENCE, enable_trace=True)
-        write_report(report, Path(__file__).parents[1] / "doc/full_model/aime24_autoregressive_100_report_final.json")
+        output_dir = Path(__file__).parents[1] / "doc/full_model"
+        write_report(report, output_dir / "aime24_autoregressive_100_report_final.json")
+        write_autoregressive_artifacts(report, output_dir)
         print({"autoregressive": report})
         assert not report["tt_review"]["mechanically_degenerate"]
         assert report["generation_tokens"] == 100

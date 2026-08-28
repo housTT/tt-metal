@@ -375,3 +375,78 @@ model`). Nothing is pushed.
   suite's maximum 128-token budget before completing a short answer;
 - deprecated CCL-argument and nanobind shutdown warnings remain runtime/tool
   issues; accepted gates have no watcher, NoC, assertion, panic, or hang.
+
+## Runner-side verification repair (2026-08-28)
+
+The independent post-completion runner invoked
+`.agents/prompts/model_bringup_multigoal/06-full-model.check.sh` and exited 2.
+The reported failure reproduced exactly: the gate's first command named
+`models/common/readiness_check/check_degenerate_output.py`, which was absent
+from this checkout. Running the gate's context check independently then exposed
+a second schema mismatch: `context_contract.json` recorded the full 262,144
+tokens under stage-specific `*_supported_context_tokens` names, but omitted
+the runner's canonical `current_supported_context` key.
+
+The repair restores `check_degenerate_output.py` byte-for-byte from repository
+verification commit `64f9b3ff90101009a7dc484b56ed408c3844d7bf`, publishes the
+unchanged 262,144-token target and supported values under the canonical context
+keys, and makes the current-source autoregressive runner emit
+`autoregressive_meta.json`, `hf_completion.txt`, and `tt_completion.txt` along
+with its detailed report. The checked-in sidecars are a lossless normalization
+of `aime24_autoregressive_100_report_final.json`: the same exact 100 HF tokens,
+100 TT tokens, and decoded text are used, with no new model-quality claim or
+hardware rerun. Future full-stack autoregressive runs regenerate all three
+canonical sidecars through `write_autoregressive_artifacts`.
+
+Focused verification:
+
+```bash
+python -m py_compile \
+  models/common/readiness_check/check_degenerate_output.py \
+  models/autoports/qwen_qwen3_8_flash_next/demo/full_model.py
+python -m pytest -q \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_autoregressive_writer_emits_runner_contract
+python models/common/readiness_check/check_degenerate_output.py \
+  --model-dir models/autoports/qwen_qwen3_8_flash_next \
+  --missing-artifacts critical --scope autoregressive
+python .agents/scripts/check_context_contract.py \
+  --model-dir models/autoports/qwen_qwen3_8_flash_next \
+  --hf-model Qwen/Qwen3.8-Flash-Next --stage full-model --require-contract
+env MODEL_DIR=models/autoports/qwen_qwen3_8_flash_next \
+  HF_MODEL=Qwen/Qwen3.8-Flash-Next \
+  bash .agents/prompts/model_bringup_multigoal/06-full-model.check.sh
+```
+
+All five commands exit 0. The unit test passes 1/1. The degeneracy gate reads
+the canonical TT completion and reports 79 words, adjacent duplication 0.0,
+trigram-loop fraction 0.0759, and no critical/advisory finding. The context gate
+reports target=262144 and supported=262144 (`full HF context`). The final
+authoritative combined gate exits 0 with both verdicts. No TT device was opened
+for this metadata/checker repair; the accepted hardware evidence and device
+health record above remain unchanged.
+
+A refreshed CPU-only current-source matrix adds the artifact-writer contract to
+the prior host-policy gates:
+
+```bash
+python -m pytest -q \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_generator_interface_and_policy_are_explicit \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_autoregressive_writer_emits_runner_contract \
+  --junitxml=models/autoports/qwen_qwen3_8_flash_next/doc/full_model/static_host_contracts_runner_repair.xml
+```
+
+Result: 14/14 pass in 2.29 s. The output retains only the previously classified
+pytest/Pydantic/SWIG/nanobind warnings; no TT hardware is opened. The exact
+metadata-token arrays and both completion text sidecars also compare equal to
+their source fields in `aime24_autoregressive_100_report_final.json`.
+
+The fresh independent `$stage-review` report is
+`STAGE_REVIEW_RUNNER_REPAIR.md`; its literal verdict is `clean-pass` with no
+required work. It independently reran the authoritative gate, re-derived the
+checker hash, inspected exact HF/TT tokens and text, and audited the full stage
+against the original goal and all three requested skills. Its non-blocking
+documentation concern identified stale pre-repair wording in `README.md`; the
+README was refreshed immediately afterward to describe the restored passing
+checker and canonical sidecars. Unrelated pre-existing untracked profiler
+artifacts remain excluded from the repair checkpoint.
