@@ -1,0 +1,5262 @@
+{
+  "compatibility_mode": "explicit_host_logits",
+  "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+  "decode_measured_tokens": 98,
+  "decode_seconds": 22.342581956952927,
+  "decode_seconds_per_token": 0.22798553017298906,
+  "decode_tokens_per_second_per_user": 4.3862432814978565,
+  "host_service_totals": {
+    "expert_deferred_dma_misses": 50069.0,
+    "expert_dma_completion_syncs": 0.0,
+    "expert_h2d_bytes": 138430771200.0,
+    "expert_h2d_seconds": 16.805316499929177,
+    "expert_hits": 17610.0,
+    "expert_index_h2d_bytes": 168640.0,
+    "expert_index_upload_seconds": 0.45490894014074,
+    "expert_misses": 50069.0,
+    "expert_packed_host_hits": 50069.0,
+    "expert_packed_host_misses": 24576.0,
+    "expert_source_pack_seconds": 241.3086817265139,
+    "expert_zero_d2d_bytes": 138430771200.0,
+    "ple_device_completion_syncs": 0.0,
+    "ple_device_deferred_uploads": 102.0,
+    "ple_device_h2d_bytes": 3645440.0,
+    "ple_device_h2d_seconds": 0.01481266604969278,
+    "ple_lookup_calls": 102.0,
+    "ple_lookup_seconds": 2.5626782400067896,
+    "ple_table_bytes_read": 1113600.0,
+    "ple_table_rows_read": 3480.0
+  },
+  "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+  "model_only_trace_replays": 98,
+  "passes_gate": true,
+  "phase": "decode",
+  "precision_config_path": "/home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/selected_precision_config.json",
+  "precision_propagation": {
+    "all_fields_consumed": true,
+    "checks": {
+      "activations.matmul_output_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all decoder linear output policies"
+      },
+      "activations.model_input_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "embedding output boundary"
+      },
+      "activations.ple_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "PLE consuming layer activation policy"
+      },
+      "activations.residual_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all layer boundary policies"
+      },
+      "ccl.num_links": {
+        "expected": 2,
+        "observed": 2,
+        "passed": true,
+        "source": "all collective wrappers"
+      },
+      "ccl.packet_bytes": {
+        "expected": 8192,
+        "observed": 8192,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "ccl.payload_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all collective wrappers"
+      },
+      "ccl.topology": {
+        "expected": "linear",
+        "observed": "linear",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "config_id": {
+        "expected": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+        "observed": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.device_staging_dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.device_staging_layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.execution_weight_dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.host_packed_dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.host_packed_layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.packed_capacity_per_layer": {
+        "expected": 512,
+        "observed": 512,
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.prepack_all": {
+        "expected": true,
+        "observed": true,
+        "passed": true,
+        "source": "full-model preload mode"
+      },
+      "host_backed.expert.slots_per_layer": {
+        "expected": 10,
+        "observed": 10,
+        "passed": true,
+        "source": "live fixed expert cache/staging objects"
+      },
+      "host_backed.expert.source_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.ple.device_staging_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "live PLE staging object"
+      },
+      "host_backed.ple.device_staging_layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "live PLE staging object"
+      },
+      "host_backed.ple.execution_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.ple.host_assembly_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.ple.prefill_chunk_rows": {
+        "expected": 128,
+        "observed": 128,
+        "passed": true,
+        "source": "live PLE staging allocation"
+      },
+      "host_backed.ple.row_cache_capacity": {
+        "expected": 8192,
+        "observed": 8192,
+        "passed": true,
+        "source": "live PLE host store"
+      },
+      "host_backed.ple.table_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "mmap table tensor"
+      },
+      "host_backed.ple.table_layout": {
+        "expected": "row_major_mmap",
+        "observed": "row_major_mmap",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "kv_cache.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "live QSA K/V and index cache tensor metadata"
+      },
+      "kv_cache.layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "kv_cache.page_block_size": {
+        "expected": 64,
+        "observed": 64,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "kv_cache.policy": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "all constructed QSA layers"
+      },
+      "kv_cache.update_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all paged decode update tensors"
+      },
+      "logits_sampling.greedy_strategy": {
+        "expected": "full_vocabulary_argmax",
+        "observed": "full_vocabulary_argmax",
+        "passed": true,
+        "source": "device sampler strategy"
+      },
+      "logits_sampling.logits_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "LM-head sampler boundary"
+      },
+      "logits_sampling.sampling_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "Sampling1D input boundary"
+      },
+      "logits_sampling.sampling_mode": {
+        "expected": "device",
+        "observed": "device",
+        "passed": true,
+        "source": "normal generator default policy"
+      },
+      "schema_version": {
+        "expected": 1,
+        "observed": 1,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "weight_exceptions.norms.compute_fidelity": {
+        "expected": "hifi4",
+        "observed": "hifi4",
+        "passed": true,
+        "source": "all decoder RMSNorm kernels"
+      },
+      "weight_exceptions.norms.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "live decoder and final norm tensor metadata"
+      },
+      "weight_exceptions.router_topk_outputs.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all router/top-k boundaries"
+      },
+      "weight_groups.attention_output.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.attention_output.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.attention_output.policy": {
+        "expected": "bfp8_hifi2",
+        "observed": "bfp8_hifi2",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.embedding.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "embedding tensor metadata"
+      },
+      "weight_groups.embedding.layout": {
+        "expected": "row_major",
+        "observed": "row_major",
+        "passed": true,
+        "source": "embedding tensor metadata"
+      },
+      "weight_groups.final_hyper_down_up.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed final hyperconnection compute kernel"
+      },
+      "weight_groups.final_hyper_down_up.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "final down/up tensor metadata"
+      },
+      "weight_groups.gdn_projection.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.gdn_projection.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.gdn_projection.policy": {
+        "expected": "bfp8_hifi2",
+        "observed": "bfp8_hifi2",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.lm_head.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed LMHead1D compute kernel"
+      },
+      "weight_groups.lm_head.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "constructed LMHead1D weight metadata"
+      },
+      "weight_groups.lm_head.policy": {
+        "expected": "bf16_hifi2",
+        "observed": "bf16_hifi2",
+        "passed": true,
+        "source": "constructed LMHead1D configuration"
+      },
+      "weight_groups.qsa_input.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.qsa_input.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.qsa_input.policy": {
+        "expected": "bfp8_hifi2",
+        "observed": "bfp8_hifi2",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.routed_expert.compute_fidelity": {
+        "expected": "lofi",
+        "observed": "lofi",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.routed_expert.dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.routed_expert.policy": {
+        "expected": "expert_bfp4_lofi_g40b16_d40b5",
+        "observed": "expert_bfp4_lofi_g40b16_d40b5",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.shared_projection.compute_fidelity": {
+        "expected": "lofi",
+        "observed": "lofi",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.shared_projection.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.shared_projection.policy": {
+        "expected": "bfp8_lofi",
+        "observed": "bfp8_lofi",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      }
+    },
+    "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+    "config_path": "/home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/selected_precision_config.json",
+    "consumed_leaf_count": 61,
+    "layers": [
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 0,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 1,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 2,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 3,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 4,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 5,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 6,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 7,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 8,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 9,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 10,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 11,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 12,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 13,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 14,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 15,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 16,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 17,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 18,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 19,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 20,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 21,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 22,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 23,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 24,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 25,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 26,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 27,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 28,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 29,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 30,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 31,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 32,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 33,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 34,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 35,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 36,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 37,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 38,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 39,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 40,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 41,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 42,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 43,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 44,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 45,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 46,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": {
+          "device_bytes_per_rank": 33177600,
+          "packed_capacity": 512,
+          "packed_dtype": "bfp4",
+          "packed_host_bytes": 1418342400,
+          "packed_layout": "tile",
+          "slots": 10,
+          "staging_dtype": "bfp4",
+          "staging_layout": "tile"
+        },
+        "layer": 47,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      }
+    ],
+    "lm_head": {
+      "dram_cores": null,
+      "dram_sharded": false,
+      "fidelity": "hifi2",
+      "in0_block_w": null,
+      "input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "logits_dtype": "bf16",
+      "per_core_n": null,
+      "per_dram_reader_n": null,
+      "physical_output_tiles": null,
+      "policy": "bf16_hifi2",
+      "program_configs": [
+        "None",
+        "None",
+        "None",
+        "None"
+      ],
+      "rank_slices": [
+        [
+          [
+            0,
+            32768
+          ],
+          [
+            124160,
+            156928
+          ]
+        ],
+        [
+          [
+            32768,
+            65536
+          ],
+          [
+            156928,
+            189696
+          ]
+        ],
+        [
+          [
+            65536,
+            98304
+          ],
+          [
+            189696,
+            222464
+          ]
+        ],
+        [
+          [
+            98304,
+            124160
+          ],
+          [
+            222464,
+            248320
+          ]
+        ]
+      ],
+      "split_sizes": [
+        32768,
+        32768,
+        32768,
+        25856
+      ],
+      "weight_dtype": "bf16",
+      "weight_memory_configs": [
+        "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+      ],
+      "worker_cores": null,
+      "worker_grid": null
+    }
+  },
+  "prefill": {
+    "rows": 1,
+    "top100_hits": 1,
+    "top100_percent": 100.0,
+    "top1_hits": 1,
+    "top1_percent": 100.0,
+    "top5_hits": 1,
+    "top5_percent": 100.0,
+    "tt_top1_tokens": [
+      1596
+    ]
+  },
+  "prompt_tokens": 201,
+  "reference_rows": 99,
+  "rows": 99,
+  "runtime_fallback_audit": {
+    "counters": {
+      "compact_token_readbacks": 0,
+      "model_only_trace_replays": 98,
+      "page_table_host_copies": 1,
+      "page_table_unchanged_skips": 0,
+      "position_host_copies": 2,
+      "sampling_seed_host_copies": 0,
+      "token_host_copies": 101,
+      "trace_replays": 0
+    },
+    "declared_host_work": {
+      "caller_visible_compact_token_readback": true,
+      "expert_route_id_read_and_exact_weight_dma": true,
+      "explicit_non_greedy_seed_control_h2d": false,
+      "model_load_exact_expert_prepack": true,
+      "ple_ngram_hash_row_lookup_and_dma": true
+    },
+    "experts": {
+      "0": {
+        "capacity": 10,
+        "deferred_dma_misses": 1540,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1530,
+        "h2d_bytes": 4257792000,
+        "h2d_seconds": 0.5562437988264719,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 79,
+        "index_h2d_bytes": 1280,
+        "index_upload_seconds": 0.004720440003438853,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1540,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1540,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.032663769001374,
+        "requests": 163,
+        "source_pack_seconds": 5.026065044134157,
+        "staging_depth": 1,
+        "waves": 163,
+        "zero_d2d_bytes": 4257792000
+      },
+      "1": {
+        "capacity": 10,
+        "deferred_dma_misses": 1257,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1247,
+        "h2d_bytes": 3475353600,
+        "h2d_seconds": 0.4252696421026485,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 229,
+        "index_h2d_bytes": 2840,
+        "index_upload_seconds": 0.008635863050585613,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1257,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1257,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.922331869005575,
+        "requests": 150,
+        "source_pack_seconds": 4.915309154952411,
+        "staging_depth": 1,
+        "waves": 150,
+        "zero_d2d_bytes": 3475353600
+      },
+      "10": {
+        "capacity": 10,
+        "deferred_dma_misses": 919,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 909,
+        "h2d_bytes": 2540851200,
+        "h2d_seconds": 0.3056564765138319,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 458,
+        "index_h2d_bytes": 3920,
+        "index_upload_seconds": 0.010289337005815469,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 919,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 919,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.01379464600177,
+        "requests": 138,
+        "source_pack_seconds": 5.006945370012545,
+        "staging_depth": 1,
+        "waves": 138,
+        "zero_d2d_bytes": 2540851200
+      },
+      "11": {
+        "capacity": 10,
+        "deferred_dma_misses": 948,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 938,
+        "h2d_bytes": 2621030400,
+        "h2d_seconds": 0.31559046206530184,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 408,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.00996666202263441,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 948,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 948,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.141369548000512,
+        "requests": 136,
+        "source_pack_seconds": 5.132873425929574,
+        "staging_depth": 1,
+        "waves": 136,
+        "zero_d2d_bytes": 2621030400
+      },
+      "12": {
+        "capacity": 10,
+        "deferred_dma_misses": 1177,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1167,
+        "h2d_bytes": 3254169600,
+        "h2d_seconds": 0.39016896627435926,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 286,
+        "index_h2d_bytes": 3520,
+        "index_upload_seconds": 0.009485935079283081,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1177,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1177,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.897266132000368,
+        "requests": 147,
+        "source_pack_seconds": 4.8904563348478405,
+        "staging_depth": 1,
+        "waves": 147,
+        "zero_d2d_bytes": 3254169600
+      },
+      "13": {
+        "capacity": 10,
+        "deferred_dma_misses": 997,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 987,
+        "h2d_bytes": 2756505600,
+        "h2d_seconds": 0.3308772744931048,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 400,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.010153628041734919,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 997,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 997,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.914152297002147,
+        "requests": 140,
+        "source_pack_seconds": 4.907373692069086,
+        "staging_depth": 1,
+        "waves": 140,
+        "zero_d2d_bytes": 2756505600
+      },
+      "14": {
+        "capacity": 10,
+        "deferred_dma_misses": 1078,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1068,
+        "h2d_bytes": 2980454400,
+        "h2d_seconds": 0.35650829899532255,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 327,
+        "index_h2d_bytes": 3520,
+        "index_upload_seconds": 0.00945787809905596,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1078,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1078,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.9731764379976084,
+        "requests": 141,
+        "source_pack_seconds": 4.966343193038483,
+        "staging_depth": 1,
+        "waves": 141,
+        "zero_d2d_bytes": 2980454400
+      },
+      "15": {
+        "capacity": 10,
+        "deferred_dma_misses": 733,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 723,
+        "h2d_bytes": 2026598400,
+        "h2d_seconds": 0.2460144742653938,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 511,
+        "index_h2d_bytes": 3920,
+        "index_upload_seconds": 0.010730727037298493,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 733,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 733,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.954524621993187,
+        "requests": 125,
+        "source_pack_seconds": 4.947742808013572,
+        "staging_depth": 1,
+        "waves": 125,
+        "zero_d2d_bytes": 2026598400
+      },
+      "16": {
+        "capacity": 10,
+        "deferred_dma_misses": 745,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 735,
+        "h2d_bytes": 2059776000,
+        "h2d_seconds": 0.24810480994347017,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 519,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.009066023922059685,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 745,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 745,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.010900017994572,
+        "requests": 127,
+        "source_pack_seconds": 5.003692553262226,
+        "staging_depth": 1,
+        "waves": 127,
+        "zero_d2d_bytes": 2059776000
+      },
+      "17": {
+        "capacity": 10,
+        "deferred_dma_misses": 997,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 987,
+        "h2d_bytes": 2756505600,
+        "h2d_seconds": 0.3437726572738029,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 400,
+        "index_h2d_bytes": 3720,
+        "index_upload_seconds": 0.009181862958939746,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 997,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 997,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.217888300001505,
+        "requests": 141,
+        "source_pack_seconds": 5.209438064790447,
+        "staging_depth": 1,
+        "waves": 141,
+        "zero_d2d_bytes": 2756505600
+      },
+      "18": {
+        "capacity": 10,
+        "deferred_dma_misses": 1231,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1221,
+        "h2d_bytes": 3403468800,
+        "h2d_seconds": 0.42048367801180575,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 236,
+        "index_h2d_bytes": 3200,
+        "index_upload_seconds": 0.008671898045577109,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1231,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1231,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.8778371369990055,
+        "requests": 148,
+        "source_pack_seconds": 4.871128024053178,
+        "staging_depth": 1,
+        "waves": 148,
+        "zero_d2d_bytes": 3403468800
+      },
+      "19": {
+        "capacity": 10,
+        "deferred_dma_misses": 1013,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1003,
+        "h2d_bytes": 2800742400,
+        "h2d_seconds": 0.3575439839187311,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 370,
+        "index_h2d_bytes": 3600,
+        "index_upload_seconds": 0.010346290946472436,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1013,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1013,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.935603293997701,
+        "requests": 139,
+        "source_pack_seconds": 4.928760245922604,
+        "staging_depth": 1,
+        "waves": 139,
+        "zero_d2d_bytes": 2800742400
+      },
+      "2": {
+        "capacity": 10,
+        "deferred_dma_misses": 1209,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1199,
+        "h2d_bytes": 3342643200,
+        "h2d_seconds": 0.4053678144555306,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 283,
+        "index_h2d_bytes": 3680,
+        "index_upload_seconds": 0.01197380899975542,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1209,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1209,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.964530181998271,
+        "requests": 150,
+        "source_pack_seconds": 4.957852300067316,
+        "staging_depth": 1,
+        "waves": 150,
+        "zero_d2d_bytes": 3342643200
+      },
+      "20": {
+        "capacity": 10,
+        "deferred_dma_misses": 1033,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1023,
+        "h2d_bytes": 2856038400,
+        "h2d_seconds": 0.36793464499351103,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 369,
+        "index_h2d_bytes": 3720,
+        "index_upload_seconds": 0.010096132013131864,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1033,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1033,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.078935420999187,
+        "requests": 141,
+        "source_pack_seconds": 5.0715198161196895,
+        "staging_depth": 1,
+        "waves": 141,
+        "zero_d2d_bytes": 2856038400
+      },
+      "21": {
+        "capacity": 10,
+        "deferred_dma_misses": 1194,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1184,
+        "h2d_bytes": 3301171200,
+        "h2d_seconds": 0.4047972688131267,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 258,
+        "index_h2d_bytes": 3160,
+        "index_upload_seconds": 0.008644041998195462,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1194,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1194,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.983901401006733,
+        "requests": 146,
+        "source_pack_seconds": 4.976965352980187,
+        "staging_depth": 1,
+        "waves": 146,
+        "zero_d2d_bytes": 3301171200
+      },
+      "22": {
+        "capacity": 10,
+        "deferred_dma_misses": 1380,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1370,
+        "h2d_bytes": 3815424000,
+        "h2d_seconds": 0.47018934290099423,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 175,
+        "index_h2d_bytes": 2600,
+        "index_upload_seconds": 0.007576310046715662,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1380,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1380,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.269694132992299,
+        "requests": 156,
+        "source_pack_seconds": 5.260480385259143,
+        "staging_depth": 1,
+        "waves": 156,
+        "zero_d2d_bytes": 3815424000
+      },
+      "23": {
+        "capacity": 10,
+        "deferred_dma_misses": 920,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 910,
+        "h2d_bytes": 2543616000,
+        "h2d_seconds": 0.3063851530314423,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 432,
+        "index_h2d_bytes": 3640,
+        "index_upload_seconds": 0.012089065989130177,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 920,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 920,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.916503330998239,
+        "requests": 136,
+        "source_pack_seconds": 4.9099103921762435,
+        "staging_depth": 1,
+        "waves": 136,
+        "zero_d2d_bytes": 2543616000
+      },
+      "24": {
+        "capacity": 10,
+        "deferred_dma_misses": 964,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 954,
+        "h2d_bytes": 2665267200,
+        "h2d_seconds": 0.31938057192019187,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 406,
+        "index_h2d_bytes": 3680,
+        "index_upload_seconds": 0.010302102935384028,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 964,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 964,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.939860837999731,
+        "requests": 138,
+        "source_pack_seconds": 4.933026215832797,
+        "staging_depth": 1,
+        "waves": 138,
+        "zero_d2d_bytes": 2665267200
+      },
+      "25": {
+        "capacity": 10,
+        "deferred_dma_misses": 923,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 913,
+        "h2d_bytes": 2551910400,
+        "h2d_seconds": 0.3050664178590523,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 438,
+        "index_h2d_bytes": 3800,
+        "index_upload_seconds": 0.010242875025141984,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 923,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 923,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.95989235000161,
+        "requests": 137,
+        "source_pack_seconds": 4.95317429905117,
+        "staging_depth": 1,
+        "waves": 137,
+        "zero_d2d_bytes": 2551910400
+      },
+      "26": {
+        "capacity": 10,
+        "deferred_dma_misses": 986,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 976,
+        "h2d_bytes": 2726092800,
+        "h2d_seconds": 0.32938529417151585,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 398,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.009946741978637874,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 986,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 986,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.903888835993712,
+        "requests": 139,
+        "source_pack_seconds": 4.897181196080055,
+        "staging_depth": 1,
+        "waves": 139,
+        "zero_d2d_bytes": 2726092800
+      },
+      "27": {
+        "capacity": 10,
+        "deferred_dma_misses": 1029,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1019,
+        "h2d_bytes": 2844979200,
+        "h2d_seconds": 0.34367550363822374,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 358,
+        "index_h2d_bytes": 3560,
+        "index_upload_seconds": 0.009971282939659432,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1029,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1029,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.930911848990945,
+        "requests": 140,
+        "source_pack_seconds": 4.924063672937336,
+        "staging_depth": 1,
+        "waves": 140,
+        "zero_d2d_bytes": 2844979200
+      },
+      "28": {
+        "capacity": 10,
+        "deferred_dma_misses": 1142,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1132,
+        "h2d_bytes": 3157401600,
+        "h2d_seconds": 0.37799138585978653,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 324,
+        "index_h2d_bytes": 3720,
+        "index_upload_seconds": 0.010153980969334953,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1142,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1142,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.998583831998985,
+        "requests": 147,
+        "source_pack_seconds": 4.991735976931523,
+        "staging_depth": 1,
+        "waves": 147,
+        "zero_d2d_bytes": 3157401600
+      },
+      "29": {
+        "capacity": 10,
+        "deferred_dma_misses": 983,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 973,
+        "h2d_bytes": 2717798400,
+        "h2d_seconds": 0.3264913460589014,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 409,
+        "index_h2d_bytes": 3800,
+        "index_upload_seconds": 0.010002476061345078,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 983,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 983,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.11939594100113,
+        "requests": 140,
+        "source_pack_seconds": 5.1122667010640725,
+        "staging_depth": 1,
+        "waves": 140,
+        "zero_d2d_bytes": 2717798400
+      },
+      "3": {
+        "capacity": 10,
+        "deferred_dma_misses": 806,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 796,
+        "h2d_bytes": 2228428800,
+        "h2d_seconds": 0.2705096729187062,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 508,
+        "index_h2d_bytes": 3960,
+        "index_upload_seconds": 0.011373740882845595,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 806,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 806,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.965503810992232,
+        "requests": 132,
+        "source_pack_seconds": 4.95872526257881,
+        "staging_depth": 1,
+        "waves": 132,
+        "zero_d2d_bytes": 2228428800
+      },
+      "30": {
+        "capacity": 10,
+        "deferred_dma_misses": 1081,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1071,
+        "h2d_bytes": 2988748800,
+        "h2d_seconds": 0.35835396448965184,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 328,
+        "index_h2d_bytes": 3480,
+        "index_upload_seconds": 0.009024680955917574,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1081,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1081,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.415508331003366,
+        "requests": 142,
+        "source_pack_seconds": 5.405948188097682,
+        "staging_depth": 1,
+        "waves": 142,
+        "zero_d2d_bytes": 2988748800
+      },
+      "31": {
+        "capacity": 10,
+        "deferred_dma_misses": 814,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 804,
+        "h2d_bytes": 2250547200,
+        "h2d_seconds": 0.2722377718455391,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 471,
+        "index_h2d_bytes": 3800,
+        "index_upload_seconds": 0.010026127070887014,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 814,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 814,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.137571611005114,
+        "requests": 129,
+        "source_pack_seconds": 5.130414992963779,
+        "staging_depth": 1,
+        "waves": 129,
+        "zero_d2d_bytes": 2250547200
+      },
+      "32": {
+        "capacity": 10,
+        "deferred_dma_misses": 869,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 859,
+        "h2d_bytes": 2402611200,
+        "h2d_seconds": 0.29224493689252995,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 434,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.009369977968162857,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 869,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 869,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.09823624099954,
+        "requests": 131,
+        "source_pack_seconds": 5.091402483056299,
+        "staging_depth": 1,
+        "waves": 131,
+        "zero_d2d_bytes": 2402611200
+      },
+      "33": {
+        "capacity": 10,
+        "deferred_dma_misses": 1064,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1054,
+        "h2d_bytes": 2941747200,
+        "h2d_seconds": 0.3534897100907983,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 362,
+        "index_h2d_bytes": 3680,
+        "index_upload_seconds": 0.00918693104176782,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1064,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1064,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.894728908999241,
+        "requests": 143,
+        "source_pack_seconds": 4.887695457218797,
+        "staging_depth": 1,
+        "waves": 143,
+        "zero_d2d_bytes": 2941747200
+      },
+      "34": {
+        "capacity": 10,
+        "deferred_dma_misses": 1152,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1142,
+        "h2d_bytes": 3185049600,
+        "h2d_seconds": 0.38047531234042253,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 300,
+        "index_h2d_bytes": 3360,
+        "index_upload_seconds": 0.008568782883230597,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1152,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1152,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.069723112988868,
+        "requests": 146,
+        "source_pack_seconds": 5.062836190132657,
+        "staging_depth": 1,
+        "waves": 146,
+        "zero_d2d_bytes": 3185049600
+      },
+      "35": {
+        "capacity": 10,
+        "deferred_dma_misses": 909,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 899,
+        "h2d_bytes": 2513203200,
+        "h2d_seconds": 0.30253185228502844,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 491,
+        "index_h2d_bytes": 3720,
+        "index_upload_seconds": 0.00952574000984896,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 909,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 909,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.015691275999416,
+        "requests": 140,
+        "source_pack_seconds": 5.008723242935957,
+        "staging_depth": 1,
+        "waves": 140,
+        "zero_d2d_bytes": 2513203200
+      },
+      "36": {
+        "capacity": 10,
+        "deferred_dma_misses": 915,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 905,
+        "h2d_bytes": 2529792000,
+        "h2d_seconds": 0.30495913729828317,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 483,
+        "index_h2d_bytes": 3680,
+        "index_upload_seconds": 0.009240616040187888,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 915,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 915,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.937016647003475,
+        "requests": 141,
+        "source_pack_seconds": 4.9301678238552995,
+        "staging_depth": 1,
+        "waves": 141,
+        "zero_d2d_bytes": 2529792000
+      },
+      "37": {
+        "capacity": 10,
+        "deferred_dma_misses": 1048,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1038,
+        "h2d_bytes": 2897510400,
+        "h2d_seconds": 0.34616459092649166,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 369,
+        "index_h2d_bytes": 3720,
+        "index_upload_seconds": 0.00931152697012294,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1048,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1048,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.059053335004137,
+        "requests": 143,
+        "source_pack_seconds": 5.0520124898903305,
+        "staging_depth": 1,
+        "waves": 143,
+        "zero_d2d_bytes": 2897510400
+      },
+      "38": {
+        "capacity": 10,
+        "deferred_dma_misses": 1286,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1276,
+        "h2d_bytes": 3555532800,
+        "h2d_seconds": 0.4256917738530319,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 247,
+        "index_h2d_bytes": 3320,
+        "index_upload_seconds": 0.00887021808011923,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1286,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1286,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.928326035005739,
+        "requests": 154,
+        "source_pack_seconds": 4.921554473839933,
+        "staging_depth": 1,
+        "waves": 154,
+        "zero_d2d_bytes": 3555532800
+      },
+      "39": {
+        "capacity": 10,
+        "deferred_dma_misses": 814,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 804,
+        "h2d_bytes": 2250547200,
+        "h2d_seconds": 0.2733715459762607,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 527,
+        "index_h2d_bytes": 3680,
+        "index_upload_seconds": 0.009525344081339426,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 814,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 814,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.181566421000753,
+        "requests": 135,
+        "source_pack_seconds": 5.173297369998181,
+        "staging_depth": 1,
+        "waves": 135,
+        "zero_d2d_bytes": 2250547200
+      },
+      "4": {
+        "capacity": 10,
+        "deferred_dma_misses": 985,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 975,
+        "h2d_bytes": 2723328000,
+        "h2d_seconds": 0.3259075428650249,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 387,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.010220259064226411,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 985,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 985,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.9384118460002355,
+        "requests": 138,
+        "source_pack_seconds": 4.931648277066415,
+        "staging_depth": 1,
+        "waves": 138,
+        "zero_d2d_bytes": 2723328000
+      },
+      "40": {
+        "capacity": 10,
+        "deferred_dma_misses": 889,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 879,
+        "h2d_bytes": 2457907200,
+        "h2d_seconds": 0.29615542260580696,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 476,
+        "index_h2d_bytes": 3640,
+        "index_upload_seconds": 0.009237809994374402,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 889,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 889,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.176146713012713,
+        "requests": 138,
+        "source_pack_seconds": 5.168727003940148,
+        "staging_depth": 1,
+        "waves": 138,
+        "zero_d2d_bytes": 2457907200
+      },
+      "41": {
+        "capacity": 10,
+        "deferred_dma_misses": 975,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 965,
+        "h2d_bytes": 2695680000,
+        "h2d_seconds": 0.3238244573731208,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 438,
+        "index_h2d_bytes": 3640,
+        "index_upload_seconds": 0.00857834197813645,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 975,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 975,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.949357302990393,
+        "requests": 142,
+        "source_pack_seconds": 4.942535058100475,
+        "staging_depth": 1,
+        "waves": 142,
+        "zero_d2d_bytes": 2695680000
+      },
+      "42": {
+        "capacity": 10,
+        "deferred_dma_misses": 1178,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1168,
+        "h2d_bytes": 3256934400,
+        "h2d_seconds": 0.38969900125812273,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 305,
+        "index_h2d_bytes": 3360,
+        "index_upload_seconds": 0.008298149943584576,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1178,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1178,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.019363476996659,
+        "requests": 149,
+        "source_pack_seconds": 5.012306431977777,
+        "staging_depth": 1,
+        "waves": 149,
+        "zero_d2d_bytes": 3256934400
+      },
+      "43": {
+        "capacity": 10,
+        "deferred_dma_misses": 964,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 954,
+        "h2d_bytes": 2665267200,
+        "h2d_seconds": 0.3204683859657962,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 453,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.009743451053509489,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 964,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 964,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.997290334998979,
+        "requests": 142,
+        "source_pack_seconds": 4.990376510002534,
+        "staging_depth": 1,
+        "waves": 142,
+        "zero_d2d_bytes": 2665267200
+      },
+      "44": {
+        "capacity": 10,
+        "deferred_dma_misses": 1038,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1028,
+        "h2d_bytes": 2869862400,
+        "h2d_seconds": 0.3449370756861754,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 377,
+        "index_h2d_bytes": 3800,
+        "index_upload_seconds": 0.009767398034455255,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1038,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1038,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.9872866879886715,
+        "requests": 142,
+        "source_pack_seconds": 4.980506730949855,
+        "staging_depth": 1,
+        "waves": 142,
+        "zero_d2d_bytes": 2869862400
+      },
+      "45": {
+        "capacity": 10,
+        "deferred_dma_misses": 1078,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1068,
+        "h2d_bytes": 2980454400,
+        "h2d_seconds": 0.3609163313667523,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 348,
+        "index_h2d_bytes": 3600,
+        "index_upload_seconds": 0.009198381027090363,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1078,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1078,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.317402514992864,
+        "requests": 143,
+        "source_pack_seconds": 5.307899454099243,
+        "staging_depth": 1,
+        "waves": 143,
+        "zero_d2d_bytes": 2980454400
+      },
+      "46": {
+        "capacity": 10,
+        "deferred_dma_misses": 1143,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1133,
+        "h2d_bytes": 3160166400,
+        "h2d_seconds": 0.38230841590848286,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 314,
+        "index_h2d_bytes": 3440,
+        "index_upload_seconds": 0.008930824900744483,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1143,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1143,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.877861411005142,
+        "requests": 146,
+        "source_pack_seconds": 4.871375602175249,
+        "staging_depth": 1,
+        "waves": 146,
+        "zero_d2d_bytes": 3160166400
+      },
+      "47": {
+        "capacity": 10,
+        "deferred_dma_misses": 1194,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1184,
+        "h2d_bytes": 3301171200,
+        "h2d_seconds": 0.4131548928708071,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 228,
+        "index_h2d_bytes": 3000,
+        "index_upload_seconds": 0.008701029990334064,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1194,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1194,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.979431799001759,
+        "requests": 143,
+        "source_pack_seconds": 4.972439305740409,
+        "staging_depth": 1,
+        "waves": 143,
+        "zero_d2d_bytes": 3301171200
+      },
+      "5": {
+        "capacity": 10,
+        "deferred_dma_misses": 1172,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1162,
+        "h2d_bytes": 3240345600,
+        "h2d_seconds": 0.3894722458499018,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 263,
+        "index_h2d_bytes": 2800,
+        "index_upload_seconds": 0.007178372063208371,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1172,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1172,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 4.9329945760109695,
+        "requests": 145,
+        "source_pack_seconds": 4.92624210298527,
+        "staging_depth": 1,
+        "waves": 145,
+        "zero_d2d_bytes": 3240345600
+      },
+      "6": {
+        "capacity": 10,
+        "deferred_dma_misses": 1222,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1212,
+        "h2d_bytes": 3378585600,
+        "h2d_seconds": 0.405850071052555,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 292,
+        "index_h2d_bytes": 3240,
+        "index_upload_seconds": 0.009464409959036857,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1222,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1222,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.147927574013011,
+        "requests": 152,
+        "source_pack_seconds": 5.141025256874855,
+        "staging_depth": 1,
+        "waves": 152,
+        "zero_d2d_bytes": 3378585600
+      },
+      "7": {
+        "capacity": 10,
+        "deferred_dma_misses": 1272,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 1262,
+        "h2d_bytes": 3516825600,
+        "h2d_seconds": 0.42166254900803324,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 241,
+        "index_h2d_bytes": 2920,
+        "index_upload_seconds": 0.00836634098959621,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 1272,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 1272,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.151874667004449,
+        "requests": 153,
+        "source_pack_seconds": 5.14499458494538,
+        "staging_depth": 1,
+        "waves": 153,
+        "zero_d2d_bytes": 3516825600
+      },
+      "8": {
+        "capacity": 10,
+        "deferred_dma_misses": 898,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 888,
+        "h2d_bytes": 2482790400,
+        "h2d_seconds": 0.2984429907228332,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 460,
+        "index_h2d_bytes": 3840,
+        "index_upload_seconds": 0.011353734036674723,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 898,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 898,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.229294211996603,
+        "requests": 136,
+        "source_pack_seconds": 5.2226650348166,
+        "staging_depth": 1,
+        "waves": 136,
+        "zero_d2d_bytes": 2482790400
+      },
+      "9": {
+        "capacity": 10,
+        "deferred_dma_misses": 905,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 895,
+        "h2d_bytes": 2502144000,
+        "h2d_seconds": 0.29958758209249936,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 435,
+        "index_h2d_bytes": 3760,
+        "index_upload_seconds": 0.01014138595201075,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 905,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 905,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.285680931003299,
+        "requests": 135,
+        "source_pack_seconds": 5.2788581787463045,
+        "staging_depth": 1,
+        "waves": 135,
+        "zero_d2d_bytes": 2502144000
+      }
+    },
+    "host_preload": {
+      "layers": {
+        "0": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.032663769001374
+        },
+        "1": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.922331869005575
+        },
+        "10": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.01379464600177
+        },
+        "11": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.141369548000512
+        },
+        "12": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.897266132000368
+        },
+        "13": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.914152297002147
+        },
+        "14": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.9731764379976084
+        },
+        "15": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.954524621993187
+        },
+        "16": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.010900017994572
+        },
+        "17": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.217888300001505
+        },
+        "18": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.8778371369990055
+        },
+        "19": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.935603293997701
+        },
+        "2": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.964530181998271
+        },
+        "20": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.078935420999187
+        },
+        "21": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.983901401006733
+        },
+        "22": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.269694132992299
+        },
+        "23": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.916503330998239
+        },
+        "24": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.939860837999731
+        },
+        "25": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.95989235000161
+        },
+        "26": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.903888835993712
+        },
+        "27": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.930911848990945
+        },
+        "28": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.998583831998985
+        },
+        "29": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.11939594100113
+        },
+        "3": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.965503810992232
+        },
+        "30": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.415508331003366
+        },
+        "31": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.137571611005114
+        },
+        "32": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.09823624099954
+        },
+        "33": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.894728908999241
+        },
+        "34": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.069723112988868
+        },
+        "35": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.015691275999416
+        },
+        "36": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.937016647003475
+        },
+        "37": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.059053335004137
+        },
+        "38": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.928326035005739
+        },
+        "39": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.181566421000753
+        },
+        "4": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.9384118460002355
+        },
+        "40": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.176146713012713
+        },
+        "41": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.949357302990393
+        },
+        "42": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.019363476996659
+        },
+        "43": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.997290334998979
+        },
+        "44": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.9872866879886715
+        },
+        "45": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.317402514992864
+        },
+        "46": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.877861411005142
+        },
+        "47": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.979431799001759
+        },
+        "5": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 4.9329945760109695
+        },
+        "6": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.147927574013011
+        },
+        "7": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.151874667004449
+        },
+        "8": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.229294211996603
+        },
+        "9": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.285680931003299
+        }
+      },
+      "loaded_entries": 24576,
+      "packed_host_bytes": 68080435200,
+      "seconds": 241.6512231950037
+    },
+    "ownership": {
+      "expert_store": "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots",
+      "kv_cache": "model",
+      "page_table": "state with stable model buffer",
+      "ple_store": "shared exact mmap table with request-isolated two-token history",
+      "recurrence": "model",
+      "tokens_and_positions": "device feedback after request reset"
+    },
+    "ple": {
+      "h2d_bytes": 1541120,
+      "history_entries": 1,
+      "lookup_calls": 102,
+      "lookup_seconds": 2.5626782400067896,
+      "row_cache_entries": 3480,
+      "selected_rows": 4816,
+      "table_bytes_read": 1113600,
+      "table_rows_read": 3480,
+      "unique_rows": 4448
+    },
+    "ple_device_staging": {
+      "completion_syncs": 0,
+      "deferred_uploads": 102,
+      "h2d_bytes": 3645440,
+      "h2d_seconds": 0.01481266604969278,
+      "h2d_timing_scope": "host enqueue; completion is charged at the following exact route-id boundary",
+      "logical_h2d_bytes": 3082240
+    },
+    "prohibited_host_work": {
+      "activation_roundtrip": false,
+      "expert_projection": false,
+      "kv_or_recurrence": false,
+      "optimized_sampling_or_argmax": false,
+      "per_token_position_refresh": false,
+      "ple_projection": false,
+      "token_feedback_reconstruction": false,
+      "unchanged_page_table_refresh": false
+    }
+  },
+  "source_provenance": {
+    "algorithm": "sha256",
+    "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+    "files": {
+      "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+      "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+      "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+      "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+      "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+      "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+      "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+      "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+    }
+  },
+  "top100_hits": 99,
+  "top100_percent": 100.0,
+  "top1_hits": 91,
+  "top1_percent": 91.91918969154358,
+  "top5_hits": 99,
+  "top5_percent": 100.0,
+  "trace_capture_seconds": 1.6708288519876078,
+  "traced": true,
+  "tt_top1_tokens": [
+    1144,
+    11290,
+    6673,
+    3377,
+    13,
+    539,
+    2923,
+    13,
+    14235,
+    1534,
+    1534,
+    4087,
+    71160,
+    13,
+    6558,
+    579,
+    4563,
+    15060,
+    13,
+    271,
+    30177,
+    25,
+    6983,
+    6353,
+    357,
+    7509,
+    5601,
+    364,
+    264,
+    220,
+    24,
+    12283,
+    319,
+    23046,
+    321,
+    17397,
+    506,
+    10482,
+    7808,
+    25950,
+    13,
+    3095,
+    1292,
+    506,
+    6570,
+    4478,
+    274,
+    12754,
+    7294,
+    11,
+    279,
+    4829,
+    1024,
+    19,
+    3979,
+    11,
+    2583,
+    259,
+    4276,
+    7157,
+    303,
+    10482,
+    7808,
+    13,
+    3095,
+    21780,
+    506,
+    274,
+    10,
+    17,
+    12754,
+    7294,
+    11,
+    4088,
+    4829,
+    220,
+    17,
+    3979,
+    220,
+    17,
+    19,
+    4276,
+    11,
+    2583,
+    259,
+    4276,
+    13,
+    79762,
+    21780,
+    506,
+    274,
+    10,
+    16,
+    14,
+    17,
+    12754,
+    7294,
+    13,
+    7145
+  ],
+  "ttft_seconds": 12.743937647988787
+}

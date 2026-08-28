@@ -180,6 +180,12 @@ class FunctionalDecoder(LightweightModule):
         self.const = constants or {}
         self.compute_cfg = _hifi4(fp32=True)
         self.sdpa_compute_cfg = _hifi4(fp32=True)
+        self.matmul_output_dtype = ttnn.bfloat16
+        self.cache_update_dtype = ttnn.bfloat16
+        self.ple_activation_dtype = ttnn.bfloat16
+        self.norm_weight_dtype = ttnn.bfloat16
+        self.norm_compute_fidelity = "hifi4"
+        self.router_output_dtype = ttnn.bfloat16
         self.decode_head_mem_cfg = None
         self.decode_index_mem_cfg = None
         if shapes.layer_type == QWEN_SPARSE_ATTENTION:
@@ -599,8 +605,13 @@ class FunctionalDecoder(LightweightModule):
         ttnn.deallocate(inv)
         return out
 
-    def _linear(self, x, weight, *, dtype=ttnn.bfloat16):
-        return ttnn.linear(x, weight, dtype=dtype, compute_kernel_config=self.compute_cfg)
+    def _linear(self, x, weight, *, dtype=None):
+        return ttnn.linear(
+            x,
+            weight,
+            dtype=self.matmul_output_dtype if dtype is None else dtype,
+            compute_kernel_config=self.compute_cfg,
+        )
 
     def _hyper_mix(self, hyper_input, prefix: str):
         """HF ``Qwen4ExpTextGatedResidual`` without its final injection."""
@@ -1493,6 +1504,12 @@ class FunctionalDecoder(LightweightModule):
         k_update = ttnn.permute(k, (2, 0, 1, 3))
         v_update = ttnn.permute(v, (2, 0, 1, 3))
         raw_update = ttnn.permute(raw_index, (2, 0, 1, 3))
+        if k_update.dtype != self.cache_update_dtype:
+            k_update = ttnn.typecast(k_update, self.cache_update_dtype)
+        if v_update.dtype != self.cache_update_dtype:
+            v_update = ttnn.typecast(v_update, self.cache_update_dtype)
+        if raw_update.dtype != self.cache_update_dtype:
+            raw_update = ttnn.typecast(raw_update, self.cache_update_dtype)
         k_update = padded_heads(k_update, s.head_dim, self.decode_head_mem_cfg)
         v_update = padded_heads(v_update, s.head_dim, self.decode_head_mem_cfg)
         raw_update = padded_heads(raw_update, s.indexer_head_dim, self.decode_index_mem_cfg)

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -406,7 +407,52 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
             "full_model_endpoint_runtime_bytes_per_device",
         )
     )
-    assert expected_total == 10_005_165_144
+    assert expected_total == 10_004_550_744
     assert capacity["planned_total_bytes_per_device"] == expected_total
     assert capacity["headroom_bytes_per_device"] == capacity["dram_bytes_per_device"] - expected_total
     assert capacity["fits"] is True
+    selected = contract["datatype_sweep_selected_policy"]
+    assert selected["config_id"] == "qsa_bfp8_hifi2_lm_head_bf16_hifi2"
+    assert selected["weight_groups"]["shared_projection"] == {
+        "compute_fidelity": "lofi",
+        "dtype": "bfp8",
+        "policy": "bfp8_lofi",
+    }
+    assert selected["expert_representations"] == {
+        "source": "bf16",
+        "host_packed": "bfp4_tile",
+        "device_staging": "bfp4_tile",
+        "execution": "bfp4_tile",
+    }
+    assert selected["ple_representations"] == {
+        "table": "bf16_row_major_mmap",
+        "host_assembly": "bf16",
+        "device_staging": "bf16_tile",
+        "execution": "bf16",
+    }
+    assert selected["upload_policy_preserved"] is True
+
+
+def test_datatype_sweep_candidate_matrix_is_reproducible_and_matches_results():
+    sweep = Path(__file__).resolve().parents[1] / "doc" / "datatype_sweep"
+    generator_path = sweep / "make_candidates.py"
+    spec = importlib.util.spec_from_file_location("qwen38_make_candidates", generator_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    rendered = module.render_outputs()
+    assert len(rendered) == 17
+    assert all(path.is_file() and path.read_text() == text for path, text in rendered.items())
+
+    manifest = json.loads((sweep / "candidate_matrix.json").read_text())
+    for entry in manifest:
+        config_id = entry["config_id"]
+        config = json.loads((sweep / entry["path"]).read_text())
+        result = json.loads((sweep / "full_runs" / config_id / "candidate_result.json").read_text())
+        propagation = result["precision_propagation"]
+        assert result["config_id"] == propagation["config_id"] == config["config_id"] == config_id
+        for dotted_path, check in propagation["checks"].items():
+            value = config
+            for part in dotted_path.split("."):
+                value = value[part]
+            assert value == check["expected"], dotted_path

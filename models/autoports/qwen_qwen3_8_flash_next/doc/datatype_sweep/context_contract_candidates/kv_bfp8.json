@@ -1,0 +1,45 @@
+{
+  "cache_capacity": {
+    "compressed_bf16_index_bytes_per_device": 201326592,
+    "raw_main_k_v_and_index_bytes_per_device": 2139095040,
+    "total_bytes_per_device": 2340421632
+  },
+  "cache_geometry": {
+    "index_head_dim": 128,
+    "index_heads_per_device": 1,
+    "main_head_dim": 256,
+    "main_k_v_heads_per_device": 1,
+    "page_block_size": 64,
+    "page_blocks": 4096,
+    "qsa_layers": 12,
+    "tile_bytes": 1088,
+    "tile_elements": 1024
+  },
+  "capability_reduction": null,
+  "construction_capacity_equivalence_reason": "The construction policy and final selected-derived BFP8 capacity candidate have identical weight dtypes, KV geometry, KV dtype, and endpoint footprint. They differ only in shared-projection compute fidelity (HiFi2 versus LoFi), which does not change any allocated tensor bytes.",
+  "construction_capacity_equivalent_to_selected": true,
+  "construction_evidence": "../full_runs/context_bfp8/advertised_context_construction.json",
+  "construction_evidence_config_id": "qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2",
+  "full_model_supported_context_tokens": 262144,
+  "full_stack_capacity": {
+    "dram_bytes_per_device": 34225520640,
+    "fits": true,
+    "fixed_non_weight_and_non_cache_bytes_per_device": 3203852376,
+    "headroom_bytes_per_device": 24220969896,
+    "planned_total_bytes_per_device": 10004550744
+  },
+  "hardware": "P300 Blackhole board, dies 0 and 1",
+  "hf_advertised_context_tokens": 262144,
+  "kv_cache_dtype": "bfp8",
+  "mesh": "1x2 FABRIC_1D",
+  "method": "Full 48-layer construction allocated every QSA cache at 262,144 tokens. Capacity charges TILE-physical raw K/V/index pages and the BF16 compressed-index working set.",
+  "model_id": "Qwen/Qwen3.8-Flash-Next",
+  "non_aligned_evidence": "../smokes/baseline.xml",
+  "schema_version": 1,
+  "selected_config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+  "selected_precision_weight_capacity": {
+    "decoder_non_expert_weight_bytes_per_device": 3181259776,
+    "full_text_endpoint_weight_bytes_per_device": 1279016960,
+    "non_expert_weight_allowance_bytes_per_device": 4460276736
+  }
+}

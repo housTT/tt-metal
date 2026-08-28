@@ -1,0 +1,3458 @@
+{
+  "fixed_measurement_regime": {
+    "batch": 1,
+    "expert_device_cache": "10 exact top-k slots/layer/rank, reset/cold at candidate construction",
+    "expert_host_store": "all 512 experts/layer prepacked before the measured workload",
+    "expert_staging": "one exact BFP4 TILE staging allocation/rank/layer",
+    "measured_trace_replays": 98,
+    "ple_staging": "BF16 TILE, 128-row prefill chunk",
+    "ple_store": "BF16 row-major mmap table with 8192-row host cache, reset/cold at candidate construction",
+    "prompt_tokens": 201,
+    "routing_and_tokens": "identical AIME24 readiness prompt and reference continuation",
+    "teacher_forcing_decode_rows": 99
+  },
+  "hardware": "P300 Blackhole board, dies 0 and 1",
+  "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+  "model_id": "Qwen/Qwen3.8-Flash-Next",
+  "post_selection": {
+    "artifacts": {
+      "current_source_baseline_token_out_control": {
+        "path": "post_selection/token_out_baseline_control/full_model_performance.json",
+        "sha256": "e7e331bac4d382f1867e9957cb0c3be82501ed5080e58b403fac06c446498520"
+      },
+      "displaced_hifi2_shared_teacher_forcing": {
+        "path": "anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+        "sha256": "d115aa941722cbd8fd832e5daaaa364dc25fcced87b143a6d867bb32e7b78e3a"
+      },
+      "displaced_hifi2_shared_teacher_forcing_transient_h2d": {
+        "path": "anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/transient_h2d/candidate_result.json",
+        "sha256": "d3adaa22f9e0fb91b8cd37fd564766e0e9d6fd18e90fa6aae2df1c3b0bcd392b"
+      },
+      "selected_precision_propagation": {
+        "path": "post_selection/precision_smoke/precision_propagation_smoke.json",
+        "sha256": "607970c8de3d6b8993f90a7a0164d001101cf902249b82c78fb2b5e5ec755b9d"
+      },
+      "selected_qualitative": {
+        "path": "post_selection/qualitative/qualitative_shared_suite_final.json",
+        "sha256": "a728a3decdbd8684e275e99990b7f5a349f437b2ee3e770304102b27dfb95029"
+      },
+      "selected_teacher_forcing": {
+        "path": "post_selection/teacher_forcing_selected/candidate_result.json",
+        "sha256": "070ac042a3fb3f764d43a8b0d199627f7185c600d958685d7c1ce9c8e6d4d470"
+      },
+      "selected_token_out": {
+        "path": "post_selection/token_out/full_model_performance.json",
+        "sha256": "908515d01636a2dc0eb33133c0d0ec235b1a7600e02e48a15f435e9942d658f6"
+      }
+    },
+    "baseline_token_out_control": {
+      "config_id": "baseline_optimized_bfp4lofi_bfp8hifi2",
+      "decode_capture_seconds": 2.9295071420056047,
+      "decode_measured_tokens": 126,
+      "decode_seconds": 36.416704871975526,
+      "decode_seconds_per_token": 0.289021467237901,
+      "decode_tokens_per_second_per_user": 3.4599506035199603,
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 53505.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 147930624000.0,
+        "expert_h2d_seconds": 55.810973593026574,
+        "expert_hits": 19409.0,
+        "expert_index_h2d_bytes": 209560.0,
+        "expert_index_upload_seconds": 0.6341058638281538,
+        "expert_misses": 53505.0,
+        "expert_packed_host_hits": 53505.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 243.88196103485097,
+        "expert_zero_d2d_bytes": 147930624000.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 129.0,
+        "ple_device_h2d_bytes": 2621440.0,
+        "ple_device_h2d_seconds": 0.015257529033988249,
+        "ple_lookup_calls": 129.0,
+        "ple_lookup_seconds": 3.0020546540181385,
+        "ple_table_bytes_read": 803840.0,
+        "ple_table_rows_read": 2512.0
+      },
+      "prefill_seconds": 40.62690238700452,
+      "sampling_mode": "device",
+      "source_digest": "dd3eab0e421c3a1a243939d54fa78e8b06b3c17554474a3586375ad87b30839e",
+      "teacher_forced": false,
+      "traced": true,
+      "ttft_seconds": 40.72565148200374,
+      "workload": {
+        "batch": 1,
+        "generated_tokens": 128,
+        "prompt_tokens": 128
+      }
+    },
+    "displaced_hifi2_shared_policy_host_timing_variance": {
+      "config_id": "qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2",
+      "interpretation": "The exact miss count and bytes were unchanged; the slower sample accumulated transient host H2D submission time and is retained as variance evidence for the displaced HiFi2 shared-projection policy, not used for Pareto selection.",
+      "normal_sample": {
+        "decode_tokens_per_second_per_user": 4.3888166197372485,
+        "expert_h2d_bytes": 138403123200.0,
+        "expert_h2d_seconds": 16.60327757826599,
+        "expert_misses": 50059.0
+      },
+      "preserved_transient_sample": {
+        "decode_tokens_per_second_per_user": 3.938815024401115,
+        "expert_h2d_bytes": 138403123200.0,
+        "expert_h2d_seconds": 47.82618901569367,
+        "expert_misses": 50059.0
+      }
+    },
+    "precision_propagation": {
+      "all_fields_consumed": true,
+      "consumed_leaf_count": 61
+    },
+    "selected_config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+    "selected_teacher_forcing": {
+      "decode_measured_tokens": 98,
+      "decode_seconds_per_token": 0.22798553017298906,
+      "decode_tokens_per_second_per_user": 4.3862432814978565,
+      "model_only_trace_replays": 98,
+      "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "traced": true,
+      "ttft_seconds": 12.743937647988787
+    },
+    "selected_token_out": {
+      "decode_capture_seconds": 1.5937706940021599,
+      "decode_measured_tokens": 126,
+      "decode_seconds": 29.180844019021606,
+      "decode_seconds_per_token": 0.23159400015096512,
+      "decode_tokens_per_second_per_user": 4.317901151792134,
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 53543.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 148035686400.0,
+        "expert_h2d_seconds": 17.842366116616176,
+        "expert_hits": 19403.0,
+        "expert_index_h2d_bytes": 209000.0,
+        "expert_index_upload_seconds": 0.5968121759069618,
+        "expert_misses": 53543.0,
+        "expert_packed_host_hits": 53543.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 240.44492983925738,
+        "expert_zero_d2d_bytes": 148035686400.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 129.0,
+        "ple_device_h2d_bytes": 2621440.0,
+        "ple_device_h2d_seconds": 0.01872670801822096,
+        "ple_lookup_calls": 129.0,
+        "ple_lookup_seconds": 1.8489265021198662,
+        "ple_table_bytes_read": 803840.0,
+        "ple_table_rows_read": 2512.0
+      },
+      "measurement_regime": "warmed token-out; no activation/logit readback; traced device sampling",
+      "prefill_seconds": 7.77777360600885,
+      "sampling_mode": "device",
+      "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+      "teacher_forced": false,
+      "traced": true,
+      "ttft_seconds": 7.787002823009971,
+      "workload": {
+        "batch": 1,
+        "generated_tokens": 128,
+        "prompt_tokens": 128
+      }
+    }
+  },
+  "results": [
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/baseline_optimized_bfp4lofi_bfp8hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/baseline_optimized_bfp4lofi_bfp8hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "baseline_optimized_bfp4lofi_bfp8hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49959.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138126643200.0,
+        "expert_h2d_seconds": 16.733073950614198,
+        "expert_hits": 17650.0,
+        "expert_index_h2d_bytes": 168880.0,
+        "expert_index_upload_seconds": 0.46762028989905957,
+        "expert_misses": 49959.0,
+        "expert_packed_host_hits": 49959.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 237.97657373323455,
+        "expert_zero_d2d_bytes": 138126643200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.012355172970273998,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.585226803988917,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/baseline_optimized_bfp4lofi_bfp8hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138126643200.0,
+          "expert_h2d_seconds": 16.733073950614198,
+          "expert_misses": 49959.0,
+          "ple_lookup_seconds": 2.585226803988917,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "3f12eb73ed82769d0ea75db7cc86b8ac840a7dde20ad0f4df2245d0a729900ad",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23270659391806586,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.297256829568362,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.293983456002024,
+          "used_for_selection": true
+        },
+        {
+          "artifact": "replicates/baseline_optimized_bfp4lofi_bfp8hifi2/repeat1/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138126643200.0,
+          "expert_h2d_seconds": 16.622713566815946,
+          "expert_misses": 49959.0,
+          "ple_lookup_seconds": 2.5540894080113503,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "b9f4bdf39c24267fc8a71b2b2d19541adc82abc0ce9e5cc032f33468cc2e574a",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23173466267326148,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.315280193580571,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 13.230274563000421,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/baseline_optimized_bfp4lofi_bfp8hifi2/candidate_result.json",
+      "result_sha256": "3f12eb73ed82769d0ea75db7cc86b8ac840a7dde20ad0f4df2245d0a729900ad",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 2,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.23222062829566367,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.3062685115744666,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.762129009501223
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/canonical_accuracy_bf16cache.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/canonical_accuracy_bf16cache timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "hifi2",
+        "shared_projection": "hifi2"
+      },
+      "config_id": "canonical_accuracy_bf16cache",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bf16",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bf16",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bf16",
+          "sampling_dtype": "bf16",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_hifi2_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 50009.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138264883200.0,
+        "expert_h2d_seconds": 16.576558963592106,
+        "expert_hits": 17625.0,
+        "expert_index_h2d_bytes": 168640.0,
+        "expert_index_upload_seconds": 0.44951199222850846,
+        "expert_misses": 50009.0,
+        "expert_packed_host_hits": 50009.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 238.2520384301606,
+        "expert_zero_d2d_bytes": 138264883200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.0152581890069996,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.5697858379717218,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/canonical_accuracy_bf16cache/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138264883200.0,
+          "expert_h2d_seconds": 16.576558963592106,
+          "expert_misses": 50009.0,
+          "ple_lookup_seconds": 2.5697858379717218,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "730af7d116dc1f95c3ba85dab9d5611f440301f40ae002b41470ba14602900e2",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.22972687030607852,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.352995357781358,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.443366824001714,
+          "used_for_selection": true
+        },
+        {
+          "artifact": "replicates/canonical_accuracy_bf16cache/repeat1/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138264883200.0,
+          "expert_h2d_seconds": 16.630862790851097,
+          "expert_misses": 50009.0,
+          "ple_lookup_seconds": 2.530698732007295,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "fc51e0623858ce16ee47ec4d5768f796c36b133f00bc1b9d6faab2e2ee51b306",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.22896317666275035,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.367514526027662,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.56383049300348,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/canonical_accuracy_bf16cache/candidate_result.json",
+      "result_sha256": "730af7d116dc1f95c3ba85dab9d5611f440301f40ae002b41470ba14602900e2",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 2,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.22934502348441443,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.36025494190451,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.503598658502597
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/expert_bfp4_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/expert_bfp4_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "hifi2",
+        "shared_projection": "lofi"
+      },
+      "config_id": "expert_bfp4_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_hifi2_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49959.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138126643200.0,
+        "expert_h2d_seconds": 16.651055137444928,
+        "expert_hits": 17650.0,
+        "expert_index_h2d_bytes": 168880.0,
+        "expert_index_upload_seconds": 0.4583105180572602,
+        "expert_misses": 49959.0,
+        "expert_packed_host_hits": 49959.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 241.13974238213996,
+        "expert_zero_d2d_bytes": 138126643200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.016528623964404687,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 3.2963076059822924,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/expert_bfp4_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138126643200.0,
+          "expert_h2d_seconds": 16.651055137444928,
+          "expert_misses": 49959.0,
+          "ple_lookup_seconds": 3.2963076059822924,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "974de3a774cb36c50ae86e3896d46249116b692430e3be6b89e91db412359f67",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23999479579562868,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.166757019396227,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.387843037002312,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/expert_bfp4_hifi2/candidate_result.json",
+      "result_sha256": "974de3a774cb36c50ae86e3896d46249116b692430e3be6b89e91db412359f67",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.23999479579562868,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.166757019396227,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.387843037002312
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/shared_bfp8_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/shared_bfp8_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "hifi2"
+      },
+      "config_id": "shared_bfp8_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49977.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138176409600.0,
+        "expert_h2d_seconds": 16.583610077803314,
+        "expert_hits": 17641.0,
+        "expert_index_h2d_bytes": 168680.0,
+        "expert_index_upload_seconds": 0.45532176828419324,
+        "expert_misses": 49977.0,
+        "expert_packed_host_hits": 49977.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 236.12765560769913,
+        "expert_zero_d2d_bytes": 138176409600.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.01860884400230134,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.501018099981593,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/shared_bfp8_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138176409600.0,
+          "expert_h2d_seconds": 16.583610077803314,
+          "expert_misses": 49977.0,
+          "ple_lookup_seconds": 2.501018099981593,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "b4786cabf09cdd4bcea8e8d2633b94d78a4e97052d03ca8437cd0129a447d45c",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.2317205303469174,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.31554337676883,
+          "top100_percent": 100.0,
+          "top1_percent": 90.90909361839294,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.473112511994259,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/shared_bfp8_hifi2/candidate_result.json",
+      "result_sha256": "b4786cabf09cdd4bcea8e8d2633b94d78a4e97052d03ca8437cd0129a447d45c",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.2317205303469174,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.31554337676883,
+      "top100_percent": 100.0,
+      "top1_percent": 90.90909361839294,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.473112511994259
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/shared_bfp4_lofi.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/shared_bfp4_lofi timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "shared_bfp4_lofi",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp4",
+            "policy": "bfp4_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 48435.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 133913088000.0,
+        "expert_h2d_seconds": 50.78112504105229,
+        "expert_hits": 18313.0,
+        "expert_index_h2d_bytes": 174120.0,
+        "expert_index_upload_seconds": 0.5115210834410391,
+        "expert_misses": 48435.0,
+        "expert_packed_host_hits": 48435.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 244.33487310823693,
+        "expert_zero_d2d_bytes": 133913088000.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.08000532503501745,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 3.855861078001908,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": false,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/shared_bfp4_lofi/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 133913088000.0,
+          "expert_h2d_seconds": 50.78112504105229,
+          "expert_misses": 48435.0,
+          "ple_lookup_seconds": 3.855861078001908,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "8a958400bb30ad8c9033340def1e8421f3b452f0e3713ebaea826d97a46fc0c9",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.2719171738775616,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.6775904432217965,
+          "top100_percent": 100.0,
+          "top1_percent": 84.84848737716675,
+          "top5_percent": 98.98989796638489,
+          "ttft_seconds": 42.89254845400137,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": "accuracy gate failed (requires top-1 >= 90.0, top-5 >= 98.0, top-100 == 100.0)",
+      "result_artifact": "full_runs/shared_bfp4_lofi/candidate_result.json",
+      "result_sha256": "8a958400bb30ad8c9033340def1e8421f3b452f0e3713ebaea826d97a46fc0c9",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "accuracy-fail",
+      "teacher_forcing_decode_seconds_per_token": 0.2719171738775616,
+      "teacher_forcing_decode_tokens_per_second_per_user": 3.6775904432217965,
+      "top100_percent": 100.0,
+      "top1_percent": 84.84848737716675,
+      "top5_percent": 98.98989796638489,
+      "trace_verified": true,
+      "ttft_seconds": 42.89254845400137
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/shared_bfp4_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/shared_bfp4_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "hifi2"
+      },
+      "config_id": "shared_bfp4_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp4",
+            "policy": "bfp4_hifi2"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 48435.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 133913088000.0,
+        "expert_h2d_seconds": 16.124227444073767,
+        "expert_hits": 18313.0,
+        "expert_index_h2d_bytes": 174120.0,
+        "expert_index_upload_seconds": 0.4696094827304478,
+        "expert_misses": 48435.0,
+        "expert_packed_host_hits": 48435.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 243.19326302102127,
+        "expert_zero_d2d_bytes": 133913088000.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.013615544034109917,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.572613692980667,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": false,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/shared_bfp4_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 133913088000.0,
+          "expert_h2d_seconds": 16.124227444073767,
+          "expert_misses": 48435.0,
+          "ple_lookup_seconds": 2.572613692980667,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "cdfe90b53fd7ab42d890af0096f5b60ec4a3c63cca920c93a6d6e21de3d132f5",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.22907681877575448,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.365347857300698,
+          "top100_percent": 100.0,
+          "top1_percent": 84.84848737716675,
+          "top5_percent": 98.98989796638489,
+          "ttft_seconds": 12.222048601994175,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": "accuracy gate failed (requires top-1 >= 90.0, top-5 >= 98.0, top-100 == 100.0)",
+      "result_artifact": "full_runs/shared_bfp4_hifi2/candidate_result.json",
+      "result_sha256": "cdfe90b53fd7ab42d890af0096f5b60ec4a3c63cca920c93a6d6e21de3d132f5",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "accuracy-fail",
+      "teacher_forcing_decode_seconds_per_token": 0.22907681877575448,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.365347857300698,
+      "top100_percent": 100.0,
+      "top1_percent": 84.84848737716675,
+      "top5_percent": 98.98989796638489,
+      "trace_verified": true,
+      "ttft_seconds": 12.222048601994175
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/gdn_bfp8_lofi/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/gdn_bfp8_lofi.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/gdn_bfp8_lofi timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 43.05792540784023,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 3.8625679560254813,
+        "primary_expert_h2d_seconds": 50.80641006976657,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 3.9038203394339717,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/gdn_bfp8_lofi.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/gdn_bfp8_lofi timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "lofi",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "gdn_bfp8_lofi",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49896.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 137952460800.0,
+        "expert_h2d_seconds": 43.05792540784023,
+        "expert_hits": 17696.0,
+        "expert_index_h2d_bytes": 169160.0,
+        "expert_index_upload_seconds": 0.47820941082318313,
+        "expert_misses": 49896.0,
+        "expert_packed_host_hits": 49896.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 242.0384946659542,
+        "expert_zero_d2d_bytes": 137952460800.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.08007144297880586,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 4.264786327948968,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/gdn_bfp8_lofi/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 137952460800.0,
+          "expert_h2d_seconds": 50.80641006976657,
+          "expert_misses": 49896.0,
+          "ple_lookup_seconds": 3.071890870007337,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "e9e352c2d6c7466d346cd683b176cf29f7e145cb4243b1d1510f858857ea4384",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.256159329336604,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.9038203394339717,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 47.16996351299895,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/gdn_bfp8_lofi/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 137952460800.0,
+          "expert_h2d_seconds": 43.05792540784023,
+          "expert_misses": 49896.0,
+          "ple_lookup_seconds": 4.264786327948968,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "00494c77440acf33477044d5caeb86e42ad28e5674fd9f4498d9fdc8d9325c19",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.2588951214282282,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.8625679560254813,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 38.70292250399507,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/gdn_bfp8_lofi/candidate_result.json",
+      "result_sha256": "00494c77440acf33477044d5caeb86e42ad28e5674fd9f4498d9fdc8d9325c19",
+      "selected": false,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.2588951214282282,
+      "teacher_forcing_decode_tokens_per_second_per_user": 3.8625679560254813,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 38.70292250399507
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/qsa_bfp8_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "qsa_bfp8_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 50069.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138430771200.0,
+        "expert_h2d_seconds": 16.660021081610466,
+        "expert_hits": 17610.0,
+        "expert_index_h2d_bytes": 168640.0,
+        "expert_index_upload_seconds": 0.4623535001373966,
+        "expert_misses": 50069.0,
+        "expert_packed_host_hits": 50069.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 240.31563936531893,
+        "expert_zero_d2d_bytes": 138430771200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.017373922011756804,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.537682359034079,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/qsa_bfp8_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138430771200.0,
+          "expert_h2d_seconds": 16.660021081610466,
+          "expert_misses": 50069.0,
+          "ple_lookup_seconds": 2.537682359034079,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "5d5a2235e23c570772363741c162c3b9902a4794d8bc63dec02dba4af658d9b9",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23098215432631206,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.329338787737188,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.6630503530032,
+          "used_for_selection": true
+        },
+        {
+          "artifact": "replicates/qsa_bfp8_hifi2/repeat1/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138430771200.0,
+          "expert_h2d_seconds": 16.64533474970085,
+          "expert_misses": 50069.0,
+          "ple_lookup_seconds": 2.545321547979256,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "f3c09c242ee899ef49ac17b0f1c3efb0dcfcfa1bc5fc67cdae2a81c56ab56df3",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23119882849055196,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.3252814321283015,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.501114469996537,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/qsa_bfp8_hifi2/candidate_result.json",
+      "result_sha256": "5d5a2235e23c570772363741c162c3b9902a4794d8bc63dec02dba4af658d9b9",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 2,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.23109049140843202,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.3273101099327445,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.582082411499869
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/qsa_bfp8_lofi/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_lofi.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/qsa_bfp8_lofi timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 37.45560975024273,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 3.194514132390924,
+        "primary_expert_h2d_seconds": 48.21175975942606,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 3.8451810912464612,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_lofi.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/qsa_bfp8_lofi timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "lofi",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "lofi",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "qsa_bfp8_lofi",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49965.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138143232000.0,
+        "expert_h2d_seconds": 37.45560975024273,
+        "expert_hits": 17694.0,
+        "expert_index_h2d_bytes": 169600.0,
+        "expert_index_upload_seconds": 0.5355131200121832,
+        "expert_misses": 49965.0,
+        "expert_packed_host_hits": 49965.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 249.22255563095678,
+        "expert_zero_d2d_bytes": 138143232000.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.10486459899402689,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 3.185330682012136,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/qsa_bfp8_lofi/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138143232000.0,
+          "expert_h2d_seconds": 48.21175975942606,
+          "expert_misses": 49965.0,
+          "ple_lookup_seconds": 3.129628439019143,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "bce70dccf339d5ad5ed82b2175054868b6aca8ef2f2a3949a9dd26af1403e5d1",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.2600657748672737,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.8451810912464612,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 43.39126165599737,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/qsa_bfp8_lofi/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138143232000.0,
+          "expert_h2d_seconds": 37.45560975024273,
+          "expert_misses": 49965.0,
+          "ple_lookup_seconds": 3.185330682012136,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "576d93272130bfcee93d9e88a6dfd0b7c4c39f7b67ae964436e5dd81f616fe42",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.3130366492545623,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.194514132390924,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 26.61035056399851,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/qsa_bfp8_lofi/candidate_result.json",
+      "result_sha256": "576d93272130bfcee93d9e88a6dfd0b7c4c39f7b67ae964436e5dd81f616fe42",
+      "selected": false,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.3130366492545623,
+      "teacher_forcing_decode_tokens_per_second_per_user": 3.194514132390924,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 26.61035056399851
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/lm_head_bfp8_lofi.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/lm_head_bfp8_lofi timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "lofi",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "lm_head_bfp8_lofi",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49959.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138126643200.0,
+        "expert_h2d_seconds": 16.69165703030012,
+        "expert_hits": 17650.0,
+        "expert_index_h2d_bytes": 168880.0,
+        "expert_index_upload_seconds": 0.4588462809624616,
+        "expert_misses": 49959.0,
+        "expert_packed_host_hits": 49959.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 241.59008197517687,
+        "expert_zero_d2d_bytes": 138126643200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.015455800043127965,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.5402221790354815,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/lm_head_bfp8_lofi/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138126643200.0,
+          "expert_h2d_seconds": 16.69165703030012,
+          "expert_misses": 49959.0,
+          "ple_lookup_seconds": 2.5402221790354815,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "e8254a387120d09c51b0483fcfb837ca9d544d50ace627a35a3f3deb3ea9a676",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23191934452062218,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.311843852728207,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.563685418004752,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/lm_head_bfp8_lofi/candidate_result.json",
+      "result_sha256": "e8254a387120d09c51b0483fcfb837ca9d544d50ace627a35a3f3deb3ea9a676",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.23191934452062218,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.311843852728207,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.563685418004752
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/lm_head_bf16_hifi2/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/lm_head_bf16_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/lm_head_bf16_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 31.346335077767435,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 4.014165651762789,
+        "primary_expert_h2d_seconds": 46.41432177329989,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 2.704361333900253,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/lm_head_bf16_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/lm_head_bf16_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "lm_head_bf16_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bf16",
+          "sampling_dtype": "bf16",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49959.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138126643200.0,
+        "expert_h2d_seconds": 31.346335077767435,
+        "expert_hits": 17650.0,
+        "expert_index_h2d_bytes": 168880.0,
+        "expert_index_upload_seconds": 0.4719180891333963,
+        "expert_misses": 49959.0,
+        "expert_packed_host_hits": 49959.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 241.68232494313997,
+        "expert_zero_d2d_bytes": 138126643200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.05705246403522324,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.5381901989967446,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/lm_head_bf16_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138126643200.0,
+          "expert_h2d_seconds": 46.41432177329989,
+          "expert_misses": 49959.0,
+          "ple_lookup_seconds": 3.2930902899606735,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "f56bc1d6badaef1fbd57c93c4043d61df73cd22661012d5e3b7cbd500fa80a40",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.36977307265290305,
+          "teacher_forcing_decode_tokens_per_second_per_user": 2.704361333900253,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 30.02876399100205,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/lm_head_bf16_hifi2/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138126643200.0,
+          "expert_h2d_seconds": 31.346335077767435,
+          "expert_misses": 49959.0,
+          "ple_lookup_seconds": 2.5381901989967446,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "e663abde804a68ccfd41d73d6ec80ba59b35fdd0e2d9ab2c3fc2158db232cc93",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.24911777110166292,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.014165651762789,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 26.30593339099869,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/lm_head_bf16_hifi2/candidate_result.json",
+      "result_sha256": "e663abde804a68ccfd41d73d6ec80ba59b35fdd0e2d9ab2c3fc2158db232cc93",
+      "selected": false,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.24911777110166292,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.014165651762789,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 26.30593339099869
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/qsa_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_hifi2_lm_head_bf16_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/qsa_bfp8_hifi2_lm_head_bf16_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 16.680829609234934,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 4.384021177308609,
+        "primary_expert_h2d_seconds": 32.26670564836968,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 4.0507112188108945,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_hifi2_lm_head_bf16_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/qsa_bfp8_hifi2_lm_head_bf16_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bf16",
+          "sampling_dtype": "bf16",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 50069.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138430771200.0,
+        "expert_h2d_seconds": 16.680829609234934,
+        "expert_hits": 17610.0,
+        "expert_index_h2d_bytes": 168640.0,
+        "expert_index_upload_seconds": 0.4550377987761749,
+        "expert_misses": 50069.0,
+        "expert_packed_host_hits": 50069.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 237.83960908396693,
+        "expert_zero_d2d_bytes": 138430771200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.017590040020877495,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.533228213003895,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": true,
+      "pareto_top5": true,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/qsa_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138430771200.0,
+          "expert_h2d_seconds": 32.26670564836968,
+          "expert_misses": 50069.0,
+          "ple_lookup_seconds": 2.7039328039900283,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "6adcc6755e1901efc7f69d39295c2ca1e0fd3c214d9803ebc14eac7239094188",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.24687022746922815,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.0507112188108945,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 26.90524290799658,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/qsa_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138430771200.0,
+          "expert_h2d_seconds": 16.680829609234934,
+          "expert_misses": 50069.0,
+          "ple_lookup_seconds": 2.533228213003895,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "e9bee36170e9d4a27318268114edaad0ba1c072375bcd41d123d9b848c918350",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.22848172540821277,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.376717648701961,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.568832757002383,
+          "used_for_selection": true
+        },
+        {
+          "artifact": "anomaly_controls/qsa_bfp8_hifi2_lm_head_bf16_hifi2/replicates/current_2/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138430771200.0,
+          "expert_h2d_seconds": 16.587670264707413,
+          "expert_misses": 50069.0,
+          "ple_lookup_seconds": 2.5531308809950133,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "a1770b671612e79994a708b145a3594d8c5533369a80656df52667d832caf404",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.22810108791808098,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.384021177308609,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.62140778000321,
+          "used_for_selection": true
+        },
+        {
+          "artifact": "post_selection/teacher_forcing_selected/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138430771200.0,
+          "expert_h2d_seconds": 16.805316499929177,
+          "expert_misses": 50069.0,
+          "ple_lookup_seconds": 2.5626782400067896,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "070ac042a3fb3f764d43a8b0d199627f7185c600d958685d7c1ce9c8e6d4d470",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.22798553017298906,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.3862432814978565,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.743937647988787,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/qsa_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+      "result_sha256": "e9bee36170e9d4a27318268114edaad0ba1c072375bcd41d123d9b848c918350",
+      "selected": true,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 3,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.22810108791808098,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.384021177308609,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.62140778000321
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 16.612980900434195,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 4.366890068588219,
+        "primary_expert_h2d_seconds": 16.650392630188435,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 4.3808695964717606,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "hifi2"
+      },
+      "config_id": "qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bf16",
+          "sampling_dtype": "bf16",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 50059.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138403123200.0,
+        "expert_h2d_seconds": 16.60327757826599,
+        "expert_hits": 17622.0,
+        "expert_index_h2d_bytes": 168560.0,
+        "expert_index_upload_seconds": 0.45219380719936453,
+        "expert_misses": 50059.0,
+        "expert_packed_host_hits": 50059.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 236.68644977617078,
+        "expert_zero_d2d_bytes": 138403123200.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.015539964151685126,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.559426002932014,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138403123200.0,
+          "expert_h2d_seconds": 16.661586416725186,
+          "expert_misses": 50059.0,
+          "ple_lookup_seconds": 2.539124165989051,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "4264359af1321bf7ec5b977ed0423fc3b9a1a023970fe5369894714fd40e1fe9",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.22838983453038963,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.378478587088514,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.63958631100104,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "replicates/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/repeat1/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138403123200.0,
+          "expert_h2d_seconds": 16.639198843651684,
+          "expert_misses": 50059.0,
+          "ple_lookup_seconds": 2.5450898969866103,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "a5968e1831cf5ebb928005717e76059b979228751a1d89b2525cc913b5ee0a7b",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.22814066739820005,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.383260605855007,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.598121367002022,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138403123200.0,
+          "expert_h2d_seconds": 16.60327757826599,
+          "expert_misses": 50059.0,
+          "ple_lookup_seconds": 2.559426002932014,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "d115aa941722cbd8fd832e5daaaa364dc25fcced87b143a6d867bb32e7b78e3a",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.2278518531630671,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.3888166197372485,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.501195734002977,
+          "used_for_selection": true
+        },
+        {
+          "artifact": "anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/replicates/current_2/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138403123200.0,
+          "expert_h2d_seconds": 16.622684222602402,
+          "expert_misses": 50059.0,
+          "ple_lookup_seconds": 2.801331450958969,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "88cca28637f1c84c3c3339bc4ea042051150b68b48918d4350a9bcf3a9575a60",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.23015152969325142,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.344963517439191,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.90318925199972,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2/candidate_result.json",
+      "result_sha256": "d115aa941722cbd8fd832e5daaaa364dc25fcced87b143a6d867bb32e7b78e3a",
+      "selected": false,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 2,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.22900169142815927,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.366890068588219,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.702192493001348
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/kv_bf16_control/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/kv_bf16_control.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/kv_bf16_control timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 32.65912434839993,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 3.951341991731063,
+        "primary_expert_h2d_seconds": 43.42321042961703,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 3.850306461665851,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/kv_bf16_control.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/kv_bf16_control timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "kv_bf16_control",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bf16",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bf16",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49977.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138176409600.0,
+        "expert_h2d_seconds": 32.65912434839993,
+        "expert_hits": 17653.0,
+        "expert_index_h2d_bytes": 168880.0,
+        "expert_index_upload_seconds": 0.47547772896359675,
+        "expert_misses": 49977.0,
+        "expert_packed_host_hits": 49977.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 240.45282749118633,
+        "expert_zero_d2d_bytes": 138176409600.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.019465933939500246,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.7894862970279064,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/kv_bf16_control/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138176409600.0,
+          "expert_h2d_seconds": 43.42321042961703,
+          "expert_misses": 49977.0,
+          "ple_lookup_seconds": 3.3799900500525837,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "f9dff06669411e7a93cf3c4b05d6419e70a6fe80b508d82409578e0c6b8b5fa6",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.25971958594884054,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.850306461665851,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 37.66915931200492,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/kv_bf16_control/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138176409600.0,
+          "expert_h2d_seconds": 32.65912434839993,
+          "expert_misses": 49977.0,
+          "ple_lookup_seconds": 2.7894862970279064,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "6168c0f5fc29b630c0b6e8db59157f19a0667e359cd2d8970a0d93bbb86eb0c7",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.25307857484689783,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.951341991731063,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 27.23292781299824,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/kv_bf16_control/candidate_result.json",
+      "result_sha256": "6168c0f5fc29b630c0b6e8db59157f19a0667e359cd2d8970a0d93bbb86eb0c7",
+      "selected": false,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.25307857484689783,
+      "teacher_forcing_decode_tokens_per_second_per_user": 3.951341991731063,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 27.23292781299824
+    },
+    {
+      "anomaly_resolution": null,
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/ccl_bfp8.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/ccl_bfp8 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "ccl_bfp8",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bf16"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bfp8",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49948.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138096230400.0,
+        "expert_h2d_seconds": 16.633283752460557,
+        "expert_hits": 17676.0,
+        "expert_index_h2d_bytes": 169320.0,
+        "expert_index_upload_seconds": 0.4530454219202511,
+        "expert_misses": 49948.0,
+        "expert_packed_host_hits": 49948.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 237.93738915775612,
+        "expert_zero_d2d_bytes": 138096230400.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.013474046958435792,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 2.544028585034539,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": true,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/ccl_bfp8/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138096230400.0,
+          "expert_h2d_seconds": 16.633283752460557,
+          "expert_misses": 49948.0,
+          "ple_lookup_seconds": 2.544028585034539,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "7d6761bfa88a0cdc98937fe956ab9331411e082a9dae7d300e6b3379c65ea59e",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.23339815698956062,
+          "teacher_forcing_decode_tokens_per_second_per_user": 4.284523977816704,
+          "top100_percent": 100.0,
+          "top1_percent": 92.92929172515869,
+          "top5_percent": 100.0,
+          "ttft_seconds": 12.564121570998395,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "full_runs/ccl_bfp8/candidate_result.json",
+      "result_sha256": "7d6761bfa88a0cdc98937fe956ab9331411e082a9dae7d300e6b3379c65ea59e",
+      "selected": false,
+      "selection_basis": "median_of_primary_and_same_source_replicates",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+        "files": {
+          "tests/test_full_model.py": "3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a",
+          "tt/functional_decoder.py": "361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc",
+          "tt/generator.py": "334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a",
+          "tt/precision_config.py": "603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.23339815698956062,
+      "teacher_forcing_decode_tokens_per_second_per_user": 4.284523977816704,
+      "top100_percent": 100.0,
+      "top1_percent": 92.92929172515869,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 12.564121570998395
+    },
+    {
+      "anomaly_resolution": {
+        "artifact": "anomaly_controls/residual_bfp8/candidate_result.json",
+        "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/residual_bfp8.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/anomaly_controls/residual_bfp8 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+        "control_expert_h2d_seconds": 33.950497855752474,
+        "control_teacher_forcing_decode_tokens_per_second_per_user": 3.967160693718442,
+        "primary_expert_h2d_seconds": 59.51560860645259,
+        "primary_teacher_forcing_decode_tokens_per_second_per_user": 3.3362328788630906,
+        "reason": "The independent stage review required a current-source resolution of host-timing variance and the close finalist comparison. This current-source cohort supersedes the historical primary sample for selection while every measurement remains in raw_measurements."
+      },
+      "candidate_result_policy_match": true,
+      "command": "source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh; TT_VISIBLE_DEVICES=0,1 TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto RUN_QWEN38_DATATYPE_SWEEP=1 QWEN38_PRECISION_CONFIG=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/candidates/residual_bfp8.json QWEN38_EVIDENCE_DIR=models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/full_runs/residual_bfp8 timeout 2400 pytest -q -s --tt-arch blackhole models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py::test_full_model_datatype_sweep_candidate",
+      "compute_fidelity_policy": {
+        "attention_output": "hifi2",
+        "final_hyper_down_up": "hifi2",
+        "gdn_projection": "hifi2",
+        "lm_head": "hifi2",
+        "qsa_input": "hifi2",
+        "routed_expert": "lofi",
+        "shared_projection": "lofi"
+      },
+      "config_id": "residual_bfp8",
+      "dtype_policy": {
+        "activations": {
+          "matmul_output_dtype": "bf16",
+          "model_input_dtype": "bf16",
+          "ple_dtype": "bf16",
+          "residual_dtype": "bfp8"
+        },
+        "ccl": {
+          "num_links": 2,
+          "packet_bytes": 8192,
+          "payload_dtype": "bf16",
+          "topology": "linear"
+        },
+        "host_backed": {
+          "expert": {
+            "device_staging_dtype": "bfp4",
+            "device_staging_layout": "tile",
+            "execution_weight_dtype": "bfp4",
+            "host_packed_dtype": "bfp4",
+            "host_packed_layout": "tile",
+            "packed_capacity_per_layer": 512,
+            "prepack_all": true,
+            "slots_per_layer": 10,
+            "source_dtype": "bf16"
+          },
+          "ple": {
+            "device_staging_dtype": "bf16",
+            "device_staging_layout": "tile",
+            "execution_dtype": "bf16",
+            "host_assembly_dtype": "bf16",
+            "prefill_chunk_rows": 128,
+            "row_cache_capacity": 8192,
+            "table_dtype": "bf16",
+            "table_layout": "row_major_mmap"
+          }
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "layout": "tile",
+          "page_block_size": 64,
+          "policy": "bfp8",
+          "update_dtype": "bf16"
+        },
+        "layer_exceptions": {},
+        "logits_sampling": {
+          "greedy_strategy": "full_vocabulary_argmax",
+          "logits_dtype": "bfp8",
+          "sampling_dtype": "bfp8",
+          "sampling_mode": "device"
+        },
+        "weight_exceptions": {
+          "norms": {
+            "compute_fidelity": "hifi4",
+            "dtype": "bf16"
+          },
+          "router_topk_outputs": {
+            "dtype": "bf16"
+          }
+        },
+        "weight_groups": {
+          "attention_output": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "embedding": {
+            "dtype": "bf16",
+            "layout": "row_major"
+          },
+          "final_hyper_down_up": {
+            "dtype": "bfp8"
+          },
+          "gdn_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "lm_head": {
+            "dtype": "bfp8",
+            "policy": "bfp8_hifi2"
+          },
+          "qsa_input": {
+            "dtype": "bf16",
+            "policy": "bf16_hifi2"
+          },
+          "routed_expert": {
+            "dtype": "bfp4",
+            "policy": "expert_bfp4_lofi_g40b16_d40b5"
+          },
+          "shared_projection": {
+            "dtype": "bfp8",
+            "policy": "bfp8_lofi"
+          }
+        }
+      },
+      "hardware": "P300 Blackhole board, dies 0 and 1",
+      "host_service_totals": {
+        "expert_deferred_dma_misses": 49993.0,
+        "expert_dma_completion_syncs": 0.0,
+        "expert_h2d_bytes": 138220646400.0,
+        "expert_h2d_seconds": 33.950497855752474,
+        "expert_hits": 17630.0,
+        "expert_index_h2d_bytes": 168680.0,
+        "expert_index_upload_seconds": 0.48885942774359137,
+        "expert_misses": 49993.0,
+        "expert_packed_host_hits": 49993.0,
+        "expert_packed_host_misses": 24576.0,
+        "expert_source_pack_seconds": 242.83905425164994,
+        "expert_zero_d2d_bytes": 138220646400.0,
+        "ple_device_completion_syncs": 0.0,
+        "ple_device_deferred_uploads": 102.0,
+        "ple_device_h2d_bytes": 3645440.0,
+        "ple_device_h2d_seconds": 0.015924494953651447,
+        "ple_lookup_calls": 102.0,
+        "ple_lookup_seconds": 3.351384227949893,
+        "ple_table_bytes_read": 1113600.0,
+        "ple_table_rows_read": 3480.0
+      },
+      "measurement_regime": "fully-warm 512 packed experts/layer; traced model-only teacher forcing; full-logits D2H included; sampling/token feedback excluded",
+      "mesh": "1x2 FABRIC_1D, linear CCL, 2 links, 8192-byte packets",
+      "pareto_top1": false,
+      "pareto_top5": false,
+      "passes_gate": true,
+      "precision_propagation_all_fields_consumed": true,
+      "raw_measurements": [
+        {
+          "artifact": "full_runs/residual_bfp8/candidate_result.json",
+          "cohort": "primary_sweep",
+          "expert_h2d_bytes": 138220646400.0,
+          "expert_h2d_seconds": 59.51560860645259,
+          "expert_misses": 49993.0,
+          "ple_lookup_seconds": 3.4138570409995737,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "35c6145617d8606bc57047a145551ef64a360e9af98fb037bdda31125e761485",
+          "source_digest": "ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39",
+          "teacher_forcing_decode_seconds_per_token": 0.29973926770387094,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.3362328788630906,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 47.84712357399985,
+          "used_for_selection": false
+        },
+        {
+          "artifact": "anomaly_controls/residual_bfp8/candidate_result.json",
+          "cohort": "current_source_anomaly_control",
+          "expert_h2d_bytes": 138220646400.0,
+          "expert_h2d_seconds": 33.950497855752474,
+          "expert_misses": 49993.0,
+          "ple_lookup_seconds": 3.351384227949893,
+          "ple_table_rows_read": 3480.0,
+          "sha256": "39ddd2f8ca51a1a4fd3124fc73625efca758c516cbefa2fcbf70a2bda8d568cf",
+          "source_digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+          "teacher_forcing_decode_seconds_per_token": 0.2520694464389579,
+          "teacher_forcing_decode_tokens_per_second_per_user": 3.967160693718442,
+          "top100_percent": 100.0,
+          "top1_percent": 91.91918969154358,
+          "top5_percent": 100.0,
+          "ttft_seconds": 29.14656282299984,
+          "used_for_selection": true
+        }
+      ],
+      "reference": "../full_model/readiness_aime24_chat.refpt (chat template; prompt 201 tokens; 99 scored decode rows)",
+      "rejection_reason": null,
+      "result_artifact": "anomaly_controls/residual_bfp8/candidate_result.json",
+      "result_sha256": "39ddd2f8ca51a1a4fd3124fc73625efca758c516cbefa2fcbf70a2bda8d568cf",
+      "selected": false,
+      "selection_basis": "median_of_current_source_anomaly_controls",
+      "selection_sample_count": 1,
+      "source_provenance": {
+        "algorithm": "sha256",
+        "digest": "8e1a9cf08fa18531087c5d4dd120b3a74458784925bc02de899b9975abe75b72",
+        "files": {
+          "tests/test_full_model.py": "bfdde9a1a82a03aee121051999761e60b80a86d4424a04f8c3da84bb08c71546",
+          "tt/functional_decoder.py": "79cdc5a47e0eb2985edb030d19a9e345bcc7f89142baae7fc74de510e4066bcd",
+          "tt/generator.py": "5d2f231eb605b7aeeea05ef0547c4778003a807320d54cc52a39fbe4267398e9",
+          "tt/host_weight_cache.py": "1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8",
+          "tt/model.py": "86fb3dbae1311175470771a7a1527d2fd591f2c35316f94a95c5ce40c4d02699",
+          "tt/multichip_decoder.py": "2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406",
+          "tt/optimized_decoder.py": "694c6ef6eba0e942a994160935ec8db6ecd3a1e742a6b63740d1b708d8fcbc20",
+          "tt/precision_config.py": "61099968031e4af5419aed8f1d939c8ac9c8d73b2140f1258d066c6985ae80d6"
+        }
+      },
+      "status": "pass",
+      "teacher_forcing_decode_seconds_per_token": 0.2520694464389579,
+      "teacher_forcing_decode_tokens_per_second_per_user": 3.967160693718442,
+      "top100_percent": 100.0,
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "trace_verified": true,
+      "ttft_seconds": 29.14656282299984
+    }
+  ],
+  "schema_version": 1,
+  "selected_config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+  "selection_rule": "maximum median traced teacher-forcing decode tokens/s/user among full-model configs passing all accuracy, source-provenance, and precision-propagation gates; a single sample is its own median. For rows challenged by independent review because of elevated host H2D service time, the recorded current-source anomaly control supersedes the historical primary sample for selection.",
+  "thresholds": {
+    "top100_percent_exact": 100.0,
+    "top1_percent_min": 90.0,
+    "top5_percent_min": 98.0
+  }
+}

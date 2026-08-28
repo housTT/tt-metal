@@ -32,9 +32,11 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.model import (
     REQUIRED_L1_SMALL_SIZE,
     VOCAB_SIZE,
     Qwen38FullModel,
+    _dtype_name,
     _lm_head_rank_slices,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import FABRIC_PACKET_BYTES, MultichipDecoder
+from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import load_precision_config
 
 _SOURCE_DIGEST_PATHS = (
     "tt/functional_decoder.py",
@@ -43,6 +45,7 @@ _SOURCE_DIGEST_PATHS = (
     "tt/model.py",
     "tt/multichip_decoder.py",
     "tt/optimized_decoder.py",
+    "tt/precision_config.py",
     "tests/test_full_model.py",
 )
 
@@ -83,12 +86,66 @@ def _device_params(*, trace_region_size=1_073_741_824, l1_small_size=REQUIRED_L1
     }
 
 
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_PRECISION_SMOKE") != "1",
+    reason="explicit datatype-policy construction smoke",
+)
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_precision_config_reduced_construction_and_summary(bh_1d_mesh_device, device_params):
+    """Construct all layer kinds and prove every policy leaf reaches runtime."""
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+        layer_indices=(0, 1, 3),
+        prepack_host_experts=True,
+    )
+    try:
+        summary = model.precision_propagation_summary()
+        assert summary["all_fields_consumed"] is True
+        assert all(item["passed"] for item in summary["checks"].values())
+        class PrecisionSmokeTokenizer:
+            @staticmethod
+            def decode(tokens, **_kwargs):
+                return " ".join(str(int(token)) for token in tokens)
+
+        generator = Qwen38Generator(model, PrecisionSmokeTokenizer())
+        prompt = (torch.arange(129, dtype=torch.int64).reshape(1, -1) + 17) % VOCAB_SIZE
+        output = generator.generate_batch(
+            prompt,
+            max_new_tokens=3,
+            enable_trace=True,
+            sampling_mode="device",
+            top_k=1,
+            top_p=0.0,
+            temperature=1.0,
+            request_ids=("precision-smoke-129",),
+            stop_on_eos=False,
+        )
+        assert tuple(output.shape) == (1, 3)
+        assert model.trace_replays == 1
+        summary["non_aligned_prompt_tokens"] = 129
+        summary["traced_generated_tokens"] = output.tolist()
+        summary["runtime_fallback_audit"] = model.runtime_fallback_audit(generator.state)
+        write_report(summary, _evidence_dir() / "precision_propagation_smoke.json")
+        print({"precision_propagation": summary})
+    finally:
+        model.close(best_effort=True)
+
+
 def test_generator_interface_and_policy_are_explicit():
     assert tuple(inspect.signature(build_generator).parameters) == ("model_dir", "mesh_device", "kwargs")
     generate = inspect.signature(Qwen38Generator.generate).parameters
     assert generate["enable_trace"].kind is inspect.Parameter.KEYWORD_ONLY
     assert generate["next_input"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert generate["sampling_mode"].default == "device"
+    assert generate["sampling_mode"].default is None
+    selected, _ = load_precision_config()
+    assert selected["logits_sampling"]["sampling_mode"] == "device"
     source = inspect.getsource(Qwen38FullModel)
     assert "MultichipDecoder.from_checkpoint_host_backed" in source
     assert "HostBackedSegmentedDecodeTrace" in source
@@ -801,9 +858,10 @@ def test_full_48_layer_token_out_trace_smoke(bh_1d_mesh_device, device_params):
 )
 @pytest.mark.timeout(1200)
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
-def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_params):
+def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_params, record_property):
     """Construct every weight/cache/endpoint at the HF 262,144-token limit."""
 
+    provenance = _record_source_provenance(record_property)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
@@ -836,9 +894,31 @@ def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_pa
             "logprob_mask": model.sampling._log_probs_calculator.mask,
             "logprob_output": model.sampling._log_probs_calculator.output_tensor,
         }
-        print(
-            {
-                "advertised_context_construction": {
+        cache_tensors = [
+            tensor
+            for _layer, kv_cache, indexer_cache in model.kv_cache
+            for tensor in (*kv_cache, indexer_cache)
+        ]
+        report = {
+            "config_id": model.precision_config["config_id"],
+            "precision_config_path": model.precision_config_path,
+            "source_provenance": provenance,
+            "max_seq_len": model.max_seq_len,
+            "kv_cache_policy": model.precision_config["kv_cache"],
+            "qsa_layer_count": len(model.kv_cache),
+            "cache_tensor_count": len(cache_tensors),
+            "cache_tensor_dtypes": sorted({_dtype_name(tensor.dtype) for tensor in cache_tensors}),
+            "cache_tensors": [
+                {
+                    "shape": tuple(tensor.shape),
+                    "padded_shape": tuple(tensor.padded_shape),
+                    "volume": tensor.volume(),
+                    "dtype": _dtype_name(tensor.dtype),
+                    "layout": str(tensor.layout),
+                }
+                for tensor in cache_tensors
+            ],
+            "persistent_inputs": {
                     name: {
                         "shape": tuple(tensor.shape),
                         "padded_shape": tuple(tensor.padded_shape),
@@ -846,9 +926,14 @@ def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_pa
                         "dtype": str(tensor.dtype),
                     }
                     for name, tensor in persistent.items()
-                }
-            }
-        )
+            },
+        }
+        write_report(report, _evidence_dir() / "advertised_context_construction.json")
+        print({"advertised_context_construction": report})
+        record_property("config_id", report["config_id"])
+        record_property("kv_cache_dtype", report["kv_cache_policy"]["dtype"])
+        record_property("cache_tensor_count", report["cache_tensor_count"])
+        record_property("max_seq_len", report["max_seq_len"])
     finally:
         model.close(best_effort=True)
 
@@ -868,6 +953,69 @@ def _evidence_dir() -> Path:
     )
     output.mkdir(parents=True, exist_ok=True)
     return output
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_DATATYPE_SWEEP") != "1",
+    reason="explicit full-model datatype candidate gate",
+)
+@pytest.mark.timeout(2400)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_datatype_sweep_candidate(bh_1d_mesh_device, device_params, record_property):
+    """Full 48-layer traced accuracy/performance source for one dtype policy."""
+
+    from transformers import AutoTokenizer
+
+    provenance = _record_source_provenance(record_property)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
+    try:
+        report = run_teacher_forcing(
+            generator,
+            REFERENCE,
+            enable_trace=True,
+            decode_rows=99,
+        )
+        report.update(
+            config_id=model.precision_config["config_id"],
+            precision_config_path=model.precision_config_path,
+            precision_propagation=model.precision_propagation_summary(),
+            source_provenance=provenance,
+            model_only_trace_replays=model.model_only_trace_replays,
+            measurement_regime=(
+                "fully-warm 512 packed experts/layer; traced model-only teacher forcing; "
+                "full-logits D2H included; sampling/token feedback excluded"
+            ),
+            host_service_totals=model.host_service_totals(),
+            runtime_fallback_audit=model.runtime_fallback_audit(generator.state),
+        )
+        if os.getenv("QWEN38_SWEEP_RUN_AUTOREGRESSIVE") == "1":
+            report["aime24_autoregressive_100"] = run_autoregressive(generator, REFERENCE, enable_trace=True)
+        report["passes_gate"] = (
+            report["top1_percent"] >= 90.0
+            and report["top5_percent"] >= 98.0
+            and report["top100_percent"] == 100.0
+        )
+        write_report(report, _evidence_dir() / "candidate_result.json")
+        print({"datatype_sweep_candidate": report})
+        for key in ("top1_percent", "top5_percent", "top100_percent", "ttft_seconds"):
+            record_property(key, report[key])
+        record_property("config_id", report["config_id"])
+        record_property("traced", report["traced"])
+        record_property("model_only_trace_replays", report["model_only_trace_replays"])
+        record_property("decode_tokens_per_second_per_user", report["decode_tokens_per_second_per_user"])
+        assert report["traced"] is True
+        assert report["model_only_trace_replays"] == 98
+        assert report["passes_gate"], report
+    finally:
+        generator.close()
 
 
 @pytest.mark.skipif(os.getenv("RUN_QWEN38_ACCURACY") != "1", reason="explicit full-stack accuracy gate")
@@ -920,6 +1068,10 @@ def test_full_model_aime24_teacher_forcing_accuracy(bh_1d_mesh_device, device_pa
             enable_trace=True,
             decode_rows=int(os.getenv("QWEN38_TEACHER_ROWS", "99")),
         )
+        report["precision_propagation"] = model.precision_propagation_summary()
+        report["host_service_totals"] = model.host_service_totals()
+        report["source_provenance"] = _source_provenance()
+        write_report(report, _evidence_dir() / "teacher_forcing_accuracy.json")
         print({"teacher_forcing_accuracy": report})
         for key in ("top1_percent", "top5_percent", "top100_percent"):
             record_property(f"decode_{key}", report[key])
@@ -1023,10 +1175,15 @@ def test_full_model_shared_qualitative_suite(bh_1d_mesh_device, device_params, r
     try:
         report = run_qualitative_suite(generator, QUALITATIVE_REFERENCE, enable_trace=True)
         report["source_provenance"] = provenance
+        report["config_id"] = model.precision_config["config_id"]
+        report["precision_config_path"] = model.precision_config_path
+        report["precision_propagation"] = model.precision_propagation_summary()
+        report["host_service_totals"] = model.host_service_totals()
         write_report(report, _evidence_dir() / "qualitative_shared_suite_final.json")
         print({"qualitative_shared_suite": report})
         record_property("prompt_ids", ",".join(item["id"] for item in report["prompts"]))
         record_property("generation_length", report["metadata"]["generation_length"])
+        record_property("config_id", report["config_id"])
         for item in report["prompts"]:
             assert not item["hf_review"]["mechanically_degenerate"], item
             assert not item["tt_review"]["mechanically_degenerate"], item
@@ -1047,6 +1204,9 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
     reference = torch.load(REFERENCE, map_location="cpu", weights_only=False)
     prompt = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)[:, :128]
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model_kwargs = {}
+    if "QWEN38_LM_HEAD_POLICY" in os.environ:
+        model_kwargs["lm_head_policy"] = os.environ["QWEN38_LM_HEAD_POLICY"]
     model = Qwen38FullModel(
         snapshot=H.MODEL_SNAPSHOT,
         hf_config=H.target_config(),
@@ -1054,7 +1214,7 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
         max_batch=1,
         max_seq_len=4096,
         prepack_host_experts=os.getenv("QWEN38_PREPACK_ALL_EXPERTS", "1") == "1",
-        lm_head_policy=os.getenv("QWEN38_LM_HEAD_POLICY", "bfp8_hifi2"),
+        **model_kwargs,
     )
     generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
     try:
@@ -1077,6 +1237,9 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
             "metrics": generator.last_metrics.report(),
             "last_decode_timing": model.last_decode_timing,
             "host_preload": model.host_preload_report,
+            "config_id": model.precision_config["config_id"],
+            "precision_config_path": model.precision_config_path,
+            "precision_propagation": model.precision_propagation_summary(),
             "runtime_fallback_audit": model.runtime_fallback_audit(generator.state),
         }
         expert_metrics = tuple(report["runtime_fallback_audit"]["experts"].values())
@@ -1097,6 +1260,7 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
                 "dma_completion_syncs",
             )
         }
+        report["host_service_all_totals"] = model.host_service_totals()
         if "QWEN38_EVIDENCE_DIR" in os.environ:
             write_report(report, _evidence_dir() / "full_model_performance.json")
         print({"full_model_performance": report})
@@ -1108,6 +1272,8 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
             record_property(f"prohibited_{key}", value)
         for key, value in report["host_service_totals"].items():
             record_property(f"host_service_{key}", value)
+        record_property("config_id", report["config_id"])
+        record_property("precision_propagation_all_fields_consumed", True)
         record_property("generator_host_sampling_compatibility_calls", generator.host_sampling_compatibility_calls)
         assert report["metrics"]["traced"] is True
         assert report["metrics"]["sampling_mode"] == "device"

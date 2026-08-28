@@ -64,6 +64,9 @@ POLICIES = {
     "expert_bfp4_lofi_g20b16_d40b5": OptimizationPolicy(
         "expert_bfp4_lofi_g20b16_d40b5", ttnn.bfloat4_b, "lofi", 20, 16, 40, 5
     ),
+    "expert_bfp4_hifi2_g40b16_d40b5": OptimizationPolicy(
+        "expert_bfp4_hifi2_g40b16_d40b5", ttnn.bfloat4_b, "hifi2", 40, 16, 40, 5
+    ),
     "expert_bfp4_lofi_g40b16_d40b5": OptimizationPolicy(
         "expert_bfp4_lofi_g40b16_d40b5", ttnn.bfloat4_b, "lofi", 40, 16, 40, 5
     ),
@@ -79,6 +82,7 @@ PROJECTION_POLICIES = {
     "bf16_hifi2": (ttnn.bfloat16, "hifi2"),
     "bfp8_hifi2": (ttnn.bfloat8_b, "hifi2"),
     "bfp8_lofi": (ttnn.bfloat8_b, "lofi"),
+    "bfp4_hifi2": (ttnn.bfloat4_b, "hifi2"),
     "bfp4_lofi": (ttnn.bfloat4_b, "lofi"),
 }
 
@@ -171,6 +175,17 @@ class OptimizedDecoder(FusedDecoder):
         )
         if cache_policy not in {"bf16", "bfp8"}:
             raise ValueError(f"unknown cache policy {cache_policy!r}")
+        matmul_output_dtype = kwargs.pop("matmul_output_dtype", "bf16")
+        cache_update_dtype = kwargs.pop("cache_update_dtype", "bf16")
+        ple_activation_dtype = kwargs.pop("ple_activation_dtype", "bf16")
+        norm_weight_dtype = kwargs.pop("norm_weight_dtype", "bf16")
+        norm_compute_fidelity = kwargs.pop("norm_compute_fidelity", "hifi4")
+        router_output_dtype = kwargs.pop("router_output_dtype", "bf16")
+        if any(
+            value != "bf16"
+            for value in (matmul_output_dtype, cache_update_dtype, ple_activation_dtype, norm_weight_dtype, router_output_dtype)
+        ) or norm_compute_fidelity != "hifi4":
+            raise ValueError("the current decoder activation/norm/update runtime contract requires BF16/HiFi4")
         decode_1d_spec = kwargs.pop(
             "decode_1d_config",
             os.environ.get("QWEN38_OPT_1D_CONFIG", cls.DEFAULT_DECODE_1D_CONFIG),
@@ -208,6 +223,12 @@ class OptimizedDecoder(FusedDecoder):
         layer._decode_expert_weights = None
         layer.projection_policy_names = group_policy_names
         layer.cache_policy = cache_policy
+        layer.matmul_output_dtype = ttnn.bfloat16
+        layer.cache_update_dtype = ttnn.bfloat16
+        layer.ple_activation_dtype = ttnn.bfloat16
+        layer.norm_weight_dtype = ttnn.bfloat16
+        layer.norm_compute_fidelity = "hifi4"
+        layer.router_output_dtype = ttnn.bfloat16
         layer.decode_1d_cores = cls._parse_decode_1d_config(decode_1d_spec, layer_idx=kwargs.get("layer_idx"))
         layer.prefill_configs = cls._parse_prefill_config(prefill_spec)
         layer.prefill_sdpa_config = cls._parse_sdpa_config(

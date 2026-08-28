@@ -460,7 +460,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         *,
         next_input=None,
         enable_trace: bool = True,
-        sampling_mode: str = "device",
+        sampling_mode: str | None = None,
         top_k: int | Sequence[int] = 1,
         top_p: float | Sequence[float] = 0.0,
         temperature: float | Sequence[float] = 1.0,
@@ -480,6 +480,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         full logits and is excluded from performance evidence.
         """
 
+        sampling_mode = self.model.selected_sampling_mode if sampling_mode is None else str(sampling_mode)
         if sampling_mode not in {"device", "host"}:
             raise ValueError("sampling_mode must be 'device' or explicit compatibility mode 'host'")
         if max_new_tokens < 1:
@@ -634,7 +635,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         *,
         max_new_tokens: int = 100,
         enable_trace: bool = True,
-        sampling_mode: str = "device",
+        sampling_mode: str | None = None,
         **sampling,
     ) -> str:
         encoded = self.tokenizer.apply_chat_template(

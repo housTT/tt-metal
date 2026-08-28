@@ -1,0 +1,102 @@
+{
+  "activations": {
+    "matmul_output_dtype": "bf16",
+    "model_input_dtype": "bf16",
+    "ple_dtype": "bf16",
+    "residual_dtype": "bf16"
+  },
+  "ccl": {
+    "num_links": 2,
+    "packet_bytes": 8192,
+    "payload_dtype": "bf16",
+    "topology": "linear"
+  },
+  "config_id": "lm_head_bfp8_lofi",
+  "host_backed": {
+    "expert": {
+      "device_staging_dtype": "bfp4",
+      "device_staging_layout": "tile",
+      "execution_weight_dtype": "bfp4",
+      "host_packed_dtype": "bfp4",
+      "host_packed_layout": "tile",
+      "packed_capacity_per_layer": 512,
+      "prepack_all": true,
+      "slots_per_layer": 10,
+      "source_dtype": "bf16"
+    },
+    "ple": {
+      "device_staging_dtype": "bf16",
+      "device_staging_layout": "tile",
+      "execution_dtype": "bf16",
+      "host_assembly_dtype": "bf16",
+      "prefill_chunk_rows": 128,
+      "row_cache_capacity": 8192,
+      "table_dtype": "bf16",
+      "table_layout": "row_major_mmap"
+    }
+  },
+  "kv_cache": {
+    "dtype": "bfp8",
+    "layout": "tile",
+    "page_block_size": 64,
+    "policy": "bfp8",
+    "update_dtype": "bf16"
+  },
+  "layer_exceptions": {},
+  "logits_sampling": {
+    "greedy_strategy": "full_vocabulary_argmax",
+    "logits_dtype": "bfp8",
+    "sampling_dtype": "bfp8",
+    "sampling_mode": "device"
+  },
+  "schema_version": 1,
+  "weight_exceptions": {
+    "norms": {
+      "compute_fidelity": "hifi4",
+      "dtype": "bf16"
+    },
+    "router_topk_outputs": {
+      "dtype": "bf16"
+    }
+  },
+  "weight_groups": {
+    "attention_output": {
+      "compute_fidelity": "hifi2",
+      "dtype": "bf16",
+      "policy": "bf16_hifi2"
+    },
+    "embedding": {
+      "dtype": "bf16",
+      "layout": "row_major"
+    },
+    "final_hyper_down_up": {
+      "compute_fidelity": "hifi2",
+      "dtype": "bfp8"
+    },
+    "gdn_projection": {
+      "compute_fidelity": "hifi2",
+      "dtype": "bfp8",
+      "policy": "bfp8_hifi2"
+    },
+    "lm_head": {
+      "compute_fidelity": "lofi",
+      "dtype": "bfp8",
+      "policy": "bfp8_lofi"
+    },
+    "qsa_input": {
+      "compute_fidelity": "hifi2",
+      "dtype": "bf16",
+      "policy": "bf16_hifi2"
+    },
+    "routed_expert": {
+      "compute_fidelity": "lofi",
+      "dtype": "bfp4",
+      "policy": "expert_bfp4_lofi_g40b16_d40b5"
+    },
+    "shared_projection": {
+      "compute_fidelity": "lofi",
+      "dtype": "bfp8",
+      "policy": "bfp8_lofi"
+    }
+  }
+}

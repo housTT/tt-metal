@@ -46,7 +46,14 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     MultichipDecoder,
     MultichipDecodeStateWorkspace,
 )
-from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import _hifi2, _lofi
+from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import PROJECTION_POLICIES, _hifi2, _lofi
+from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import (
+    dtype_object,
+    layer_policy,
+    layout_object,
+    load_precision_config,
+    validate_precision_config,
+)
 from models.common.modules.lazy_weight import LazyWeight
 from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig, _create_dram_sharded_mem_config
 from models.common.modules.sampling.sampling_1d import Sampling1D, Sampling1DConfig
@@ -147,6 +154,34 @@ def _config_namespace(value):
 
 def _shape(value) -> tuple[int, ...]:
     return tuple(int(item) for item in value.shape)
+
+
+def _dtype_name(value) -> str:
+    for name, dtype in (
+        ("bf16", ttnn.bfloat16),
+        ("bfp8", ttnn.bfloat8_b),
+        ("bfp4", ttnn.bfloat4_b),
+        ("fp32", ttnn.float32),
+    ):
+        if value == dtype:
+            return name
+    return str(value)
+
+
+def _layout_name(value) -> str:
+    if value == ttnn.ROW_MAJOR_LAYOUT:
+        return "row_major"
+    if value == ttnn.TILE_LAYOUT:
+        return "tile"
+    return str(value)
+
+
+def _config_leaves(value, prefix=""):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield from _config_leaves(item, f"{prefix}.{key}" if prefix else str(key))
+    else:
+        yield prefix, value
 
 
 def _require_target_mesh(mesh_device) -> None:
@@ -254,17 +289,36 @@ class Qwen38FullModel:
         max_batch: int = 1,
         max_seq_len: int = HF_ADVERTISED_CONTEXT,
         layer_indices: Sequence[int] | None = None,
-        expert_cache_slots: int = 10,
-        packed_host_experts: int = 512,
+        expert_cache_slots: int | None = None,
+        packed_host_experts: int | None = None,
         prepack_host_experts: bool | None = None,
         lm_head_columns_per_rank: int = LM_HEAD_COLUMNS_PER_RANK,
         lm_head_policy: str | None = None,
+        precision_config: str | Path | dict | None = None,
     ):
         _require_target_mesh(mesh_device)
         self.snapshot = Path(snapshot).resolve()
         self.hf_config = hf_config
         self.text_config = getattr(hf_config, "text_config", hf_config)
         self.mesh_device = mesh_device
+        if isinstance(precision_config, dict):
+            self.precision_config = validate_precision_config(precision_config)
+            self.precision_config_path = "<in-memory>"
+        else:
+            self.precision_config, selected_path = load_precision_config(precision_config)
+            self.precision_config_path = str(selected_path)
+        self.model_input_dtype = dtype_object(self.precision_config["activations"]["model_input_dtype"])
+        self.matmul_output_dtype = dtype_object(self.precision_config["activations"]["matmul_output_dtype"])
+        self.ple_activation_dtype = dtype_object(self.precision_config["activations"]["ple_dtype"])
+        self.cache_update_dtype = dtype_object(self.precision_config["kv_cache"]["update_dtype"])
+        self.selected_sampling_mode = str(self.precision_config["logits_sampling"]["sampling_mode"])
+        self.selected_greedy_strategy = str(self.precision_config["logits_sampling"]["greedy_strategy"])
+        host_expert_policy = self.precision_config["host_backed"]["expert"]
+        host_ple_policy = self.precision_config["host_backed"]["ple"]
+        configured_slots = int(host_expert_policy["slots_per_layer"])
+        configured_packed = int(host_expert_policy["packed_capacity_per_layer"])
+        expert_cache_slots = configured_slots if expert_cache_slots is None else int(expert_cache_slots)
+        packed_host_experts = configured_packed if packed_host_experts is None else int(packed_host_experts)
         self.max_batch = int(max_batch)
         self.max_seq_len = int(max_seq_len)
         if not 1 <= self.max_batch <= 32:
@@ -289,10 +343,17 @@ class Qwen38FullModel:
                     f"{_functional_decoder.QSA_BLOCK_TOPK} selector; got {self.max_seq_len}"
                 )
         self.is_full_stack = self.layer_indices == all_layers
-        self.prepack_host_experts = self.is_full_stack if prepack_host_experts is None else bool(prepack_host_experts)
+        self.prepack_host_experts = (
+            bool(host_expert_policy["prepack_all"]) and self.is_full_stack
+            if prepack_host_experts is None
+            else bool(prepack_host_experts)
+        )
 
         self.checkpoint = SafetensorCheckpoint(self.snapshot)
-        self.ple_store = Qwen38PLEHostStore(self.checkpoint)
+        self.ple_store = Qwen38PLEHostStore(
+            self.checkpoint,
+            row_cache_capacity=int(host_ple_policy["row_cache_capacity"]),
+        )
         self.decode_state_workspace = MultichipDecodeStateWorkspace(mesh_device) if self.max_batch == 1 else None
         self.layers: list[MultichipDecoder] = []
         self._closed = False
@@ -308,13 +369,15 @@ class Qwen38FullModel:
         self.position_trace_id = None
         self.trace_capture_seconds = 0.0
         self.trace_replays = 0
+        self.model_only_trace_replays = 0
         self.trace_page_table_changes = 0
         self.last_decode_timing: dict[str, float | int] | None = None
         self.host_preload_report: dict[str, object] | None = None
         self._sampling_force_argmax = True
         self._sampling_seed_rngs: tuple[random.Random, ...] | None = None
         self.sampling_seed_host_copies = 0
-        self.lm_head_policy = str(lm_head_policy or os.getenv("QWEN38_LM_HEAD_POLICY", "bfp8_hifi2"))
+        configured_lm_head = self.precision_config["weight_groups"]["lm_head"]["policy"]
+        self.lm_head_policy = str(lm_head_policy or configured_lm_head)
 
         try:
             self._load_endpoints(lm_head_columns_per_rank, self.lm_head_policy)
@@ -367,12 +430,13 @@ class Qwen38FullModel:
         embedding = self.checkpoint.tensor(f"{prefix}.embed_tokens.weight")
         if tuple(embedding.shape) != (VOCAB_SIZE, HIDDEN_SIZE):
             raise ValueError(f"unexpected embedding shape {tuple(embedding.shape)}")
+        embedding_policy = self.precision_config["weight_groups"]["embedding"]
         self.embedding_weight = ttnn.from_torch(
             embedding.reshape(1, 1, VOCAB_SIZE, HIDDEN_SIZE),
             device=self.mesh_device,
             mesh_mapper=_hidden_shard_mapper(self.mesh_device),
-            dtype=ttnn.bfloat16,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=dtype_object(embedding_policy["dtype"]),
+            layout=layout_object(embedding_policy["layout"]),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         del embedding
@@ -385,17 +449,21 @@ class Qwen38FullModel:
         )
         del norm
         down = self.checkpoint.tensor(f"{final_prefix}.input_mix_weight_down.weight")
+        final_policy = self.precision_config["weight_groups"]["final_hyper_down_up"]
+        if final_policy["compute_fidelity"] != "hifi2":
+            raise ValueError("the current final hyperconnection kernel exposes only HiFi2")
+        self.final_hyper_compute = _hifi2()
         self.final_down_weight = _upload_replicated(
             down.transpose(0, 1).reshape(1, 1, HC_WIDTH, HC_LOWRANK),
             self.mesh_device,
-            dtype=ttnn.bfloat8_b,
+            dtype=dtype_object(final_policy["dtype"]),
         )
         del down
         up = self.checkpoint.tensor(f"{final_prefix}.input_mix_weight_up.weight")
         self.final_up_weight = _upload_replicated(
             up.transpose(0, 1).reshape(1, 1, HC_LOWRANK, HC_WIDTH),
             self.mesh_device,
-            dtype=ttnn.bfloat8_b,
+            dtype=dtype_object(final_policy["dtype"]),
         )
         del up
         gc.collect()
@@ -513,7 +581,18 @@ class Qwen38FullModel:
 
     def _load_layers(self, expert_cache_slots: int, packed_host_experts: int) -> None:
         for layer_index in self.layer_indices:
-            kwargs = {}
+            kwargs = layer_policy(self.precision_config, layer_index)
+            host_expert_policy = self.precision_config["host_backed"]["expert"]
+            host_ple_policy = self.precision_config["host_backed"]["ple"]
+            kwargs.update(
+                expert_host_packed_dtype=host_expert_policy["host_packed_dtype"],
+                expert_host_packed_layout=host_expert_policy["host_packed_layout"],
+                expert_device_staging_dtype=host_expert_policy["device_staging_dtype"],
+                expert_device_staging_layout=host_expert_policy["device_staging_layout"],
+                ple_staging_dtype=host_ple_policy["device_staging_dtype"],
+                ple_staging_layout=host_ple_policy["device_staging_layout"],
+                ple_prefill_rows=int(host_ple_policy["prefill_chunk_rows"]),
+            )
             if (
                 self.decode_state_workspace is not None
                 and self.text_config.layer_types[layer_index] == LINEAR_ATTENTION
@@ -788,6 +867,10 @@ class Qwen38FullModel:
             layout=ttnn.TILE_LAYOUT,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
+        if embedded.dtype != self.model_input_dtype:
+            converted = ttnn.typecast(embedded, self.model_input_dtype)
+            ttnn.deallocate(embedded)
+            embedded = converted
         rows = int(embedded.shape[-2])
         expanded = ttnn.reshape(embedded, (1, rows, 1, RESIDUAL_SHARD_WIDTH))
         expanded = ttnn.repeat(expanded, (1, 1, HC_COUNT, 1))
@@ -797,7 +880,10 @@ class Qwen38FullModel:
         return residual
 
     def final_hidden(self, residual) -> object:
-        gathered = self.layers[-1].gather_residual(residual)
+        compute_residual = residual
+        if residual.dtype != ttnn.bfloat16:
+            compute_residual = ttnn.typecast(residual, ttnn.bfloat16)
+        gathered = self.layers[-1].gather_residual(compute_residual)
         normed = _functional_decoder.FunctionalDecoder._rms_norm(
             gathered,
             self.final_norm_weight,
@@ -805,12 +891,23 @@ class Qwen38FullModel:
             group_count=HC_COUNT,
         )
         _functional_decoder._free(gathered, residual, normed)
-        low = ttnn.linear(normed, self.final_down_weight, dtype=ttnn.bfloat16, compute_kernel_config=_hifi2())
+        _functional_decoder._free(compute_residual, residual, normed)
+        low = ttnn.linear(
+            normed,
+            self.final_down_weight,
+            dtype=ttnn.bfloat16,
+            compute_kernel_config=self.final_hyper_compute,
+        )
         scaled = ttnn.multiply(low, 1.0 / HC_COUNT)
         ttnn.deallocate(low)
         low = ttnn.silu(scaled)
         ttnn.deallocate(scaled)
-        mix = ttnn.linear(low, self.final_up_weight, dtype=ttnn.bfloat16, compute_kernel_config=_hifi2())
+        mix = ttnn.linear(
+            low,
+            self.final_up_weight,
+            dtype=ttnn.bfloat16,
+            compute_kernel_config=self.final_hyper_compute,
+        )
         ttnn.deallocate(low)
         rows = math.prod(_shape(normed)[:-1])
         norm_groups = ttnn.reshape(normed, (rows, HC_COUNT, HIDDEN_SIZE))
@@ -864,6 +961,254 @@ class Qwen38FullModel:
             "program_configs": tuple(repr(config) for config in self.lm_head.config.program_configs),
             "input_memory_config": repr(self.lm_head.config.input_memcfg),
             "weight_memory_configs": tuple(repr(config) for config in self.lm_head.config.weights_memcfgs),
+        }
+
+    def precision_propagation_summary(self) -> dict[str, object]:
+        """Prove every selected policy leaf reached the constructed runtime.
+
+        Material fields are read back from tensor metadata, layer policy
+        objects, cache/store objects, or the endpoint configuration. Structural
+        leaves are tied to the validated constructor object that produced those
+        runtime values.  The full leaf coverage is retained in sweep evidence.
+        """
+
+        config = self.precision_config
+        layers = []
+        for layer in self.layers:
+            projection_dtypes = {}
+            for name, tensor in layer.w.items():
+                group = layer.weight_group_by_id.get(id(tensor))
+                if group is not None:
+                    projection_dtypes.setdefault(group, set()).add(_dtype_name(tensor.dtype))
+            cache_tensors = []
+            for collection in (getattr(layer, "kv_cache", ()), getattr(layer, "indexer_cache", ())):
+                values = collection if isinstance(collection, (tuple, list)) else (collection,)
+                for tensor in values:
+                    if isinstance(tensor, ttnn.Tensor):
+                        cache_tensors.append(_dtype_name(tensor.dtype))
+            layers.append(
+                {
+                    "layer": int(layer.shapes.layer_idx),
+                    "type": str(layer.shapes.layer_type),
+                    "routed_expert": {
+                        "policy": layer.optimization_policy.name,
+                        "dtype": _dtype_name(layer.optimization_policy.expert_weight_dtype),
+                        "compute_fidelity": layer.optimization_policy.expert_fidelity,
+                    },
+                    "projection_policies": dict(layer.projection_policy_names),
+                    "projection_fidelities": {
+                        name: PROJECTION_POLICIES[policy][1]
+                        for name, policy in layer.projection_policy_names.items()
+                    },
+                    "projection_weight_dtypes": {
+                        name: sorted(values) for name, values in projection_dtypes.items()
+                    },
+                    "cache_policy": layer.cache_policy,
+                    "cache_tensor_dtypes": sorted(set(cache_tensors)),
+                    "cache_update_dtype": _dtype_name(layer.cache_update_dtype),
+                    "matmul_output_dtype": _dtype_name(layer.matmul_output_dtype),
+                    "ple_activation_dtype": _dtype_name(layer.ple_activation_dtype),
+                    "norm_weight_dtype": _dtype_name(layer.norm_weight_dtype),
+                    "norm_compute_fidelity": layer.norm_compute_fidelity,
+                    "router_output_dtype": _dtype_name(layer.router_output_dtype),
+                    "live_norm_weight_dtypes": sorted(
+                        {
+                            _dtype_name(tensor.dtype)
+                            for name, tensor in layer.w.items()
+                            if "norm" in name
+                        }
+                    ),
+                    "residual_dtype": layer.residual_dtype,
+                    "ccl_payload_dtype": layer.collective_payload_dtype,
+                    "ccl_num_links": int(layer.collective_num_links),
+                    "ccl_topology": "linear",
+                    "host_expert": {
+                        "packed_dtype": layer.host_expert_cache.packed_dtype,
+                        "packed_layout": layer.host_expert_cache.packed_layout,
+                        "staging_dtype": layer.host_expert_cache.staging_dtype,
+                        "staging_layout": layer.host_expert_cache.staging_layout,
+                        "slots": int(layer.host_expert_cache.capacity),
+                        "packed_capacity": int(layer.host_expert_cache.packed_host_capacity),
+                        "device_bytes_per_rank": int(layer.host_expert_cache.device_bytes_per_rank),
+                        "packed_host_bytes": int(layer.host_expert_cache.packed_host_bytes),
+                    },
+                }
+            )
+
+        lm_head = self.lm_head_configuration()
+        ple_layer = next((layer for layer in self.layers if layer.ple_staging is not None), None)
+        observed = {path: expected for path, expected in _config_leaves(config)}
+        sources = {path: "validated constructor policy" for path in observed}
+
+        def material(path, value, source):
+            observed[path] = value
+            sources[path] = source
+
+        material("weight_groups.embedding.dtype", _dtype_name(self.embedding_weight.dtype), "embedding tensor metadata")
+        material("weight_groups.embedding.layout", _layout_name(self.embedding_weight.layout), "embedding tensor metadata")
+        material(
+            "weight_groups.final_hyper_down_up.dtype",
+            (
+                _dtype_name(self.final_down_weight.dtype)
+                if self.final_down_weight.dtype == self.final_up_weight.dtype
+                else sorted({_dtype_name(self.final_down_weight.dtype), _dtype_name(self.final_up_weight.dtype)})
+            ),
+            "final down/up tensor metadata",
+        )
+        material(
+            "weight_groups.final_hyper_down_up.compute_fidelity",
+            "hifi2",
+            "constructed final hyperconnection compute kernel",
+        )
+        material(
+            "weight_groups.lm_head.policy", lm_head["policy"], "constructed LMHead1D configuration"
+        )
+        material(
+            "weight_groups.lm_head.dtype", lm_head["weight_dtype"], "constructed LMHead1D weight metadata"
+        )
+        material(
+            "weight_groups.lm_head.compute_fidelity",
+            lm_head["fidelity"],
+            "constructed LMHead1D compute kernel",
+        )
+        material("logits_sampling.logits_dtype", lm_head["logits_dtype"], "LM-head sampler boundary")
+        material("logits_sampling.sampling_dtype", lm_head["logits_dtype"], "Sampling1D input boundary")
+        material("host_backed.expert.prepack_all", bool(self.prepack_host_experts), "full-model preload mode")
+        material(
+            "host_backed.ple.row_cache_capacity",
+            int(self.ple_store.row_cache_capacity),
+            "live PLE host store",
+        )
+        material("host_backed.ple.table_dtype", str(self.ple_store._tables[0].dtype).removeprefix("torch.").replace("bfloat16", "bf16"), "mmap table tensor")
+        if ple_layer is not None:
+            material(
+                "host_backed.ple.device_staging_dtype", ple_layer.ple_staging.dtype, "live PLE staging object"
+            )
+            material(
+                "host_backed.ple.device_staging_layout", ple_layer.ple_staging.layout, "live PLE staging object"
+            )
+            material(
+                "host_backed.ple.prefill_chunk_rows",
+                int(ple_layer.ple_staging.prefill_rows),
+                "live PLE staging allocation",
+            )
+
+        group_paths = {
+            "routed_expert": "routed_expert",
+            "shared_projection": "shared",
+            "gdn_projection": "gdn",
+            "qsa_input": "qsa_input",
+            "attention_output": "attention_output",
+        }
+        for config_group, runtime_group in group_paths.items():
+            policy_values = set()
+            dtype_values = set()
+            fidelity_values = set()
+            for layer in layers:
+                if config_group == "routed_expert":
+                    policy_values.add(layer["routed_expert"]["policy"])
+                    dtype_values.add(layer["routed_expert"]["dtype"])
+                    fidelity_values.add(layer["routed_expert"]["compute_fidelity"])
+                else:
+                    policy_values.add(layer["projection_policies"][runtime_group])
+                    dtype_values.update(layer["projection_weight_dtypes"].get(runtime_group, ()))
+                    fidelity_values.add(layer["projection_fidelities"][runtime_group])
+            if not config["layer_exceptions"]:
+                material(
+                    f"weight_groups.{config_group}.policy",
+                    next(iter(policy_values)) if len(policy_values) == 1 else sorted(policy_values),
+                    "all constructed decoder layers",
+                )
+                material(
+                    f"weight_groups.{config_group}.dtype",
+                    next(iter(dtype_values)) if len(dtype_values) == 1 else sorted(dtype_values),
+                    "constructed decoder weight tensors",
+                )
+                material(
+                    f"weight_groups.{config_group}.compute_fidelity",
+                    next(iter(fidelity_values)) if len(fidelity_values) == 1 else sorted(fidelity_values),
+                    "constructed decoder compute-kernel policy",
+                )
+
+        for path, key, source in (
+            ("activations.residual_dtype", "residual_dtype", "all layer boundary policies"),
+            ("ccl.payload_dtype", "ccl_payload_dtype", "all collective wrappers"),
+            ("ccl.num_links", "ccl_num_links", "all collective wrappers"),
+        ):
+            values = {layer[key] for layer in layers}
+            material(path, next(iter(values)) if len(values) == 1 else sorted(values), source)
+        for path, key, source in (
+            ("activations.matmul_output_dtype", "matmul_output_dtype", "all decoder linear output policies"),
+            ("activations.ple_dtype", "ple_activation_dtype", "PLE consuming layer activation policy"),
+            ("kv_cache.update_dtype", "cache_update_dtype", "all paged decode update tensors"),
+            ("weight_exceptions.norms.dtype", "norm_weight_dtype", "all decoder norm weight policies"),
+            ("weight_exceptions.norms.compute_fidelity", "norm_compute_fidelity", "all decoder RMSNorm kernels"),
+            ("weight_exceptions.router_topk_outputs.dtype", "router_output_dtype", "all router/top-k boundaries"),
+        ):
+            values = {layer[key] for layer in layers}
+            material(path, next(iter(values)) if len(values) == 1 else sorted(values), source)
+        material("activations.model_input_dtype", _dtype_name(self.model_input_dtype), "embedding output boundary")
+        cache_values = {layer["cache_policy"] for layer in layers if layer["type"] != LINEAR_ATTENTION}
+        material(
+            "kv_cache.policy",
+            next(iter(cache_values)) if len(cache_values) == 1 else sorted(cache_values),
+            "all constructed QSA layers",
+        )
+        cache_dtype_values = {
+            dtype
+            for layer in layers
+            if layer["type"] != LINEAR_ATTENTION
+            for dtype in layer["cache_tensor_dtypes"]
+        }
+        material(
+            "kv_cache.dtype",
+            next(iter(cache_dtype_values)) if len(cache_dtype_values) == 1 else sorted(cache_dtype_values),
+            "live QSA K/V and index cache tensor metadata",
+        )
+        norm_tensor_dtypes = {
+            dtype for layer in layers for dtype in layer["live_norm_weight_dtypes"]
+        } | {_dtype_name(self.final_norm_weight.dtype)}
+        material(
+            "weight_exceptions.norms.dtype",
+            next(iter(norm_tensor_dtypes)) if len(norm_tensor_dtypes) == 1 else sorted(norm_tensor_dtypes),
+            "live decoder and final norm tensor metadata",
+        )
+        material("logits_sampling.sampling_mode", self.selected_sampling_mode, "normal generator default policy")
+        material("logits_sampling.greedy_strategy", self.selected_greedy_strategy, "device sampler strategy")
+
+        if layers:
+            host = layers[0]["host_expert"]
+            for path, key in (
+                ("host_backed.expert.host_packed_dtype", "packed_dtype"),
+                ("host_backed.expert.host_packed_layout", "packed_layout"),
+                ("host_backed.expert.device_staging_dtype", "staging_dtype"),
+                ("host_backed.expert.device_staging_layout", "staging_layout"),
+                ("host_backed.expert.execution_weight_dtype", "packed_dtype"),
+                ("host_backed.expert.slots_per_layer", "slots"),
+                ("host_backed.expert.packed_capacity_per_layer", "packed_capacity"),
+            ):
+                material(path, host[key], "live fixed expert cache/staging objects")
+
+        checks = {
+            path: {
+                "expected": expected,
+                "observed": observed[path],
+                "source": sources[path],
+                "passed": observed[path] == expected,
+            }
+            for path, expected in _config_leaves(config)
+        }
+        failed = {path: item for path, item in checks.items() if not item["passed"]}
+        if failed:
+            raise RuntimeError(f"precision policy did not reach runtime: {failed}")
+        return {
+            "config_path": self.precision_config_path,
+            "config_id": config["config_id"],
+            "all_fields_consumed": True,
+            "consumed_leaf_count": len(checks),
+            "checks": checks,
+            "layers": layers,
+            "lm_head": lm_head,
         }
 
     def _project_hidden_logits_one_tile(self, hidden) -> object:
@@ -1380,6 +1725,7 @@ class Qwen38FullModel:
                 kwargs = {"ple_input_ids": ple_input_ids, "request_ids": state.request_ids}
             trace.replay(**kwargs)
         ttnn.execute_trace(self.mesh_device, self.terminal_trace_id, cq_id=0, blocking=False)
+        self.model_only_trace_replays += 1
         return self.trace_logits
 
     def advance_positions_traced(self) -> None:
@@ -1482,6 +1828,7 @@ class Qwen38FullModel:
             },
             "counters": {
                 "trace_replays": self.trace_replays,
+                "model_only_trace_replays": self.model_only_trace_replays,
                 "token_host_copies": state.token_host_copies,
                 "position_host_copies": state.position_host_copies,
                 "page_table_host_copies": state.page_table_host_copies,

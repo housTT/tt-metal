@@ -83,12 +83,14 @@ def run_teacher_forcing(
     ref = load_reference(reference)
     prompt = torch.as_tensor(ref["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
     teacher = torch.as_tensor(ref["reference_tokens"], dtype=torch.int64).reshape(1, 100)
+    prefill_started = time.perf_counter()
     prefill_logits = generator.prefill_forward(
         prompt,
         prompt_lens=[prompt.shape[1]],
         request_ids=("aime24-teacher",),
         read_from_device=True,
     )
+    prefill_seconds = time.perf_counter() - prefill_started
     prefill_report = _membership(prefill_logits[:, -1:, :], torch.as_tensor(ref["top100_tokens"][:1]))
     if not 1 <= decode_rows <= 99:
         raise ValueError("decode_rows must be in [1, 99]")
@@ -115,6 +117,7 @@ def run_teacher_forcing(
         traced=bool(enable_trace),
         compatibility_mode="explicit_host_logits",
         trace_capture_seconds=generator.model.trace_capture_seconds,
+        ttft_seconds=prefill_seconds,
         decode_measured_tokens=len(steady),
         decode_seconds=sum(steady),
         decode_seconds_per_token=(sum(steady) / len(steady) if steady else 0.0),

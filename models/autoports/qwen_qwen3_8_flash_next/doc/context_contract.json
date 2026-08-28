@@ -81,7 +81,10 @@
       "largest_decode_current_position_tested": 262143,
       "advertised_context_decoder_geometry_tested": {
         "context_tokens": 262144,
-        "chunk_plan_tokens_validated": [262143, 262144],
+        "chunk_plan_tokens_validated": [
+          262143,
+          262144
+        ],
         "full_public_prefill_executed_in_this_stage": false,
         "compressed_blocks_scanned": 65536,
         "last_cache_page_addressed": true,
@@ -112,11 +115,19 @@
     "shuffled_page_table_tested": true,
     "distinct_batch_page_tables_tested": true,
     "device_int32_current_position": true,
-    "non_aligned_positions_tested": [33, 63, 128, 262143],
+    "non_aligned_positions_tested": [
+      33,
+      63,
+      128,
+      262143
+    ],
     "largest_decode_batch_tested": 32
   },
   "ple_preprocessing_boundary": {
-    "full_embedding_table_shape": [320001536, 160],
+    "full_embedding_table_shape": [
+      320001536,
+      160
+    ],
     "full_embedding_table_dtype": "BF16",
     "full_embedding_table_bytes": 102400491520,
     "decoder_input": "Exact mmap host n-gram row lookup uploads stable device tensor [1, 1, sequence, 2560]",
@@ -190,15 +201,19 @@
     "optimized_full_model_watcher": "optimized_full_model/final_frozen_full48_watcher_alloc_tracker.xml",
     "optimized_full_model_profiler": "optimized_full_model/final_frozen_profiler/perf_summary.json",
     "optimized_full_model_static_contracts": "optimized_full_model/final_frozen_static_contracts.xml",
-    "optimized_full_model_lm_head_selected": "optimized_full_model/final_frozen_lm_head_bfp8_hifi2.xml"
+    "optimized_full_model_lm_head_selected": "optimized_full_model/final_frozen_lm_head_bfp8_hifi2.xml",
+    "datatype_sweep_selected_precision": "datatype_sweep/selected_precision_config.json",
+    "datatype_sweep_context_bfp8": "datatype_sweep/context_contract_candidates/kv_bfp8.json",
+    "datatype_sweep_context_bf16": "datatype_sweep/context_contract_candidates/kv_bf16.json",
+    "datatype_sweep_selected_token_out": "datatype_sweep/post_selection/token_out/full_model_performance.json"
   },
   "full_stack_residency": {
     "status": "host_backed_fits",
     "dram_bytes_per_device": 34225520640,
     "max_context_cache_bytes_per_device": 2340421632,
-    "decoder_non_expert_weight_bytes_per_device": 3479858176,
-    "full_text_endpoint_weight_bytes_per_device": 981032960,
-    "non_expert_weight_allowance_bytes_per_device": 4460891136,
+    "decoder_non_expert_weight_bytes_per_device": 3181259776,
+    "full_text_endpoint_weight_bytes_per_device": 1279016960,
+    "non_expert_weight_allowance_bytes_per_device": 4460276736,
     "runtime_trace_reserve_bytes_per_device": 1073741824,
     "standard_tp2_bfp4_expert_bytes_per_device": 33973862400,
     "host_expert_cache_and_staging_bytes_per_device": 1592524800,
@@ -210,26 +225,52 @@
     "shared_decode_workspace_l1_bank_reserved_bytes_per_device": 13291520,
     "shared_decode_workspace_l1_bytes_per_worker": 120832,
     "full_model_endpoint_runtime_bytes_per_device": 67135576,
-    "host_backed_planned_total_bytes_per_device": 10005165144,
-    "host_backed_headroom_bytes_per_device": 24220355496,
+    "host_backed_planned_total_bytes_per_device": 10004550744,
+    "host_backed_headroom_bytes_per_device": 24220969896,
     "maximum_optimistic_bfp4_tile_fraction": 0.4442310248480903,
     "compressed_kernel_physical_expert_tiles_per_device": 66846720,
     "maximum_bank_padded_bfp4_tile_fraction": 0.2449097278071385,
-    "reason": "Standard resident TP2 BFP4 experts do not fit. The source-derived physical inventory charges every delivered decoder tensor, including fractured hyperconnection and GDN-output weights, natural TP2 token-embedding/final-mixer/BFP8-LM-head endpoints, exact host-backed EP2 top-10 slots plus one fixed full-K upload staging expert and one immutable full-K zero expert per rank, canonical DRAM decode state, one shared L1 state workspace, live prefill state, the 2,340,421,632-byte advertised-context KV/index cache, 67,108,864 bytes of replicated 64-wide RoPE tables, and 26,712 bytes of persistent page/token/position/sampler state. The immutable zero expert halves miss H2D by resetting the non-owner shard with local D2D. The endpoint runtime size is the sum of device tensor padded volumes printed by `full_model/advertised_context_construction_final.xml`. Trace commands and capture-frozen intermediates remain bounded by the separate 1 GiB runtime reserve. The complete plan fits with 24,220,355,496 bytes/die of headroom."
+    "reason": "The selected datatype policy charges exact TILE-physical non-expert weights: 3,181,259,776 decoder bytes/die after BFP8 QSA input/output, 1,279,016,960 endpoint bytes/die with a BF16 LM head, and 2,340,421,632 bytes/die for the selected BFP8 maximum-context K/V/index cache. Exact host-backed top-10 expert slots, PLE staging, runtime state, endpoints, and the 1 GiB trace/runtime reserve remain charged. The complete plan fits with 24,220,969,896 bytes/die headroom; no context reduction is required.",
+    "selected_kv_cache_dtype": "bfp8"
   },
   "full_model_eager_batch32_seq4096_capacity": {
     "status": "tested_and_fits",
-    "base_full_model_max_context_batch1_plan_bytes_per_device": 10005165144,
+    "base_full_model_max_context_batch1_plan_bytes_per_device": 10004550744,
     "removed_batch1_max_context_cache_bytes_per_device": 2340421632,
     "added_batch32_seq4096_cache_bytes_per_device": 1170210816,
     "removed_batch1_runtime_state_bytes_per_device": 469630976,
     "added_batch32_runtime_state_bytes_per_device": 15028191232,
     "additional_ple_decode_rows_bytes_per_device": 158720,
-    "planned_total_bytes_per_device": 23393673304,
+    "planned_total_bytes_per_device": 23393058904,
     "dram_bytes_per_device": 34225520640,
-    "headroom_bytes_per_device": 10831847336,
+    "headroom_bytes_per_device": 10832461736,
     "test": "optimized_full_model/final_frozen_batch32_and_context_capacity.xml",
     "scope": "All 48 layers, max_batch 32, max_seq_len 4096, active endpoint slots 0 and 31 with prompt lengths 1 and 33, 30 inactive rows, distinct page tables, two eager device-sampled tokens, and repeated request reset/isolation. The arithmetic conservatively scales both canonical decode and prefill user state for every row."
   },
-  "remaining_risk": "No advertised-context reduction. Frozen-source segmented GDN, PLE+GDN, and QSA traces pass changing tokens; the BFP8/HiFi2 endpoint accepts a non-aligned 201-token prompt; and all-48 eager fixed-slot state passes batch 32 at context 4096. Full construction preloads 24,576 exact experts / 68,080,435,200 host bytes. Segmented token-out remains batch 1 by design. Selected token-out is 231.489929 ms/token. The optimistic physical lower bound is 176.813899 ms/token; exact Python-level depth, owner grouping, coalescing, and threading AutoFix variants failed. Pure concurrent-owner staging reaches 6.497517 GB/s, 41.244% of the raw two-link ceiling, so native batched TTNN H2D submission is the remaining performance risk."
+  "remaining_risk": "No advertised-context reduction. Frozen-source segmented GDN, PLE+GDN, and QSA traces pass changing tokens; the BFP8/HiFi2 endpoint accepts a non-aligned 201-token prompt; and all-48 eager fixed-slot state passes batch 32 at context 4096. Full construction preloads 24,576 exact experts / 68,080,435,200 host bytes. Segmented token-out remains batch 1 by design. Selected token-out is 231.594000 ms/token. The optimistic physical lower bound is 176.813899 ms/token; exact Python-level depth, owner grouping, coalescing, and threading AutoFix variants failed. Pure concurrent-owner staging reaches 6.497517 GB/s, 41.244% of the raw two-link ceiling, so native batched TTNN H2D submission is the remaining performance risk.",
+  "datatype_sweep_context_candidates": {
+    "bfp8": {
+      "artifact": "datatype_sweep/context_contract_candidates/kv_bfp8.json",
+      "max_context_cache_bytes_per_device": 2340421632,
+      "planned_total_bytes_per_device": 10004550744,
+      "headroom_bytes_per_device": 24220969896,
+      "fits": true,
+      "full_model_supported_context_tokens": 262144,
+      "construction_evidence": "datatype_sweep/full_runs/context_bfp8/advertised_context_construction.json",
+      "construction_evidence_config_id": "qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2",
+      "construction_capacity_equivalent_to_selected": true
+    },
+    "bf16": {
+      "artifact": "datatype_sweep/context_contract_candidates/kv_bf16.json",
+      "max_context_cache_bytes_per_device": 4227858432,
+      "planned_total_bytes_per_device": 11891987544,
+      "headroom_bytes_per_device": 22333533096,
+      "fits": true,
+      "full_model_supported_context_tokens": 262144,
+      "construction_evidence": "datatype_sweep/full_runs/context_bf16/advertised_context_construction.json",
+      "construction_evidence_config_id": "qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2_kv_bf16_capacity",
+      "construction_capacity_equivalent_to_selected": true
+    }
+  },
+  "selected_datatype_sweep_kv_cache_dtype": "bfp8"
 }

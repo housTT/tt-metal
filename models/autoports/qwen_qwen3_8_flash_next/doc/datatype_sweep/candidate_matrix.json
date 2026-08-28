@@ -1,0 +1,160 @@
+[
+  {
+    "config_id": "baseline_optimized_bfp4lofi_bfp8hifi2",
+    "path": "candidates/baseline_optimized_bfp4lofi_bfp8hifi2.json",
+    "updates": {}
+  },
+  {
+    "config_id": "canonical_accuracy_bf16cache",
+    "path": "candidates/canonical_accuracy_bf16cache.json",
+    "updates": {
+      "kv_cache.dtype": "bf16",
+      "kv_cache.policy": "bf16",
+      "logits_sampling.logits_dtype": "bf16",
+      "logits_sampling.sampling_dtype": "bf16",
+      "weight_groups.lm_head.dtype": "bf16",
+      "weight_groups.lm_head.policy": "bf16_hifi2",
+      "weight_groups.routed_expert.compute_fidelity": "hifi2",
+      "weight_groups.routed_expert.policy": "expert_bfp4_hifi2_g40b16_d40b5",
+      "weight_groups.shared_projection.compute_fidelity": "hifi2",
+      "weight_groups.shared_projection.policy": "bfp8_hifi2"
+    }
+  },
+  {
+    "config_id": "expert_bfp4_hifi2",
+    "path": "candidates/expert_bfp4_hifi2.json",
+    "updates": {
+      "weight_groups.routed_expert.compute_fidelity": "hifi2",
+      "weight_groups.routed_expert.policy": "expert_bfp4_hifi2_g40b16_d40b5"
+    }
+  },
+  {
+    "config_id": "shared_bfp8_hifi2",
+    "path": "candidates/shared_bfp8_hifi2.json",
+    "updates": {
+      "weight_groups.shared_projection.compute_fidelity": "hifi2",
+      "weight_groups.shared_projection.policy": "bfp8_hifi2"
+    }
+  },
+  {
+    "config_id": "shared_bfp4_lofi",
+    "path": "candidates/shared_bfp4_lofi.json",
+    "updates": {
+      "weight_groups.shared_projection.compute_fidelity": "lofi",
+      "weight_groups.shared_projection.dtype": "bfp4",
+      "weight_groups.shared_projection.policy": "bfp4_lofi"
+    }
+  },
+  {
+    "config_id": "shared_bfp4_hifi2",
+    "path": "candidates/shared_bfp4_hifi2.json",
+    "updates": {
+      "weight_groups.shared_projection.compute_fidelity": "hifi2",
+      "weight_groups.shared_projection.dtype": "bfp4",
+      "weight_groups.shared_projection.policy": "bfp4_hifi2"
+    }
+  },
+  {
+    "config_id": "gdn_bfp8_lofi",
+    "path": "candidates/gdn_bfp8_lofi.json",
+    "updates": {
+      "weight_groups.gdn_projection.compute_fidelity": "lofi",
+      "weight_groups.gdn_projection.policy": "bfp8_lofi"
+    }
+  },
+  {
+    "config_id": "qsa_bfp8_hifi2",
+    "path": "candidates/qsa_bfp8_hifi2.json",
+    "updates": {
+      "weight_groups.attention_output.dtype": "bfp8",
+      "weight_groups.attention_output.policy": "bfp8_hifi2",
+      "weight_groups.qsa_input.dtype": "bfp8",
+      "weight_groups.qsa_input.policy": "bfp8_hifi2"
+    }
+  },
+  {
+    "config_id": "qsa_bfp8_lofi",
+    "path": "candidates/qsa_bfp8_lofi.json",
+    "updates": {
+      "weight_groups.attention_output.compute_fidelity": "lofi",
+      "weight_groups.attention_output.dtype": "bfp8",
+      "weight_groups.attention_output.policy": "bfp8_lofi",
+      "weight_groups.qsa_input.compute_fidelity": "lofi",
+      "weight_groups.qsa_input.dtype": "bfp8",
+      "weight_groups.qsa_input.policy": "bfp8_lofi"
+    }
+  },
+  {
+    "config_id": "lm_head_bfp8_lofi",
+    "path": "candidates/lm_head_bfp8_lofi.json",
+    "updates": {
+      "weight_groups.lm_head.compute_fidelity": "lofi",
+      "weight_groups.lm_head.policy": "bfp8_lofi"
+    }
+  },
+  {
+    "config_id": "lm_head_bf16_hifi2",
+    "path": "candidates/lm_head_bf16_hifi2.json",
+    "updates": {
+      "logits_sampling.logits_dtype": "bf16",
+      "logits_sampling.sampling_dtype": "bf16",
+      "weight_groups.lm_head.compute_fidelity": "hifi2",
+      "weight_groups.lm_head.dtype": "bf16",
+      "weight_groups.lm_head.policy": "bf16_hifi2"
+    }
+  },
+  {
+    "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+    "path": "candidates/qsa_bfp8_hifi2_lm_head_bf16_hifi2.json",
+    "updates": {
+      "logits_sampling.logits_dtype": "bf16",
+      "logits_sampling.sampling_dtype": "bf16",
+      "weight_groups.attention_output.dtype": "bfp8",
+      "weight_groups.attention_output.policy": "bfp8_hifi2",
+      "weight_groups.lm_head.compute_fidelity": "hifi2",
+      "weight_groups.lm_head.dtype": "bf16",
+      "weight_groups.lm_head.policy": "bf16_hifi2",
+      "weight_groups.qsa_input.dtype": "bfp8",
+      "weight_groups.qsa_input.policy": "bfp8_hifi2"
+    }
+  },
+  {
+    "config_id": "qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2",
+    "path": "candidates/qsa_bfp8_hifi2_shared_bfp8_hifi2_lm_head_bf16_hifi2.json",
+    "updates": {
+      "logits_sampling.logits_dtype": "bf16",
+      "logits_sampling.sampling_dtype": "bf16",
+      "weight_groups.attention_output.dtype": "bfp8",
+      "weight_groups.attention_output.policy": "bfp8_hifi2",
+      "weight_groups.lm_head.compute_fidelity": "hifi2",
+      "weight_groups.lm_head.dtype": "bf16",
+      "weight_groups.lm_head.policy": "bf16_hifi2",
+      "weight_groups.qsa_input.dtype": "bfp8",
+      "weight_groups.qsa_input.policy": "bfp8_hifi2",
+      "weight_groups.shared_projection.compute_fidelity": "hifi2",
+      "weight_groups.shared_projection.policy": "bfp8_hifi2"
+    }
+  },
+  {
+    "config_id": "kv_bf16_control",
+    "path": "candidates/kv_bf16_control.json",
+    "updates": {
+      "kv_cache.dtype": "bf16",
+      "kv_cache.policy": "bf16"
+    }
+  },
+  {
+    "config_id": "ccl_bfp8",
+    "path": "candidates/ccl_bfp8.json",
+    "updates": {
+      "ccl.payload_dtype": "bfp8"
+    }
+  },
+  {
+    "config_id": "residual_bfp8",
+    "path": "candidates/residual_bfp8.json",
+    "updates": {
+      "activations.residual_dtype": "bfp8"
+    }
+  }
+]

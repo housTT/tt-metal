@@ -1,0 +1,811 @@
+{
+  "all_fields_consumed": true,
+  "checks": {
+    "activations.matmul_output_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "all decoder linear output policies"
+    },
+    "activations.model_input_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "embedding output boundary"
+    },
+    "activations.ple_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "PLE consuming layer activation policy"
+    },
+    "activations.residual_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "all layer boundary policies"
+    },
+    "ccl.num_links": {
+      "expected": 2,
+      "observed": 2,
+      "passed": true,
+      "source": "all collective wrappers"
+    },
+    "ccl.packet_bytes": {
+      "expected": 8192,
+      "observed": 8192,
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "ccl.payload_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "all collective wrappers"
+    },
+    "ccl.topology": {
+      "expected": "linear",
+      "observed": "linear",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "config_id": {
+      "expected": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+      "observed": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "host_backed.expert.device_staging_dtype": {
+      "expected": "bfp4",
+      "observed": "bfp4",
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.device_staging_layout": {
+      "expected": "tile",
+      "observed": "tile",
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.execution_weight_dtype": {
+      "expected": "bfp4",
+      "observed": "bfp4",
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.host_packed_dtype": {
+      "expected": "bfp4",
+      "observed": "bfp4",
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.host_packed_layout": {
+      "expected": "tile",
+      "observed": "tile",
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.packed_capacity_per_layer": {
+      "expected": 512,
+      "observed": 512,
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.prepack_all": {
+      "expected": true,
+      "observed": true,
+      "passed": true,
+      "source": "full-model preload mode"
+    },
+    "host_backed.expert.slots_per_layer": {
+      "expected": 10,
+      "observed": 10,
+      "passed": true,
+      "source": "live fixed expert cache/staging objects"
+    },
+    "host_backed.expert.source_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "host_backed.ple.device_staging_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "live PLE staging object"
+    },
+    "host_backed.ple.device_staging_layout": {
+      "expected": "tile",
+      "observed": "tile",
+      "passed": true,
+      "source": "live PLE staging object"
+    },
+    "host_backed.ple.execution_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "host_backed.ple.host_assembly_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "host_backed.ple.prefill_chunk_rows": {
+      "expected": 128,
+      "observed": 128,
+      "passed": true,
+      "source": "live PLE staging allocation"
+    },
+    "host_backed.ple.row_cache_capacity": {
+      "expected": 8192,
+      "observed": 8192,
+      "passed": true,
+      "source": "live PLE host store"
+    },
+    "host_backed.ple.table_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "mmap table tensor"
+    },
+    "host_backed.ple.table_layout": {
+      "expected": "row_major_mmap",
+      "observed": "row_major_mmap",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "kv_cache.dtype": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "live QSA K/V and index cache tensor metadata"
+    },
+    "kv_cache.layout": {
+      "expected": "tile",
+      "observed": "tile",
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "kv_cache.page_block_size": {
+      "expected": 64,
+      "observed": 64,
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "kv_cache.policy": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "all constructed QSA layers"
+    },
+    "kv_cache.update_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "all paged decode update tensors"
+    },
+    "logits_sampling.greedy_strategy": {
+      "expected": "full_vocabulary_argmax",
+      "observed": "full_vocabulary_argmax",
+      "passed": true,
+      "source": "device sampler strategy"
+    },
+    "logits_sampling.logits_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "LM-head sampler boundary"
+    },
+    "logits_sampling.sampling_dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "Sampling1D input boundary"
+    },
+    "logits_sampling.sampling_mode": {
+      "expected": "device",
+      "observed": "device",
+      "passed": true,
+      "source": "normal generator default policy"
+    },
+    "schema_version": {
+      "expected": 1,
+      "observed": 1,
+      "passed": true,
+      "source": "validated constructor policy"
+    },
+    "weight_exceptions.norms.compute_fidelity": {
+      "expected": "hifi4",
+      "observed": "hifi4",
+      "passed": true,
+      "source": "all decoder RMSNorm kernels"
+    },
+    "weight_exceptions.norms.dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "live decoder and final norm tensor metadata"
+    },
+    "weight_exceptions.router_topk_outputs.dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "all router/top-k boundaries"
+    },
+    "weight_groups.attention_output.compute_fidelity": {
+      "expected": "hifi2",
+      "observed": "hifi2",
+      "passed": true,
+      "source": "constructed decoder compute-kernel policy"
+    },
+    "weight_groups.attention_output.dtype": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "constructed decoder weight tensors"
+    },
+    "weight_groups.attention_output.policy": {
+      "expected": "bfp8_hifi2",
+      "observed": "bfp8_hifi2",
+      "passed": true,
+      "source": "all constructed decoder layers"
+    },
+    "weight_groups.embedding.dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "embedding tensor metadata"
+    },
+    "weight_groups.embedding.layout": {
+      "expected": "row_major",
+      "observed": "row_major",
+      "passed": true,
+      "source": "embedding tensor metadata"
+    },
+    "weight_groups.final_hyper_down_up.compute_fidelity": {
+      "expected": "hifi2",
+      "observed": "hifi2",
+      "passed": true,
+      "source": "constructed final hyperconnection compute kernel"
+    },
+    "weight_groups.final_hyper_down_up.dtype": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "final down/up tensor metadata"
+    },
+    "weight_groups.gdn_projection.compute_fidelity": {
+      "expected": "hifi2",
+      "observed": "hifi2",
+      "passed": true,
+      "source": "constructed decoder compute-kernel policy"
+    },
+    "weight_groups.gdn_projection.dtype": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "constructed decoder weight tensors"
+    },
+    "weight_groups.gdn_projection.policy": {
+      "expected": "bfp8_hifi2",
+      "observed": "bfp8_hifi2",
+      "passed": true,
+      "source": "all constructed decoder layers"
+    },
+    "weight_groups.lm_head.compute_fidelity": {
+      "expected": "hifi2",
+      "observed": "hifi2",
+      "passed": true,
+      "source": "constructed LMHead1D compute kernel"
+    },
+    "weight_groups.lm_head.dtype": {
+      "expected": "bf16",
+      "observed": "bf16",
+      "passed": true,
+      "source": "constructed LMHead1D weight metadata"
+    },
+    "weight_groups.lm_head.policy": {
+      "expected": "bf16_hifi2",
+      "observed": "bf16_hifi2",
+      "passed": true,
+      "source": "constructed LMHead1D configuration"
+    },
+    "weight_groups.qsa_input.compute_fidelity": {
+      "expected": "hifi2",
+      "observed": "hifi2",
+      "passed": true,
+      "source": "constructed decoder compute-kernel policy"
+    },
+    "weight_groups.qsa_input.dtype": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "constructed decoder weight tensors"
+    },
+    "weight_groups.qsa_input.policy": {
+      "expected": "bfp8_hifi2",
+      "observed": "bfp8_hifi2",
+      "passed": true,
+      "source": "all constructed decoder layers"
+    },
+    "weight_groups.routed_expert.compute_fidelity": {
+      "expected": "lofi",
+      "observed": "lofi",
+      "passed": true,
+      "source": "constructed decoder compute-kernel policy"
+    },
+    "weight_groups.routed_expert.dtype": {
+      "expected": "bfp4",
+      "observed": "bfp4",
+      "passed": true,
+      "source": "constructed decoder weight tensors"
+    },
+    "weight_groups.routed_expert.policy": {
+      "expected": "expert_bfp4_lofi_g40b16_d40b5",
+      "observed": "expert_bfp4_lofi_g40b16_d40b5",
+      "passed": true,
+      "source": "all constructed decoder layers"
+    },
+    "weight_groups.shared_projection.compute_fidelity": {
+      "expected": "lofi",
+      "observed": "lofi",
+      "passed": true,
+      "source": "constructed decoder compute-kernel policy"
+    },
+    "weight_groups.shared_projection.dtype": {
+      "expected": "bfp8",
+      "observed": "bfp8",
+      "passed": true,
+      "source": "constructed decoder weight tensors"
+    },
+    "weight_groups.shared_projection.policy": {
+      "expected": "bfp8_lofi",
+      "observed": "bfp8_lofi",
+      "passed": true,
+      "source": "all constructed decoder layers"
+    }
+  },
+  "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+  "config_path": "/home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/selected_precision_config.json",
+  "consumed_leaf_count": 61,
+  "layers": [
+    {
+      "cache_policy": "bfp8",
+      "cache_tensor_dtypes": [],
+      "cache_update_dtype": "bf16",
+      "ccl_num_links": 2,
+      "ccl_payload_dtype": "bf16",
+      "ccl_topology": "linear",
+      "host_expert": {
+        "device_bytes_per_rank": 33177600,
+        "packed_capacity": 512,
+        "packed_dtype": "bfp4",
+        "packed_host_bytes": 1418342400,
+        "packed_layout": "tile",
+        "slots": 10,
+        "staging_dtype": "bfp4",
+        "staging_layout": "tile"
+      },
+      "layer": 0,
+      "live_norm_weight_dtypes": [
+        "bf16"
+      ],
+      "matmul_output_dtype": "bf16",
+      "norm_compute_fidelity": "hifi4",
+      "norm_weight_dtype": "bf16",
+      "ple_activation_dtype": "bf16",
+      "projection_fidelities": {
+        "attention_output": "hifi2",
+        "gdn": "hifi2",
+        "qsa_input": "hifi2",
+        "shared": "lofi"
+      },
+      "projection_policies": {
+        "attention_output": "bfp8_hifi2",
+        "gdn": "bfp8_hifi2",
+        "qsa_input": "bfp8_hifi2",
+        "shared": "bfp8_lofi"
+      },
+      "projection_weight_dtypes": {
+        "gdn": [
+          "bfp8"
+        ],
+        "shared": [
+          "bfp8"
+        ]
+      },
+      "residual_dtype": "bf16",
+      "routed_expert": {
+        "compute_fidelity": "lofi",
+        "dtype": "bfp4",
+        "policy": "expert_bfp4_lofi_g40b16_d40b5"
+      },
+      "router_output_dtype": "bf16",
+      "type": "linear_attention"
+    },
+    {
+      "cache_policy": "bfp8",
+      "cache_tensor_dtypes": [],
+      "cache_update_dtype": "bf16",
+      "ccl_num_links": 2,
+      "ccl_payload_dtype": "bf16",
+      "ccl_topology": "linear",
+      "host_expert": {
+        "device_bytes_per_rank": 33177600,
+        "packed_capacity": 512,
+        "packed_dtype": "bfp4",
+        "packed_host_bytes": 1418342400,
+        "packed_layout": "tile",
+        "slots": 10,
+        "staging_dtype": "bfp4",
+        "staging_layout": "tile"
+      },
+      "layer": 1,
+      "live_norm_weight_dtypes": [
+        "bf16"
+      ],
+      "matmul_output_dtype": "bf16",
+      "norm_compute_fidelity": "hifi4",
+      "norm_weight_dtype": "bf16",
+      "ple_activation_dtype": "bf16",
+      "projection_fidelities": {
+        "attention_output": "hifi2",
+        "gdn": "hifi2",
+        "qsa_input": "hifi2",
+        "shared": "lofi"
+      },
+      "projection_policies": {
+        "attention_output": "bfp8_hifi2",
+        "gdn": "bfp8_hifi2",
+        "qsa_input": "bfp8_hifi2",
+        "shared": "bfp8_lofi"
+      },
+      "projection_weight_dtypes": {
+        "gdn": [
+          "bfp8"
+        ],
+        "shared": [
+          "bfp8"
+        ]
+      },
+      "residual_dtype": "bf16",
+      "routed_expert": {
+        "compute_fidelity": "lofi",
+        "dtype": "bfp4",
+        "policy": "expert_bfp4_lofi_g40b16_d40b5"
+      },
+      "router_output_dtype": "bf16",
+      "type": "linear_attention"
+    },
+    {
+      "cache_policy": "bfp8",
+      "cache_tensor_dtypes": [
+        "bfp8"
+      ],
+      "cache_update_dtype": "bf16",
+      "ccl_num_links": 2,
+      "ccl_payload_dtype": "bf16",
+      "ccl_topology": "linear",
+      "host_expert": {
+        "device_bytes_per_rank": 33177600,
+        "packed_capacity": 512,
+        "packed_dtype": "bfp4",
+        "packed_host_bytes": 1418342400,
+        "packed_layout": "tile",
+        "slots": 10,
+        "staging_dtype": "bfp4",
+        "staging_layout": "tile"
+      },
+      "layer": 3,
+      "live_norm_weight_dtypes": [
+        "bf16"
+      ],
+      "matmul_output_dtype": "bf16",
+      "norm_compute_fidelity": "hifi4",
+      "norm_weight_dtype": "bf16",
+      "ple_activation_dtype": "bf16",
+      "projection_fidelities": {
+        "attention_output": "hifi2",
+        "gdn": "hifi2",
+        "qsa_input": "hifi2",
+        "shared": "lofi"
+      },
+      "projection_policies": {
+        "attention_output": "bfp8_hifi2",
+        "gdn": "bfp8_hifi2",
+        "qsa_input": "bfp8_hifi2",
+        "shared": "bfp8_lofi"
+      },
+      "projection_weight_dtypes": {
+        "attention_output": [
+          "bfp8"
+        ],
+        "qsa_input": [
+          "bfp8"
+        ],
+        "shared": [
+          "bfp8"
+        ]
+      },
+      "residual_dtype": "bf16",
+      "routed_expert": {
+        "compute_fidelity": "lofi",
+        "dtype": "bfp4",
+        "policy": "expert_bfp4_lofi_g40b16_d40b5"
+      },
+      "router_output_dtype": "bf16",
+      "type": "qwen_sparse_attention"
+    }
+  ],
+  "lm_head": {
+    "dram_cores": null,
+    "dram_sharded": false,
+    "fidelity": "hifi2",
+    "in0_block_w": null,
+    "input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+    "logits_dtype": "bf16",
+    "per_core_n": null,
+    "per_dram_reader_n": null,
+    "physical_output_tiles": null,
+    "policy": "bf16_hifi2",
+    "program_configs": [
+      "None",
+      "None",
+      "None",
+      "None"
+    ],
+    "rank_slices": [
+      [
+        [
+          0,
+          32768
+        ],
+        [
+          124160,
+          156928
+        ]
+      ],
+      [
+        [
+          32768,
+          65536
+        ],
+        [
+          156928,
+          189696
+        ]
+      ],
+      [
+        [
+          65536,
+          98304
+        ],
+        [
+          189696,
+          222464
+        ]
+      ],
+      [
+        [
+          98304,
+          124160
+        ],
+        [
+          222464,
+          248320
+        ]
+      ]
+    ],
+    "split_sizes": [
+      32768,
+      32768,
+      32768,
+      25856
+    ],
+    "weight_dtype": "bf16",
+    "weight_memory_configs": [
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+    ],
+    "worker_cores": null,
+    "worker_grid": null
+  },
+  "non_aligned_prompt_tokens": 129,
+  "runtime_fallback_audit": {
+    "counters": {
+      "compact_token_readbacks": 3,
+      "model_only_trace_replays": 0,
+      "page_table_host_copies": 1,
+      "page_table_unchanged_skips": 0,
+      "position_host_copies": 2,
+      "sampling_seed_host_copies": 0,
+      "token_host_copies": 2,
+      "trace_replays": 1
+    },
+    "declared_host_work": {
+      "caller_visible_compact_token_readback": true,
+      "expert_route_id_read_and_exact_weight_dma": true,
+      "explicit_non_greedy_seed_control_h2d": false,
+      "model_load_exact_expert_prepack": true,
+      "ple_ngram_hash_row_lookup_and_dma": true
+    },
+    "experts": {
+      "0": {
+        "capacity": 10,
+        "deferred_dma_misses": 220,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 210,
+        "h2d_bytes": 608256000,
+        "h2d_seconds": 0.0738785358844325,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 27,
+        "index_h2d_bytes": 80,
+        "index_upload_seconds": 0.0003488139918772504,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 220,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 220,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.170607854000991,
+        "requests": 25,
+        "source_pack_seconds": 5.164417219828465,
+        "staging_depth": 1,
+        "waves": 25,
+        "zero_d2d_bytes": 608256000
+      },
+      "1": {
+        "capacity": 10,
+        "deferred_dma_misses": 172,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 162,
+        "h2d_bytes": 475545600,
+        "h2d_seconds": 0.05751266609877348,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 14,
+        "index_h2d_bytes": 120,
+        "index_upload_seconds": 0.0004337350110290572,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 172,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 172,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.089939329001936,
+        "requests": 19,
+        "source_pack_seconds": 5.083479578082915,
+        "staging_depth": 1,
+        "waves": 19,
+        "zero_d2d_bytes": 475545600
+      },
+      "3": {
+        "capacity": 10,
+        "deferred_dma_misses": 195,
+        "device_bytes_per_rank": 33177600,
+        "dma_completion_syncs": 0,
+        "evictions": 185,
+        "h2d_bytes": 539136000,
+        "h2d_seconds": 0.0653811960510211,
+        "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+        "hits": 10,
+        "index_h2d_bytes": 40,
+        "index_upload_seconds": 0.0008050009928410873,
+        "indexed_width": 10,
+        "miss_wave_policy": "serial",
+        "misses": 195,
+        "owner_0_misses": 0,
+        "owner_1_misses": 0,
+        "packed_host_bytes": 1418342400,
+        "packed_host_entries": 512,
+        "packed_host_hits": 195,
+        "packed_host_misses": 512,
+        "policy_d2d_submit_seconds": 0.0,
+        "policy_h2d_submit_seconds": 0.0,
+        "policy_misses": 0,
+        "policy_prepare_seconds": 0.0,
+        "policy_submit_seconds": 0.0,
+        "policy_waves": 0,
+        "preload_entries": 512,
+        "preload_seconds": 5.0182688079949,
+        "requests": 21,
+        "source_pack_seconds": 5.011962747914367,
+        "staging_depth": 1,
+        "waves": 21,
+        "zero_d2d_bytes": 539136000
+      }
+    },
+    "host_preload": {
+      "layers": {
+        "0": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.170607854000991
+        },
+        "1": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.089939329001936
+        },
+        "3": {
+          "loaded_entries": 512,
+          "packed_host_entries": 512,
+          "seconds": 5.0182688079949
+        }
+      },
+      "loaded_entries": 1536,
+      "packed_host_bytes": 4255027200,
+      "seconds": 15.27884449501289
+    },
+    "ownership": {
+      "expert_store": "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots",
+      "kv_cache": "model",
+      "page_table": "state with stable model buffer",
+      "ple_store": "shared exact mmap table with request-isolated two-token history",
+      "recurrence": "model",
+      "tokens_and_positions": "device feedback after request reset"
+    },
+    "ple": {
+      "h2d_bytes": 675840,
+      "history_entries": 1,
+      "lookup_calls": 5,
+      "lookup_seconds": 1.4011511360004079,
+      "row_cache_entries": 2096,
+      "selected_rows": 2112,
+      "table_bytes_read": 670720,
+      "table_rows_read": 2096,
+      "unique_rows": 2112
+    },
+    "ple_device_staging": {
+      "completion_syncs": 0,
+      "deferred_uploads": 5,
+      "h2d_bytes": 2652160,
+      "h2d_seconds": 0.0007748650095891207,
+      "h2d_timing_scope": "host enqueue; completion is charged at the following exact route-id boundary",
+      "logical_h2d_bytes": 1351680
+    },
+    "prohibited_host_work": {
+      "activation_roundtrip": false,
+      "expert_projection": false,
+      "kv_or_recurrence": false,
+      "optimized_sampling_or_argmax": false,
+      "per_token_position_refresh": false,
+      "ple_projection": false,
+      "token_feedback_reconstruction": false,
+      "unchanged_page_table_refresh": false
+    }
+  },
+  "traced_generated_tokens": [
+    [
+      124205,
+      144318,
+      78126
+    ]
+  ]
+}

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="371.896" timestamp="2026-08-28T06:49:04.777531-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_full_model" name="test_full_model_datatype_sweep_candidate[blackhole-True-device_params0]" time="370.929"><properties><property name="start_timestamp" value="2026-08-28T06:49:04" /><property name="source_digest_algorithm" value="sha256" /><property name="source_digest" value="ad479dff3bfbbff929c738bf8bf4f9392371e717844eb08f23f4569ed2abcb39" /><property name="source_digest_files" value="{&quot;tests/test_full_model.py&quot;: &quot;3aa6606ce257363b5be9327d9a8ad7c5dc76ee3d5e1a68db6a3aab4f8bfedf5a&quot;, &quot;tt/functional_decoder.py&quot;: &quot;361daec4bfd3014f3fe959f576c0efa9bd17e27fd2262a3604a06ffd51146fdc&quot;, &quot;tt/generator.py&quot;: &quot;334332f812697cec92aa31060b1cbfbf8a8c78abdf60374d5839886f1cf0b757&quot;, &quot;tt/host_weight_cache.py&quot;: &quot;1bc3e1253f2133b794fcd1227b73eb8c678f1487ca4f3d19104f57d5fa9d60b8&quot;, &quot;tt/model.py&quot;: &quot;106593986f240daa43a50a38580bbbae5ed1de2b1aecd2161093becb1d4f7502&quot;, &quot;tt/multichip_decoder.py&quot;: &quot;2ff2c835292384e2525778346518a635f66e6ca022d0244221ee7d4e6d0d7406&quot;, &quot;tt/optimized_decoder.py&quot;: &quot;60cb1497a9fd19de692b6ec1625f7e767e41b4c482d834b5b199dc79b6a8520a&quot;, &quot;tt/precision_config.py&quot;: &quot;603f380350a0f2bacf502952933692f9c67aaeeabea25370d868cba03a36a931&quot;}" /><property name="top1_percent" value="84.84848737716675" /><property name="top5_percent" value="98.98989796638489" /><property name="top100_percent" value="100.0" /><property name="ttft_seconds" value="42.89254845400137" /><property name="config_id" value="shared_bfp4_lofi" /><property name="traced" value="True" /><property name="model_only_trace_replays" value="98" /><property name="decode_tokens_per_second_per_user" value="3.6775904432217965" /><property name="end_timestamp" value="2026-08-28T06:55:16" /></properties><failure message="AssertionError: {'compatibility_mode': 'explicit_host_logits', 'config_id': 'shared_bfp4_lofi', 'decode_measured_tokens': 98, 'decode_seconds': 26.647883040001034, ...}&#10;assert False">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x7bd8585e73f0&gt;, 'l1_small_size': 24576, 'trace_region_size': 1073741824}
+record_property = &lt;function record_property.&lt;locals&gt;.append_property at 0x7bd815317ba0&gt;
+
+    @pytest.mark.skipif(
+        os.getenv("RUN_QWEN38_DATATYPE_SWEEP") != "1",
+        reason="explicit full-model datatype candidate gate",
+    )
+    @pytest.mark.timeout(2400)
+    @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+    def test_full_model_datatype_sweep_candidate(bh_1d_mesh_device, device_params, record_property):
+        """Full 48-layer traced accuracy/performance source for one dtype policy."""
+
+        from transformers import AutoTokenizer
+
+        provenance = _record_source_provenance(record_property)
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        model = Qwen38FullModel(
+            snapshot=H.MODEL_SNAPSHOT,
+            hf_config=H.target_config(),
+            mesh_device=bh_1d_mesh_device,
+            max_batch=1,
+            max_seq_len=4096,
+        )
+        generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
+        try:
+            report = run_teacher_forcing(
+                generator,
+                REFERENCE,
+                enable_trace=True,
+                decode_rows=99,
+            )
+            report.update(
+                config_id=model.precision_config["config_id"],
+                precision_config_path=model.precision_config_path,
+                precision_propagation=model.precision_propagation_summary(),
+                source_provenance=provenance,
+                model_only_trace_replays=model.model_only_trace_replays,
+                measurement_regime=(
+                    "fully-warm 512 packed experts/layer; traced model-only teacher forcing; "
+                    "full-logits D2H included; sampling/token feedback excluded"
+                ),
+                host_service_totals=model.host_service_totals(),
+                runtime_fallback_audit=model.runtime_fallback_audit(generator.state),
+            )
+            if os.getenv("QWEN38_SWEEP_RUN_AUTOREGRESSIVE") == "1":
+                report["aime24_autoregressive_100"] = run_autoregressive(generator, REFERENCE, enable_trace=True)
+            report["passes_gate"] = (
+                report["top1_percent"] &gt;= 90.0
+                and report["top5_percent"] &gt;= 98.0
+                and report["top100_percent"] == 100.0
+            )
+            write_report(report, _evidence_dir() / "candidate_result.json")
+            print({"datatype_sweep_candidate": report})
+            for key in ("top1_percent", "top5_percent", "top100_percent", "ttft_seconds"):
+                record_property(key, report[key])
+            record_property("config_id", report["config_id"])
+            record_property("traced", report["traced"])
+            record_property("model_only_trace_replays", report["model_only_trace_replays"])
+            record_property("decode_tokens_per_second_per_user", report["decode_tokens_per_second_per_user"])
+            assert report["traced"] is True
+            assert report["model_only_trace_replays"] == 98
+&gt;           assert report["passes_gate"], report
+E           AssertionError: {'compatibility_mode': 'explicit_host_logits', 'config_id': 'shared_bfp4_lofi', 'decode_measured_tokens': 98, 'decode_seconds': 26.647883040001034, ...}
+E           assert False
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py:984: AssertionError</failure></testcase></testsuite></testsuites>

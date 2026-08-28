@@ -791,9 +791,22 @@ class MultichipDecoder(OptimizedDecoder):
         host_expert_source = kwargs.pop("host_expert_source", None)
         expert_cache_slots = int(kwargs.pop("expert_cache_slots", HOST_EXPERT_SLOTS))
         packed_host_experts = int(kwargs.pop("packed_host_experts", HOST_PACKED_EXPERTS))
+        expert_host_packed_dtype = kwargs.pop("expert_host_packed_dtype", "bfp4")
+        expert_host_packed_layout = kwargs.pop("expert_host_packed_layout", "tile")
+        expert_device_staging_dtype = kwargs.pop("expert_device_staging_dtype", "bfp4")
+        expert_device_staging_layout = kwargs.pop("expert_device_staging_layout", "tile")
+        ple_staging_dtype = kwargs.pop("ple_staging_dtype", "bf16")
+        ple_staging_layout = kwargs.pop("ple_staging_layout", "tile")
+        ple_prefill_rows = int(kwargs.pop("ple_prefill_rows", 128))
         collective_num_links = int(kwargs.pop("collective_num_links", COLLECTIVE_NUM_LINKS))
         if collective_num_links not in (1, 2):
             raise ValueError("P300 TP2 collective_num_links must be 1 or 2")
+        collective_payload_dtype = kwargs.pop("collective_payload_dtype", "bf16")
+        if collective_payload_dtype not in {"bf16", "bfp8"}:
+            raise ValueError("collective_payload_dtype must be 'bf16' or 'bfp8'")
+        residual_dtype = kwargs.pop("residual_dtype", "bf16")
+        if residual_dtype not in {"bf16", "bfp8"}:
+            raise ValueError("residual_dtype must be 'bf16' or 'bfp8'")
         row_parallel_dtype = kwargs.pop("row_parallel_dtype", "bf16")
         if row_parallel_dtype not in {"bf16", "fp32"}:
             raise ValueError("row_parallel_dtype must be 'bf16' or 'fp32'")
@@ -910,6 +923,8 @@ class MultichipDecoder(OptimizedDecoder):
         primary.collective_topology = ttnn.Topology.Linear
         primary.collective_axis = 1
         primary.collective_num_links = collective_num_links
+        primary.collective_payload_dtype = collective_payload_dtype
+        primary.residual_dtype = residual_dtype
         primary.row_parallel_dtype = row_parallel_dtype
         primary.memory_plan = MultichipMemoryPlan()
         primary.host_expert_source = host_expert_source
@@ -942,9 +957,19 @@ class MultichipDecoder(OptimizedDecoder):
                 host_expert_source,
                 capacity=expert_cache_slots,
                 packed_host_capacity=packed_host_experts,
+                packed_dtype=expert_host_packed_dtype,
+                packed_layout=expert_host_packed_layout,
+                staging_dtype=expert_device_staging_dtype,
+                staging_layout=expert_device_staging_layout,
             )
         if ple_store is not None:
-            primary.ple_staging = PLEDeviceStaging(mesh_device, max_batch=primary.max_batch)
+            primary.ple_staging = PLEDeviceStaging(
+                mesh_device,
+                max_batch=primary.max_batch,
+                prefill_rows=ple_prefill_rows,
+                dtype=ple_staging_dtype,
+                layout=ple_staging_layout,
+            )
         if host_expert_source is not None and primary.max_batch == 1 and not is_qsa:
             if decode_state_workspace is None:
                 decode_state_workspace = MultichipDecodeStateWorkspace(mesh_device)
@@ -1034,6 +1059,8 @@ class MultichipDecoder(OptimizedDecoder):
     ):
         """Run prefill with the stack-internal ``[1,1,4*seq,1280]`` ABI."""
 
+        original_hidden_states = hidden_states
+        hidden_states = self._residual_compute_input(hidden_states)
         s = self.shapes
         shape = _functional_decoder._shape(hidden_states)
         if len(shape) != 4 or shape[:2] != [1, 1] or shape[-1] != RESIDUAL_SHARD_WIDTH:
@@ -1102,11 +1129,12 @@ class MultichipDecoder(OptimizedDecoder):
             pieces.append(out)
 
         if len(pieces) == 1:
-            return pieces[0]
-        output = ttnn.concat(pieces, dim=-2)
-        for piece in pieces:
-            ttnn.deallocate(piece)
-        return output
+            output = pieces[0]
+        else:
+            output = ttnn.concat(pieces, dim=-2)
+            for piece in pieces:
+                ttnn.deallocate(piece)
+        return self._residual_boundary_output(output, original_hidden_states)
 
     def decode_forward_fractured(
         self,
@@ -1119,6 +1147,8 @@ class MultichipDecoder(OptimizedDecoder):
     ):
         """Run decode with the stack-internal ``[1,1,4*batch,1280]`` ABI."""
 
+        original_hidden_states = hidden_states
+        hidden_states = self._residual_compute_input(hidden_states)
         s = self.shapes
         expected = [1, 1, s.hc_count * self.max_batch, RESIDUAL_SHARD_WIDTH]
         if _functional_decoder._shape(hidden_states) != expected:
@@ -1148,7 +1178,8 @@ class MultichipDecoder(OptimizedDecoder):
             mixed, hyper, injection = self._hyper_mix(hidden, "mlp_hc")
             block = self._moe(mixed)
             ttnn.deallocate(mixed)
-            return self._hyper_inject(hyper, block, injection)
+            output = self._hyper_inject(hyper, block, injection)
+            return self._residual_boundary_output(output, original_hidden_states)
         finally:
             self._decode_active = False
 
@@ -1501,6 +1532,11 @@ class MultichipDecoder(OptimizedDecoder):
         return accumulator
 
     def _all_reduce_block(self, partial):
+        payload_dtype = ttnn.bfloat8_b if self.collective_payload_dtype == "bfp8" else ttnn.bfloat16
+        if partial.dtype != payload_dtype:
+            payload = ttnn.typecast(partial, payload_dtype)
+            ttnn.deallocate(partial)
+            partial = payload
         output = ttnn.all_reduce(
             partial,
             cluster_axis=self.collective_axis,
@@ -1509,7 +1545,7 @@ class MultichipDecoder(OptimizedDecoder):
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         ttnn.deallocate(partial)
-        if output.dtype == ttnn.float32:
+        if output.dtype != ttnn.bfloat16:
             reduced = ttnn.typecast(output, ttnn.bfloat16)
             ttnn.deallocate(output)
             output = reduced
@@ -1518,6 +1554,11 @@ class MultichipDecoder(OptimizedDecoder):
     def _reduce_scatter_block(self, partial):
         """Sum a row-parallel block and retain its within-hidden TP2 shard."""
 
+        payload_dtype = ttnn.bfloat8_b if self.collective_payload_dtype == "bfp8" else ttnn.bfloat16
+        if partial.dtype != payload_dtype:
+            payload = ttnn.typecast(partial, payload_dtype)
+            ttnn.deallocate(partial)
+            partial = payload
         output = ttnn.reduce_scatter(
             partial,
             dim=3,
@@ -1527,11 +1568,34 @@ class MultichipDecoder(OptimizedDecoder):
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         ttnn.deallocate(partial)
-        if output.dtype == ttnn.float32:
+        if output.dtype != ttnn.bfloat16:
             reduced = ttnn.typecast(output, ttnn.bfloat16)
             ttnn.deallocate(output)
             output = reduced
         return output
+
+    def _residual_compute_input(self, value):
+        """Expand a compressed inter-layer boundary for BF16 layer compute."""
+
+        if self.residual_dtype == "bf16":
+            if value.dtype != ttnn.bfloat16:
+                raise RuntimeError(f"BF16 residual policy received {value.dtype}")
+            return value
+        if value.dtype == ttnn.bfloat8_b:
+            return ttnn.typecast(value, ttnn.bfloat16)
+        if value.dtype != ttnn.bfloat16:
+            raise RuntimeError(f"BFP8 residual policy received unsupported {value.dtype}")
+        return value
+
+    def _residual_boundary_output(self, value, original_input):
+        """Materialize the selected inter-layer residual representation."""
+
+        target = ttnn.bfloat8_b if self.residual_dtype == "bfp8" else ttnn.bfloat16
+        if value.dtype == target:
+            return value
+        converted = ttnn.typecast(value, target)
+        _functional_decoder._free(value, original_input, converted)
+        return converted
 
     def fracture_residual(self, replicated):
         """One-time stack ingress: R ``[1,1,M,10240]`` -> S ``[1,1,4M,1280]``."""
@@ -1741,6 +1805,7 @@ class MultichipDecoder(OptimizedDecoder):
     ):
         """First TT segment through PLE and GDN/QSA attention."""
 
+        hidden_states = self._residual_compute_input(hidden_states)
         if self.host_expert_cache is None or self.max_batch != 1:
             raise RuntimeError("segmented host trace requires batch-one host expert slots")
         s = self.shapes
@@ -1899,7 +1964,8 @@ class MultichipDecoder(OptimizedDecoder):
         trimmed = ttnn.slice(reduced, [0, 0, 0, 0], [1, 1, 1, RESIDUAL_SHARD_WIDTH])
         _functional_decoder._free(reduced, trimmed)
         reduced = trimmed
-        return self._hyper_inject_preserve(front.hyper, reduced, front.injection)
+        output = self._hyper_inject_preserve(front.hyper, reduced, front.injection)
+        return self._residual_boundary_output(output, front.hyper)
 
     def _require_host_ple(self) -> None:
         if self.host_ple_store is None or self.ple_staging is None or not self.shapes.has_ple:
@@ -1925,6 +1991,8 @@ class MultichipDecoder(OptimizedDecoder):
         """Exact host PLE prefill over the stack-internal fractured ABI."""
 
         self._require_host_ple()
+        original_hidden_states = hidden_states
+        hidden_states = self._residual_compute_input(hidden_states)
         s = self.shapes
         hidden_shape = _functional_decoder._shape(hidden_states)
         if (
@@ -1982,11 +2050,12 @@ class MultichipDecoder(OptimizedDecoder):
                 out = trimmed
             pieces.append(out)
         if len(pieces) == 1:
-            return pieces[0]
-        output = ttnn.concat(pieces, dim=-2)
-        for piece in pieces:
-            ttnn.deallocate(piece)
-        return output
+            output = pieces[0]
+        else:
+            output = ttnn.concat(pieces, dim=-2)
+            for piece in pieces:
+                ttnn.deallocate(piece)
+        return self._residual_boundary_output(output, original_hidden_states)
 
     def prefill_forward_host_backed(self, hidden_states, **kwargs):
         """Standalone replicated wrapper for exact host-backed prefill."""

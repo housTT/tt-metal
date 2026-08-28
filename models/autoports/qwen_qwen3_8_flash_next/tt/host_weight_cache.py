@@ -590,12 +590,24 @@ class QwenDeviceExpertCache:
         indexed_width: int = 10,
         miss_wave_policy: str | None = None,
         staging_depth: int | None = None,
+        packed_dtype: str = "bfp4",
+        packed_layout: str = "tile",
+        staging_dtype: str = "bfp4",
+        staging_layout: str = "tile",
     ):
         import ttnn
 
         self.mesh_device = mesh_device
         self.source = source
         self.layer_idx = source.layer_idx
+        if (packed_dtype, packed_layout, staging_dtype, staging_layout) != ("bfp4", "tile", "bfp4", "tile"):
+            raise ValueError(
+                "the exact Qwen3.8 host expert ABI currently supports only BFP4 TILE host packing and staging"
+            )
+        self.packed_dtype = packed_dtype
+        self.packed_layout = packed_layout
+        self.staging_dtype = staging_dtype
+        self.staging_layout = staging_layout
         self.directory = ExpertSlotDirectory(capacity)
         self.capacity = int(capacity)
         self.indexed_width = int(indexed_width)
@@ -1304,12 +1316,24 @@ class Qwen38PLEHostStore:
 class PLEDeviceStaging:
     """Stable replicated PLE inputs updated only outside TT trace capture."""
 
-    def __init__(self, mesh_device, *, max_batch: int, prefill_rows: int = 128):
+    def __init__(
+        self,
+        mesh_device,
+        *,
+        max_batch: int,
+        prefill_rows: int = 128,
+        dtype: str = "bf16",
+        layout: str = "tile",
+    ):
         import ttnn
 
+        if (dtype, layout) != ("bf16", "tile"):
+            raise ValueError("the exact Qwen3.8 PLE staging ABI currently supports only BF16 TILE tensors")
         self.mesh_device = mesh_device
         self.max_batch = int(max_batch)
         self.prefill_rows = int(prefill_rows)
+        self.dtype = dtype
+        self.layout = layout
         self.prefill = _replicated_device_zeros(
             mesh_device,
             (1, 1, self.prefill_rows, PLE_EMBED_DIM),

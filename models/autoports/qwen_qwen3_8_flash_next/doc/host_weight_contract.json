@@ -45,8 +45,18 @@
     "measured_preload_seconds": 240.97895782500564,
     "packed_host_zero_storage": "one shared exact-zero BFP4 rank shard per layer; cached experts retain only their exact owner shard",
     "parallelism": "EP2 deterministic owner expert_id % 2; shared expert remains TP2",
-    "rank_local_gate_up_shape": [1, 1, 2560, 1280],
-    "rank_local_down_shape": [1, 1, 640, 2560],
+    "rank_local_gate_up_shape": [
+      1,
+      1,
+      2560,
+      1280
+    ],
+    "rank_local_down_shape": [
+      1,
+      1,
+      640,
+      2560
+    ],
     "device_dtype": "BFP4_B",
     "packed_bytes_per_rank_per_expert": 2764800,
     "device_bytes_per_rank_per_layer_including_staging": 33177600,
@@ -96,10 +106,19 @@
     "lookup_contract": "torch.unique deduplicates each exact batched request, then per-shard index_select gathers only misses from safetensors mmap handles",
     "chunk_contract": "128 logical rows per device prefill staging wave; public non-aligned tails are padded, masked, and sliced internally",
     "pinned_host_staging": "unavailable in torch 2.11.0+cpu on this host; contiguous CPU rows are handed to TT runtime staging",
-    "device_prefill_staging_shape": [1, 1, 128, 2560],
-    "device_decode_staging_shape": [1, 1, 1, 2560],
-    "device_staging_physical_bytes_per_rank": 819200
-    ,
+    "device_prefill_staging_shape": [
+      1,
+      1,
+      128,
+      2560
+    ],
+    "device_decode_staging_shape": [
+      1,
+      1,
+      1,
+      2560
+    ],
+    "device_staging_physical_bytes_per_rank": 819200,
     "trace_completion_contract": "decode H2D enqueue is nonblocking; CQ0 ordering makes the following exact route-id read the completion boundary; close performs the only final mesh synchronization",
     "selected_decode_deferred_uploads": 126,
     "selected_decode_completion_syncs": 0
@@ -108,9 +127,9 @@
     "dram_bytes_per_device": 34225520640,
     "runtime_trace_reserve_bytes_per_device": 1073741824,
     "max_context_cache_bytes_per_device": 2340421632,
-    "decoder_non_expert_weight_bytes_per_device": 3479858176,
-    "full_text_endpoint_weight_bytes_per_device": 981032960,
-    "non_expert_weight_allowance_bytes_per_device": 4460891136,
+    "decoder_non_expert_weight_bytes_per_device": 3181259776,
+    "full_text_endpoint_weight_bytes_per_device": 1279016960,
+    "non_expert_weight_allowance_bytes_per_device": 4460276736,
     "host_expert_cache_and_staging_bytes_per_device": 1592524800,
     "ple_staging_bytes_per_device": 819200,
     "canonical_decode_state_bytes_per_device": 260702208,
@@ -122,13 +141,13 @@
     "shared_decode_workspace_l1_bytes_per_worker": 120832,
     "shared_decode_workspace_l1_actual_bytes_per_device": 12976128,
     "shared_decode_workspace_l1_bank_reserved_bytes_per_device": 13291520,
-    "planned_total_bytes_per_device": 10005165144,
-    "headroom_bytes_per_device": 24220355496,
+    "planned_total_bytes_per_device": 10004550744,
+    "headroom_bytes_per_device": 24220969896,
     "fits": true
   },
   "full_model_eager_batch32_seq4096_capacity": {
-    "planned_total_bytes_per_device": 23393673304,
-    "headroom_bytes_per_device": 10831847336,
+    "planned_total_bytes_per_device": 23393058904,
+    "headroom_bytes_per_device": 10832461736,
     "fits": true,
     "evidence": "optimized_full_model/final_frozen_batch32_and_context_capacity.xml",
     "scope": "All 48 host-backed layers and real generator endpoints, fixed batch 32 with active slots 0 and 31, 30 inactive rows, mixed prompt lengths 1 and 33, distinct page tables, two device-sampled eager decode tokens, reset, and request-history isolation."
@@ -213,12 +232,171 @@
       "optimized_full_model/final_frozen_lm_head_bfp8_hifi2.xml",
       "optimized_full_model/lower_bound.csv",
       "optimized_full_model/optimization_matrix.csv"
+    ],
+    "datatype_sweep_artifacts": [
+      "datatype_sweep/sweep_results.json",
+      "datatype_sweep/selected_precision_config.json",
+      "datatype_sweep/post_selection/precision_smoke/precision_propagation_smoke.json",
+      "datatype_sweep/post_selection/teacher_forcing_selected/candidate_result.json",
+      "datatype_sweep/post_selection/token_out/full_model_performance.json",
+      "datatype_sweep/full_runs/context_bfp8/advertised_context_construction.json",
+      "datatype_sweep/full_runs/context_bf16/advertised_context_construction.json"
     ]
   },
   "blocking_limitation": "No exact Python-level cache scheduling candidate improved selected serial depth 1. Reaching the raw two-link opportunity requires a native batched TTNN H2D submission/event boundary that the current Python cache API does not expose.",
   "measured_limitations": [
     "Deterministically prepacking 24,576 exact host experts adds 240.979 seconds and 68,080,435,200 bytes to model load, but removes source packing from request TTFT and decode.",
-    "Selected token-out is 231.489929 ms/token against an optimistic 176.813899 ms/token physical lower bound. Pure concurrent-owner staging reaches 6.497517 GB/s, only 41.244% of the raw two-link ceiling; exact Python-level depth/grouping/coalescing/threading candidates were slower.",
-    "Host-backed segmented token-out tracing is batch one; the all-48 host-backed eager fixed-slot path is validated at batch 32 and context 4096."
-  ]
+    "Host-backed segmented token-out tracing is batch one; the all-48 host-backed eager fixed-slot path is validated at batch 32 and context 4096.",
+    "The datatype-sweep selected 128+128 warmed token-out path is 231.594000 ms/token (4.317901 tokens/s/user). Traced teacher forcing, not token-out, is the dtype Pareto and selection metric."
+  ],
+  "datatype_sweep_selected_policy": {
+    "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+    "config_artifact": "datatype_sweep/selected_precision_config.json",
+    "weight_groups": {
+      "attention_output": {
+        "compute_fidelity": "hifi2",
+        "dtype": "bfp8",
+        "policy": "bfp8_hifi2"
+      },
+      "embedding": {
+        "dtype": "bf16",
+        "layout": "row_major"
+      },
+      "final_hyper_down_up": {
+        "compute_fidelity": "hifi2",
+        "dtype": "bfp8"
+      },
+      "gdn_projection": {
+        "compute_fidelity": "hifi2",
+        "dtype": "bfp8",
+        "policy": "bfp8_hifi2"
+      },
+      "lm_head": {
+        "compute_fidelity": "hifi2",
+        "dtype": "bf16",
+        "policy": "bf16_hifi2"
+      },
+      "qsa_input": {
+        "compute_fidelity": "hifi2",
+        "dtype": "bfp8",
+        "policy": "bfp8_hifi2"
+      },
+      "routed_expert": {
+        "compute_fidelity": "lofi",
+        "dtype": "bfp4",
+        "policy": "expert_bfp4_lofi_g40b16_d40b5"
+      },
+      "shared_projection": {
+        "compute_fidelity": "lofi",
+        "dtype": "bfp8",
+        "policy": "bfp8_lofi"
+      }
+    },
+    "weight_exceptions": {
+      "norms": {
+        "compute_fidelity": "hifi4",
+        "dtype": "bf16"
+      },
+      "router_topk_outputs": {
+        "dtype": "bf16"
+      }
+    },
+    "layer_exceptions": {},
+    "activations": {
+      "matmul_output_dtype": "bf16",
+      "model_input_dtype": "bf16",
+      "ple_dtype": "bf16",
+      "residual_dtype": "bf16"
+    },
+    "ccl": {
+      "num_links": 2,
+      "packet_bytes": 8192,
+      "payload_dtype": "bf16",
+      "topology": "linear"
+    },
+    "kv_cache": {
+      "dtype": "bfp8",
+      "layout": "tile",
+      "page_block_size": 64,
+      "policy": "bfp8",
+      "update_dtype": "bf16"
+    },
+    "logits_sampling": {
+      "greedy_strategy": "full_vocabulary_argmax",
+      "logits_dtype": "bf16",
+      "sampling_dtype": "bf16",
+      "sampling_mode": "device"
+    },
+    "expert_representations": {
+      "source": "bf16",
+      "host_packed": "bfp4_tile",
+      "device_staging": "bfp4_tile",
+      "execution": "bfp4_tile"
+    },
+    "ple_representations": {
+      "table": "bf16_row_major_mmap",
+      "host_assembly": "bf16",
+      "device_staging": "bf16_tile",
+      "execution": "bf16"
+    },
+    "upload_policy_preserved": true,
+    "precision_propagation": {
+      "artifact": "datatype_sweep/post_selection/teacher_forcing_selected/candidate_result.json",
+      "all_fields_consumed": true,
+      "consumed_leaf_count": 61,
+      "required_upload_checks": [
+        "host_backed.expert.source_dtype",
+        "host_backed.expert.host_packed_dtype",
+        "host_backed.expert.host_packed_layout",
+        "host_backed.expert.device_staging_dtype",
+        "host_backed.expert.device_staging_layout",
+        "host_backed.expert.execution_weight_dtype",
+        "host_backed.ple.table_dtype",
+        "host_backed.ple.table_layout",
+        "host_backed.ple.host_assembly_dtype",
+        "host_backed.ple.device_staging_dtype",
+        "host_backed.ple.device_staging_layout",
+        "host_backed.ple.execution_dtype"
+      ]
+    },
+    "traced_teacher_forcing": {
+      "top1_percent": 91.91918969154358,
+      "top5_percent": 100.0,
+      "top100_percent": 100.0,
+      "ttft_seconds": 12.743937647988787,
+      "decode_seconds_per_token": 0.22798553017298906,
+      "decode_tokens_per_second_per_user": 4.3862432814978565,
+      "model_only_trace_replays": 98
+    },
+    "post_selection_token_out": {
+      "artifact": "datatype_sweep/post_selection/token_out/full_model_performance.json",
+      "workload": {
+        "batch": 1,
+        "generated_tokens": 128,
+        "prompt_tokens": 128
+      },
+      "ttft_seconds": 7.787002823009971,
+      "decode_seconds_per_token": 0.23159400015096512,
+      "decode_tokens_per_second_per_user": 4.317901151792134,
+      "traced": true,
+      "teacher_forced": false,
+      "expert_misses": 53543.0,
+      "expert_h2d_bytes": 148035686400.0,
+      "expert_h2d_seconds": 17.842366116616176,
+      "ple_lookup_calls": 129.0,
+      "ple_table_rows_read": 2512.0,
+      "ple_lookup_seconds": 1.8489265021198662,
+      "ple_device_h2d_bytes": 2621440.0,
+      "prohibited_host_work": {
+        "activation_roundtrip": false,
+        "expert_projection": false,
+        "kv_or_recurrence": false,
+        "optimized_sampling_or_argmax": false,
+        "per_token_position_refresh": false,
+        "ple_projection": false,
+        "token_feedback_reconstruction": false,
+        "unchanged_page_table_refresh": false
+      }
+    }
+  }
 }
