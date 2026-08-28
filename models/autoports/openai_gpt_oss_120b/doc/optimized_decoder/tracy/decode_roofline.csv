@@ -1,0 +1,10 @@
+row_type,name,formula,physical_bytes_per_layer_token,peak_GB_s,roofline_ms,device_ms,wall_ms,effective_device_GB_s,effective_wall_GB_s,device_over_roofline,wall_over_roofline,accounting_scope
+component,packed_qkv_weight,90*160*1088,15667200,,,,,,,,,
+component,output_projection_weight,128*90*1088,12533760,,,,,,,,,
+component,router_weight,90*4*2048,737280,,,,,,,,,
+component,four_active_experts,4*((8*6*98*4*576)+(8*3*98*4*576)),65028096,,,,,,,,,
+component,kv_cache_read_at_context_128,2*8*4*2*1088,139264,,,,,,,,,
+component,kv_cache_physical_tile_write,2*8*1*2*1088,34816,,,,,,,,,
+total,minimum_compulsory_dram_traffic,sum(component rows),94140416,512,0.183868,,,,,,,
+comparison_same_run,sliding_attention,,,512,0.183868,0.504846700,0.555875900,186.473272,169.355095,2.745702,3.023234,device_and_wall=same_Tracy_repeats10;marker_clean;wall_minus_device=0.051029200_ms
+comparison_same_run,full_attention,,,512,0.183868,0.517103400,0.567258500,182.053369,165.956819,2.812362,3.085140,device_and_wall=same_Tracy_repeats10;marker_clean;wall_minus_device=0.050155100_ms
