@@ -307,4 +307,6 @@ build is required. A fresh xhigh independent `$stage-review` rereview returned
 artifacts, profiler tables, lifecycle logs, and disclosed limitations. Its
 verdict is recorded in `stage_review.md`.
 
-Local stage commit SHAs (never pushed): pending.
+Local stage commit SHAs (never pushed):
+
+- `18327e50` — implementation, tests, docs, review record, and evidence.
