@@ -189,6 +189,56 @@ and timer gaps.  The raw artifact records the uncompressed SHA-256 and source.
 
 The corresponding fresh-context reports are under `autofix/`.
 
+## Runner-side gate remediation (2026-08-29)
+
+The independent runner reran
+`.agents/prompts/model_bringup_multigoal/06-full-model.check.sh` after the
+original completion claim and failed with exit 2 because this checkout lacked
+`models/common/readiness_check/check_degenerate_output.py`.  The original
+qualitative command above had accidentally invoked the checker from the
+separate `/home/ttuser/dev/scratch/tt-metal` checkout, so it did not prove that
+the runner-visible path existed here.
+
+The standalone checker was restored byte-for-byte from repository blob
+`18865610c5fec9f1f0cd8c27ff915d99492cc35c` (source commit
+`8ca2878926da1cd60d6467b92b5235356779b61c`; file SHA-256
+`4216f5456f9367c881e8f25b5a26305971dad95a612b296a13038d4cbfec213e`).
+After that repair exposed the second half of the gate, the context checker
+reported that the JSON used non-canonical top-level field names.  The contract
+now records `hf_advertised_context=131072` and
+`current_supported_context=131072`, derived from the checked-in HF config's
+`max_position_embeddings=131072`; the detailed per-stage capacity accounting
+is unchanged.
+
+Focused host verification passed:
+
+```bash
+python -m py_compile models/common/readiness_check/check_degenerate_output.py
+pre-commit run --files models/common/readiness_check/check_degenerate_output.py
+python models/common/readiness_check/check_degenerate_output.py \
+  --model-dir models/autoports/openai_gpt_oss_120b \
+  --missing-artifacts critical --scope autoregressive
+python .agents/scripts/check_context_contract.py \
+  --model-dir models/autoports/openai_gpt_oss_120b \
+  --hf-model openai/gpt-oss-120b --stage full-model --require-contract
+MODEL_DIR=models/autoports/openai_gpt_oss_120b \
+HF_MODEL=openai/gpt-oss-120b \
+bash .agents/prompts/model_bringup_multigoal/06-full-model.check.sh
+```
+
+The final stage gate exits 0.  It measures the retained 100-token TT
+autoregressive artifact at zero adjacent duplication, zero replacement-character
+corruption, and trigram-loop fraction 0.0896, then reports target and supported
+context both 131072.  These changes affect only the host-side runner utility and
+contract metadata; no model, generator, trace, cache, sampler, CCL, or device
+runtime path changed, so no device reset or silicon rerun was warranted under
+`$tt-device-usage`.
+
+The fresh remediation `$stage-review` independently reran the exact gate and
+the stricter context-cap check, inspected the generated outputs and full-model
+evidence, and returned `clean-pass` with no required work.  Its report is
+`stage_review_remediation_20260829.md`.
+
 ## Artifacts and review/commit ledger
 
 Exact artifacts are listed in `README.md`.  Independent `$stage-review`
