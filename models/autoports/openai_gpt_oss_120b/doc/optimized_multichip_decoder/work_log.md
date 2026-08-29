@@ -221,3 +221,10 @@
   127, versus BFP8 attention CCL and BF16 L1 output for decode.
 - Repeated the host policy/fallback tests and formatting checks after the
   correction. The independent rereview returned `VERDICT: clean-pass`.
+
+## Stage commits
+
+- Starting multichip-decoder stage: `b0d2fb3c`.
+- Optimized implementation and evidence: `7ce49646`.
+- The final log-only follow-up commit cannot contain its own SHA; that SHA is
+  reported in the stage handoff.
