@@ -246,4 +246,7 @@ returned `clean-pass` after rereading the corrected implementation, artifacts,
 AutoFix evidence, capacity contract, and documentation.  The stage-owned
 implementation and evidence are committed locally as
 `0a98f5de75fefbf73dede0dcf7d592e8afbc1cab`; the ledger-only follow-up commit
-is reported in the final handoff.  Nothing is pushed.
+is `fad485049d995e62b35873148049dcd7037e65e0`.  The runner-gate remediation,
+canonical context fields, and independent clean-pass review are committed on
+`main` as `d6d486ea2673e58426d0537497b328719b49a753`; its ledger-only follow-up is
+reported in the final handoff.  Nothing is pushed.
