@@ -153,6 +153,112 @@
       "Full-model and vLLM assembly are outside this stage"
     ]
   },
+  "full_model": {
+    "status": "full_model_complete_stage_review_clean_pass",
+    "target_meshes": {
+      "P150": [1, 1],
+      "P150x2": [1, 2],
+      "P150x4": [1, 4]
+    },
+    "resident_production_target": "P150x4",
+    "configured_context_length": 131072,
+    "supported_context_length": 131072,
+    "page_size": 64,
+    "max_batch_size_at_full_context": 10,
+    "largest_capacity_batch_checked": 32,
+    "batch_11_largest_capacity_context": 130880,
+    "batch_32_largest_capacity_context": 44992,
+    "capacity_reduction": {
+      "P150": "resident 36-layer weights, terminal tensors, batch-1 full-context KV/page state, and a 2 GiB trace/activation reserve require 74895259776 bytes/device (69.751646 GiB); fixed state already exceeds 32 GiB so the largest feasible context is 0",
+      "P150x2": "resident 36-layer weights, terminal tensors, batch-1 full-context KV/page state, and a 2 GiB trace/activation reserve require 39272108928 bytes/device (36.575002 GiB); fixed state already exceeds 32 GiB so the largest feasible context is 0",
+      "P150x4": null
+    },
+    "capacity_bytes_per_device_batch1": {
+      "P150": {
+        "decoder_weights": 65619952128,
+        "embedding": 1158266880,
+        "final_norm": 5760,
+        "lm_head": 802160640,
+        "rope": 33554432,
+        "page_table": 8192,
+        "kv_cache": 5133828096,
+        "trace_activation_reserve": 2147483648,
+        "total": 74895259776,
+        "fits_32_gib": false
+      },
+      "P150x2": {
+        "decoder_weights": 32964795648,
+        "embedding": 1158266880,
+        "final_norm": 5760,
+        "lm_head": 401080320,
+        "rope": 33554432,
+        "page_table": 8192,
+        "kv_cache": 2566914048,
+        "trace_activation_reserve": 2147483648,
+        "total": 39272108928,
+        "fits_32_gib": false
+      },
+      "P150x4": {
+        "decoder_weights": 16719757056,
+        "embedding": 1158266880,
+        "final_norm": 5760,
+        "lm_head": 200540160,
+        "rope": 33554432,
+        "page_table": 8192,
+        "kv_cache": 1283457024,
+        "trace_activation_reserve": 2147483648,
+        "total": 21543073152,
+        "fits_32_gib": true
+      }
+    },
+    "cache_and_state": {
+      "kv_cache_dtype": "bfloat8_b",
+      "paged_cache": true,
+      "global_kv_heads": 8,
+      "local_kv_heads_tp4": 2,
+      "explicit_low_level_cache_page_position_prompt_batch_state": true,
+      "fixed_slots_and_inactive_row_sentinel": -1,
+      "public_non_aligned_prompts": true
+    },
+    "sampling": {
+      "default": "canonical traced split sampling via models.common.sampling.SamplingGenerator",
+      "greedy": "device top-k=1/top-p=0 semantic argmax with tt_out_tok feedback",
+      "host_sampling_compatibility": true,
+      "full_logits_on_optimized_token_out_path": false
+    },
+    "full_stack_hardware_evidence": {
+      "mesh": [1, 4],
+      "resident_layers": 36,
+      "resident_context": 131072,
+      "non_aligned_chat_prompt_length": 214,
+      "split_sampling_trace_replays": 3,
+      "trace_setup_host_refreshes": {
+        "token_input": 1,
+        "position_rope": 1,
+        "page_table": 1
+      },
+      "steady_state_host_refreshes": {
+        "token_input": 0,
+        "position_rope": 0,
+        "page_table": 0
+      },
+      "caller_visible_scalar_token_synchronizations": 4,
+      "validation_full_logit_synchronizations": 0,
+      "full_logits_readbacks": 0,
+      "host_argmax_calls": 0,
+      "mixed_prompt_batch_tested": 2,
+      "batch2_full_logit_reproducibility": {
+        "prefill_exact_across_rows_and_runs": true,
+        "decode_exact_across_rows_and_runs": true,
+        "max_abs_difference": 0.0,
+        "different_values": 0,
+        "separate_clean_process_confirmations": 2,
+        "artifact": "full_model/artifacts/logit_reproducibility.json",
+        "artifact_sha256": "588e98487aad4491d204dcac2ba12ab1dae4ec1068f2876606583ae30d79882d",
+        "recovery_note": "an initial source-unchanged failure with stable HF-matching greedy tokens cleared after a bounded physical device reset; the unchanged exact gate then passed twice"
+      }
+    }
+  },
   "provenance": {
     "hf_config": "models/demos/gpt_oss/configs/gpt-oss-120b/config.json",
     "checkpoint_index": "model.safetensors.index.json",

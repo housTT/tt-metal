@@ -1530,7 +1530,28 @@ class _ActiveExpertTPMLP(MLP):
         # [1,1,B,H] public contract by executing the same active-expert graph
         # once per logical user, then restore the stack layout.  The loop is
         # static for the captured decode shape and remains device-only.
-        user_inputs = ttnn.split(hidden_states, 1, dim=2)
+        # ``hidden_states`` arrives as a width-sharded [1, 1, B, H] tensor.
+        # Splitting a sub-tile B (for example B=2) derives half-tile shard
+        # heights and assigns different physical rows to otherwise identical
+        # users.  Materialize each logical row explicitly in DRAM, which is
+        # already the split op's fallback boundary and the sparse matmul's
+        # supported batch-one input contract.
+        def extract_user(user):
+            sliced = ttnn.slice(
+                hidden_states,
+                [0, 0, user, 0],
+                [1, 1, user + 1, self.hidden_size],
+                [1, 1, 1, 1],
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            row_major = ttnn.to_layout(sliced, ttnn.ROW_MAJOR_LAYOUT)
+            sliced.deallocate(True)
+            padded = ttnn.to_layout(row_major, ttnn.TILE_LAYOUT)
+            row_major.deallocate(True)
+            padded = ttnn.fill_implicit_tile_padding(padded, 0.0)
+            return padded
+
+        user_inputs = [extract_user(user) for user in range(hidden_states.shape[-2])]
         outputs = [self._run_one(user_input, is_decode=True) for user_input in user_inputs]
         output = ttnn.concat(outputs, dim=2)
         for user_output in outputs:

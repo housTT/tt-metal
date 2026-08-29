@@ -1,0 +1,42 @@
+{
+  "scope": "real terminal stack plus one sliding and one full-attention decoder layer",
+  "mesh_shape": [1, 4],
+  "signposts": ["FULL_MODEL_TOKEN_OUT", "FULL_MODEL_TOKEN_OUT_END"],
+  "tt_perf_report_version": "1.2.8",
+  "steady_capture": {
+    "lm_head_op": "MatmulDeviceOperation 32 x 2880 x 65536",
+    "lm_head_device_us": 708.553,
+    "sampling_op": "SamplingDeviceOperation",
+    "sampling_device_us": 27.5,
+    "sampling_over_lm_head_percent": 3.8812,
+    "full_model_token_wall_ms": 19.3712,
+    "sampling_over_full_model_wall_percent": 0.1420
+  },
+  "layer_stack_lower_bound": {
+    "source": "doc/optimized_multichip_decoder/performance_summary.csv final P150x4 decode rows",
+    "sliding_layer_count": 18,
+    "sliding_layer_ms": 0.39641363,
+    "sliding_stack_ms": 7.13544534,
+    "full_attention_layer_count": 18,
+    "full_attention_layer_ms": 0.39635362,
+    "full_attention_stack_ms": 7.13436516,
+    "decoder_stack_ms": 14.2698105,
+    "decoder_stack_over_full_model_wall_percent": 73.6651,
+    "full_model_only_residual_ms": 5.1013895,
+    "full_model_only_residual_percent": 26.3349,
+    "named_terminal_device_ms": {
+      "lm_head": 0.708553,
+      "sampling": 0.0275,
+      "sum": 0.736053
+    },
+    "unattributed_wall_residual_ms": 4.3653365,
+    "unattributed_wall_residual_note": "Upper bound covering final norm, trace replay/orchestration, device synchronization, caller-visible sampled-token readback, and timer-domain/device-idle gaps; the reduced two-layer profiler cannot separate these host-wall components from the 36-layer run."
+  },
+  "raw_capture": {
+    "artifact": "raw_ops.csv.xz",
+    "compression": "xz -9e over the decompressed raw CSV",
+    "uncompressed_sha256": "ae8f52f15a246988a2e75c5de4e677e4446bd1af3c8871d1d423fca6071c583d",
+    "source": "generated/profiler/reports/2026_08_29_06_25_16/ops_perf_results_2026_08_29_06_25_16.csv"
+  },
+  "verdict": "sampling does not dominate token-out; retain canonical split sampling"
+}
