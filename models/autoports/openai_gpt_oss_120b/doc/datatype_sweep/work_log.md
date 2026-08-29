@@ -291,6 +291,9 @@ evidence, rendered both plots, audited both blockers and the anomaly ledger, and
 confirmed that no vLLM work entered the scoped diff.  The complete retained
 verdict is `stage_review.md`.
 
-Stage-owned commit: pending.
+Stage-owned implementation commit:
+`a8577aee3e64a0c6c9e3b51b711bc922a88d9d53` (`Add GPT-OSS 120B datatype
+sweep`).  The commit is local and was not pushed.
 
-Commit-log update: pending.
+Commit-log update: this follow-up documentation commit records the immutable
+implementation SHA; its SHA is reported in the final handoff.
