@@ -649,57 +649,69 @@ class QwenDeviceExpertCache:
             )
             for _ in range(self.capacity)
         )
-        slot_devices = tuple(shard.device() for shard in ttnn.get_device_tensors(self.slots[0].gate_up))
-        if len(slot_devices) != TP_SIZE:
-            raise RuntimeError("expert upload staging requires exactly two physical ranks")
-        # Fixed rank-local upload pairs prevent transient device allocations
-        # from colliding with live trace allocations. Depth one is the selected
-        # baseline. Deeper env-gated A/Bs can isolate staging reuse dependency
-        # from owner grouping/thread submission without changing slot storage.
-        self.upload_by_rank = tuple(
-            tuple(
-                DeviceExpertSlot(
-                    gate_up=ttnn.from_torch(
-                        torch.zeros((1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE), dtype=torch.bfloat16),
-                        dtype=ttnn.bfloat4_b,
-                        layout=ttnn.TILE_LAYOUT,
-                        device=device,
-                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                    ),
-                    down=ttnn.from_torch(
-                        torch.zeros((1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE), dtype=torch.bfloat16),
-                        dtype=ttnn.bfloat4_b,
-                        layout=ttnn.TILE_LAYOUT,
-                        device=device,
-                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                    ),
-                )
-                for _ in range(self.staging_depth)
+        # One replicated parent-mesh allocation per depth gives each rank one
+        # fixed physical staging buffer while keeping all DRAM allocation in
+        # the parent MeshDevice allocator.  The rank rows below are stable
+        # coordinate-limited views of those buffers; they do not allocate.
+        self._upload_storage = tuple(
+            DeviceExpertSlot(
+                gate_up=_replicated_device_zeros(
+                    mesh_device,
+                    (1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE),
+                    dtype=ttnn.bfloat4_b,
+                ),
+                down=_replicated_device_zeros(
+                    mesh_device,
+                    (1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE),
+                    dtype=ttnn.bfloat4_b,
+                ),
             )
-            for device in slot_devices
+            for _ in range(self.staging_depth)
+        )
+        # Derive coordinates from actual DeviceStorage. The Python
+        # MeshCoordinateRange(MeshShape) constructor can duplicate coordinate
+        # zero after an in-place MeshDevice reshape.
+        rank_coordinates = tuple(self._upload_storage[0].gate_up.device_coords())
+        if len(rank_coordinates) != TP_SIZE:
+            raise RuntimeError("expert upload staging requires exactly two physical ranks")
+        if any(
+            tuple(storage.gate_up.device_coords()) != rank_coordinates
+            or tuple(storage.down.device_coords()) != rank_coordinates
+            for storage in self._upload_storage
+        ):
+            raise RuntimeError("expert upload staging storage has inconsistent device coordinates")
+        self._rank_coordinates = rank_coordinates
+        upload_shards = tuple(
+            (tuple(ttnn.get_device_tensors(storage.gate_up)), tuple(ttnn.get_device_tensors(storage.down)))
+            for storage in self._upload_storage
+        )
+        if any(len(gate) != TP_SIZE or len(down) != TP_SIZE for gate, down in upload_shards):
+            raise RuntimeError("expert upload staging requires exactly two device shards")
+        self.upload_by_rank = tuple(
+            tuple(DeviceExpertSlot(gate[rank], down[rank]) for gate, down in upload_shards) for rank in range(TP_SIZE)
         )
         # EP2 assigns every routed expert to exactly one rank.  Keep one
-        # immutable zero expert on each rank so a miss uploads only the owner
-        # weights; the non-owner half is reset with local D2D instead of
-        # transferring a known-zero 2.64 MiB shard over PCIe.
+        # immutable replicated zero allocation so a miss uploads only the
+        # owner weights; each non-owner shard is reset with local D2D instead
+        # of transferring a known-zero 2.64 MiB shard over PCIe.
+        self._zero_storage = DeviceExpertSlot(
+            gate_up=_replicated_device_zeros(
+                mesh_device,
+                (1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE),
+                dtype=ttnn.bfloat4_b,
+            ),
+            down=_replicated_device_zeros(
+                mesh_device,
+                (1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE),
+                dtype=ttnn.bfloat4_b,
+            ),
+        )
+        zero_gate_shards = tuple(ttnn.get_device_tensors(self._zero_storage.gate_up))
+        zero_down_shards = tuple(ttnn.get_device_tensors(self._zero_storage.down))
+        if len(zero_gate_shards) != TP_SIZE or len(zero_down_shards) != TP_SIZE:
+            raise RuntimeError("expert zero staging requires exactly two device shards")
         self.zero_by_rank = tuple(
-            DeviceExpertSlot(
-                gate_up=ttnn.from_torch(
-                    torch.zeros((1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE), dtype=torch.bfloat16),
-                    dtype=ttnn.bfloat4_b,
-                    layout=ttnn.TILE_LAYOUT,
-                    device=device,
-                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                ),
-                down=ttnn.from_torch(
-                    torch.zeros((1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE), dtype=torch.bfloat16),
-                    dtype=ttnn.bfloat4_b,
-                    layout=ttnn.TILE_LAYOUT,
-                    device=device,
-                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                ),
-            )
-            for device in slot_devices
+            DeviceExpertSlot(zero_gate_shards[rank], zero_down_shards[rank]) for rank in range(TP_SIZE)
         )
         self.local_indices = ttnn.from_torch(
             torch.arange(self.capacity, dtype=torch.int16).reshape(1, 1, 1, -1),
@@ -817,14 +829,14 @@ class QwenDeviceExpertCache:
 
         owner = prepared.identity.expert_id % TP_SIZE
         started = time.perf_counter()
-        # A host copy to an extracted shard broadcasts through its parent
-        # mesh.  Upload only the checkpoint-owning shard into its physical
-        # staging tensor, then use rank-local D2D for both the owner copy and
-        # the exact-zero non-owner reset.  All work stays ordered on CQ0 before
-        # the following indexed expert trace.
-        staging = self.upload_by_rank[owner][prepared.staging_index]
-        ttnn.copy_host_to_device_tensor(prepared.packed[owner][0], staging.gate_up)
-        ttnn.copy_host_to_device_tensor(prepared.packed[owner][1], staging.down)
+        # Write only the checkpoint-owning coordinate of the shared staging
+        # allocation without changing its DeviceStorage/topology. Rank-local
+        # D2D then copies the owner and exact-zero non-owner shards. All work
+        # stays ordered on parent CQ0 before the indexed expert trace.
+        storage = self._upload_storage[prepared.staging_index]
+        coordinate = self._rank_coordinates[owner]
+        ttnn.copy_host_to_device_tensor_at_coordinate(prepared.packed[owner][0], storage.gate_up, coordinate)
+        ttnn.copy_host_to_device_tensor_at_coordinate(prepared.packed[owner][1], storage.down, coordinate)
         return time.perf_counter() - started
 
     def _enqueue_prepared_d2d(self, prepared: PreparedExpertSlotLoad) -> float:
@@ -926,7 +938,7 @@ class QwenDeviceExpertCache:
 
         Host lookup/packing happens before the timer.  No slot D2D, peer-zero
         reset, directory/index update, mesh synchronization, or model work is
-        included.  A physical-device CQ0 event provides the completion edge,
+        included.  A parent-mesh CQ0 event provides the completion edge,
         and the byte denominator is the actual packed owner payload.
         """
 
@@ -938,12 +950,13 @@ class QwenDeviceExpertCache:
         with self._lock:
             packed = self._host_packed(identity)
             owner = identity.expert_id % TP_SIZE
-            staging = self.upload_by_rank[owner][0]
+            storage = self._upload_storage[0]
+            coordinate = self._rank_coordinates[owner]
             started = time.perf_counter()
-            ttnn.copy_host_to_device_tensor(packed[owner][0], staging.gate_up)
-            ttnn.copy_host_to_device_tensor(packed[owner][1], staging.down)
+            ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][0], storage.gate_up, coordinate)
+            ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][1], storage.down, coordinate)
             enqueued = time.perf_counter()
-            completion = ttnn.record_event(staging.gate_up.device(), 0)
+            completion = ttnn.record_event(storage.gate_up.device(), 0)
             ttnn.event_synchronize(completion)
             completed = time.perf_counter()
         elapsed = completed - started
@@ -971,15 +984,16 @@ class QwenDeviceExpertCache:
             packed = tuple(self._host_packed(identity) for identity in identities)
 
             def enqueue_owner(owner: int) -> None:
-                staging = self.upload_by_rank[owner][0]
-                ttnn.copy_host_to_device_tensor(packed[owner][owner][0], staging.gate_up)
-                ttnn.copy_host_to_device_tensor(packed[owner][owner][1], staging.down)
+                storage = self._upload_storage[0]
+                coordinate = self._rank_coordinates[owner]
+                ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][owner][0], storage.gate_up, coordinate)
+                ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][owner][1], storage.down, coordinate)
 
             started = time.perf_counter()
             tuple(self._owner_executor().map(enqueue_owner, range(TP_SIZE)))
             enqueued = time.perf_counter()
             completions = tuple(
-                ttnn.record_event(self.upload_by_rank[owner][0].gate_up.device(), 0) for owner in range(TP_SIZE)
+                ttnn.record_event(self._upload_storage[0].gate_up.device(), 0) for _owner in range(TP_SIZE)
             )
             for completion in completions:
                 ttnn.event_synchronize(completion)
@@ -1088,6 +1102,8 @@ class QwenDeviceExpertCache:
             "packed_host_bytes": self.packed_host_bytes,
             "miss_wave_policy": self.miss_wave_policy,
             "staging_depth": self.staging_depth,
+            "rank_local_staging": True,
+            "h2d_bytes_scope": "physical owner-only service H2D; one TP rank per miss; excludes initialization",
             "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
         }
 
@@ -1099,15 +1115,13 @@ class QwenDeviceExpertCache:
             self._owner_h2d_executor = None
         if self.local_indices.is_allocated():
             ttnn.deallocate(self.local_indices)
-        for rank_staging in self.upload_by_rank:
-            for staging in rank_staging:
-                for tensor in (staging.gate_up, staging.down):
-                    if tensor.is_allocated():
-                        ttnn.deallocate(tensor)
-        for zero in self.zero_by_rank:
-            for tensor in (zero.gate_up, zero.down):
+        for staging in self._upload_storage:
+            for tensor in (staging.gate_up, staging.down):
                 if tensor.is_allocated():
                     ttnn.deallocate(tensor)
+        for tensor in (self._zero_storage.gate_up, self._zero_storage.down):
+            if tensor.is_allocated():
+                ttnn.deallocate(tensor)
         for slot in self.slots:
             for tensor in (slot.gate_up, slot.down):
                 if tensor.is_allocated():

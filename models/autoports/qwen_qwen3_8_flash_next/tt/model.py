@@ -42,6 +42,7 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     HostBackedSegmentedDecodeTrace,
     MultichipDecoder,
     MultichipDecodeStateWorkspace,
+    MultichipVirtualDecodeStateBank,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import PROJECTION_POLICIES, _hifi2, _lofi
 from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import (
@@ -123,7 +124,9 @@ LM_HEAD_POLICIES = {
 }
 
 
-def _lm_head_rank_slices(split_sizes: Sequence[int]) -> tuple[tuple[tuple[int, int], ...], ...]:
+def _lm_head_rank_slices(
+    split_sizes: Sequence[int],
+) -> tuple[tuple[tuple[int, int], ...], ...]:
     """Return the exact checkpoint slices placed on each TP rank, split-major."""
 
     per_rank = VOCAB_SIZE // 2
@@ -253,6 +256,15 @@ class Qwen38BatchState:
         return tuple(torch.nonzero(self.active_mask, as_tuple=False).flatten().tolist())
 
 
+@dataclasses.dataclass(frozen=True)
+class VirtualDecodeSlotLease:
+    """Generation-checked ownership token for one logical serving slot."""
+
+    slot_id: int
+    request_id: object
+    generation: int
+
+
 class Qwen38FullModel:
     """Checkpoint-exact text model around the optimized P300 decoder stack."""
 
@@ -274,6 +286,7 @@ class Qwen38FullModel:
         hf_config,
         mesh_device,
         max_batch: int = 1,
+        virtual_slot_capacity: int = 1,
         max_seq_len: int = HF_ADVERTISED_CONTEXT,
         layer_indices: Sequence[int] | None = None,
         expert_cache_slots: int | None = None,
@@ -307,9 +320,14 @@ class Qwen38FullModel:
         expert_cache_slots = configured_slots if expert_cache_slots is None else int(expert_cache_slots)
         packed_host_experts = configured_packed if packed_host_experts is None else int(packed_host_experts)
         self.max_batch = int(max_batch)
+        self.virtual_slot_capacity = int(virtual_slot_capacity)
         self.max_seq_len = int(max_seq_len)
         if not 1 <= self.max_batch <= 32:
             raise ValueError("max_batch must be in [1, 32]")
+        if not 1 <= self.virtual_slot_capacity <= 32:
+            raise ValueError("virtual_slot_capacity must be in [1, 32]")
+        if self.virtual_slot_capacity > 1 and self.max_batch != 1:
+            raise ValueError("virtual decode slots require the physical batch-one trace")
         if not 1 <= self.max_seq_len <= HF_ADVERTISED_CONTEXT:
             raise ValueError(f"max_seq_len must be in [1, {HF_ADVERTISED_CONTEXT}]")
         self._validate_config()
@@ -346,6 +364,7 @@ class Qwen38FullModel:
         self._closed = False
         self._trace_ready = False
         self._trace_execution_mode: str | None = None
+        self._trace_sampling_force_argmax: bool | None = None
         self._trace_state: Qwen38BatchState | None = None
         self.ingress_trace_id = None
         self.ingress_trace_output = None
@@ -380,6 +399,26 @@ class Qwen38FullModel:
         self._sampling_force_argmax = True
         self._sampling_seed_rngs: tuple[random.Random, ...] | None = None
         self.sampling_seed_host_copies = 0
+        self.virtual_decode_state_bank: MultichipVirtualDecodeStateBank | None = None
+        self._virtual_slot_owners: list[object | None] = [None] * self.virtual_slot_capacity
+        self._virtual_slot_generations = [0] * self.virtual_slot_capacity
+        self._virtual_slot_valid = [False] * self.virtual_slot_capacity
+        self._virtual_slot_banked = [False] * self.virtual_slot_capacity
+        self._virtual_slot_sampling: list[tuple[bool, tuple[object, ...] | None] | None] = [
+            None
+        ] * self.virtual_slot_capacity
+        self._virtual_slot_state_hosts: list[
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, tuple[object, ...]] | None
+        ] = [None] * self.virtual_slot_capacity
+        self._virtual_resident_slot: int | None = None
+        self._virtual_resident_committed = True
+        self._virtual_physical_state: Qwen38BatchState | None = None
+        self._virtual_assignments = 0
+        self._virtual_releases = 0
+        self._virtual_stale_rejections = 0
+        self._virtual_prefill_admissions_while_trace_live = 0
+        self._virtual_prefill_trace_invalidations = 0
+        self._virtual_sampling_trace_mode_switches = 0
         configured_lm_head = self.precision_config["weight_groups"]["lm_head"]["policy"]
         self.lm_head_policy = str(lm_head_policy or configured_lm_head)
 
@@ -391,6 +430,7 @@ class Qwen38FullModel:
             self._load_rope()
             self._build_sampler()
             self._allocate_persistent_decode_inputs()
+            self._allocate_virtual_decode_state_bank()
         except BaseException:
             self.close(best_effort=True)
             raise
@@ -704,7 +744,11 @@ class Qwen38FullModel:
         old_tensors = [
             tensor
             for layer in qsa_layers
-            for tensor in (*layer.kv_cache, layer.indexer_cache, layer.fused_index_key_cache)
+            for tensor in (
+                *layer.kv_cache,
+                layer.indexer_cache,
+                layer.fused_index_key_cache,
+            )
         ]
         for layer, entry in zip(qsa_layers, allocated):
             layer.kv_cache = tuple(entry[:2])
@@ -817,6 +861,27 @@ class Qwen38FullModel:
         )
         self._default_page_table_host = page_host
 
+    def _allocate_virtual_decode_state_bank(self) -> None:
+        if self.virtual_slot_capacity == 1:
+            return
+        sampling_seeds = getattr(self.sampling, "_seeds", None)
+        if sampling_seeds is None:
+            raise RuntimeError("virtual decode slots require a persistent Sampling1D seed tensor")
+        self.virtual_decode_state_bank = MultichipVirtualDecodeStateBank(
+            self.mesh_device,
+            self.layers,
+            capacity=self.virtual_slot_capacity,
+            io_tensors={
+                "token": self.decode_token_input,
+                "current_pos": self.decode_current_pos,
+                "page_table": self.decode_page_table,
+                "sampling_k": self.sampling_k,
+                "sampling_p": self.sampling_p,
+                "sampling_temp": self.sampling_temp,
+                "sampling_seeds": sampling_seeds,
+            },
+        )
+
     # ------------------------------------------------------------------ state
 
     def new_batch_state(
@@ -860,7 +925,344 @@ class Qwen38FullModel:
             request_ids=requests,
         )
         self.reset_batch_state(state)
+        self._virtual_physical_state = state
         return state
+
+    @property
+    def supports_virtual_decode_slots(self) -> bool:
+        return self.virtual_slot_capacity > 1
+
+    def _virtual_active_count(self) -> int:
+        return sum(owner is not None for owner in self._virtual_slot_owners)
+
+    def _require_virtual_lease(
+        self,
+        slot_id: int,
+        request_id: object | None,
+        generation: int | None,
+    ) -> VirtualDecodeSlotLease:
+        slot = int(slot_id)
+        if not 0 <= slot < self.virtual_slot_capacity:
+            raise ValueError(f"virtual slot {slot} outside [0, {self.virtual_slot_capacity})")
+        owner = self._virtual_slot_owners[slot]
+        actual_generation = self._virtual_slot_generations[slot]
+        if (
+            owner is None
+            or (request_id is not None and owner != request_id)
+            or (generation is not None and actual_generation != int(generation))
+        ):
+            self._virtual_stale_rejections += 1
+            raise RuntimeError(
+                f"stale virtual slot lease: slot={slot}, request={request_id!r}, generation={generation!r}"
+            )
+        return VirtualDecodeSlotLease(slot, owner, actual_generation)
+
+    def assign_virtual_slot(self, slot_id: int, request_id: object) -> VirtualDecodeSlotLease:
+        slot = int(slot_id)
+        if not 0 <= slot < self.virtual_slot_capacity:
+            raise ValueError(f"virtual slot {slot} outside [0, {self.virtual_slot_capacity})")
+        owner = self._virtual_slot_owners[slot]
+        if owner is not None:
+            if owner == request_id:
+                return VirtualDecodeSlotLease(slot, owner, self._virtual_slot_generations[slot])
+            raise RuntimeError(f"virtual slot {slot} is already owned by {owner!r}")
+        if any(existing == request_id for existing in self._virtual_slot_owners if existing is not None):
+            raise RuntimeError(f"request {request_id!r} already owns a virtual slot")
+        self._virtual_slot_generations[slot] += 1
+        self._virtual_slot_owners[slot] = request_id
+        self._virtual_slot_valid[slot] = False
+        self._virtual_slot_banked[slot] = False
+        self._virtual_slot_sampling[slot] = None
+        self._virtual_slot_state_hosts[slot] = None
+        self._virtual_assignments += 1
+        return VirtualDecodeSlotLease(slot, request_id, self._virtual_slot_generations[slot])
+
+    def _snapshot_virtual_host_metadata(self, slot: int) -> None:
+        rng_states = (
+            None if self._sampling_seed_rngs is None else tuple(rng.getstate() for rng in self._sampling_seed_rngs)
+        )
+        self._virtual_slot_sampling[slot] = (self._sampling_force_argmax, rng_states)
+        state = self._virtual_physical_state
+        if state is not None:
+            self._virtual_slot_state_hosts[slot] = (
+                state.page_table_host.clone(),
+                state.prompt_lens.clone(),
+                state.active_mask.clone(),
+                tuple(state.request_ids),
+            )
+
+    def _restore_virtual_host_metadata(self, slot: int) -> None:
+        sampling = self._virtual_slot_sampling[slot]
+        if sampling is not None:
+            force_argmax, rng_states = sampling
+            if (
+                self._trace_ready
+                and self._trace_execution_mode == "token_out"
+                and self._trace_sampling_force_argmax is not None
+                and self._trace_sampling_force_argmax != force_argmax
+            ):
+                self.release_decode_traces()
+                self._virtual_sampling_trace_mode_switches += 1
+            self._sampling_force_argmax = force_argmax
+            if rng_states is None:
+                self._sampling_seed_rngs = None
+            else:
+                rngs = []
+                for rng_state in rng_states:
+                    rng = random.Random()
+                    rng.setstate(rng_state)
+                    rngs.append(rng)
+                self._sampling_seed_rngs = tuple(rngs)
+        state = self._virtual_physical_state
+        host_state = self._virtual_slot_state_hosts[slot]
+        if state is not None and host_state is not None:
+            pages, prompt_lens, active_mask, request_ids = host_state
+            state.page_table_host = pages.clone()
+            state.prompt_lens = prompt_lens.clone()
+            state.active_mask = active_mask.clone()
+            state.request_ids = tuple(request_ids)
+
+    def _commit_resident_if_needed(self) -> None:
+        slot = self._virtual_resident_slot
+        bank = self.virtual_decode_state_bank
+        if (
+            slot is not None
+            and bank is not None
+            and self._virtual_slot_valid[slot]
+            and (not self._virtual_resident_committed or not self._virtual_slot_banked[slot])
+        ):
+            self._snapshot_virtual_host_metadata(slot)
+            bank.commit_slot(slot)
+            self._virtual_slot_banked[slot] = True
+            self._virtual_resident_committed = True
+
+    def begin_virtual_prefill(
+        self,
+        slot_id: int,
+        request_id: object,
+        *,
+        generation: int | None = None,
+    ) -> VirtualDecodeSlotLease:
+        """Make a new request resident without restoring stale slot contents."""
+
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if self._virtual_resident_slot != lease.slot_id:
+            self._commit_resident_if_needed()
+            self._virtual_resident_slot = lease.slot_id
+        if self._trace_ready:
+            # The trace remains bound to the same physical B1 addresses.
+            # Admission banks the old request before eager prefill reuses
+            # those addresses; releasing the trace here would regress every
+            # existing request and force avoidable recapture.
+            self._virtual_prefill_admissions_while_trace_live += 1
+        self._virtual_slot_valid[lease.slot_id] = False
+        self._virtual_resident_committed = False
+        return lease
+
+    def finish_virtual_prefill(
+        self,
+        slot_id: int,
+        request_id: object,
+        *,
+        generation: int | None = None,
+    ) -> VirtualDecodeSlotLease:
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if self._virtual_resident_slot != lease.slot_id:
+            raise RuntimeError("virtual prefill finished for a non-resident slot")
+        self._virtual_slot_valid[lease.slot_id] = True
+        self._snapshot_virtual_host_metadata(lease.slot_id)
+        if self._virtual_active_count() > 1:
+            assert self.virtual_decode_state_bank is not None
+            self.virtual_decode_state_bank.commit_slot(lease.slot_id)
+            self._virtual_slot_banked[lease.slot_id] = True
+        else:
+            self._virtual_slot_banked[lease.slot_id] = False
+        self._virtual_resident_committed = True
+        return lease
+
+    def activate_virtual_slot(
+        self,
+        slot_id: int,
+        request_id: object,
+        *,
+        generation: int | None = None,
+    ) -> VirtualDecodeSlotLease:
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if not self._virtual_slot_valid[lease.slot_id]:
+            raise RuntimeError("virtual slot has no committed prefill/decode state")
+        if self._virtual_resident_slot != lease.slot_id:
+            self._commit_resident_if_needed()
+            bank = self.virtual_decode_state_bank
+            if bank is None:
+                raise RuntimeError("cannot restore a non-resident slot without a virtual state bank")
+            if not self._virtual_slot_banked[lease.slot_id]:
+                raise RuntimeError("virtual slot has no device snapshot to restore")
+            bank.restore_slot(lease.slot_id)
+            self._restore_virtual_host_metadata(lease.slot_id)
+            self._virtual_resident_slot = lease.slot_id
+        # The caller is about to mutate token, position, recurrence and RNG.
+        self._virtual_resident_committed = False
+        return lease
+
+    def commit_virtual_slot(
+        self,
+        slot_id: int,
+        request_id: object,
+        *,
+        generation: int | None = None,
+    ) -> VirtualDecodeSlotLease:
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if self._virtual_resident_slot != lease.slot_id:
+            raise RuntimeError("cannot commit a non-resident virtual slot")
+        self._virtual_slot_valid[lease.slot_id] = True
+        self._snapshot_virtual_host_metadata(lease.slot_id)
+        # Preserve the measured single-user path: even when capacity is two,
+        # a lone active request runs with no virtual restore/commit copies.
+        if self._virtual_active_count() > 1:
+            assert self.virtual_decode_state_bank is not None
+            self.virtual_decode_state_bank.commit_slot(lease.slot_id)
+            self._virtual_slot_banked[lease.slot_id] = True
+        else:
+            # A prior multi-active snapshot may now be stale: this direct
+            # resident remains authoritative until another slot is admitted.
+            self._virtual_slot_banked[lease.slot_id] = False
+        self._virtual_resident_committed = True
+        return lease
+
+    def virtual_slot_token(
+        self,
+        slot_id: int,
+        request_id: object,
+        *,
+        generation: int | None = None,
+    ):
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if not self._virtual_slot_valid[lease.slot_id]:
+            raise RuntimeError("virtual slot token requested before state commit")
+        if self._virtual_active_count() == 1 and self._virtual_resident_slot == lease.slot_id:
+            return self.decode_token_input
+        bank = self.virtual_decode_state_bank
+        if bank is None:
+            raise RuntimeError("virtual slot token is not device-resident")
+        if not self._virtual_slot_banked[lease.slot_id]:
+            raise RuntimeError("virtual slot token requested before device snapshot commit")
+        return bank.slot_tensor(lease.slot_id, "token")
+
+    def export_virtual_slot_sampling_rng_state(
+        self,
+        slot_id: int,
+        request_id: object | None = None,
+        *,
+        generation: int | None = None,
+    ) -> tuple[object, ...] | None:
+        """Return the request-local RNG continuation before releasing a slot."""
+
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if self._virtual_resident_slot == lease.slot_id:
+            self._snapshot_virtual_host_metadata(lease.slot_id)
+        sampling = self._virtual_slot_sampling[lease.slot_id]
+        return None if sampling is None else sampling[1]
+
+    def restore_virtual_slot_sampling_rng_state(
+        self,
+        slot_id: int,
+        request_id: object | None,
+        rng_states: tuple[object, ...] | None,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        """Resume seeded or entropy-seeded sampling after vLLM preemption."""
+
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        if self._virtual_resident_slot != lease.slot_id:
+            raise RuntimeError("cannot restore sampling RNG for a non-resident virtual slot")
+        if rng_states is None:
+            self._sampling_seed_rngs = None
+            return
+        if len(rng_states) != self.max_batch:
+            raise ValueError("sampling RNG continuation must match the physical batch")
+        rngs = []
+        for rng_state in rng_states:
+            rng = random.Random()
+            rng.setstate(rng_state)
+            rngs.append(rng)
+        self._sampling_seed_rngs = tuple(rngs)
+
+    def reset_virtual_slot(
+        self,
+        slot_id: int,
+        request_id: object | None = None,
+        *,
+        generation: int | None = None,
+    ) -> VirtualDecodeSlotLease:
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        self.ple_store.cancel_request(lease.request_id)
+        # An unbanked slot was authoritative only in the physical-B1 tensors.
+        # Its bank storage is never restore-eligible and a later multi-active
+        # admission overwrites the whole snapshot before marking it banked.
+        if self.virtual_decode_state_bank is not None and self._virtual_slot_banked[lease.slot_id]:
+            self.virtual_decode_state_bank.reset_slot(lease.slot_id)
+        self._virtual_slot_generations[lease.slot_id] += 1
+        self._virtual_slot_valid[lease.slot_id] = False
+        self._virtual_slot_banked[lease.slot_id] = False
+        self._virtual_slot_sampling[lease.slot_id] = None
+        self._virtual_slot_state_hosts[lease.slot_id] = None
+        if self._virtual_resident_slot == lease.slot_id:
+            self._virtual_resident_committed = False
+        return VirtualDecodeSlotLease(
+            lease.slot_id,
+            lease.request_id,
+            self._virtual_slot_generations[lease.slot_id],
+        )
+
+    def release_virtual_slot(
+        self,
+        slot_id: int,
+        request_id: object | None = None,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        lease = self._require_virtual_lease(slot_id, request_id, generation)
+        self.ple_store.cancel_request(lease.request_id)
+        if self.virtual_decode_state_bank is not None and self._virtual_slot_banked[lease.slot_id]:
+            self.virtual_decode_state_bank.reset_slot(lease.slot_id)
+        if self._virtual_resident_slot == lease.slot_id:
+            self._virtual_resident_slot = None
+            self._virtual_resident_committed = True
+        self._virtual_slot_owners[lease.slot_id] = None
+        self._virtual_slot_valid[lease.slot_id] = False
+        self._virtual_slot_banked[lease.slot_id] = False
+        self._virtual_slot_sampling[lease.slot_id] = None
+        self._virtual_slot_state_hosts[lease.slot_id] = None
+        self._virtual_releases += 1
+
+    def virtual_slot_metrics(self) -> dict[str, object]:
+        bank = self.virtual_decode_state_bank
+        return {
+            "enabled": bank is not None,
+            "physical_batch": self.max_batch,
+            "capacity": self.virtual_slot_capacity,
+            "active_slots": self._virtual_active_count(),
+            "resident_slot": self._virtual_resident_slot,
+            "valid_slots": sum(self._virtual_slot_valid),
+            "assignments": self._virtual_assignments,
+            "releases": self._virtual_releases,
+            "stale_rejections": self._virtual_stale_rejections,
+            "prefill_admissions_while_trace_live": self._virtual_prefill_admissions_while_trace_live,
+            "prefill_trace_invalidations": self._virtual_prefill_trace_invalidations,
+            "sampling_trace_mode_switches": self._virtual_sampling_trace_mode_switches,
+            "bank": (
+                {
+                    "enabled": False,
+                    "capacity": 1,
+                    "restores": 0,
+                    "commits": 0,
+                    "resets": 0,
+                }
+                if bank is None
+                else bank.metrics()
+            ),
+        }
 
     def reset_batch_state(self, state: Qwen38BatchState) -> None:
         self._require_state_buffers(state)
@@ -973,7 +1375,11 @@ class Qwen38FullModel:
     def _require_state_buffers(self, state: Qwen38BatchState) -> None:
         if not isinstance(state, Qwen38BatchState):
             raise TypeError("state must be Qwen38BatchState")
-        expected = (self.decode_token_input, self.decode_current_pos, self.decode_page_table)
+        expected = (
+            self.decode_token_input,
+            self.decode_current_pos,
+            self.decode_page_table,
+        )
         actual = (state.token_input, state.current_pos, state.page_table)
         if any(left is not right for left, right in zip(expected, actual)):
             raise ValueError("state does not reference this model's persistent decode buffers")
@@ -992,9 +1398,30 @@ class Qwen38FullModel:
             ttnn.deallocate(embedded)
             embedded = converted
         rows = int(embedded.shape[-2])
-        expanded = ttnn.reshape(embedded, (1, rows, 1, RESIDUAL_SHARD_WIDTH))
-        expanded = ttnn.repeat(expanded, (1, 1, HC_COUNT, 1))
-        residual = ttnn.reshape(expanded, (1, 1, rows * HC_COUNT, RESIDUAL_SHARD_WIDTH))
+        if rows == 1:
+            # Preserve the original decode ingress exactly.  At a single row
+            # both reshapes reduce to the same rank-three [1, 1, 1280] view,
+            # so the captured graph still contains only the existing repeat.
+            expanded = ttnn.reshape(embedded, (1, 1, 1, RESIDUAL_SHARD_WIDTH))
+            expanded = ttnn.repeat(expanded, (1, 1, HC_COUNT, 1))
+            residual = ttnn.reshape(expanded, (1, 1, HC_COUNT, RESIDUAL_SHARD_WIDTH))
+        else:
+            # Put the four hyper-connection streams next to each prefill token
+            # without the generic tiled-reshape or repeat-interleave composite
+            # paths. Nearest-neighbour width expansion of NHWC
+            # ``[1, 1, rows, 1280]`` produces the exact token-major ordering
+            # ``A,A,A,A,B,B,B,B,...`` required by the fractured residual ABI.
+            row_major = ttnn.to_layout(embedded, ttnn.ROW_MAJOR_LAYOUT)
+            rank4 = ttnn.unsqueeze_to_4D(row_major)
+            expanded = ttnn.upsample(
+                rank4,
+                scale_factor=(1, HC_COUNT),
+                mode="nearest",
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            residual = ttnn.to_layout(expanded, ttnn.TILE_LAYOUT)
+            _functional_decoder._free(row_major, embedded, residual)
+            _functional_decoder._free(rank4, row_major, embedded, residual)
         _functional_decoder._free(embedded, residual)
         _functional_decoder._free(expanded, residual)
         return residual
@@ -1101,7 +1528,10 @@ class Qwen38FullModel:
                 if group is not None:
                     projection_dtypes.setdefault(group, set()).add(_dtype_name(tensor.dtype))
             cache_tensors = []
-            for collection in (getattr(layer, "kv_cache", ()), getattr(layer, "indexer_cache", ())):
+            for collection in (
+                getattr(layer, "kv_cache", ()),
+                getattr(layer, "indexer_cache", ()),
+            ):
                 values = collection if isinstance(collection, (tuple, list)) else (collection,)
                 for tensor in values:
                     if isinstance(tensor, ttnn.Tensor):
@@ -1157,16 +1587,27 @@ class Qwen38FullModel:
             observed[path] = value
             sources[path] = source
 
-        material("weight_groups.embedding.dtype", _dtype_name(self.embedding_weight.dtype), "embedding tensor metadata")
         material(
-            "weight_groups.embedding.layout", _layout_name(self.embedding_weight.layout), "embedding tensor metadata"
+            "weight_groups.embedding.dtype",
+            _dtype_name(self.embedding_weight.dtype),
+            "embedding tensor metadata",
+        )
+        material(
+            "weight_groups.embedding.layout",
+            _layout_name(self.embedding_weight.layout),
+            "embedding tensor metadata",
         )
         material(
             "weight_groups.final_hyper_down_up.dtype",
             (
                 _dtype_name(self.final_down_weight.dtype)
                 if self.final_down_weight.dtype == self.final_up_weight.dtype
-                else sorted({_dtype_name(self.final_down_weight.dtype), _dtype_name(self.final_up_weight.dtype)})
+                else sorted(
+                    {
+                        _dtype_name(self.final_down_weight.dtype),
+                        _dtype_name(self.final_up_weight.dtype),
+                    }
+                )
             ),
             "final down/up tensor metadata",
         )
@@ -1175,16 +1616,36 @@ class Qwen38FullModel:
             "hifi2",
             "constructed final hyperconnection compute kernel",
         )
-        material("weight_groups.lm_head.policy", lm_head["policy"], "constructed LMHead1D configuration")
-        material("weight_groups.lm_head.dtype", lm_head["weight_dtype"], "constructed LMHead1D weight metadata")
+        material(
+            "weight_groups.lm_head.policy",
+            lm_head["policy"],
+            "constructed LMHead1D configuration",
+        )
+        material(
+            "weight_groups.lm_head.dtype",
+            lm_head["weight_dtype"],
+            "constructed LMHead1D weight metadata",
+        )
         material(
             "weight_groups.lm_head.compute_fidelity",
             lm_head["fidelity"],
             "constructed LMHead1D compute kernel",
         )
-        material("logits_sampling.logits_dtype", lm_head["logits_dtype"], "LM-head sampler boundary")
-        material("logits_sampling.sampling_dtype", lm_head["logits_dtype"], "Sampling1D input boundary")
-        material("host_backed.expert.prepack_all", bool(self.prepack_host_experts), "full-model preload mode")
+        material(
+            "logits_sampling.logits_dtype",
+            lm_head["logits_dtype"],
+            "LM-head sampler boundary",
+        )
+        material(
+            "logits_sampling.sampling_dtype",
+            lm_head["logits_dtype"],
+            "Sampling1D input boundary",
+        )
+        material(
+            "host_backed.expert.prepack_all",
+            bool(self.prepack_host_experts),
+            "full-model preload mode",
+        )
         material(
             "host_backed.ple.row_cache_capacity",
             int(self.ple_store.row_cache_capacity),
@@ -1196,8 +1657,16 @@ class Qwen38FullModel:
             "mmap table tensor",
         )
         if ple_layer is not None:
-            material("host_backed.ple.device_staging_dtype", ple_layer.ple_staging.dtype, "live PLE staging object")
-            material("host_backed.ple.device_staging_layout", ple_layer.ple_staging.layout, "live PLE staging object")
+            material(
+                "host_backed.ple.device_staging_dtype",
+                ple_layer.ple_staging.dtype,
+                "live PLE staging object",
+            )
+            material(
+                "host_backed.ple.device_staging_layout",
+                ple_layer.ple_staging.layout,
+                "live PLE staging object",
+            )
             material(
                 "host_backed.ple.prefill_chunk_rows",
                 int(ple_layer.ple_staging.prefill_rows),
@@ -1227,42 +1696,74 @@ class Qwen38FullModel:
             if not config["layer_exceptions"]:
                 material(
                     f"weight_groups.{config_group}.policy",
-                    next(iter(policy_values)) if len(policy_values) == 1 else sorted(policy_values),
+                    (next(iter(policy_values)) if len(policy_values) == 1 else sorted(policy_values)),
                     "all constructed decoder layers",
                 )
                 material(
                     f"weight_groups.{config_group}.dtype",
-                    next(iter(dtype_values)) if len(dtype_values) == 1 else sorted(dtype_values),
+                    (next(iter(dtype_values)) if len(dtype_values) == 1 else sorted(dtype_values)),
                     "constructed decoder weight tensors",
                 )
                 material(
                     f"weight_groups.{config_group}.compute_fidelity",
-                    next(iter(fidelity_values)) if len(fidelity_values) == 1 else sorted(fidelity_values),
+                    (next(iter(fidelity_values)) if len(fidelity_values) == 1 else sorted(fidelity_values)),
                     "constructed decoder compute-kernel policy",
                 )
 
         for path, key, source in (
-            ("activations.residual_dtype", "residual_dtype", "all layer boundary policies"),
+            (
+                "activations.residual_dtype",
+                "residual_dtype",
+                "all layer boundary policies",
+            ),
             ("ccl.payload_dtype", "ccl_payload_dtype", "all collective wrappers"),
             ("ccl.num_links", "ccl_num_links", "all collective wrappers"),
         ):
             values = {layer[key] for layer in layers}
             material(path, next(iter(values)) if len(values) == 1 else sorted(values), source)
         for path, key, source in (
-            ("activations.matmul_output_dtype", "matmul_output_dtype", "all decoder linear output policies"),
-            ("activations.ple_dtype", "ple_activation_dtype", "PLE consuming layer activation policy"),
-            ("kv_cache.update_dtype", "cache_update_dtype", "all paged decode update tensors"),
-            ("weight_exceptions.norms.dtype", "norm_weight_dtype", "all decoder norm weight policies"),
-            ("weight_exceptions.norms.compute_fidelity", "norm_compute_fidelity", "all decoder RMSNorm kernels"),
-            ("weight_exceptions.router_topk_outputs.dtype", "router_output_dtype", "all router/top-k boundaries"),
+            (
+                "activations.matmul_output_dtype",
+                "matmul_output_dtype",
+                "all decoder linear output policies",
+            ),
+            (
+                "activations.ple_dtype",
+                "ple_activation_dtype",
+                "PLE consuming layer activation policy",
+            ),
+            (
+                "kv_cache.update_dtype",
+                "cache_update_dtype",
+                "all paged decode update tensors",
+            ),
+            (
+                "weight_exceptions.norms.dtype",
+                "norm_weight_dtype",
+                "all decoder norm weight policies",
+            ),
+            (
+                "weight_exceptions.norms.compute_fidelity",
+                "norm_compute_fidelity",
+                "all decoder RMSNorm kernels",
+            ),
+            (
+                "weight_exceptions.router_topk_outputs.dtype",
+                "router_output_dtype",
+                "all router/top-k boundaries",
+            ),
         ):
             values = {layer[key] for layer in layers}
             material(path, next(iter(values)) if len(values) == 1 else sorted(values), source)
-        material("activations.model_input_dtype", _dtype_name(self.model_input_dtype), "embedding output boundary")
+        material(
+            "activations.model_input_dtype",
+            _dtype_name(self.model_input_dtype),
+            "embedding output boundary",
+        )
         cache_values = {layer["cache_policy"] for layer in layers if layer["type"] != LINEAR_ATTENTION}
         material(
             "kv_cache.policy",
-            next(iter(cache_values)) if len(cache_values) == 1 else sorted(cache_values),
+            (next(iter(cache_values)) if len(cache_values) == 1 else sorted(cache_values)),
             "all constructed QSA layers",
         )
         cache_dtype_values = {
@@ -1270,7 +1771,7 @@ class Qwen38FullModel:
         }
         material(
             "kv_cache.dtype",
-            next(iter(cache_dtype_values)) if len(cache_dtype_values) == 1 else sorted(cache_dtype_values),
+            (next(iter(cache_dtype_values)) if len(cache_dtype_values) == 1 else sorted(cache_dtype_values)),
             "live QSA K/V and index cache tensor metadata",
         )
         norm_tensor_dtypes = {dtype for layer in layers for dtype in layer["live_norm_weight_dtypes"]} | {
@@ -1278,11 +1779,19 @@ class Qwen38FullModel:
         }
         material(
             "weight_exceptions.norms.dtype",
-            next(iter(norm_tensor_dtypes)) if len(norm_tensor_dtypes) == 1 else sorted(norm_tensor_dtypes),
+            (next(iter(norm_tensor_dtypes)) if len(norm_tensor_dtypes) == 1 else sorted(norm_tensor_dtypes)),
             "live decoder and final norm tensor metadata",
         )
-        material("logits_sampling.sampling_mode", self.selected_sampling_mode, "normal generator default policy")
-        material("logits_sampling.greedy_strategy", self.selected_greedy_strategy, "device sampler strategy")
+        material(
+            "logits_sampling.sampling_mode",
+            self.selected_sampling_mode,
+            "normal generator default policy",
+        )
+        material(
+            "logits_sampling.greedy_strategy",
+            self.selected_greedy_strategy,
+            "device sampler strategy",
+        )
 
         if layers:
             host = layers[0]["host_expert"]
@@ -1446,6 +1955,7 @@ class Qwen38FullModel:
         first_active_logits = None
         for slot in state.active_slots:
             logical = int(state.prompt_lens[slot])
+
             prompt = ids[slot : slot + 1, :logical].contiguous()
             token_host = ttnn.from_torch(
                 prompt.to(torch.int32).reshape(1, 1, 1, logical),
@@ -1612,7 +2122,12 @@ class Qwen38FullModel:
         ple_ids = torch.as_tensor(tokens, dtype=torch.int64, device="cpu").reshape(self.max_batch, 1)
         if start_pos is not None:
             positions = torch.as_tensor(start_pos, dtype=torch.int32, device="cpu").reshape(self.max_batch)
-            _copy_host_to_device(positions, state.current_pos, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+            _copy_host_to_device(
+                positions,
+                state.current_pos,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
             state.position_host_copies += 1
         if enable_trace:
             if self.max_batch != 1:
@@ -1771,6 +2286,7 @@ class Qwen38FullModel:
         self._trace_state = state
         self._trace_ready = True
         self._trace_execution_mode = execution_mode
+        self._trace_sampling_force_argmax = self._sampling_force_argmax
         self.trace_capture_seconds = time.perf_counter() - started
 
     def _replay_decode_traces(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor) -> None:
@@ -1788,7 +2304,10 @@ class Qwen38FullModel:
         for trace in self.layer_traces:
             kwargs = {}
             if trace.layer.shapes.has_ple:
-                kwargs = {"ple_input_ids": ple_input_ids, "request_ids": state.request_ids}
+                kwargs = {
+                    "ple_input_ids": ple_input_ids,
+                    "request_ids": state.request_ids,
+                }
             layer_started = time.perf_counter()
             trace.replay(**kwargs)
             layer_seconds += time.perf_counter() - layer_started
@@ -1859,7 +2378,10 @@ class Qwen38FullModel:
         for trace in self.layer_traces:
             kwargs = {}
             if trace.layer.shapes.has_ple:
-                kwargs = {"ple_input_ids": ple_input_ids, "request_ids": state.request_ids}
+                kwargs = {
+                    "ple_input_ids": ple_input_ids,
+                    "request_ids": state.request_ids,
+                }
             trace.replay(**kwargs)
         ttnn.execute_trace(self.mesh_device, self.terminal_trace_id, cq_id=0, blocking=False)
         self.model_only_trace_replays += 1
@@ -1873,7 +2395,11 @@ class Qwen38FullModel:
     def release_decode_traces(self) -> None:
         terminal_output = self.trace_logits
         ingress_output = self.ingress_trace_output
-        for trace_id_name in ("position_trace_id", "sampling_trace_id", "terminal_trace_id"):
+        for trace_id_name in (
+            "position_trace_id",
+            "sampling_trace_id",
+            "terminal_trace_id",
+        ):
             trace_id = getattr(self, trace_id_name, None)
             if trace_id is not None:
                 ttnn.release_trace(self.mesh_device, trace_id)
@@ -1890,6 +2416,7 @@ class Qwen38FullModel:
         self.trace_logits = None
         self._trace_ready = False
         self._trace_execution_mode = None
+        self._trace_sampling_force_argmax = None
         self._trace_state = None
 
     # ------------------------------------------------------------------ audit
@@ -2000,6 +2527,7 @@ class Qwen38FullModel:
                 "compact_token_readbacks": state.compact_token_readbacks,
                 "sampling_seed_host_copies": self.sampling_seed_host_copies,
                 "attention_cache_lifecycle": dict(self.attention_cache_lifecycle),
+                "virtual_decode_slots": self.virtual_slot_metrics(),
             },
             "ple": self.ple_store.metrics(),
             "host_preload": self.host_preload_report,
@@ -2024,6 +2552,12 @@ class Qwen38FullModel:
             self.release_decode_traces()
         except BaseException as error:
             failures.append(error)
+        virtual_bank = getattr(self, "virtual_decode_state_bank", None)
+        if virtual_bank is not None:
+            try:
+                virtual_bank.close()
+            except BaseException as error:
+                failures.append(error)
         for layer in reversed(getattr(self, "layers", ())):
             try:
                 layer.close_host_backing()

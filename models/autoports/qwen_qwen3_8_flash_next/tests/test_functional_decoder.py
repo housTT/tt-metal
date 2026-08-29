@@ -19,6 +19,19 @@ LAYER_KINDS = (0, 1, 3)  # GDN, GDN+PLE, QSA
 BOUNDARY_LENGTHS = (31, 32, 33, 63, 64, 65, 127, 128, 129)
 
 
+class _FakePersistentState:
+    def __init__(self, value: int, address: int):
+        self.value = value
+        self._address = address
+        self._allocated = True
+
+    def is_allocated(self):
+        return self._allocated
+
+    def buffer_address(self):
+        return self._address
+
+
 def _upload(tensor, mesh_device, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
     return ttnn.from_torch(tensor, device=mesh_device, dtype=dtype, layout=layout)
 
@@ -51,6 +64,33 @@ def test_target_shape_and_layer_kind_contract():
         ("linear_attention", True),
         ("qwen_sparse_attention", False),
     ]
+
+
+def test_prefill_state_update_preserves_preallocated_buffer(monkeypatch):
+    """Later prefills must not replace state while decode traces are live."""
+
+    persistent = _FakePersistentState(7, 0x1000)
+    update = _FakePersistentState(19, 0x2000)
+    copy_calls = []
+
+    def copy(source, target):
+        copy_calls.append((source, target))
+        target.value = source.value
+
+    def deallocate(tensor):
+        tensor._allocated = False
+
+    monkeypatch.setattr(ttnn, "copy", copy)
+    monkeypatch.setattr(ttnn, "deallocate", deallocate)
+
+    result = FunctionalDecoder._update_prefill_state(persistent, update)
+
+    assert result is persistent
+    assert copy_calls == [(update, persistent)]
+    assert persistent.value == 19
+    assert persistent.is_allocated()
+    assert persistent.buffer_address() == 0x1000
+    assert not update.is_allocated()
 
 
 @pytest.mark.parametrize("seq_len", [1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 2047, 2048, 2049])

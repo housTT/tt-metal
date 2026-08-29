@@ -1,0 +1,95 @@
+{
+  "schema_version": 2,
+  "model": "Qwen/Qwen3.8-Flash-Next",
+  "verdict": "pass",
+  "source_frozen_before_launch": true,
+  "source_sha256": {
+    "tt/generator.py": "fdcec1d04ed2c517f60231e12ae6299e667dcab591fd9c41a20fc5b65a9d7f8f",
+    "tt/functional_decoder.py": "94684771282a0f34a46fe93b4c356372fbb5694a2dfa338f522d97bf1c227516",
+    "tt/fused_decoder.py": "a9ed9e6f93dd368e5c8d0bc4525dd447d8209eefd8965a0b0323f314afbcc1f7"
+  },
+  "environment": {
+    "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+    "TT_METAL_TRACE_ALLOC_TRACEBACKS": "1",
+    "TT_METAL_TRACE_ALLOC_REFERRER_DEPTH": "12",
+    "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE": "unset",
+    "TT_VISIBLE_DEVICES": "0,1",
+    "trace_mode": "decode_only",
+    "sample_on_device_mode": "all",
+    "async_scheduling": true,
+    "max_model_len": 262144,
+    "max_num_seqs": 2,
+    "physical_decode_batch": 1,
+    "virtual_slot_capacity": 2,
+    "block_size": 64,
+    "trace_region_size": 1073741824,
+    "fabric_config": "FABRIC_1D",
+    "fabric_packet_payload_bytes": 8192,
+    "l1_small_size": 24576
+  },
+  "command": "python_env/bin/python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py --model-dir models/autoports/qwen_qwen3_8_flash_next --hf-model Qwen/Qwen3.8-Flash-Next --output-dir models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/final_b2_trace_tracker_fixed --stages serve --mesh-device P300 --port 8019 --max-num-seqs 2 --sampling-profile full --block-size 64 --max-model-len 262144 --tt-config '{\"trace_region_size\":1073741824,\"fabric_config\":\"FABRIC_1D\",\"fabric_packet_payload_bytes\":8192,\"l1_small_size\":24576,\"trace_mode\":\"decode_only\"}' --additional-server-args='--async-scheduling'",
+  "workload": {
+    "baseline_requests": 1,
+    "simultaneously_active_streams": 2,
+    "survivor_requested_output_tokens": 128,
+    "cancelled_peer_requested_output_tokens": 128,
+    "deterministic_followup_requests": 2,
+    "deterministic_followup_output_tokens_each": 12,
+    "sentinel_requests": 1
+  },
+  "lifecycle": {
+    "verdict": "pass",
+    "active_stream_overlap": true,
+    "both_requests_streamed_before_cancel": true,
+    "cancel_request_accepted": true,
+    "survivor_completed": true,
+    "followups_identical": true,
+    "trace_replays_delta": 150,
+    "model_only_trace_replays_delta": 0,
+    "virtual_assignments_delta": 4,
+    "virtual_releases_delta": 4,
+    "virtual_bank_commits_delta": 8,
+    "virtual_bank_restores_delta": 5,
+    "virtual_bank_resets_delta": 1,
+    "prefill_trace_invalidations_delta": 1,
+    "stale_rejections_delta": 0,
+    "active_slots_end": 0,
+    "valid_slots_end": 0,
+    "ple_history_entries_end": 0
+  },
+  "tracker_diagnostics": {
+    "generic_active_trace_allocation_warnings": 0,
+    "unsafe_live_allocation_errors": 0,
+    "corruption_warning_blocks": 0,
+    "runtime_errors": 0,
+    "tracebacks": 0,
+    "interpretation": "The changed prefill program set invalidated the live trace before return; all later replay checks found no live younger device buffers, and decode recaptured once."
+  },
+  "artifacts": {
+    "server_log_gz": {
+      "path": "readiness_vllm/final_b2_trace_tracker_fixed/server.log.gz",
+      "sha256": "323f93bb13b519d8caf860c3b340a7864f35a4730f341af8f50fd58652c6ad7e"
+    },
+    "lifecycle": {
+      "path": "readiness_vllm/final_b2_trace_tracker_fixed/host_serving_lifecycle.json",
+      "sha256": "e0e704322fa9f94018720fd48d75dc5f0ad3d9bd589a149ef0c53cab8e80d5dc"
+    },
+    "cleanup": {
+      "path": "readiness_vllm/final_b2_trace_tracker_fixed/process_cleanup_audit.json",
+      "sha256": "e62d4044a752433d66d763c9ca65040ab913e4685a4528e89b7e90fba3429beb"
+    },
+    "reduced_tracker_tt": {
+      "path": "readiness_vllm/autofix_trace_program_delta_tt.xml",
+      "sha256": "27d2ccb3505e2a37f14fead81f23c91bffa5fb27805a637ec36c274a3b9cd943"
+    }
+  },
+  "cleanup": {
+    "verdict": "pass",
+    "matching_processes": 0,
+    "device_0_holders": 0,
+    "device_1_holders": 0,
+    "device_0_dram_status": true,
+    "device_1_dram_status": true
+  },
+  "historical_failure": "The superseded pre-fix B2 tracker run found 75 live buffers before replay: 73 replaced recurrent/conv/PLE state buffers and two program-cache buffers. It is retained only as root-cause evidence, not readiness proof."
+}

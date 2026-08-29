@@ -898,9 +898,7 @@ class FunctionalDecoder(LightweightModule):
         )
         _free(window, normed, new_state)
         ttnn.deallocate(normed)
-        ttnn.deallocate(self.user_ple_conv_state[user_id])
-        self.user_ple_conv_state[user_id] = ttnn.clone(new_state, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        _free(new_state, self.user_ple_conv_state[user_id])
+        self._update_prefill_state(self.user_ple_conv_state[user_id], new_state)
         convolved = ttnn.silu(acc)
         ttnn.deallocate(acc)
         out = ttnn.add(gated, convolved)
@@ -995,9 +993,7 @@ class FunctionalDecoder(LightweightModule):
             [1, 1, logical + s.linear_conv_kernel_dim - 1, s.linear_qkv_width],
         )
         _free(window, mixed, new_state)
-        ttnn.deallocate(self.user_conv_state[user_id])
-        self.user_conv_state[user_id] = ttnn.clone(new_state, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        _free(new_state, self.user_conv_state[user_id])
+        self._update_prefill_state(self.user_conv_state[user_id], new_state)
         out = ttnn.silu(acc)
         ttnn.deallocate(acc)
         return out
@@ -1064,8 +1060,7 @@ class FunctionalDecoder(LightweightModule):
             ),
             const_tiles=self.const["gdn_tiles"],
         )
-        ttnn.deallocate(self.user_recurrent_state[user_id])
-        self.user_recurrent_state[user_id] = state
+        self._update_prefill_state(self.user_recurrent_state[user_id], state)
         core = ttnn.reshape(
             core,
             (1, padded, s.linear_num_value_heads, s.linear_value_head_dim),
@@ -1573,6 +1568,14 @@ class FunctionalDecoder(LightweightModule):
             ttnn.copy(self.user_conv_zero, self.user_conv_state[user_id])
         if s.has_ple:
             ttnn.copy(self.user_ple_conv_zero, self.user_ple_conv_state[user_id])
+
+    @staticmethod
+    def _update_prefill_state(persistent, update):
+        """Copy a prefill result into its construction-time device buffer."""
+
+        ttnn.copy(update, persistent)
+        _free(update, persistent)
+        return persistent
 
     def prefill_forward(
         self,

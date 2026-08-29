@@ -2,10 +2,11 @@
   "schema_version": 1,
   "model": "Qwen/Qwen3.8-Flash-Next",
   "served_max_model_len": 262144,
-  "largest_tested_active_max_num_seqs": 1,
+  "largest_tested_active_max_num_seqs": 2,
   "largest_tested_concurrent_http_admission": 32,
-  "concurrent_http_behavior": "admitted and queued behind one active traced device slot",
-  "classification": "current segmented token-out implementation limit, not a physical DRAM limit",
+  "concurrent_http_behavior": "two requests are simultaneously active through a virtual state bank over one physical traced decode row; additional burst requests queue behind virtual capacity two",
+  "advertised_max_num_seqs": 2,
+  "classification": "the public adapter and final full-48 server are capped at virtual capacity two over physical batch one; this is an evidence-aligned serving boundary, not a physical DRAM claim",
   "selected_path_requires": [
     "full 48-layer host-backed expert service",
     "real PLE lookup and request history",
@@ -17,19 +18,19 @@
       "path": "tt/model.py",
       "symbol": "Qwen38FullModel.capture_decode_traces",
       "condition": "max_batch must equal 1",
-      "reason": "the full-stack segmented capture owns one fixed-address recurrent-state workspace and one routed-expert service row"
+      "reason": "the full-stack segmented capture retains one fixed-address physical recurrent-state workspace; virtual slots snapshot and restore request-owned state around this row"
     },
     {
       "path": "tt/multichip_decoder.py",
       "symbol": "MultichipDecoder._decode_attention_host",
       "condition": "host expert cache and max_batch == 1",
-      "reason": "the traced front/back ABI is a batch-one hidden/current-position/PLE crossing"
+      "reason": "the traced front/back ABI remains a physical batch-one hidden/current-position/PLE crossing while the model-managed bank supplies virtual B2 isolation"
     },
     {
       "path": "tt/multichip_decoder.py",
       "symbol": "MultichipDecoder.service_decode_front",
       "condition": "reads one token's top-8 expert route and publishes it into ten fixed slots",
-      "reason": "a multi-user decode needs a new wave/aggregation protocol rather than silently dropping route rows"
+      "reason": "virtual requests are serialized through the one routed-expert service row and retain independent recurrent, PLE, position, page-table, and sampler state"
     }
   ],
   "eager_control": {
@@ -45,12 +46,12 @@
     "headroom_bytes_per_device": 24220969896,
     "artifact": "doc/context_contract.json"
   },
-  "why_not_claim_larger": "The existing batch-32 result is eager and short-context. Advertising it as traced serving would either disable the required traced token-out path or lose per-user routed-expert rows. No physical-memory claim is made because the recorded DRAM arithmetic has substantial headroom.",
-  "scope_boundary": "Larger active traced serving requires a new multi-user segmented expert-wave and recurrent-state trace ABI in the optimized full-model runtime. The vLLM adapter fails fast instead of presenting queued admission as active device batching.",
+  "why_not_claim_larger": "Reduced-layer probes reached larger widths, but only max_num_seqs=2 completed the all-48-layer sampling, lifecycle, trace-allocation, qualitative, performance, and cleanup proof ladder. The public adapter therefore rejects larger active widths until equivalent evidence exists; no physical-memory limit is inferred.",
+  "scope_boundary": "The production adapter and server advertise and validate virtual capacity two while preserving the canonical physical-B1 segmented token-out trace. The 32-request CI workload is concurrent HTTP admission, not 32-way device execution.",
   "evidence": {
     "context_contract": "doc/context_contract.json",
     "ci_burst": "readiness_vllm/vllm_ci_serving_benchmark.json",
     "live_server": "readiness_vllm/server.log.gz"
   },
-  "verdict": "documented implementation limitation"
+  "verdict": "pass: full-model virtual B2 serving validated over the physical-B1 traced token-out path"
 }

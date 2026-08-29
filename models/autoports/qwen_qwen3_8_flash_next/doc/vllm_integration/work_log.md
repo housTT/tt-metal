@@ -1,158 +1,65 @@
-# Qwen3.8-Flash-Next vLLM integration work log
+# Qwen3.8-Flash-Next vLLM work log
 
-## Scope and starting point
+## Frozen final-source state
 
-- Model: `Qwen/Qwen3.8-Flash-Next`, checkpoint revision `f5d08274bafd880402bd16f5e3e6c514136ec06c`.
-- Starting tt-metal commit: `fe285f8c974` on `hous/qwen3.8-flash-next`.
-- Starting vLLM TT plugin commit: `106744c` on `housTT/register-muse-glimmer-30b`.
-- Input stage: completed datatype sweep. The selected policy is
-  `qsa_bfp8_hifi2_lm_head_bf16_hifi2`; no vLLM-specific precision override is
-  permitted.
-- Target: P300 Blackhole dies 0 and 1, TP2/DP1, one active segmented traced
-  request slot. Concurrent HTTP requests are admitted and queued by vLLM.
-  This is a current token-out implementation limit, not a claimed physical
-  device or DRAM limit.
+The model serves through the shared TT vLLM plugin on a P300 1x2 mesh. The frozen final source uses `max_model_len=262144`, block size 64, async scheduling, full sampling profile, physical traced batch 1, and two model-owned virtual state slots. vLLM owns all QSA attention cache state; the model owns linear-attention recurrence, the PLE request history/table, and expert host/device stores. Sampling, qualitative, benchmark, host lifecycle, exact trace-allocation, and cleanup artifacts pass. The final independent stage review verdict is `clean-pass`.
 
-## Implementation
+The adapter is `tt/generator_vllm.py`. It delegates execution to `Qwen38Generator` and `Qwen38FullModel`; the performance path uses the canonical split-sampling token-out trace and direct device feedback. There is no adapter-local argmax/top-k fallback, logits readback, token reconstruction, or independent KV allocation. Optional host sampling exists only for shared-test parameters unsupported by the bounded TT sampler and for explicitly seeded stochastic requests whose vLLM/TT RNG algorithms are not identical.
 
-`tt/generator_vllm.py` is a protocol bridge. It registers the Qwen4Exp plain
-and TT-prefixed architectures and delegates prefill, decode, asynchronous
-read, and host formatting to `tt/generator.py`. The adapter contains no sampler,
-argmax/top-k fallback, logits conversion, or token feedback loop. The canonical
-full-model split sampler owns on-device sampling and keeps its sampled token in
-the persistent TT input buffer. The one compact token read required by the
-declared host PLE lookup is never written back to TT.
+## Implementation chronology
 
-The shared plugin chooses the device sampler only when the model capability is
-implemented. Qwen3.8 declares default penalties and random `top_k <= 32` on
-device. Unsupported penalties, all-vocabulary random sampling, logprobs, and
-other shared-test-only features use the plugin's explicit host compatibility
-path. Greedy serving and the benchmark stay on the device path.
+1. Registered plain and TT-prefixed Qwen4Exp architectures in the shared plugin and normalized the Qwen sparse-attention layer metadata so vLLM allocates exactly 12 attention cache groups.
+2. Added the thin adapter, selected-precision construction, exact 262144-token capability, vLLM cache allocation/adoption, async decode, and lifecycle metrics.
+3. Reused the full-model split sampler and compact token-out path for greedy and supported stochastic sampling. Corrected TT sampler inverse-temperature handling and exact `top_k=1` global argmax behavior in the canonical model.
+4. Made arbitrary logical prompt lengths safe. The QSA cache fill now ignores padded block-table tails, and the 4097-block vLLM allocator-headroom cache is adopted without retaining the constructor-time 4096-block compressed tensor.
+5. Added stable request/slot/generation metadata through the plugin. A physical-B1 virtual state bank snapshots only model-owned recurrence, PLE convolution/history state, token/position/page state, and sampler state; vLLM QSA cache and global expert weights are excluded. Finish, preemption, cancellation, stale generation, reset, and survivor transitions are generation-guarded.
+6. Added explicit optional host-logits compatibility for unsupported sampling cohorts. Host-mode prefill/decode serializes over the canonical physical-B1 model-only trace and materializes each reused logits result before advancing the next virtual row. The canonical device token-out path is unchanged.
+7. Forced explicitly seeded stochastic requests to the request-owned vLLM host generator, preventing cohort-dependent switches between different TT/host RNG algorithms. Greedy and seedless performance traffic remains on-device.
+8. Diagnosed a repeated non-aligned full-model prefill stall. The endpoint expansion avoids unsafe tiled reshape reuse, and route sparsity now performs max reduction, row-major conversion, then a metadata reshape. The upstream sparse-matmul FP32-intermediate CB sizing correction was also applied. Focused TT regressions pass.
+9. Added an allocator-safe coordinate H2D primitive. Expert service now uses one parent-mesh staging allocation and writes only the owning rank coordinate, so physical H2D counters no longer double-count replicated staging. The topology/H2D/D2D TT gate passes.
+10. Expanded metrics to cover attention ownership, runtime fallback, exact host service, virtual state, cold preload, PLE gauges, and process cleanup. Benchmark-window derivation uses logical request deltas plus canonical replay-plus-invalidation signatures: primary 126 replays plus one invalidation equals 127 decode steps; CI 3167 plus one equals 3168.
+11. Reproduced the B2 allocator warning with exact tracking and found a real 75-buffer pre-fix lifetime (73 replaced recurrent/conv/PLE state buffers and two program-cache buffers). Prefill now writes fixed construction-time state buffers; the full virtual-prefill/release boundary invalidates live traces on program-cache growth; failed lazy initialization leaves a persistent uncertainty flag. Reduced and exact-B2 unfiltered tracker gates pass.
+12. Froze the repaired source and regenerated the full sampling, qualitative, single-user, CI burst, host-metric, active-cancellation, cleanup, and hard-gate evidence. The final benchmarks and metrics below come only from this source generation.
 
-vLLM owns the exact twelve-layer QSA attention object. Each entry contains K,
-V, raw index keys, and compressed index keys. Linear-attention recurrence and
-the expert/PLE stores remain model-owned and are excluded from vLLM KV. The
-adapter validates object identity and exposes cache lifecycle, host service,
-decode timing, fallback, and ownership metrics.
-
-## Precision and context
-
-The adapter constructs the ordinary full-model generator with
-`doc/datatype_sweep/selected_precision_config.json`. The selected runtime policy
-is:
-
-- routed expert weights BFP4 TILE / LoFi, all 512 experts prepacked on host,
-  ten exact device slots per layer/rank;
-- shared expert BFP8 / LoFi;
-- QSA, GDN projections, attention output, and final hyper projections BFP8 /
-  HiFi2;
-- BF16 activations, residuals, CCL payload, logits, and sampling; BF16/HiFi4
-  norms and BF16/HiFi2 LM head;
-- BFP8 TILE KV/raw-index cache with BF16 updates; BF16 compressed index cache;
-- BF16 PLE mmap rows, host assembly, staging, and execution, with an 8192-row
-  host cache and 128-row prefill staging.
-
-`doc/context_contract.json` advertises 262,144 tokens. vLLM adds one 64-token
-allocator-headroom block, so the physical pool has 4,097 blocks / 262,208
-tokens while the served `max_model_len` remains the full 262,144-token logical
-contract. There is no capability reduction.
-
-## AutoFix investigations
-
-The full server exposed two independent QSA paging bugs and two sampling ABI
-bugs; each was isolated with the AutoFix workflow before its fix was retained.
-
-1. The compressed QSA cache was still allocated with 4,096 physical blocks
-   when vLLM passed its intentional 4,097-block pool. The fused index selection
-   tried to reshape 8,388,608 elements as 8,390,656 elements, exactly one
-   compressed page too many. The vLLM adoption path now reallocates and owns all
-   four QSA state tensors at 4,097 blocks and releases the standalone tensors.
-2. Prefill compute pads every final chunk to 128 tokens, but vLLM allocates
-   cache pages only for logical tokens. A prompt shorter than 64 tokens received
-   a block table `[real_page, 0]`; writing the padded second half could overwrite
-   physical page zero. Chunk page tables now round the logical length to 64 and
-   functional/fused QSA cache fills slice K/V/raw/compressed inputs to those
-   actual pages while retaining all 128 padded query rows for compute.
-
-Request reset was also hardened: stable exact-zero TT tensors are copied into
-GDN/conv/PLE state in place, avoiding allocation leaks and NaN-preserving
-multiply-by-zero. Immutable expert weights now persist across requests, so a
-request reset does not destroy valid cache hits.
-
-3. `ttnn.sampling` consumes inverse temperature as a logits multiplier, while
-   the canonical Qwen model API had uploaded the user-facing temperature. At
-   temperature 2.0 this sharpened EOS into an almost-certain first token. The
-   canonical full-model boundary now validates positive user temperature and
-   uploads its reciprocal. An `ignore_eos` probe had already shown varied
-   tokens, refuting stuck RNG, top-k, and host-fallback hypotheses.
-4. `top_k=1` at temperature 2.0 was stable but disagreed with greedy. A
-   one-token support is mathematically argmax regardless of temperature or
-   top-p, and the stochastic local-top32 route does not provide the exact
-   global tie behavior. The canonical model now routes every all-top1 cohort
-   through its existing global device argmax and disables unused seed state.
-
-## Server command
-
-The final server command is run from the tt-metal root after:
+## Final server command
 
 ```bash
 source models/autoports/qwen_qwen3_8_flash_next/doc/functional_decoder/ttenv.sh
+unset QWEN38_VLLM_LAYER_INDICES QWEN38_HOST_EXPERT_WAVE_FENCE QWEN38_HOST_EXPERT_WAVE_REUSE_FENCE QWEN38_HOST_EXPERT_STAGE_FENCE QWEN38_VLLM_DEBUG_PREFILL_PROGRESS
 export PYTHONPATH=/home/ttuser/dev/vllm-tt-plugin/src:$PWD:/home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages
 export TT_VISIBLE_DEVICES=0,1
 export TT_MESH_GRAPH_DESC_PATH=$PWD/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto
 export VLLM_PLUGINS=tt,tt_model_registry
 export QWEN38_VLLM_LOG_METRICS=1
-unset QWEN38_VLLM_LAYER_INDICES
-python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py \
+
+python_env/bin/python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py \
   --model-dir models/autoports/qwen_qwen3_8_flash_next \
   --hf-model Qwen/Qwen3.8-Flash-Next \
   --output-dir models/autoports/qwen_qwen3_8_flash_next/readiness_vllm \
-  --stages serve --mesh-device P300 --port 8018 --max-num-seqs 1 \
+  --stages serve --mesh-device P300 --port 8018 --max-num-seqs 2 \
   --sampling-profile full --block-size 64 --max-model-len 262144 \
   --tt-config '{"trace_region_size":1073741824,"fabric_config":"FABRIC_1D","fabric_packet_payload_bytes":8192,"l1_small_size":24576,"trace_mode":"decode_only"}' \
   --additional-server-args='--async-scheduling'
 ```
 
-The effective TT config additionally contains the readiness runner default
-`sample_on_device_mode=all`. Chunked prefill is disabled by the shared plugin
-for Qwen4Exp. Decode trace mode is enabled and asynchronous scheduling is on.
+The server became ready after the 68.080 GB packed expert preload. Exact preload time in the final metrics is 238.860717 s. The served context equals `doc/context_contract.json`; no reduction was used. The runner supplies `sample_on_device_mode=all`; `trace_mode=decode_only`, the 1 GiB trace region, `FABRIC_1D`, 8192-byte fabric payload, and 24576-byte L1-small reservation are explicit in the TT config above.
 
-## Validation chronology
+## Final validation commands and results
 
-Host-only/current-source checks:
+Non-aligned direct serving:
 
 ```bash
-python -m pytest -q \
-  models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py \
-  models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::<focused-host-nodes> \
-  /home/ttuser/dev/vllm-tt-plugin/tests/test_device_sampling_capabilities.py
+python_env/bin/python models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/run_non_aligned_prompt_check.py \
+  --server-url http://localhost:8018 \
+  --output models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/non_aligned_prompt_check.json
 ```
 
-Result: 24 passed. This covers adapter delegation/capabilities, exact vLLM
-cache adoption, stale-token PLE input, page/current-position flow, non-aligned
-paging, cache cold/hit/miss/eviction/stale protection, upload-failure recovery,
-real PLE row/history/reset/cache metrics, threaded concurrency/cancellation,
-inverse-temperature/top1 semantics, and device/host sampling capability selection. Raw log:
-`readiness_vllm/host_weight_cache_tests.log`.
+Pass for `1,63,64,65,67,127,129`, twice each, with exact usage and deterministic equality.
 
-Full server page-boundary probe: two repeat-identical on-device greedy requests
-at each logical prompt length 1, 63, 64, 65, 67, 127, and 129. Every response
-was HTTP 200, every reported prompt length was exact, and both responses in
-every case were identical. The requests do not ask for logprobs and therefore
-stay on the canonical device argmax path. Raw artifact:
-`readiness_vllm/non_aligned_prompt_check.json`.
-
-Targeted AutoFix sampling rerun: ten runtime sampling checks passed, including
-shuffled seed batches, explicit seeds, unseeded variety, and first-token
-temperature variety. A fresh-process plugin import-order error was isolated as
-test infrastructure; the canonical first test primes vLLM imports, after which
-the mixed isolation node passed. Raw log:
-`readiness_vllm/autofix_targeted_sampling.log`.
-
-Canonical full sampling command against the active-batch-one server:
+Canonical full sampling profile:
 
 ```bash
-python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py \
+python_env/bin/python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py \
   --model-dir models/autoports/qwen_qwen3_8_flash_next \
   --hf-model Qwen/Qwen3.8-Flash-Next \
   --output-dir models/autoports/qwen_qwen3_8_flash_next/readiness_vllm \
@@ -160,217 +67,128 @@ python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_
   --max-num-seqs 10 --sampling-profile full
 ```
 
-Here `--max-num-seqs 10` is only the canonical pytest fixture fanout: it lets
-the penalty and mixed-parameter tests construct both sides of comparisons.
-The live server remains `--max-num-seqs 1` and queues the submitted requests.
-The final result is recorded in `readiness_vllm/sampling_tests.log`.
+Result: 72 passed, 1 skipped, 0 failed in 3167.48 s. The larger client value controls test fanout only; the server remained at two active requests.
 
-## Host-backed serving and lifecycle
+Shared qualitative and benchmark stages:
 
-Expert directory publication occurs only after all required uploads submit;
-failure invalidates reserved slots and a retry successfully reloads them while
-protected hits survive. PLE uses the real mmap-backed two/three-gram table,
-request-isolated two-token history, explicit reset/cancel, and locked row cache.
-TT compute remains in front/back segmented traces around PLE lookup/upload and
-compact route-id read/expert service.
+```bash
+python_env/bin/python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py \
+  --model-dir models/autoports/qwen_qwen3_8_flash_next \
+  --hf-model Qwen/Qwen3.8-Flash-Next \
+  --output-dir models/autoports/qwen_qwen3_8_flash_next/readiness_vllm \
+  --stages qualitative,benchmark --server-url http://localhost:8018 \
+  --max-num-seqs 2 --sampling-profile full
+```
 
-Request-boundary telemetry is opt-in and outside the token loop. It reports
-expert hits/misses/evictions/prepack/H2D, PLE selected/unique/read/cache/history
-and host/device H2D, route-read/TT-stall and trace-submit times, expert slot and
-packed-host occupancy, preload totals, attention lifecycle, trace/copy
-counters, host compatibility calls, ownership, and prohibited fallback flags.
-Primary and CI-burst deltas are stored in
-`readiness_vllm/serving_host_metrics.json`.
+Primary random 128 input / 128 requested output / one request / concurrency 1 / temperature 0 / ignore EOS: 1/1 complete and 128/128 output tokens; TTFT P50/P99 4007.855929/4007.855929 ms; TPOT mean/P50/P99 268.980406/268.980406/268.980406 ms; ITL P50/P99 271.870091/303.711892 ms; output throughput 3.353537 tokens/s; TPOT-derived headline decode 3.717742915 tokens/s/user. Raw: `readiness_vllm/vllm_result.json`; normalized: `readiness_vllm/vllm_benchmark.json`.
 
-Live cancellation evidence overlaps requests against the single physical slot,
-cancels one client, drains the survivor, and then requires two deterministic
-follow-up requests to be identical. Artifact:
-`readiness_vllm/host_serving_lifecycle.json`.
+Secondary CI random 100 input / 100 requested output / 32 requests / unbounded client concurrency / temperature 0 / ignore EOS: 32/32 complete and 3200/3200 output tokens; TTFT P50/P99 495900.588359/984280.693984 ms; TPOT mean/P50/P99 608.992298/607.325343/633.142100 ms; ITL P50/P99 622.197126/675.488786 ms; aggregate output throughput 3.059929 tokens/s. The 1.642056890 TPOT-derived tokens/s/user is recorded only as a burst result, never as the headline. Raw: `readiness_vllm/vllm_ci_serving_result.json`; normalized: `readiness_vllm/vllm_ci_serving_benchmark.json`.
 
-Final shutdown used SIGINT and the readiness runner's abort-mode cleanup; its
-log includes one process-manager force-kill. The subsequent audit records empty
-APIServer/vLLM/EngineCore process matches and healthy devices in
-`readiness_vllm/process_cleanup_audit.json`. It is cleanup evidence, not a
-claim that every child exited gracefully.
+The selected full-model traced teacher-forcing median is 4.384021 tokens/s/user. It is retained only as an optimistic decode-latency lower bound (throughput upper bound); it excludes normal serving orchestration and is not a parity target.
 
-## Final sampling and qualitative evidence
+Prompt-correct qualitative:
 
-The final canonical sampling suite completed in 4,485.77 seconds with **72
-passed and 1 skipped**. The skip is the shared conditional case, not a runtime
-failure. The suite includes device greedy, random top-k/top-p, inverse
-temperature, exact top-1 equivalence, seed behavior, mixed request isolation,
-structured-output routing, logprobs, and explicit optional host-compatibility
-coverage. Raw output: `readiness_vllm/sampling_tests.log`. The focused fixes
-also pass in `readiness_vllm/autofix_topk.log`.
+```bash
+python_env/bin/python models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/run_prompt_correct_qualitative.py \
+  --server-url http://localhost:8018 \
+  --snapshot /home/ttuser/.cache/huggingface/hub/models--Qwen--Qwen3.8-Flash-Next/snapshots/f5d08274bafd880402bd16f5e3e6c514136ec06c \
+  --control models/autoports/qwen_qwen3_8_flash_next/doc/full_model/qualitative_shared_suite_final.json \
+  --output models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/qualitative_tt_chat.json \
+  --max-tokens 256
+```
 
-The prompt-correct primary suite reran the three shared full-model prompts with
-`Qwen2Tokenizer` and exact
-`apply_chat_template(add_generation_prompt=True)` token IDs. The template hash
-is `c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041`;
-prompt lengths 76, 89, and 94 matched server usage. Exact HF control completions
-and tokens come from `doc/full_model/qualitative_shared_suite_final.json`.
+All three prompt-correct outputs passed manual review: coherent, correct, on-topic, no mechanical repetition, no gibberish, no wrong-language drift, and no request contamination. They stopped naturally with prompt/completion usage `76/155`, `89/148`, and `94/82`. The 12 raw completions were also read: 7 hit the visible 256-token cap, 8 expose thinking markup, the sampled story echoes its prompt, and thermodynamics drifts into learned follow-up Q&A. None shows a mechanical loop, gibberish, wrong-language drift, or cross-request leakage.
 
-The explanation and one-sentence summary stop cleanly and are correct. The
-coding response is coherent and includes the correct set/list implementation
-and `[3, 1, 2]` example in its visible reasoning, but reaches the 256-token cap
-before emitting its final answer. All three are free of mechanical loops,
-gibberish, unintended language drift, and request contamination. Exact prompts,
-token IDs, controls, outputs, and review data are in
-`readiness_vllm/qualitative_tt_chat.json`,
-`readiness_vllm/qualitative_prompt_format.json`, and
-`readiness_vllm/QUALITATIVE_REVIEW.md`.
+Hard gate:
 
-The earlier six raw `/v1/completions` prompts, each greedy and sampled, are
-retained only as secondary untemplated continuation stress because this
-checkpoint has a non-empty chat template. All twelve remain coherent; seven
-reach the 256-token cap. Artifact:
-`readiness_vllm/vllm_qualitative_outputs.json`.
+```bash
+MODEL_DIR=models/autoports/qwen_qwen3_8_flash_next \
+HF_MODEL=Qwen/Qwen3.8-Flash-Next \
+bash .agents/prompts/model_bringup_multigoal/09-vllm.check.sh \
+  > models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/stage_gate.log 2>&1
+```
 
-A second full-48 server was run with
-`TT_METAL_TRACE_ALLOC_TRACKING=1` before TTNN import. Seven HTTP-200 requests
-completed with 1,033 decode trace replays, zero generic active-trace allocation
-warnings, zero unsafe-live-allocation errors, zero model-only replays, zero
-host sampling compatibility calls, and every prohibited host-work flag false.
-This is direct vLLM-stage evidence that closes the untracked allocation warning
-from the original server. Artifacts:
-`readiness_vllm/trace_allocation_tracker_audit.json` and
-`readiness_vllm/autofix_chat_template/server.log`.
+Pass: no degenerate output; target and served context both 262144.
 
-The final hard gate passed with no degenerate output and confirmed served and
-target context length 262,144. Raw output: `readiness_vllm/stage_gate.log`.
+Metrics derivation:
 
-## Final benchmarks
+```bash
+python_env/bin/python models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/derive_serving_host_metrics.py \
+  --server-log models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/server.log \
+  --output models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/serving_host_metrics.json \
+  --primary-requests 1 --ci-requests 32 \
+  --primary-trace-replays 127 --ci-trace-replays 3168 \
+  --max-num-seqs 2 --physical-batch 1 --virtual-slot-capacity 2
+```
 
-Headline single-user workload: 128 prompt tokens, 128 requested/generated
-tokens, one request, concurrency one, temperature zero, ignore EOS, canonical
-device argmax.
+Markers 631/632/649 were selected. Primary has 126 raw trace replays plus one prefill trace invalidation, exactly 127 effective post-prefill steps; CI has 3167 plus one, exactly 3168. Both windows have zero model-only replays, seed copies, and host sampling calls; all prohibited fallback flags are false. Primary bank commit/restore/reset deltas are zero. CI deltas are 32 assignments/releases, 3200 commits, 3167 restores, 32 resets, one prefill trace invalidation, and zero stale state.
 
-- TTFT P50/P99/mean: 5,358.047 / 5,358.047 / 5,358.047 ms.
-- TPOT P50/P99/mean: 299.713 / 299.713 / 299.713 ms.
-- ITL P50/P99/mean: 302.326 / 363.098 / 299.713 ms.
-- TPOT-derived decode: **3.337 t/s/u**; output throughput 2.948 tok/s;
-  request throughput 0.0230 req/s; total token throughput 5.896 tok/s.
-- Wall duration: 43.422 s; 1/1 request and 128/128 output tokens complete.
+Primary host deltas: device-slot hits/misses/evictions `24,868/42,796/42,796`; packed-host hits/misses `42,796/0`; physical-owner expert H2D 118,322,380,800 bytes in 9.501212 s; control/index H2D 219,800 bytes in 0.375017 s; 129 PLE lookups, 4,096 selected/unique rows, 2,621,440 logical/physical H2D bytes, 0.702702 s lookup and 0.012474 s H2D; 24.020644 s route-read plus TT stall; 0.039884 s trace submit.
 
-Raw client result: `readiness_vllm/vllm_result.json`. Normalized primary
-artifact: `readiness_vllm/vllm_benchmark.json`. Command output:
-`readiness_vllm/vllm_benchmark.log`.
+CI host deltas: device-slot hits/misses/evictions `181,758/1,506,457/1,506,457`; packed-host hits/misses `1,506,457/0`; physical-owner expert H2D 4,165,052,313,600 bytes in 329.659205 s; control/index H2D 2,822,000 bytes in 6.247189 s; 3,201 PLE lookups, 101,904 selected/101,896 unique rows, 65,218,560 logical and 74,393,600 physical H2D bytes, 8.992924 s lookup and 0.363380 s H2D; 621.833877 s route-read plus TT stall; 0.962293 s trace submit.
 
-Secondary CI serving-burst workload: 100 prompt tokens, 100 requested/generated
-tokens, 32 requests, unbounded client admission into one active traced slot,
-temperature zero, ignore EOS.
+Live cancellation/isolation:
 
-- TTFT P50/P99/mean: 546,147.117 / 1,064,667.786 / 544,262.447 ms.
-- TPOT P50/P99/mean: 302.471 / 325.746 / 298.668 ms.
-- ITL P50/P99/mean: 300.555 / 367.852 / 298.668 ms.
-- TPOT-derived decode: 3.348 t/s/u; output throughput 2.894 tok/s;
-  request throughput 0.0289 req/s; total token throughput 5.788 tok/s.
-- Wall duration: 1,105.777 s; 32/32 requests and 3,200/3,200 output tokens
-  complete.
+```bash
+python_env/bin/python models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/run_host_serving_lifecycle.py \
+  --server-url http://localhost:8018 \
+  --output models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/host_serving_lifecycle.json \
+  --server-log models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/server.log \
+  --max-num-seqs 2 --physical-batch 1 --virtual-slot-capacity 2
+```
 
-Raw client result: `readiness_vllm/vllm_ci_serving_result.json`. Required
-normalized CI artifact: `readiness_vllm/vllm_ci_serving_benchmark.json`.
-Command output: `readiness_vllm/vllm_ci_serving_benchmark.log`. The CI number
-is secondary because admission serialization and prefill scheduling dominate
-its TTFT; it is not the headline decode number.
+Pass: both streams produced a token before client cancellation; survivor completed; two deterministic follow-ups matched; 152 canonical trace replays, zero model-only replays or host-sampling calls, four assignments/releases, eight commits, five restores, one reset, zero stale rejection, no active slot, and no PLE history remained.
 
-The selected full-model teacher-forcing result, 228.101 ms/token or 4.384
-t/s/u at a constructed context of 4,096, is only an optimistic latency lower
-bound. It omits sampling/token feedback and does not carry the served 262,144
-context. During the primary vLLM request, 37.526 s of the 38.064 s TPOT decode
-window (98.6%) was inside the measured model trace/host-service boundary. The
-remaining 0.538 s is about 4.23 ms per interval. The measured path has 126
-device trace replays, no model-only replay, no host compatibility sampling, no
-full-logit readback, and no prohibited fallback, so no avoidable vLLM-specific
-decode path remains identified.
+Focused host/readiness contracts:
 
-## Final host-service metrics
+```bash
+python_env/bin/python -m pytest -q \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py \
+  models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py
+```
 
-The final model-load gauges are 24,576 packed expert entries / 68,080,435,200
-bytes, 241.257 s preload, 480/480 device slots resident, 1,592,524,800 device
-bytes per rank, and 8,192 PLE cache rows. Attention-cache lifecycle is 48
-standalone tensors allocated and released plus one vLLM adoption; ownership is
-vLLM throughout both benchmark windows.
+Post-format result: 65 passed in 12.98 s. The state-contract map is explicit: `test_decode_reset_once_then_steady_async_delegation`, `test_generator_virtual_decode_microbatches_real_rows_and_ignores_padding`, `test_generator_virtual_decode_rejects_stale_generation_before_device_execution`, and `test_generator_multi_host_decode_preflights_later_stale_row` cover current-position, page-table row, stale-token/owner, and async behavior; `test_device_bank_copies_only_request_local_state` proves request-local token/current-position/page/recurrent copies without copying vLLM QSA KV. Adapter B2 host compatibility is covered by `test_generator_virtual_prefill_supports_multi_active_host_compatibility` and `test_generator_virtual_decode_supports_multi_active_host_compatibility`; plugin counterparts are `test_virtual_decode_forwards_only_unpadded_slot_metadata`, `test_stale_virtual_generation_cannot_apply_a_deferred_token`, and `test_two_host_only_prefill_rows_consume_stacked_torch_logits`.
 
-Primary 128/128/1/concurrency-one deltas:
+Shared plugin non-TT regression after the seeded-policy repair: 169 passed, 8 skipped in 4.87 s. Focused TT artifacts include virtual B2 state/page/token parity, repeated non-aligned endpoint reuse, route-sparsity RM-first reuse, sparse FP32 CB sizing, and rank-local staging coordinate H2D.
 
-- expert service: 6,791 requests/waves, 25,707 hits, 41,974 misses/evictions
-  and packed-host hits, zero packed-host misses, 116,049,715,200 H2D bytes in
-  14.857 s, and 222,480 expert-index bytes in 0.628 s;
-- PLE: 129 calls, 4,096 selected/unique rows, 3,240 mmap rows / 1,036,800 bytes
-  read, 1,310,720 host-assembly bytes, 2,621,440 logical/physical H2D bytes,
-  0.655 s lookup, and 0.017 s device H2D;
-- boundary timing: 37.526 s total submit, 37.037 s expert service, 23.060 s
-  route-read/TT stall, 13.944 s cache-control DMA submit, 0.329 s PLE service,
-  and 126 device trace replays.
+After `SIGINT`, API shutdown completed and the vLLM process manager force-terminated its one remaining EngineCore child. The process-cleanup audit then found no vLLM/APIServer/EngineCore/test process, no holders on `/dev/tenstorrent/0` or `/dev/tenstorrent/1`, healthy DRAM, and live heartbeats. No reset was required.
 
-CI 100/100/32/unbounded-admission deltas:
+Exact allocation-lifetime tracker closure:
 
-- expert service: 172,843 requests/waves, 639,424 hits, 1,082,044
-  misses/evictions and packed-host hits, zero packed-host misses,
-  2,991,635,251,200 H2D bytes in 383.664 s, and 5,461,120 expert-index bytes
-  in 15.778 s;
-- PLE: 3,232 calls, 102,400 selected / 102,392 unique rows, 81,575 mmap rows /
-  26,104,000 bytes read, 32,768,000 host-assembly bytes, 65,536,000 logical /
-  74,711,040 physical H2D bytes, 9.794 s lookup, and 0.383 s device H2D;
-- boundary timing: 932.630 s total submit, 922.865 s expert service, 573.725 s
-  route-read/TT stall, 348.333 s cache-control DMA submit, 5.729 s PLE
-  service, and 3,136 device trace replays.
+```bash
+TT_METAL_TRACE_ALLOC_TRACKING=1 \
+TT_METAL_TRACE_ALLOC_TRACEBACKS=1 \
+TT_METAL_TRACE_ALLOC_REFERRER_DEPTH=12 \
+python_env/bin/python /home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/run_vllm_server.py \
+  --model-dir models/autoports/qwen_qwen3_8_flash_next \
+  --hf-model Qwen/Qwen3.8-Flash-Next \
+  --output-dir models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/final_b2_trace_tracker_fixed \
+  --stages serve --mesh-device P300 --port 8019 --max-num-seqs 2 \
+  --sampling-profile full --block-size 64 --max-model-len 262144 \
+  --tt-config '{"trace_region_size":1073741824,"fabric_config":"FABRIC_1D","fabric_packet_payload_bytes":8192,"l1_small_size":24576,"trace_mode":"decode_only"}' \
+  --additional-server-args='--async-scheduling'
+```
 
-Both windows have zero model-only trace replays, host sampling compatibility
-calls, and seed-copy changes; every prohibited host-work flag is false. The
-machine-readable deltas and end-state ownership/fallback records are in
-`readiness_vllm/serving_host_metrics.json`.
+`TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE` was unset. The historical pre-fix exact-B2 reproduction found 75 live buffers before replay: 73 replaced GDN/PLE recurrent or convolution state buffers and two program-cache buffers. Fixed state updates now retain construction-time addresses, and the exact program-cache boundary releases/recaptures traces on growth or uncertain initialization. `readiness_vllm/trace_allocation_tracker_b2_audit.json` passes with source hashes frozen before launch, active B2 overlap/cancellation/follow-ups, 150 replays, one safe prefill invalidation, zero tracker warnings/unsafe errors/runtime errors/tracebacks, and zero leftover processes/device holders. The ordinary frozen final `server.log` has one conservative active-trace allocation warning during startup/capture but no trace-tracker live-buffer/corruption error, traceback, or EngineCore failure; the exact unfiltered tracker run controls the safety verdict.
 
-## Final lifecycle and cleanup
+## Final evidence index
 
-The live cancellation check completed a 128-token survivor while overlapping
-and client-cancelling a second queued request after one second, then required
-two non-empty HTTP-200 follow-ups to match byte-for-byte. The server did not
-emit an explicit abort marker; that limitation is retained in the artifact and
-README rather than inferred away. vLLM owns admission/cancellation, and every
-model admission initializes fresh state. The focused current-source tests also
-cover real PLE history/reset/cancel and threaded request isolation. Artifact:
-`readiness_vllm/host_serving_lifecycle.json`.
+- serving/sampling: `readiness_vllm/server.log.gz`, `sampling_tests.log`, `non_aligned_prompt_check.json`, `stage_gate.log`.
+- quality: `vllm_qualitative_outputs.json`, `qualitative_tt_chat.json`, `qualitative_prompt_format.json`, `QUALITATIVE_REVIEW.md`.
+- performance: `vllm_result.json`, `vllm_benchmark.json`, `vllm_ci_serving_result.json`, `vllm_ci_serving_benchmark.json` and their `.log` files.
+- host/runtime: `serving_host_metrics.json`, `host_serving_lifecycle.json`, `host_weight_cache_tests.log`, `process_cleanup_audit.json`.
+- allocation lifetime: `trace_allocation_tracker_b2_audit.json`, `AUTOFIX_TRACE_ALLOCATION_LIFETIME.md`, `final_b2_trace_tracker_fixed/server.log.gz`, `final_b2_trace_tracker_fixed/host_serving_lifecycle.json`, and `final_b2_trace_tracker_fixed/process_cleanup_audit.json`.
+- focused fixes: `autofix_virtual_b2_tt.xml`, `autofix_repeated_nonaligned_embedding.xml`, `autofix_reused_program_virtual_adapter.xml`, `autofix_route_sparsity_rm_first_tt.xml`, `autofix_sparse_matmul_fp32_cb.xml`, `autofix_rank_local_staging_tt.xml`, and the associated `autofix_*.md` reports.
 
-The final server was interrupted with SIGINT; vLLM entered abort mode and the
-process manager force-killed one remaining child. The process audit then found
-no APIServer, vLLM, EngineCore, or runner process, no holder of
-`/dev/tenstorrent/0` or `/dev/tenstorrent/1`, healthy DRAM on both P300 dies,
-and synchronized heartbeats. The direct tracker-enabled rerun has the same
-clean post-stop audit. Artifacts: `readiness_vllm/process_cleanup_audit.json`
-and `readiness_vllm/autofix_chat_template/process_cleanup_audit.json`.
-
-## Active-sequence boundary
-
-The largest active traced `max_num_seqs` proven by this stage is one; the
-32-request CI workload is concurrent HTTP admission queued behind that slot,
-not active device batching. This is a fail-fast implementation boundary in the
-full-stack segmented token-out trace: it has one recurrent-state workspace,
-one PLE row, and one top-8 routed-expert service row. It is explicitly **not**
-classified as a physical-memory limit. The full 48-layer eager control already
-runs batch 32 at context 4,096, and both recorded DRAM plans retain headroom.
-True multi-active traced serving requires a new multi-user expert-wave and
-state-trace ABI rather than an adapter-only relaxation. Exact code gates,
-capacity numbers, and supporting artifacts are recorded in
-`readiness_vllm/max_num_seqs_limit.json`.
+Historical max-one and pre-fix trace-allocation artifacts are retained only as root-cause history. The current-source exact-B2 tracker audit above is authoritative for allocation lifetime. The authoritative capacity file is `readiness_vllm/max_num_seqs_limit.json`: the public adapter and final server are both capped at the two active full-model requests validated over the physical-B1 trace.
 
 ## Review and commits
 
-The pre-stage code audit returned clean-pass after ownership wording was made
-consistent with vLLM adoption. The first final stage review returned
-`more-work-needed` for raw-prompt qualitative evidence, physical-limit wording,
-and an unclassified allocation warning. AutoFix produced prompt-correct chat
-evidence, an honest segmented-ABI boundary report, and a direct tracker-enabled
-full-48 vLLM rerun. The fresh independent rereview then returned **clean-pass**
-with no P0/P1/P2 findings; see `doc/vllm_integration/STAGE_REVIEW.md`.
+The first frozen-source review returned `more-work-needed` because the adapter accepted active B8 while the full-model proof stopped at B2. The public adapter/test/readiness contract was narrowed to the validated B2 surface, the refreshed focused suite passed 65/65, and the hard stage gate passed again. A fresh xhigh rereview then returned `clean-pass` with no required work; the authoritative report is `doc/vllm_integration/STAGE_REVIEW.md`.
 
-Stage-owned local code/evidence commits:
+Local checkpoint SHAs are appended below after each repository commit. No push is performed.
 
-- tt-metal integration and readiness evidence:
-  `42561c74faf3f5a5c74ef367a784ad6ed698353b`;
-- vLLM TT plugin registration and sampling-capability routing:
-  `561eee7c77ad822ecb64436ad801ae099de1b108`.
-
-The plugin worktree still contains a pre-existing, unstaged Qwen3.6 platform
-hunk; it was explicitly excluded from the Qwen3.8 commit. Nothing was pushed.
+- vLLM TT plugin: branch `housTT/register-muse-glimmer-30b`, commit `a48857ac68b17c31303e4809f348caaebbf10f74` (`Support Qwen3.8 virtual-slot vLLM serving`).
+- tt-metal implementation/evidence checkpoint: recorded by the follow-up bookkeeping commit after the implementation commit is created.

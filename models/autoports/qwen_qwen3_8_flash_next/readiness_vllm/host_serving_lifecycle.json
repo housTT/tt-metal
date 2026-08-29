@@ -1,4 +1,20 @@
 {
+  "active_peer_client_cancelled": true,
+  "active_stream_overlap": true,
+  "baseline": {
+    "finish_reason": "length",
+    "http_status": 200,
+    "text": " A",
+    "usage": {
+      "completion_tokens": 1,
+      "prompt_tokens": 4,
+      "prompt_tokens_details": null,
+      "total_tokens": 5
+    }
+  },
+  "both_requests_streamed_before_cancel": true,
+  "cancel_request_accepted": true,
+  "cancel_requested_unix": 1787993792.437166,
   "followups": [
     {
       "finish_reason": "length",
@@ -26,52 +42,242 @@
   "followups_http_200": true,
   "followups_identical": true,
   "followups_nonempty": true,
+  "metrics_sentinel": {
+    "finish_reason": "length",
+    "http_status": 200,
+    "text": " A",
+    "usage": {
+      "completion_tokens": 1,
+      "prompt_tokens": 4,
+      "prompt_tokens_details": null,
+      "total_tokens": 5
+    }
+  },
   "model": "Qwen/Qwen3.8-Flash-Next",
-  "physical_max_num_seqs": 1,
-  "queued_client_cancelled": true,
+  "release_path_semantics": "the live survivor and client-aborted peer use the finished-request release path; the plugin carries preemption through the same generation-tagged lifecycle hook",
+  "schema_version": 2,
   "server_abort_markers_delta": 0,
-  "server_log": "models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/server.log.gz",
+  "server_log": "models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/server.log",
   "server_log_abort_observed": false,
   "server_url": "http://localhost:8018",
+  "serving_capacity": {
+    "max_num_seqs": 2,
+    "physical_decode_batch": 1,
+    "virtual_slot_capacity": 2
+  },
   "survivor_completed": true,
   "timeline": [
     {
       "completed": true,
-      "elapsed_seconds": 43.03178405761719,
-      "ended_unix": 1787951796.4224567,
+      "elapsed_seconds": 38.36220836639404,
+      "ended_unix": 1787993826.8208702,
+      "first_token_unix": 1787993790.8231013,
       "http_status": 200,
       "label": "survivor",
       "max_tokens": 128,
       "prompt": "Write a numbered list of one hundred colors:",
-      "started_unix": 1787951753.3906727,
-      "stream_chunks": 129
+      "started_unix": 1787993788.4586618,
+      "stream_chunks": 129,
+      "text": "\n\n<think>\nThe user wants a numbered list of 100 colors. I need to come up with 100 distinct color names. Let me think of a wide variety of colors - basic colors, shades, tints, named colors, nature-inspired colors, etc. I'll aim for variety and make sure I have exactly 100.\n\nLet me organize them somewhat logically but also ensure variety:\n\n1. Red\n2. Blue\n3. Green\n4. Yellow\n5. Orange\n6. Purple\n7. Pink\n8. Brown\n9. Black\n10. White\n1",
+      "token_events": 128
     },
     {
       "cancelled": true,
-      "elapsed_seconds": 1.0014135837554932,
-      "ended_unix": 1787951755.1428945,
+      "elapsed_seconds": 3.9761722087860107,
+      "ended_unix": 1787993792.4376838,
+      "first_token_unix": 1787993791.4357305,
       "http_status": 200,
-      "label": "cancelled_while_queued",
+      "label": "cancelled_active_peer",
       "max_tokens": 128,
-      "prompt": "Explain queued request cancellation in detail:",
-      "started_unix": 1787951754.141481
+      "prompt": "Explain active request cancellation in detail:",
+      "started_unix": 1787993788.4615116,
+      "text": " how to"
     }
   ],
   "verdict": "pass",
+  "virtual_lifecycle_metrics": {
+    "active_overlap_bank_evidence": true,
+    "finish_cancel_release_evidence": true,
+    "host_gauges_end": {
+      "expert_device_bytes_per_rank": 1592524800.0,
+      "expert_device_slot_capacity": 480.0,
+      "expert_device_slot_entries": 480.0,
+      "expert_layers": 48.0,
+      "expert_packed_host_bytes": 68080435200.0,
+      "expert_packed_host_entries": 24576.0,
+      "expert_preload_bytes": 68080435200.0,
+      "expert_preload_entries": 24576.0,
+      "expert_preload_seconds": 238.86071712400008,
+      "ple_history_entries": 0.0,
+      "ple_row_cache_entries": 8192.0
+    },
+    "host_gauges_start": {
+      "expert_device_bytes_per_rank": 1592524800.0,
+      "expert_device_slot_capacity": 480.0,
+      "expert_device_slot_entries": 480.0,
+      "expert_layers": 48.0,
+      "expert_packed_host_bytes": 68080435200.0,
+      "expert_packed_host_entries": 24576.0,
+      "expert_preload_bytes": 68080435200.0,
+      "expert_preload_entries": 24576.0,
+      "expert_preload_seconds": 238.86071712400008,
+      "ple_history_entries": 0.0,
+      "ple_row_cache_entries": 8192.0
+    },
+    "host_sampling_compatibility_calls_delta": 0,
+    "host_service_delta": {
+      "expert_deferred_dma_misses": 57642.0,
+      "expert_dma_completion_syncs": 0.0,
+      "expert_evictions": 57642.0,
+      "expert_h2d_bytes": 159368601600.0,
+      "expert_h2d_seconds": 12.715954782441258,
+      "expert_hits": 25011.0,
+      "expert_index_h2d_bytes": 244120.0,
+      "expert_index_upload_seconds": 0.42521308752475306,
+      "expert_misses": 57642.0,
+      "expert_packed_host_hits": 57642.0,
+      "expert_packed_host_misses": 0.0,
+      "expert_requests": 8347.0,
+      "expert_source_pack_seconds": 0.0,
+      "expert_waves": 8347.0,
+      "expert_zero_d2d_bytes": 159368601600.0,
+      "ple_device_completion_syncs": 0.0,
+      "ple_device_deferred_uploads": 156.0,
+      "ple_device_h2d_bytes": 6799360.0,
+      "ple_device_h2d_seconds": 0.021588856063317508,
+      "ple_device_logical_h2d_bytes": 1914880.0,
+      "ple_host_assembly_bytes": 957440.0,
+      "ple_lookup_calls": 156.0,
+      "ple_lookup_seconds": 0.18284792400663719,
+      "ple_selected_rows": 2992.0,
+      "ple_table_bytes_read": 755200.0,
+      "ple_table_rows_read": 2360.0,
+      "ple_unique_rows": 2992.0
+    },
+    "marker_end_completed_requests": 845,
+    "marker_start_completed_requests": 841,
+    "measured_logical_requests": 4,
+    "prohibited_host_work_end": {
+      "activation_roundtrip": false,
+      "expert_projection": false,
+      "kv_or_recurrence": false,
+      "optimized_sampling_or_argmax": false,
+      "per_token_position_refresh": false,
+      "ple_projection": false,
+      "token_feedback_reconstruction": false,
+      "unchanged_page_table_refresh": false
+    },
+    "runtime_contract_evidence": true,
+    "runtime_counter_delta": {
+      "model_only_trace_replays": 0.0,
+      "sampling_seed_host_copies": 0.0,
+      "trace_replays": 152.0
+    },
+    "runtime_ownership_assertions": [
+      "start: vLLM KV ownership and model-owned virtual bank 1/2",
+      "end: vLLM KV ownership and model-owned virtual bank 1/2",
+      "attention-cache lifecycle stayed constant with one vLLM adoption and no model-owned residue"
+    ],
+    "virtual_bank_delta": {
+      "commit_logical_bytes": 2085748896.0,
+      "commit_submit_seconds": 0.019913114971132018,
+      "commits": 8.0,
+      "resets": 1.0,
+      "restore_logical_bytes": 1303593060.0,
+      "restore_submit_seconds": 0.011671179003315046,
+      "restores": 5.0
+    },
+    "virtual_slot_delta": {
+      "assignments": 4.0,
+      "prefill_admissions_while_trace_live": 4.0,
+      "prefill_trace_invalidations": 0.0,
+      "releases": 4.0,
+      "sampling_trace_mode_switches": 0.0,
+      "stale_rejections": 0.0
+    },
+    "virtual_slot_end": {
+      "active_slots": 0,
+      "assignments": 845,
+      "bank": {
+        "allocated_logical_bytes": 782155836,
+        "capacity": 2,
+        "closed": false,
+        "commit_logical_bytes": 2907273242412,
+        "commit_submit_seconds": 29.331276735509164,
+        "commits": 11151,
+        "enabled": true,
+        "logical_bytes_per_slot": 260718612,
+        "resets": 733,
+        "restore_logical_bytes": 2652551158488,
+        "restore_submit_seconds": 24.1706366588769,
+        "restores": 10174,
+        "zero_template_logical_bytes": 260718612
+      },
+      "capacity": 2,
+      "enabled": true,
+      "physical_batch": 1,
+      "prefill_admissions_while_trace_live": 765,
+      "prefill_trace_invalidations": 23,
+      "releases": 845,
+      "resident_slot": null,
+      "sampling_trace_mode_switches": 6,
+      "stale_rejections": 0,
+      "valid_slots": 0
+    },
+    "virtual_slot_start": {
+      "active_slots": 0,
+      "assignments": 841,
+      "bank": {
+        "allocated_logical_bytes": 782155836,
+        "capacity": 2,
+        "closed": false,
+        "commit_logical_bytes": 2905187493516,
+        "commit_submit_seconds": 29.31136362053803,
+        "commits": 11143,
+        "enabled": true,
+        "logical_bytes_per_slot": 260718612,
+        "resets": 732,
+        "restore_logical_bytes": 2651247565428,
+        "restore_submit_seconds": 24.158965479873586,
+        "restores": 10169,
+        "zero_template_logical_bytes": 260718612
+      },
+      "capacity": 2,
+      "enabled": true,
+      "physical_batch": 1,
+      "prefill_admissions_while_trace_live": 761,
+      "prefill_trace_invalidations": 23,
+      "releases": 841,
+      "resident_slot": null,
+      "sampling_trace_mode_switches": 6,
+      "stale_rejections": 0,
+      "valid_slots": 0
+    }
+  },
   "workload": {
-    "cancel_delay_seconds": 1.0,
-    "cancelled": {
+    "baseline": {
+      "max_tokens": 1,
+      "requests": 1,
+      "temperature": 0.0
+    },
+    "cancel_after_both_first_tokens_seconds": 1.0,
+    "cancelled_active_peer": {
       "ignore_eos": true,
       "max_tokens": 128,
       "prompt_tokens": "variable",
       "temperature": 0.0
     },
     "followup": {
+      "ignore_eos": true,
       "max_tokens": 12,
       "requests": 2,
       "temperature": 0.0
     },
-    "overlap_delay_seconds": 0.75,
+    "metrics_sentinel": {
+      "max_tokens": 1,
+      "requests": 1,
+      "temperature": 0.0
+    },
     "survivor": {
       "ignore_eos": true,
       "max_tokens": 128,

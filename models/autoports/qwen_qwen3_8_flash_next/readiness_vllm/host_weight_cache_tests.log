@@ -1,128 +1,226 @@
-2026-08-28 15:51:03.401 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
+2026-08-29 05:19:05.742 | DEBUG    | ttnn:<module>:78 - Initial ttnn.CONFIG:
 Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
 ============================= test session starts ==============================
-platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3
+platform linux -- Python 3.12.12, pytest-9.0.3, pluggy-1.6.0 -- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python
 cachedir: .pytest_cache
 benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
 rootdir: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
 configfile: pytest.ini
-plugins: anyio-4.13.0, split-0.11.0, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
+plugins: split-0.11.0, anyio-4.14.2, cov-7.0.0, dash-2.15.0, repeat-0.9.4, timeout-2.4.0, github-actions-annotate-failures-0.3.0, benchmark-5.2.3
 timeout: 300.0s
 timeout method: signal
 timeout func_only: False
-collecting ... INFO 08-28 15:51:04 [__init__.py:44] Available plugins for group vllm.platform_plugins:
-INFO 08-28 15:51:04 [__init__.py:46] - tt -> vllm_tt_plugin.entrypoints:platform_plugin
-INFO 08-28 15:51:04 [__init__.py:58] Loading plugin tt
-INFO 08-28 15:51:04 [__init__.py:237] Platform plugin tt is activated
-INFO 08-28 15:51:06 [importing.py:46] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
-INFO 08-28 15:51:06 [importing.py:81] Triton not installed or not compatible; certain GPU-related functions will not be available.
-collected 24 items
+collecting ... collected 65 items
 
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_program_cache_guard_releases_only_when_trace_replay_would_be_unsafe PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_failed_enqueue_forces_future_trace_release_without_cache_count_growth PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_failed_guard_marks_program_cache_initialization_uncertain PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_virtual_slot_release_is_inside_program_cache_guard PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_static_protocol_and_full_context_contract PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_initialize_uses_selected_precision_and_proven_tp2 PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_allocate_cache_delegates_one_exact_vllm_owned_object PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_cache_adoption_includes_qsa_compressed_attention_state PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_preserves_non_aligned_logical_length_and_cache_identity PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_metrics_count_completed_logical_rows_not_grouped_calls PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_prefill_cache_pages_follow_logical_tokens_not_compute_padding PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_decode_reset_once_then_steady_async_delegation PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_steady_decode_reads_device_token_only_for_ple PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_decode_microbatches_real_rows_and_ignores_padding PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_decode_supports_multi_active_host_compatibility PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_prefill_supports_multi_active_host_compatibility PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_prefill_preflights_later_stale_owner 2026-08-29 05:19:09.101 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual prefill owner"
+2026-08-29 05:19:09.102 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual prefill owner"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_prefill_preflights_page_width 2026-08-29 05:19:09.249 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] ValueError message="page-table width"
+2026-08-29 05:19:09.249 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] ValueError message="page-table width"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_prefill_fail_stops_after_partial_execution 2026-08-29 05:19:09.396 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="injected row-1 failure"
+2026-08-29 05:19:09.396 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="injected row-1 failure"
+2026-08-29 05:19:09.396 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="fail-stopped"
+2026-08-29 05:19:09.396 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="fail-stopped"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_prefill_reuses_one_physical_state_for_two_slots PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_decode_rejects_stale_generation_before_device_execution 2026-08-29 05:19:09.690 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual state owner"
+2026-08-29 05:19:09.691 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual state owner"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_decode_preflights_later_stale_row 2026-08-29 05:19:09.837 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual state owner"
+2026-08-29 05:19:09.837 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual state owner"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_release_is_generation_guarded_and_idempotent PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_greedy_encoding_delegates_to_canonical_argmax PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_converts_user_temperature_to_kernel_multiplier PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_routes_top1_at_any_temperature_to_argmax PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_unseeded_device_sampling_refreshes_once_per_request PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_virtual_chunked_prefill_replays_to_chunk_end_without_logits_readback PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_stale_prefill_generation_cannot_evict_newer_owner 2026-08-29 05:19:10.875 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual prefill owner"
+2026-08-29 05:19:10.875 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual prefill owner"
+2026-08-29 05:19:10.875 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual prefill owner"
+2026-08-29 05:19:10.875 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual prefill owner"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_preemption_preserves_seeded_and_unseeded_device_rng[123] PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_preemption_preserves_seeded_and_unseeded_device_rng[None] PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_later_row_sampling_error_is_atomic_before_any_decode_execution 2026-08-29 05:19:11.323 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] ValueError message="top_k"
+2026-08-29 05:19:11.323 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] ValueError message="top_k"
+PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_adapter_has_no_sampling_or_full_logits_policy PASSED
-models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_cold_hit_partial_evict_reload_and_stale_guard 2026-08-28 15:51:10.989 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale expert slot"
-2026-08-28 15:51:10.989 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale expert slot"
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_device_bank_copies_only_request_local_state PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_single_live_slot_bypasses_bank_then_second_slot_materializes_state PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_generation_guard_and_request_local_release 2026-08-29 05:19:11.919 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual slot lease"
+2026-08-29 05:19:11.919 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual slot lease"
 PASSED
-models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failure 2026-08-28 15:51:11.326 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] OSError message="rank-1"
-2026-08-28 15:51:11.326 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] OSError message="rank-1"
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_unbanked_release_skips_device_reset_but_cleans_request_lifecycle 2026-08-29 05:19:12.069 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale virtual slot lease"
+2026-08-29 05:19:12.069 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale virtual slot lease"
 PASSED
-models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid 2026-08-28 15:51:11.649 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] OSError message="owner submission"
-2026-08-28 15:51:11.649 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] OSError message="owner submission"
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_unbanked_in_place_reset_skips_device_reset_and_invalidates_state PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_reused_unbanked_slot_is_fully_overwritten_before_restore PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_mixed_sampler_slot_activation_invalidates_incompatible_trace PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_mixed_sampler_slot_activation_keeps_model_only_trace PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_export_restore_virtual_rng_preserves_exact_next_draw PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_non_expert_weight_inventory_from_checkpoint_metadata PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_checkpoint_capacity_constants_and_manifests PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_checkpoint_expert_ep2_packing_is_exact PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_cold_hit_partial_evict_reload_and_stale_guard 2026-08-29 05:19:13.444 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] RuntimeError message="stale expert slot"
+2026-08-29 05:19:13.444 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] RuntimeError message="stale expert slot"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failure 2026-08-29 05:19:13.592 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] OSError message="rank-1"
+2026-08-29 05:19:13.592 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] OSError message="rank-1"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid 2026-08-29 05:19:13.741 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] OSError message="owner submission"
+2026-08-29 05:19:13.741 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] OSError message="owner submission"
 PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_prefill_wave_partition_is_exact PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_ordered_trace_replay_replaces_by_address 2026-08-29 05:19:14.038 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] ValueError message="duplicate"
+2026-08-29 05:19:14.038 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] ValueError message="duplicate"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_row_ids_match_hf_embedding_boundary PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_chunk_history_eos_reset_and_request_isolation PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_concurrent_history_and_cancellation_isolation PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_non_aligned_mask_and_real_checkpoint_rows PASSED
 models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_duplicate_row_cache_and_metrics PASSED
-::test_greedy_vllm_top_k_sentinel_remains_on_device <- ../../vllm-tt-plugin/tests/test_device_sampling_capabilities.py PASSED
-::test_unsupported_random_top_k_uses_host_compatibility <- ../../vllm-tt-plugin/tests/test_device_sampling_capabilities.py PASSED
-::test_unsupported_penalties_use_host_compatibility <- ../../vllm-tt-plugin/tests/test_device_sampling_capabilities.py PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_host_contract_json_numbers_are_serializable PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_datatype_sweep_candidate_matrix_is_reproducible_and_matches_results PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_parse_markers_accepts_archived_server_log PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_parse_markers_tolerates_only_a_trailing_live_partial_write PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_uses_logical_counts_for_grouped_virtual_prefills PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_counts_trace_recapture_after_prefill_invalidation PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_does_not_accept_missing_replays_without_invalidation 2026-08-29 05:19:17.285 | INFO     | conftest:expect_error_:946 - [EXPECTED_ERROR BEGIN] ValueError message="no markers delimit"
+2026-08-29 05:19:17.285 | INFO     | conftest:expect_error_:951 - [EXPECTED_ERROR END] ValueError message="no markers delimit"
+PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_window_reports_virtual_bank_deltas_and_exact_ownership PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_lifecycle_metrics_prove_active_banking_and_four_releases PASSED
+models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_derivation_main_accepts_grouped_ci_window PASSED
 
 =============================== warnings summary ===============================
 models/common/llama_models.py:63
   /home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/common/llama_models.py:63: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
     @validator("tool_name", pre=True)
 
-<frozen importlib._bootstrap>:488
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_row_ids_match_hf_embedding_boundary
   <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
 
-<frozen importlib._bootstrap>:488
+models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_row_ids_match_hf_embedding_boundary
   <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
-
-../../../.tenstorrent-venv/lib/python3.12/site-packages/torch/jit/_script.py:365: 14 warnings
-  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
-    warnings.warn(
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 ==================================== PASSES ====================================
-- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/generated/test_reports/most_recent_tests.xml -
+- generated xml file: /home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/host_weight_cache_tests.xml -
 ============================= slowest 25 durations =============================
-0.35s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_unseeded_device_sampling_refreshes_once_per_request
-0.34s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_decode_reset_once_then_steady_async_delegation
-0.34s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_greedy_encoding_delegates_to_canonical_argmax
-0.34s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failure
-0.33s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_converts_user_temperature_to_kernel_multiplier
-0.33s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_preserves_non_aligned_logical_length_and_cache_identity
-0.33s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_concurrent_history_and_cancellation_isolation
-0.33s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_prefill_wave_partition_is_exact
-0.33s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_prefill_cache_pages_follow_logical_tokens_not_compute_padding
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_steady_decode_reads_device_token_only_for_ple
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_chunk_history_eos_reset_and_request_isolation
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_allocate_cache_delegates_one_exact_vllm_owned_object
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_non_aligned_mask_and_real_checkpoint_rows
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_duplicate_row_cache_and_metrics
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_cold_hit_partial_evict_reload_and_stale_guard
-0.32s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_routes_top1_at_any_temperature_to_argmax
-0.31s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_cache_adoption_includes_qsa_compressed_attention_state
-0.31s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_adapter_has_no_sampling_or_full_logits_policy
-0.31s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_static_protocol_and_full_context_contract
-0.30s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_initialize_uses_selected_precision_and_proven_tp2
-0.02s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_non_aligned_mask_and_real_checkpoint_rows
-0.00s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_concurrent_history_and_cancellation_isolation
-0.00s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_chunk_history_eos_reset_and_request_isolation
-0.00s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_prefill_cache_pages_follow_logical_tokens_not_compute_padding
+1.02s call     models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_row_ids_match_hf_embedding_boundary
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_chunk_history_eos_reset_and_request_isolation
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_duplicate_row_cache_and_metrics
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_window_reports_virtual_bank_deltas_and_exact_ownership
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_derivation_main_accepts_grouped_ci_window
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_parse_markers_accepts_archived_server_log
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_non_aligned_mask_and_real_checkpoint_rows
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_concurrent_history_and_cancellation_isolation
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_lifecycle_metrics_prove_active_banking_and_four_releases
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_counts_trace_recapture_after_prefill_invalidation
+0.19s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_uses_logical_counts_for_grouped_virtual_prefills
+0.18s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_host_contract_json_numbers_are_serializable
+0.18s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_parse_markers_tolerates_only_a_trailing_live_partial_write
+0.18s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_datatype_sweep_candidate_matrix_is_reproducible_and_matches_results
+0.18s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_does_not_accept_missing_replays_without_invalidation
+0.18s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_program_cache_guard_releases_only_when_trace_replay_would_be_unsafe
+0.17s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_cold_hit_partial_evict_reload_and_stale_guard
+0.16s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_failed_enqueue_forces_future_trace_release_without_cache_count_growth
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_checkpoint_capacity_constants_and_manifests
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_virtual_slot_release_is_inside_program_cache_guard
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_failed_guard_marks_program_cache_initialization_uncertain
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_converts_user_temperature_to_kernel_multiplier
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_device_bank_copies_only_request_local_state
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_unbanked_release_skips_device_reset_but_cleans_request_lifecycle
+0.15s setup    models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_static_protocol_and_full_context_contract
 =========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_program_cache_guard_releases_only_when_trace_replay_would_be_unsafe
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_failed_enqueue_forces_future_trace_release_without_cache_count_growth
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_failed_guard_marks_program_cache_initialization_uncertain
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_virtual_slot_release_is_inside_program_cache_guard
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_static_protocol_and_full_context_contract
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_initialize_uses_selected_precision_and_proven_tp2
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_allocate_cache_delegates_one_exact_vllm_owned_object
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_cache_adoption_includes_qsa_compressed_attention_state
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_preserves_non_aligned_logical_length_and_cache_identity
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_prefill_metrics_count_completed_logical_rows_not_grouped_calls
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_prefill_cache_pages_follow_logical_tokens_not_compute_padding
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_decode_reset_once_then_steady_async_delegation
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_steady_decode_reads_device_token_only_for_ple
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_decode_microbatches_real_rows_and_ignores_padding
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_decode_supports_multi_active_host_compatibility
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_prefill_supports_multi_active_host_compatibility
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_prefill_preflights_later_stale_owner
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_prefill_preflights_page_width
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_prefill_fail_stops_after_partial_execution
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_prefill_reuses_one_physical_state_for_two_slots
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_decode_rejects_stale_generation_before_device_execution
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_multi_host_decode_preflights_later_stale_row
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_generator_virtual_release_is_generation_guarded_and_idempotent
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_greedy_encoding_delegates_to_canonical_argmax
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_converts_user_temperature_to_kernel_multiplier
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_canonical_sampler_routes_top1_at_any_temperature_to_argmax
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_vllm_unseeded_device_sampling_refreshes_once_per_request
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_virtual_chunked_prefill_replays_to_chunk_end_without_logits_readback
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_stale_prefill_generation_cannot_evict_newer_owner
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_preemption_preserves_seeded_and_unseeded_device_rng[123]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_preemption_preserves_seeded_and_unseeded_device_rng[None]
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_later_row_sampling_error_is_atomic_before_any_decode_execution
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_generator_vllm.py::test_adapter_has_no_sampling_or_full_logits_policy
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_device_bank_copies_only_request_local_state
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_single_live_slot_bypasses_bank_then_second_slot_materializes_state
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_generation_guard_and_request_local_release
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_unbanked_release_skips_device_reset_but_cleans_request_lifecycle
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_unbanked_in_place_reset_skips_device_reset_and_invalidates_state
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_reused_unbanked_slot_is_fully_overwritten_before_restore
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_mixed_sampler_slot_activation_invalidates_incompatible_trace
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_mixed_sampler_slot_activation_keeps_model_only_trace
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_virtual_decode_state_bank.py::test_export_restore_virtual_rng_preserves_exact_next_draw
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_non_expert_weight_inventory_from_checkpoint_metadata
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_checkpoint_capacity_constants_and_manifests
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_checkpoint_expert_ep2_packing_is_exact
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_cold_hit_partial_evict_reload_and_stale_guard
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failure
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_prefill_wave_partition_is_exact
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_slot_directory_ordered_trace_replay_replaces_by_address
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_row_ids_match_hf_embedding_boundary
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_chunk_history_eos_reset_and_request_isolation
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_concurrent_history_and_cancellation_isolation
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_non_aligned_mask_and_real_checkpoint_rows
 PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_ple_duplicate_row_cache_and_metrics
-PASSED ::test_greedy_vllm_top_k_sentinel_remains_on_device
-PASSED ::test_unsupported_random_top_k_uses_host_compatibility
-PASSED ::test_unsupported_penalties_use_host_compatibility
-======================= 24 passed, 17 warnings in 9.11s ========================
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_host_contract_json_numbers_are_serializable
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_host_weight_cache.py::test_datatype_sweep_candidate_matrix_is_reproducible_and_matches_results
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_parse_markers_accepts_archived_server_log
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_parse_markers_tolerates_only_a_trailing_live_partial_write
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_uses_logical_counts_for_grouped_virtual_prefills
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_counts_trace_recapture_after_prefill_invalidation
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_select_windows_does_not_accept_missing_replays_without_invalidation
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_window_reports_virtual_bank_deltas_and_exact_ownership
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_lifecycle_metrics_prove_active_banking_and_four_releases
+PASSED models/autoports/qwen_qwen3_8_flash_next/tests/test_readiness_vllm_scripts.py::test_derivation_main_accepts_grouped_ci_window
+======================= 65 passed, 3 warnings in 11.40s ========================
 sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
 nanobind: leaked 2 instances!
- - leaked instance 0x76c734ce6e28 of type "ttnn._ttnn.tensor.MemoryConfig"
- - leaked instance 0x76c7352e5ea8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7382bc05e588 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7382bc3e7c18 of type "ttnn._ttnn.tensor.CoreRangeSet"
 nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
@@ -136,15 +234,15 @@ nanobind: leaked 20 types!
  - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
  - ... skipped remainder
 nanobind: leaked 251 functions!
- - leaked function "__init__"
- - leaked function "element_size"
+ - leaked function "merge"
  - leaked function ""
+ - leaked function "load_sub_device_manager"
  - leaked function ""
+ - leaked function "remove_sub_device_manager"
  - leaked function ""
- - leaked function "to_list"
- - leaked function "from_json"
+ - leaked function "storage_type"
  - leaked function ""
- - leaked function ""
+ - leaked function "get_device_ids"
  - leaked function "__init__"
  - ... skipped remainder
 nanobind: this is likely caused by a reference counting issue in the binding code.

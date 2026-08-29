@@ -7,6 +7,9 @@ from __future__ import annotations
 import inspect
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -258,6 +261,245 @@ def test_host_backed_runtime_boundary_whitelist():
     assert "from_torch" not in route_source and "copy_host_to_device_tensor" not in route_source
 
 
+def test_host_expert_wave_service_precedes_compute_without_debug_fences(monkeypatch):
+    """Production wave service stays ordered without host synchronization hooks."""
+
+    events = []
+    plans = {17: object(), 23: object()}
+
+    class FakeCache:
+        @staticmethod
+        def waves(route_ids):
+            events.append(("waves", route_ids))
+            return ((17,), (23,))
+
+        @staticmethod
+        def ensure_wave(wave):
+            events.append(("ensure", wave))
+            return plans[wave[0]]
+
+        @staticmethod
+        def validate(actual):
+            events.append(("validate", actual))
+
+    layer = object.__new__(MultichipDecoder)
+    layer.host_expert_cache = FakeCache()
+    layer._decode_active = False
+    layer._host_route_ids = object()
+    layer._read_compact_route_ids = lambda: events.append(("read",)) or (17, 23)
+    layer._routed_expert_wave = lambda _x, _routing, wave, actual: events.append(("compute", wave, actual)) or object()
+    monkeypatch.setattr(ttnn, "add", lambda left, right: events.append(("add", left, right)) or object())
+    monkeypatch.setattr(ttnn, "deallocate", lambda value: events.append(("deallocate", value)))
+    monkeypatch.setattr(
+        ttnn,
+        "synchronize_device",
+        lambda *_args, **_kwargs: pytest.fail("production wave path must not host-synchronize"),
+    )
+
+    layer._routed_experts(object(), object())
+
+    names = [event[0] for event in events]
+    assert names[:2] == ["read", "waves"]
+    first_ensure = next(index for index, event in enumerate(events) if event[:2] == ("ensure", (17,)))
+    first_validate = next(index for index, event in enumerate(events) if event == ("validate", plans[17]))
+    first_compute = next(index for index, event in enumerate(events) if event[:2] == ("compute", (17,)))
+    second_ensure = next(index for index, event in enumerate(events) if event[:2] == ("ensure", (23,)))
+    second_validate = next(index for index, event in enumerate(events) if event == ("validate", plans[23]))
+    second_compute = next(index for index, event in enumerate(events) if event[:2] == ("compute", (23,)))
+    assert first_ensure < first_validate < first_compute < second_ensure < second_validate < second_compute
+
+
+def test_route_sparsity_uses_row_major_metadata_reshape_without_debug_scaffolding():
+    """Forbid the cached many-page-to-one-page TILE reshape that hung serving."""
+
+    for method in (MultichipDecoder._routed_expert_slot, MultichipDecoder._routed_expert_wave):
+        source = inspect.getsource(method)
+        max_call = source.index("sparsity = ttnn.max(")
+        to_layout_call = source.index("sparsity = ttnn.to_layout(")
+        reshape_call = source.index("sparsity = ttnn.reshape(")
+        sparse_matmul_call = source.index("gate_up_sparse = ttnn.sparse_matmul(")
+        assert max_call < to_layout_call < reshape_call < sparse_matmul_call, method.__qualname__
+
+    wave_source = inspect.getsource(MultichipDecoder._routed_expert_wave)
+    assert "metadata-only view" in wave_source
+
+    production_sources = "\n".join(
+        inspect.getsource(method)
+        for method in (
+            MultichipDecoder._read_compact_route_ids,
+            MultichipDecoder._wave_route_weights,
+            MultichipDecoder._routed_expert_wave,
+            MultichipDecoder._routed_experts,
+            MultichipDecoder._moe,
+            MultichipDecoder.prefill_forward_fractured,
+            MultichipDecoder.prefill_forward_host_backed_fractured,
+        )
+    )
+    for forbidden in (
+        "QWEN38_HOST_EXPERT_WAVE_FENCE",
+        "QWEN38_HOST_EXPERT_WAVE_REUSE_FENCE",
+        "QWEN38_HOST_EXPERT_STAGE_FENCE",
+        "QWEN38_VLLM_DEBUG_PREFILL_PROGRESS",
+        "_debug_expert_",
+        "synchronize_device",
+    ):
+        assert forbidden not in production_sources
+
+
+def test_host_expert_staging_uses_one_parent_allocation_and_coordinate_h2d(monkeypatch, expect_error):
+    """Guard the allocator-safe, physically rank-local expert upload path."""
+
+    init_source = inspect.getsource(QwenDeviceExpertCache.__init__)
+    assert "self._upload_storage" in init_source
+    assert "self._zero_storage" in init_source
+    assert "get_device_tensors(storage.gate_up)" in init_source
+    assert "get_device_tensors(self._zero_storage.gate_up)" in init_source
+    assert "device_coords()" in init_source
+    assert "MeshCoordinateRange(mesh_device.shape)" not in init_source
+    assert "shard.device()" not in init_source
+    assert "experimental_to_single_device" not in init_source
+
+    enqueue_source = inspect.getsource(QwenDeviceExpertCache._enqueue_prepared_h2d)
+    assert "copy_host_to_device_tensor_at_coordinate" in enqueue_source
+    assert "ttnn.copy_host_to_device_tensor(" not in enqueue_source
+    for probe in (
+        QwenDeviceExpertCache.probe_completed_owner_h2d,
+        QwenDeviceExpertCache.probe_completed_dual_owner_h2d,
+    ):
+        probe_source = inspect.getsource(probe)
+        assert "copy_host_to_device_tensor_at_coordinate" in probe_source
+        assert "ttnn.copy_host_to_device_tensor(" not in probe_source
+    close_source = inspect.getsource(QwenDeviceExpertCache.close)
+    assert "for staging in self._upload_storage" in close_source
+    assert "for rank_staging in self.upload_by_rank" not in close_source
+
+    host_only = ttnn.from_torch(torch.zeros((1, 1, 32, 32), dtype=torch.bfloat16), layout=ttnn.TILE_LAYOUT)
+    with expect_error(RuntimeError, "expects a device tensor"):
+        ttnn.copy_host_to_device_tensor_at_coordinate(host_only, host_only, ttnn.MeshCoordinate(0, 0))
+
+    calls = []
+    monkeypatch.setattr(
+        ttnn,
+        "copy_host_to_device_tensor_at_coordinate",
+        lambda host, device, coordinate: calls.append((host, device, coordinate)),
+    )
+    cache = object.__new__(QwenDeviceExpertCache)
+    cache._rank_coordinates = ("rank-0", "rank-1")
+    cache._upload_storage = (SimpleNamespace(gate_up="shared-gate", down="shared-down"),)
+    prepared = SimpleNamespace(
+        identity=SimpleNamespace(expert_id=3),
+        staging_index=0,
+        packed=((None, None), ("owner-gate", "owner-down")),
+    )
+    assert cache._enqueue_prepared_h2d(prepared) >= 0.0
+    assert calls == [
+        ("owner-gate", "shared-gate", "rank-1"),
+        ("owner-down", "shared-down", "rank-1"),
+    ]
+
+    cpp_source = (Path(__file__).resolve().parents[4] / "ttnn/cpp/ttnn-nanobind/operations/core.cpp").read_text()
+    primitive = cpp_source.split('"copy_host_to_device_tensor_at_coordinate"', 1)[1].split(
+        '"copy_host_to_device_tensor_partial"', 1
+    )[0]
+    assert "enqueue_write_shards" in primitive
+    assert "ShardDataTransfer{coordinate}" in primitive
+    assert "get_mesh_tensor().impl().raw_mesh_buffer()" in primitive
+    assert "device_storage() =" not in primitive
+    assert "non_uniform_data_movement" not in primitive
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_RANK_LOCAL_STAGING_TT") != "1",
+    reason="explicit two-rank topology-preserving H2D regression",
+)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_rank_local_staging_coordinate_write_preserves_parent_topology(bh_1d_mesh_device, device_params):
+    """Prove concurrent owner writes touch one rank each without narrowing shared storage."""
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    staging = _replicated_upload(torch.zeros((1, 1, 32, 32), dtype=torch.bfloat16), mesh_device)
+    target = _replicated_upload(torch.zeros((1, 1, 32, 32), dtype=torch.bfloat16), mesh_device)
+    coordinates = tuple(staging.device_coords())
+    expected_coordinates = [tuple(coordinate) for coordinate in coordinates]
+    hosts = tuple(
+        ttnn.from_torch(
+            torch.full((1, 1, 32, 32), float(rank + 1), dtype=torch.bfloat16),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+        )
+        for rank in range(2)
+    )
+    staging_shards = tuple(ttnn.get_device_tensors(staging))
+    target_shards = tuple(ttnn.get_device_tensors(target))
+
+    assert [tuple(coordinate) for coordinate in staging.device_coords()] == expected_coordinates
+    assert [tuple(coordinate) for coordinate in staging.tensor_topology().mesh_coords()] == expected_coordinates
+    assert all([tuple(coordinate) for coordinate in host.tensor_topology().mesh_coords()] == [(0, 0)] for host in hosts)
+    assert [[tuple(coordinate) for coordinate in shard.device_coords()] for shard in staging_shards] == [
+        [expected_coordinates[0]],
+        [expected_coordinates[1]],
+    ]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = tuple(
+            executor.submit(ttnn.copy_host_to_device_tensor_at_coordinate, hosts[rank], staging, coordinates[rank])
+            for rank in range(2)
+        )
+        for future in futures:
+            future.result()
+    for rank in range(2):
+        ttnn.copy(staging_shards[rank], target_shards[rank])
+    ttnn.synchronize_device(mesh_device)
+
+    assert [tuple(coordinate) for coordinate in staging.device_coords()] == expected_coordinates
+    assert [tuple(coordinate) for coordinate in staging.tensor_topology().mesh_coords()] == expected_coordinates
+    for rank, (staging_shard, target_shard) in enumerate(zip(staging_shards, target_shards)):
+        expected = torch.full((1, 1, 32, 32), float(rank + 1), dtype=torch.bfloat16)
+        torch.testing.assert_close(ttnn.to_torch(staging_shard), expected, rtol=0.0, atol=0.0)
+        torch.testing.assert_close(ttnn.to_torch(target_shard), expected, rtol=0.0, atol=0.0)
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_ROUTE_SPARSITY_TT") != "1",
+    reason="explicit repeated route-sparsity ROW_MAJOR-first regression",
+)
+@pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+def test_route_sparsity_row_major_first_reuses_programs_with_fresh_buffers(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """Repeat the exact groups=4, E=7 path without the failing TILE reshape."""
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    cache_entries = []
+    output_addresses = []
+    for iteration in range(4):
+        torch.manual_seed(20260828 + iteration)
+        routing_groups_host = torch.randn((1, 4, 32, 7), dtype=torch.bfloat16)
+        expected = torch.max(routing_groups_host, dim=2, keepdim=True).values.reshape(1, 1, 4, 7)
+        routing_groups = _replicated_upload(routing_groups_host, bh_1d_mesh_device)
+
+        sparsity = ttnn.max(routing_groups, dim=2, keepdim=True)
+        sparsity_rm = ttnn.to_layout(sparsity, ttnn.ROW_MAJOR_LAYOUT)
+        rm_addresses = tuple(tensor.buffer_address() for tensor in ttnn.get_device_tensors(sparsity_rm))
+        sparsity_view = ttnn.reshape(sparsity_rm, (1, 1, 4, 7))
+        view_addresses = tuple(tensor.buffer_address() for tensor in ttnn.get_device_tensors(sparsity_view))
+        ttnn.synchronize_device(bh_1d_mesh_device)
+
+        assert sparsity_view.layout == ttnn.ROW_MAJOR_LAYOUT
+        assert tuple(sparsity_view.shape) == (1, 1, 4, 7)
+        assert view_addresses == rm_addresses
+        torch.testing.assert_close(_rank_zero_host(sparsity_view), expected, rtol=0.0, atol=0.0)
+        cache_entries.append(bh_1d_mesh_device.num_program_cache_entries())
+        output_addresses.append(view_addresses)
+
+    assert cache_entries[1:] == [cache_entries[0]] * 3
+    record_property("program_cache_entries", str(cache_entries))
+    record_property("output_addresses", str(output_addresses))
+
+
 @pytest.mark.parametrize(
     "seq_len",
     [1, 31, 32, 33, 63, 64, 65, 127, 128, 129, 2047, 2048, 2049, HF_ADVERTISED_CONTEXT - 1, HF_ADVERTISED_CONTEXT],
@@ -445,9 +687,7 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
         enqueue_p50_seconds = enqueue_seconds[(len(enqueue_seconds) - 1) // 2]
         enqueue_p95_seconds = enqueue_seconds[max(0, (95 * len(enqueue_seconds) + 99) // 100 - 1)]
         wait_p50_seconds = completion_wait_seconds[(len(completion_wait_seconds) - 1) // 2]
-        wait_p95_seconds = completion_wait_seconds[
-            max(0, (95 * len(completion_wait_seconds) + 99) // 100 - 1)
-        ]
+        wait_p95_seconds = completion_wait_seconds[max(0, (95 * len(completion_wait_seconds) + 99) // 100 - 1)]
         # Untimed exactness guard for both EP2 owners after the last completed
         # wave. This catches staging alias/reordering errors without polluting
         # any service sample above.

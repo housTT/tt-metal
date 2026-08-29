@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-import inspect
 import hashlib
+import inspect
 import json
 import os
 import time
@@ -109,6 +109,7 @@ def test_precision_config_reduced_construction_and_summary(bh_1d_mesh_device, de
         summary = model.precision_propagation_summary()
         assert summary["all_fields_consumed"] is True
         assert all(item["passed"] for item in summary["checks"].values())
+
         class PrecisionSmokeTokenizer:
             @staticmethod
             def decode(tokens, **_kwargs):
@@ -153,6 +154,11 @@ def test_generator_interface_and_policy_are_explicit():
     assert "ttnn.plus_one(state.current_pos" in source
     assert "Sampling1D" in source
     assert "argmax" not in inspect.getsource(Qwen38FullModel.decode_token_out_traced)
+    embed_source = inspect.getsource(Qwen38FullModel.embed_tokens)
+    assert "ttnn.upsample" in embed_source
+    assert "ttnn.repeat_interleave" not in embed_source
+    assert "if rows == 1:" in embed_source
+    assert embed_source.index("if rows == 1:") < embed_source.index("ttnn.upsample")
     assert "synchronize_device" not in inspect.getsource(PLEDeviceStaging._upload_replicated)
     assert Qwen38Generator.required_device_params["l1_small_size"] == REQUIRED_L1_SMALL_SIZE
 
@@ -335,6 +341,66 @@ def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_devic
         assert top5_overlap >= 4
         assert top100_overlap >= 98
         assert int(torch.argmax(tt_logits)) in reference_top100
+    finally:
+        model.close(best_effort=True)
+
+
+@pytest.mark.timeout(300)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_repeated_nonaligned_embedding_expansion_has_no_tiled_reshape_stall(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """Alternate aligned-edge shapes through the endpoint expansion cache.
+
+    A serving run previously completed two length-one prefills and the first
+    length-63 prefill, then hung on the repeated length-63 embedding expansion.
+    Exercise that exact 1/63/1/63 cache pattern twice and verify the four
+    token-major hyper streams remain exact copies on both TP ranks.
+    """
+
+    del device_params
+    _record_source_provenance(record_property)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=128,
+        layer_indices=(0,),
+    )
+    lengths = (1, 63, 1, 63, 1, 63)
+    try:
+        for iteration, length in enumerate(lengths):
+            ids = ((torch.arange(length, dtype=torch.int32) * 17 + 29) % VOCAB_SIZE).reshape(1, 1, 1, length)
+            token_host = ttnn.from_torch(
+                ids,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(bh_1d_mesh_device),
+            )
+            token_device = ttnn.to_device(
+                token_host,
+                bh_1d_mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            residual = model.embed_tokens(token_device)
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            assert tuple(residual.shape) == (1, 1, length * 4, 1280)
+            for shard in ttnn.get_device_tensors(residual):
+                host = ttnn.to_torch(shard).reshape(length, 4, 1280)
+                for stream in range(1, 4):
+                    assert torch.equal(host[:, 0], host[:, stream])
+            ttnn.deallocate(residual)
+            ttnn.deallocate(token_device)
+            record_property(f"iteration_{iteration}_logical_tokens", length)
+        record_property("logical_token_sequence", ",".join(str(length) for length in lengths))
+        record_property(
+            "endpoint_expansion",
+            "decode(rows=1):view-repeat-view;prefill(rows>1):row-major upsample(scale=(1,4))",
+        )
     finally:
         model.close(best_effort=True)
 
@@ -895,9 +961,7 @@ def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_pa
             "logprob_output": model.sampling._log_probs_calculator.output_tensor,
         }
         cache_tensors = [
-            tensor
-            for _layer, kv_cache, indexer_cache in model.kv_cache
-            for tensor in (*kv_cache, indexer_cache)
+            tensor for _layer, kv_cache, indexer_cache in model.kv_cache for tensor in (*kv_cache, indexer_cache)
         ]
         report = {
             "config_id": model.precision_config["config_id"],
@@ -919,13 +983,13 @@ def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_pa
                 for tensor in cache_tensors
             ],
             "persistent_inputs": {
-                    name: {
-                        "shape": tuple(tensor.shape),
-                        "padded_shape": tuple(tensor.padded_shape),
-                        "volume": tensor.volume(),
-                        "dtype": str(tensor.dtype),
-                    }
-                    for name, tensor in persistent.items()
+                name: {
+                    "shape": tuple(tensor.shape),
+                    "padded_shape": tuple(tensor.padded_shape),
+                    "volume": tensor.volume(),
+                    "dtype": str(tensor.dtype),
+                }
+                for name, tensor in persistent.items()
             },
         }
         write_report(report, _evidence_dir() / "advertised_context_construction.json")
@@ -999,9 +1063,7 @@ def test_full_model_datatype_sweep_candidate(bh_1d_mesh_device, device_params, r
         if os.getenv("QWEN38_SWEEP_RUN_AUTOREGRESSIVE") == "1":
             report["aime24_autoregressive_100"] = run_autoregressive(generator, REFERENCE, enable_trace=True)
         report["passes_gate"] = (
-            report["top1_percent"] >= 90.0
-            and report["top5_percent"] >= 98.0
-            and report["top100_percent"] == 100.0
+            report["top1_percent"] >= 90.0 and report["top5_percent"] >= 98.0 and report["top100_percent"] == 100.0
         )
         write_report(report, _evidence_dir() / "candidate_result.json")
         print({"datatype_sweep_candidate": report})

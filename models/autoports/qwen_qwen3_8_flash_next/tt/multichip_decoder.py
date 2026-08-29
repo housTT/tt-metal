@@ -26,6 +26,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import gc
+import math
 import threading
 import time
 from collections.abc import Mapping
@@ -718,6 +719,192 @@ class MultichipDecodeStateWorkspace:
             self.closed = True
 
 
+@dataclasses.dataclass(frozen=True)
+class _VirtualDecodeSlotTensors:
+    """Device-only snapshot of one request's model-owned decode state."""
+
+    layers: tuple[tuple[object, ...], ...]
+    io: dict[str, object]
+
+    def all_tensors(self):
+        for tensors in self.layers:
+            yield from tensors
+        yield from self.io.values()
+
+
+class MultichipVirtualDecodeStateBank:
+    """DRAM snapshots used to time-multiplex logical users over a B1 trace.
+
+    QSA K/V and indexer tensors are deliberately absent: vLLM owns those
+    caches and selects a request by copying its page-table row into the fixed
+    physical input.  Expert slots are immutable, model-wide cache entries and
+    are absent as well.  Only request-local GDN/PLE state and the trace-bound
+    token/position/page/sampler inputs are copied.
+    """
+
+    def __init__(self, mesh_device, layers, *, capacity: int, io_tensors: Mapping[str, object]):
+        if not 2 <= int(capacity) <= 32:
+            raise ValueError("virtual decode-state capacity must be in [2, 32]")
+        self.mesh_device = mesh_device
+        self.capacity = int(capacity)
+        self._layers = tuple(layers)
+        self._io_tensors = dict(io_tensors)
+        self._lock = threading.RLock()
+        self.closed = False
+        self.restore_count = 0
+        self.commit_count = 0
+        self.reset_count = 0
+        self.restore_logical_bytes = 0
+        self.commit_logical_bytes = 0
+        self.restore_submit_seconds = 0.0
+        self.commit_submit_seconds = 0.0
+        self._layer_templates = tuple(self._decode_state_tensors(layer) for layer in self._layers)
+        allocated = []
+        try:
+            zero_layers = tuple(
+                tuple(ttnn.zeros_like(tensor) for tensor in templates) for templates in self._layer_templates
+            )
+            zero_io = {name: ttnn.zeros_like(tensor) for name, tensor in self._io_tensors.items()}
+            self._zero = _VirtualDecodeSlotTensors(layers=zero_layers, io=zero_io)
+            allocated.extend(self._zero.all_tensors())
+            slots = []
+            for _ in range(self.capacity):
+                layer_tensors = tuple(
+                    tuple(ttnn.zeros_like(tensor) for tensor in templates) for templates in self._layer_templates
+                )
+                io = {name: ttnn.zeros_like(tensor) for name, tensor in self._io_tensors.items()}
+                slot = _VirtualDecodeSlotTensors(layers=layer_tensors, io=io)
+                allocated.extend(slot.all_tensors())
+                slots.append(slot)
+            self._slots = tuple(slots)
+        except BaseException:
+            for tensor in reversed(allocated):
+                if tensor.is_allocated():
+                    ttnn.deallocate(tensor)
+            raise
+        self.logical_bytes_per_slot = sum(self._tensor_logical_bytes(tensor) for tensor in self._slots[0].all_tensors())
+
+    @staticmethod
+    def _decode_state_tensors(layer) -> tuple[object, ...]:
+        tensors = []
+        if layer.shapes.layer_type == LINEAR_ATTENTION:
+            tensors.extend((layer.recurrent_state, *layer.fused_conv_state))
+        if layer.shapes.has_ple:
+            tensors.extend(layer.fused_ple_conv_state)
+        return tuple(tensors)
+
+    @staticmethod
+    def _tensor_logical_bytes(tensor) -> int:
+        elements = math.prod(int(value) for value in tensor.padded_shape)
+        widths = {
+            ttnn.float32: 4,
+            ttnn.int32: 4,
+            ttnn.uint32: 4,
+            ttnn.bfloat16: 2,
+            ttnn.bfloat8_b: 1,
+            ttnn.bfloat4_b: 1,
+        }
+        return elements * widths.get(tensor.dtype, 4)
+
+    def _require_slot(self, slot_id: int) -> int:
+        self._require_open()
+        slot = int(slot_id)
+        if not 0 <= slot < self.capacity:
+            raise ValueError(f"virtual slot {slot} outside [0, {self.capacity})")
+        return slot
+
+    def _require_open(self) -> None:
+        if self.closed:
+            raise RuntimeError("virtual decode-state bank is closed")
+
+    @staticmethod
+    def _copy_trees(sources, targets) -> None:
+        if len(sources) != len(targets):
+            raise RuntimeError("virtual decode-state topology changed")
+        for source, target in zip(sources, targets):
+            if (
+                tuple(source.shape) != tuple(target.shape)
+                or tuple(source.padded_shape) != tuple(target.padded_shape)
+                or source.dtype != target.dtype
+                or source.get_layout() != target.get_layout()
+            ):
+                raise RuntimeError("virtual decode-state tensor contract changed")
+            ttnn.copy(source, target)
+
+    def restore_slot(self, slot_id: int) -> None:
+        """Restore one snapshot into the trace-bound physical-B1 tensors."""
+
+        with self._lock:
+            slot = self._slots[self._require_slot(slot_id)]
+            started = time.perf_counter()
+            for sources, targets in zip(slot.layers, self._layer_templates):
+                self._copy_trees(sources, targets)
+            self._copy_trees(tuple(slot.io.values()), tuple(self._io_tensors.values()))
+            self.restore_count += 1
+            self.restore_logical_bytes += self.logical_bytes_per_slot
+            self.restore_submit_seconds += time.perf_counter() - started
+
+    def commit_slot(self, slot_id: int) -> None:
+        """Commit physical-B1 tensors to one request's device snapshot."""
+
+        with self._lock:
+            slot = self._slots[self._require_slot(slot_id)]
+            started = time.perf_counter()
+            for sources, targets in zip(self._layer_templates, slot.layers):
+                self._copy_trees(sources, targets)
+            self._copy_trees(tuple(self._io_tensors.values()), tuple(slot.io.values()))
+            self.commit_count += 1
+            self.commit_logical_bytes += self.logical_bytes_per_slot
+            self.commit_submit_seconds += time.perf_counter() - started
+
+    def reset_slot(self, slot_id: int) -> None:
+        """Zero a released slot without allocating while traces are live."""
+
+        with self._lock:
+            slot = self._slots[self._require_slot(slot_id)]
+            for sources, targets in zip(self._zero.layers, slot.layers):
+                self._copy_trees(sources, targets)
+            self._copy_trees(tuple(self._zero.io.values()), tuple(slot.io.values()))
+            self.reset_count += 1
+
+    def slot_tensor(self, slot_id: int, name: str):
+        """Return a stable device tensor for deferred compact-output reads."""
+
+        with self._lock:
+            slot = self._slots[self._require_slot(slot_id)]
+            try:
+                return slot.io[name]
+            except KeyError as error:
+                raise KeyError(f"unknown virtual decode-state tensor {name!r}") from error
+
+    def metrics(self) -> dict[str, int | float | bool]:
+        return {
+            "enabled": True,
+            "capacity": self.capacity,
+            "logical_bytes_per_slot": self.logical_bytes_per_slot,
+            "zero_template_logical_bytes": self.logical_bytes_per_slot,
+            "allocated_logical_bytes": self.logical_bytes_per_slot * (self.capacity + 1),
+            "restores": self.restore_count,
+            "commits": self.commit_count,
+            "resets": self.reset_count,
+            "restore_logical_bytes": self.restore_logical_bytes,
+            "commit_logical_bytes": self.commit_logical_bytes,
+            "restore_submit_seconds": self.restore_submit_seconds,
+            "commit_submit_seconds": self.commit_submit_seconds,
+            "closed": self.closed,
+        }
+
+    def close(self) -> None:
+        with self._lock:
+            if self.closed:
+                return
+            for slot in (*self._slots, self._zero):
+                for tensor in slot.all_tensors():
+                    if tensor.is_allocated():
+                        ttnn.deallocate(tensor)
+            self.closed = True
+
+
 class MultichipDecoder(OptimizedDecoder):
     """Optimized Qwen decoder layer tensor-parallelized over the fixed P300."""
 
@@ -1290,8 +1477,8 @@ class MultichipDecoder(OptimizedDecoder):
         route_weights = self._slot_route_weights(routing, expert_id)
         routing_groups = ttnn.reshape(route_weights, (1, groups, 32, 1))
         sparsity = ttnn.max(routing_groups, dim=2, keepdim=True)
-        sparsity = ttnn.reshape(sparsity, (1, 1, groups, 1))
         sparsity = ttnn.to_layout(sparsity, ttnn.ROW_MAJOR_LAYOUT)
+        sparsity = ttnn.reshape(sparsity, (1, 1, groups, 1))
         gate_up_sparse = ttnn.sparse_matmul(
             grouped_x,
             slot.gate_up,
@@ -1450,8 +1637,12 @@ class MultichipDecoder(OptimizedDecoder):
         grouped_x = ttnn.reshape(x, (1, groups, 32, s.hidden_size))
         routing_groups = ttnn.reshape(route_weights, (1, groups, 32, len(expert_ids)))
         sparsity = ttnn.max(routing_groups, dim=2, keepdim=True)
-        sparsity = ttnn.reshape(sparsity, (1, 1, groups, len(expert_ids)))
         sparsity = ttnn.to_layout(sparsity, ttnn.ROW_MAJOR_LAYOUT)
+        # Untilize before folding the group axis.  The equivalent TILE reshape
+        # maps four padded input pages into one output page and can deadlock on
+        # a cached repeat.  In ROW_MAJOR both shapes have the same [groups, E]
+        # physical footprint, so this reshape is a metadata-only view.
+        sparsity = ttnn.reshape(sparsity, (1, 1, groups, len(expert_ids)))
         gate_up_sparse = ttnn.sparse_matmul(
             grouped_x,
             gate_up_bank,
@@ -2608,6 +2799,7 @@ __all__ = [
     "HostDecodeAttention",
     "HostDecodeFront",
     "MultichipDecodeStateWorkspace",
+    "MultichipVirtualDecodeStateBank",
     "MultichipDecoder",
     "MultichipMemoryPlan",
 ]

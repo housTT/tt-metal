@@ -27,7 +27,8 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.model import DEFAULT_SNAPSHOT, 
 from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import DEFAULT_PRECISION_CONFIG_PATH
 
 MAX_MODEL_LEN = 262_144
-MAX_NUM_SEQS = 1
+MAX_NUM_SEQS = 2
+PHYSICAL_TRACE_BATCH = 1
 QSA_LAYER_INDICES = tuple(range(3, 48, 4))
 _REDUCED_LAYERS_ENV = "QWEN38_VLLM_LAYER_INDICES"
 _SERVING_METRICS_ENV = "QWEN38_VLLM_LOG_METRICS"
@@ -66,6 +67,12 @@ class Qwen4ExpForConditionalGeneration:
         "supports_request_specific_rope": False,
         "supports_device_sampling_penalties": False,
         "device_sampling_max_top_k": 32,
+        # The TT and vLLM host samplers deliberately use different RNG
+        # algorithms.  Keep explicit-seed stochastic requests on the optional
+        # host compatibility path so cohort composition cannot switch algorithms.
+        "force_host_seeded_sampling": True,
+        "supports_virtual_state_slots": True,
+        "supports_intermediate_prefill_device_sampling": True,
     }
 
     def __init__(
@@ -81,7 +88,6 @@ class Qwen4ExpForConditionalGeneration:
         self.max_batch_size = int(max_batch_size)
         self.max_seq_len = int(max_seq_len)
         self._vllm_kv_cache = None
-        self._decode_started = False
         self._closed = False
         self._completed_requests = 0
 
@@ -112,10 +118,9 @@ class Qwen4ExpForConditionalGeneration:
             raise ValueError("Qwen3.8 serving requires the measured TP2 mesh with tt_data_parallel=1")
         if int(mesh_device.get_num_devices()) != 2:
             raise ValueError("Qwen3.8 serving requires exactly two P300 devices")
-        if int(max_batch_size) != MAX_NUM_SEQS:
+        if not 1 <= int(max_batch_size) <= MAX_NUM_SEQS:
             raise ValueError(
-                "Qwen3.8's host-segmented decode trace currently supports --max-num-seqs 1; "
-                "larger request bursts are admitted and queued by vLLM"
+                f"Qwen3.8 supports between 1 and {MAX_NUM_SEQS} active virtual slots over its physical-B1 trace"
             )
 
         max_seq_len = MAX_MODEL_LEN if max_seq_len is None else int(max_seq_len)
@@ -131,8 +136,9 @@ class Qwen4ExpForConditionalGeneration:
         generator = build_generator(
             snapshot,
             mesh_device,
-            max_batch=MAX_NUM_SEQS,
+            max_batch=PHYSICAL_TRACE_BATCH,
             max_seq_len=max_seq_len,
+            virtual_slot_capacity=int(max_batch_size),
             layer_indices=_reduced_layer_indices(),
             precision_config=DEFAULT_PRECISION_CONFIG_PATH,
         )
@@ -143,8 +149,8 @@ class Qwen4ExpForConditionalGeneration:
 
     @classmethod
     def get_max_tokens_all_users(cls, max_model_len=None, max_num_seqs=None, **_kwargs) -> int:
-        if max_num_seqs is not None and int(max_num_seqs) != MAX_NUM_SEQS:
-            raise ValueError("Qwen3.8 traced serving supports one active sequence")
+        if max_num_seqs is not None and not 1 <= int(max_num_seqs) <= MAX_NUM_SEQS:
+            raise ValueError(f"Qwen3.8 traced serving supports at most {MAX_NUM_SEQS} active virtual slots")
         context = MAX_MODEL_LEN if max_model_len is None else int(max_model_len)
         if not 1 <= context <= MAX_MODEL_LEN:
             raise ValueError(f"max_model_len must be in [1, {MAX_MODEL_LEN}]")
@@ -179,6 +185,13 @@ class Qwen4ExpForConditionalGeneration:
         prompt_lens,
         sampling_params=None,
         empty_slots=None,
+        start_pos=None,
+        intermediate_prefill_mask=None,
+        request_ids=None,
+        state_slot_ids=None,
+        state_slot_generations=None,
+        unpadded_batch_size=None,
+        released_state_slots=None,
         page_tables_per_layer=None,
         **kwargs,
     ):
@@ -190,23 +203,38 @@ class Qwen4ExpForConditionalGeneration:
         if not _empty_text_placeholder(pixel_values) or not _empty_text_placeholder(image_grid_thw):
             raise ValueError("Qwen3.8 autoport serving is text-only")
         kwargs.pop("enable_trace", None)
-        kwargs.pop("start_pos", None)
         if kwargs:
             raise TypeError(f"unsupported Qwen3.8 prefill arguments: {', '.join(sorted(kwargs))}")
-        slots = [0] if empty_slots is None else [int(value) for value in empty_slots]
-        if slots != [0]:
-            raise ValueError("the traced serving cohort owns fixed slot 0")
+        slots = empty_slots if state_slot_ids is None else state_slot_ids
         result = self.generator.prefill_forward(
             tokens,
             page_table=page_table,
             kv_cache=kv_cache,
             prompt_lens=[int(value) for value in prompt_lens],
+            start_pos=start_pos,
+            intermediate_prefill_mask=intermediate_prefill_mask,
             empty_slots=slots,
+            request_ids=request_ids,
+            state_slot_ids=slots,
+            state_slot_generations=state_slot_generations,
+            unpadded_batch_size=unpadded_batch_size,
+            released_state_slots=released_state_slots,
             on_device_sampling=sampling_params is not None,
             sampling_params=sampling_params,
         )
-        self._decode_started = False
-        self._completed_requests += 1
+        # Count logical requests, not adapter invocations.  A single physical
+        # prefill call may contain several virtual rows, while intermediate
+        # chunk continuations have not completed admission yet.  The next
+        # request-boundary marker can therefore delimit B1 and burst windows by
+        # exact request-count deltas even when vLLM groups prefills.
+        if intermediate_prefill_mask is None:
+            completed_rows = len(prompt_lens)
+        else:
+            intermediate = torch.as_tensor(intermediate_prefill_mask, dtype=torch.bool).reshape(-1)
+            if intermediate.numel() != len(prompt_lens):
+                raise ValueError("intermediate_prefill_mask must name every logical prompt row")
+            completed_rows = int((~intermediate).sum().item())
+        self._completed_requests += completed_rows
         return result
 
     def decode_forward(
@@ -222,6 +250,11 @@ class Qwen4ExpForConditionalGeneration:
         output_tokens=None,
         reset_batch=None,
         slot_remap=None,
+        request_ids=None,
+        state_slot_ids=None,
+        state_slot_generations=None,
+        unpadded_batch_size=None,
+        released_state_slots=None,
         page_tables_per_layer=None,
         **kwargs,
     ):
@@ -230,7 +263,6 @@ class Qwen4ExpForConditionalGeneration:
         kwargs.pop("rope_deltas_all_users", None)
         if kwargs:
             raise TypeError(f"unsupported Qwen3.8 decode arguments: {', '.join(sorted(kwargs))}")
-        effective_reset = (not self._decode_started) or bool(reset_batch)
         result = self.generator.decode_forward(
             tokens,
             start_pos,
@@ -239,13 +271,17 @@ class Qwen4ExpForConditionalGeneration:
             enable_trace=bool(enable_trace),
             read_from_device=bool(read_from_device),
             sampling_params=sampling_params,
-            reset_batch=effective_reset,
+            reset_batch=bool(reset_batch),
             slot_remap=slot_remap,
+            request_ids=request_ids,
+            state_slot_ids=state_slot_ids,
+            state_slot_generations=state_slot_generations,
+            unpadded_batch_size=unpadded_batch_size,
+            released_state_slots=released_state_slots,
             prompt_tokens=prompt_tokens,
             output_tokens=output_tokens,
             serving_mode=True,
         )
-        self._decode_started = True
         return result
 
     def read_decode_output(self, tt_out, async_read=False):
@@ -253,6 +289,11 @@ class Qwen4ExpForConditionalGeneration:
 
     def process_decode_output_host(self, tt_out, is_tokens=False):
         return self.generator.process_decode_output_host(tt_out, is_tokens=is_tokens)
+
+    def release_virtual_state_slots(self, released_slots) -> None:
+        """Release finished/preempted leases after async submissions drain."""
+
+        self.generator.release_virtual_slots(released_slots)
 
     def warmup_model_prefill(self, **kwargs) -> None:
         # Request-bound prefill owns exact logical length and host-store history.
@@ -283,6 +324,7 @@ class Qwen4ExpForConditionalGeneration:
             "host_service": self.model.host_service_totals(),
             "host_gauges": self.model.host_service_gauges(),
             "decode_timing": dict(self.model.decode_timing_totals),
+            "virtual_slots": self.model.virtual_slot_metrics(),
             "runtime_audit": None if state is None else self.model.runtime_fallback_audit(state),
         }
 

@@ -16,6 +16,7 @@ import os
 import secrets
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable, Sequence
 
 import torch
@@ -97,13 +98,28 @@ class _ServingDecodeHost:
         if is_tokens != (self.kind == "tokens"):
             raise ValueError(f"decode produced {self.kind}, caller requested {'tokens' if is_tokens else 'logits'}")
         if self.kind == "tokens":
-            shard = ttnn.get_device_tensors(self.host)[0]
-            result = ttnn.to_torch(shard).reshape(-1)[: self.rows].to(torch.int64)
+            hosts = self.host if isinstance(self.host, tuple) else (self.host,)
+            values = []
+            device_readbacks = 0
+            for host in hosts:
+                if isinstance(host, torch.Tensor):
+                    values.append(host.reshape(-1)[0].to(torch.int64))
+                else:
+                    shard = ttnn.get_device_tensors(host)[0]
+                    values.append(ttnn.to_torch(shard).reshape(-1)[0].to(torch.int64))
+                    device_readbacks += 1
+            result = torch.stack(values)[: self.rows]
             if self.state is not None:
-                self.state.compact_token_readbacks += 1
+                self.state.compact_token_readbacks += device_readbacks
             return result
-        logits = model.logits_to_torch(self.host)
-        return logits.reshape(self.rows, 1, model.vocab_size)
+        if isinstance(self.host, torch.Tensor):
+            return self.host.reshape(self.rows, 1, model.vocab_size)
+        hosts = self.host if isinstance(self.host, tuple) else (self.host,)
+        logits = [host if isinstance(host, torch.Tensor) else model.logits_to_torch(host) for host in hosts]
+        return torch.cat(
+            [value.reshape(1, 1, model.vocab_size) for value in logits],
+            dim=0,
+        )[: self.rows]
 
 
 @dataclasses.dataclass
@@ -116,12 +132,28 @@ class _ServingDecodeOutput:
     state: Qwen38BatchState | None = None
 
     def read(self, *, blocking: bool) -> _ServingDecodeHost:
+        devices = self.device if isinstance(self.device, tuple) else (self.device,)
+        hosts = tuple(
+            (device if isinstance(device, torch.Tensor) else device.cpu(blocking=blocking)) for device in devices
+        )
         return _ServingDecodeHost(
             kind=self.kind,
-            host=self.device.cpu(blocking=blocking),
+            host=hosts if isinstance(self.device, tuple) else hosts[0],
             rows=self.rows,
             state=self.state,
         )
+
+
+@dataclasses.dataclass
+class _ServingVirtualSlot:
+    """Generator-owned protocol state for one stable vLLM virtual slot."""
+
+    request_id: object
+    external_generation: int
+    lease: Any
+    device_feedback_current: bool = False
+    sampling_signature: tuple | None = None
+    resumed_sampling_rng_state: tuple[object, ...] | None = None
 
 
 def _resolve_snapshot(model_dir: str | Path) -> Path:
@@ -162,6 +194,10 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         self.host_sampling_compatibility_calls = 0
         self._serving_device_feedback_current = False
         self._serving_sampling_signature = None
+        self._serving_virtual_slots: dict[int, _ServingVirtualSlot] = {}
+        self._serving_preempted_sampling: dict[object, tuple[tuple | None, tuple[object, ...] | None]] = {}
+        self._serving_virtual_decode_poisoned = False
+        self._serving_program_cache_initialization_uncertain = False
 
     @classmethod
     def get_max_tokens_all_users(cls, **kwargs) -> int:
@@ -186,6 +222,241 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             active_mask=active_mask,
         )
         return self.state
+
+    def _snapshot_live_trace_program_cache(self) -> int | None:
+        """Snapshot exact compiled workloads before eager virtual prefill."""
+
+        if not getattr(self.model, "_trace_ready", False):
+            return None
+        if getattr(self, "_serving_program_cache_initialization_uncertain", False):
+            # A failed first enqueue can leave a cached MeshWorkload whose
+            # kernel-binary allocation is still lazy.  Its later cache hit
+            # would not change num_program_cache_entries(), so the delta alone
+            # cannot protect a live trace.  This rare fail-stop mode releases
+            # before eager work for the rest of this generator lifetime.
+            self._invalidate_live_prefill_trace()
+            return None
+        return int(self.model.mesh_device.num_program_cache_entries())
+
+    def _invalidate_live_prefill_trace(self) -> bool:
+        if not getattr(self.model, "_trace_ready", False):
+            return False
+        self.model.release_decode_traces()
+        self.model._virtual_prefill_trace_invalidations = (
+            int(getattr(self.model, "_virtual_prefill_trace_invalidations", 0)) + 1
+        )
+        return True
+
+    def _finish_live_trace_prefill(self, entries_before: int | None, *, failed: bool) -> bool:
+        """Prevent a live decode trace from replaying over younger workloads.
+
+        Prefill is synchronous at this API boundary and never replays a decode
+        trace.  A new TTNN workload may allocate persistent program binaries
+        while an older trace is live.  Keep a cache-hit trace, but release it
+        before returning when the exact device program cache grew.  The next
+        decode recaptures against the same stable physical-B1 state.
+        """
+
+        if failed:
+            self._serving_program_cache_initialization_uncertain = True
+        if entries_before is None or not getattr(self.model, "_trace_ready", False):
+            return False
+        entries_after = int(self.model.mesh_device.num_program_cache_entries())
+        if not failed and entries_after == entries_before:
+            return False
+        return self._invalidate_live_prefill_trace()
+
+    @staticmethod
+    def _logical_rows(unpadded_batch_size, *values) -> int:
+        if unpadded_batch_size is None:
+            for value in values:
+                if value is not None:
+                    return len(value)
+            raise ValueError("virtual serving requires an explicit real-row count")
+        rows = int(unpadded_batch_size)
+        if rows < 1:
+            raise ValueError("unpadded_batch_size must be positive")
+        return rows
+
+    def _validate_virtual_rows(
+        self,
+        *,
+        rows: int,
+        request_ids,
+        state_slot_ids,
+        state_slot_generations,
+    ) -> tuple[tuple[object, ...], tuple[int, ...], tuple[int, ...]]:
+        if self.model.max_batch != 1:
+            raise RuntimeError("virtual-slot microbatch requires the physical-B1 canonical trace")
+        requests = tuple(request_ids or ())
+        slots = tuple(int(value) for value in (state_slot_ids or ()))
+        generations = tuple(int(value) for value in (state_slot_generations or (0,) * rows))
+        if not (len(requests) == len(slots) == len(generations) == rows):
+            raise ValueError("request_ids, state_slot_ids, and generations must name every real row exactly once")
+        if len(set(requests)) != rows:
+            raise ValueError("active request IDs must be unique")
+        if len(set(slots)) != rows:
+            raise ValueError("active virtual state slots must be unique")
+        capacity = int(getattr(self.model, "virtual_slot_capacity", 1))
+        if any(slot < 0 or slot >= capacity for slot in slots):
+            raise ValueError(f"virtual state slot is outside allocated capacity {capacity}")
+        return requests, slots, generations
+
+    @staticmethod
+    def _sampling_row(sampling_params, row: int):
+        if sampling_params is None:
+            return None
+
+        def take(name: str, default):
+            value = getattr(sampling_params, name, default)
+            if value is None:
+                return default
+            if isinstance(value, torch.Tensor):
+                flat = value.reshape(-1)
+                return flat[0 if flat.numel() == 1 else row].item()
+            if isinstance(value, (list, tuple)):
+                return value[0 if len(value) == 1 else row]
+            return value
+
+        num_logprobs = take("num_logprobs", -2)
+        return SimpleNamespace(
+            temperature=[take("temperature", 1.0)],
+            top_k=[take("top_k", 1)],
+            top_p=[take("top_p", 0.0)],
+            presence_penalty=[take("presence_penalty", 0.0)],
+            frequency_penalty=[take("frequency_penalty", 0.0)],
+            repetition_penalty=[take("repetition_penalty", 1.0)],
+            seed=[take("seed", None)],
+            num_logprobs=[num_logprobs],
+            enable_log_probs=[take("enable_log_probs", num_logprobs >= 0)],
+        )
+
+    def _claim_virtual_slot(self, slot_id: int, request_id: object, external_generation: int) -> _ServingVirtualSlot:
+        current = self._serving_virtual_slots.get(slot_id)
+        if current is not None:
+            if current.request_id == request_id and current.external_generation == external_generation:
+                return current
+            if external_generation <= current.external_generation:
+                raise RuntimeError(
+                    f"stale virtual prefill owner for slot {slot_id}: current "
+                    f"({current.request_id!r}, {current.external_generation}), got "
+                    f"({request_id!r}, {external_generation})"
+                )
+            self.model.release_virtual_slot(
+                slot_id,
+                current.request_id,
+                generation=current.lease.generation,
+            )
+        lease = self.model.assign_virtual_slot(slot_id, request_id)
+        resumed = getattr(self, "_serving_preempted_sampling", {}).pop(request_id, None)
+        current = _ServingVirtualSlot(
+            request_id=request_id,
+            external_generation=external_generation,
+            lease=lease,
+            sampling_signature=None if resumed is None else resumed[0],
+            resumed_sampling_rng_state=None if resumed is None else resumed[1],
+        )
+        self._serving_virtual_slots[slot_id] = current
+        return current
+
+    def _require_virtual_slot(self, slot_id: int, request_id: object, external_generation: int) -> _ServingVirtualSlot:
+        current = self._serving_virtual_slots.get(slot_id)
+        if current is None:
+            raise RuntimeError(f"virtual state slot {slot_id} was not initialized by prefill")
+        if current.request_id != request_id or current.external_generation != external_generation:
+            raise RuntimeError(
+                f"stale virtual state owner for slot {slot_id}: expected "
+                f"({current.request_id!r}, {current.external_generation}), got "
+                f"({request_id!r}, {external_generation})"
+            )
+        return current
+
+    def _preflight_virtual_prefill_claims(
+        self,
+        requests: tuple[object, ...],
+        slots: tuple[int, ...],
+        generations: tuple[int, ...],
+    ) -> None:
+        """Reject every stale/conflicting claim before any physical state mutates."""
+
+        by_request = {current.request_id: slot for slot, current in self._serving_virtual_slots.items()}
+        for request_id, slot_id, generation in zip(requests, slots, generations):
+            current = self._serving_virtual_slots.get(slot_id)
+            if current is not None and not (
+                current.request_id == request_id and current.external_generation == generation
+            ):
+                if generation <= current.external_generation:
+                    raise RuntimeError(
+                        f"stale virtual prefill owner for slot {slot_id}: current "
+                        f"({current.request_id!r}, {current.external_generation}), got "
+                        f"({request_id!r}, {generation})"
+                    )
+            other_slot = by_request.get(request_id)
+            if other_slot is not None and other_slot != slot_id:
+                raise RuntimeError(
+                    f"request {request_id!r} already owns virtual slot {other_slot}, " f"not requested slot {slot_id}"
+                )
+
+    def release_virtual_slots(self, released_state_slots) -> None:
+        """Apply scheduler releases inside the live-trace allocation guard."""
+
+        trace_program_cache_entries = self._snapshot_live_trace_program_cache()
+        try:
+            self._release_virtual_slots_impl(released_state_slots)
+        except Exception:
+            self._finish_live_trace_prefill(trace_program_cache_entries, failed=True)
+            raise
+        self._finish_live_trace_prefill(trace_program_cache_entries, failed=False)
+
+    def _release_virtual_slots_impl(self, released_state_slots) -> None:
+        """Release scheduler slots without opening a second guard scope."""
+
+        for release in released_state_slots or ():
+            if len(release) not in (3, 4):
+                raise ValueError("released virtual state slot must be (request_id, slot_id, generation[, reason])")
+            request_id, raw_slot, raw_generation = release[:3]
+            reason = release[3] if len(release) == 4 else "finished"
+            slot_id = int(raw_slot)
+            external_generation = int(raw_generation)
+            current = self._serving_virtual_slots.get(slot_id)
+            if current is None:
+                continue
+            # A deferred release from an older lifetime must never tear down a
+            # slot already reused by a new request/generation.
+            if external_generation < current.external_generation:
+                continue
+            if current.request_id != request_id or current.external_generation != external_generation:
+                raise RuntimeError(
+                    f"release does not match virtual slot {slot_id} owner: expected "
+                    f"({current.request_id!r}, {current.external_generation}), got "
+                    f"({request_id!r}, {external_generation})"
+                )
+            if reason == "preempted":
+                export_rng = getattr(self.model, "export_virtual_slot_sampling_rng_state", None)
+                rng_state = (
+                    export_rng(
+                        slot_id,
+                        request_id,
+                        generation=current.lease.generation,
+                    )
+                    if callable(export_rng)
+                    else None
+                )
+                preempted = getattr(self, "_serving_preempted_sampling", None)
+                if preempted is None:
+                    preempted = {}
+                    self._serving_preempted_sampling = preempted
+                preempted[request_id] = (current.sampling_signature, rng_state)
+            else:
+                getattr(self, "_serving_preempted_sampling", {}).pop(request_id, None)
+            self.model.release_virtual_slot(
+                slot_id,
+                request_id,
+                generation=current.lease.generation,
+            )
+            del self._serving_virtual_slots[slot_id]
+        if not self._serving_virtual_slots:
+            self._serving_virtual_decode_poisoned = False
 
     def compile_prefill(
         self,
@@ -267,10 +538,16 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         page_table=None,
         kv_cache=None,
         prompt_lens=None,
+        start_pos=None,
+        intermediate_prefill_mask=None,
         state: Qwen38BatchState | None = None,
         request_ids=None,
         active_mask=None,
         empty_slots=None,
+        state_slot_ids=None,
+        state_slot_generations=None,
+        unpadded_batch_size=None,
+        released_state_slots=None,
         read_from_device: bool = True,
         return_all_logits: bool = False,
         on_device_sampling: bool = False,
@@ -282,6 +559,33 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         ``empty_slots`` is accepted for common harness compatibility.  This
         port uses a fixed cohort: supplied slots must be the active slot ids.
         """
+
+        if state_slot_ids is not None:
+            trace_program_cache_entries = self._snapshot_live_trace_program_cache()
+            try:
+                self._release_virtual_slots_impl(released_state_slots)
+                result = self._prefill_forward_virtual(
+                    tokens,
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                    prompt_lens=prompt_lens,
+                    start_pos=start_pos,
+                    intermediate_prefill_mask=intermediate_prefill_mask,
+                    request_ids=request_ids,
+                    state_slot_ids=(empty_slots if state_slot_ids is None else state_slot_ids),
+                    state_slot_generations=state_slot_generations,
+                    unpadded_batch_size=unpadded_batch_size,
+                    read_from_device=read_from_device,
+                    return_all_logits=return_all_logits,
+                    on_device_sampling=on_device_sampling,
+                    sampling_params=sampling_params,
+                    _manage_trace_program_cache=False,
+                )
+            except Exception:
+                self._finish_live_trace_prefill(trace_program_cache_entries, failed=True)
+                raise
+            self._finish_live_trace_prefill(trace_program_cache_entries, failed=False)
+            return result
 
         token_tensor = torch.as_tensor(tokens, dtype=torch.int64, device="cpu")
         if token_tensor.ndim == 1:
@@ -328,6 +632,214 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         host = self.model.logits_to_torch(logits)
         ttnn.deallocate(logits)
         return host.reshape(self.model.max_batch, 1, self.model.vocab_size)
+
+    def _prefill_forward_virtual(
+        self,
+        tokens,
+        *,
+        page_table,
+        kv_cache,
+        prompt_lens,
+        start_pos=None,
+        intermediate_prefill_mask=None,
+        request_ids,
+        state_slot_ids,
+        state_slot_generations,
+        unpadded_batch_size,
+        read_from_device: bool,
+        return_all_logits: bool,
+        on_device_sampling: bool,
+        sampling_params,
+        _manage_trace_program_cache: bool = True,
+    ):
+        """Prefill real rows into stable virtual slots through physical B1."""
+
+        self.model._require_kv_cache_identity(kv_cache)
+        if getattr(self, "_serving_virtual_decode_poisoned", False):
+            raise RuntimeError(
+                "virtual execution cohort is fail-stopped after a device execution "
+                "error; release its request lifetimes before retrying"
+            )
+        token_tensor = torch.as_tensor(tokens, dtype=torch.int64, device="cpu")
+        if token_tensor.ndim == 1:
+            token_tensor = token_tensor.unsqueeze(0)
+        if token_tensor.ndim != 2:
+            raise ValueError("virtual prefill tokens must be [real_rows, padded_prompt_width]")
+        rows = self._logical_rows(unpadded_batch_size, request_ids, state_slot_ids, prompt_lens)
+        requests, slots, generations = self._validate_virtual_rows(
+            rows=rows,
+            request_ids=request_ids,
+            state_slot_ids=state_slot_ids,
+            state_slot_generations=state_slot_generations,
+        )
+        if token_tensor.shape[0] < rows:
+            raise ValueError("virtual prefill token rows are shorter than unpadded_batch_size")
+        lengths = torch.as_tensor(prompt_lens, dtype=torch.int32).reshape(-1)
+        if lengths.numel() != rows:
+            raise ValueError("virtual prefill prompt_lens must name every real row")
+        starts = (
+            torch.zeros(rows, dtype=torch.int32)
+            if start_pos is None
+            else torch.as_tensor(start_pos, dtype=torch.int32).reshape(-1)
+        )
+        if starts.numel() != rows:
+            raise ValueError("virtual prefill start_pos must name every real row")
+        if bool(torch.any(starts < 0)) or bool(torch.any(starts > lengths)):
+            raise ValueError("virtual prefill requires 0 <= start_pos <= prompt_lens")
+        intermediate = (
+            torch.zeros(rows, dtype=torch.bool)
+            if intermediate_prefill_mask is None
+            else torch.as_tensor(intermediate_prefill_mask, dtype=torch.bool).reshape(-1)
+        )
+        if intermediate.numel() != rows:
+            raise ValueError("intermediate_prefill_mask must name every real row")
+        if int(lengths.max()) > token_tensor.shape[1]:
+            raise ValueError("virtual prefill token width is shorter than the chunk end")
+        pages = None if page_table is None else torch.as_tensor(page_table, dtype=torch.int32, device="cpu")
+        if pages is not None:
+            if pages.ndim != 2 or pages.shape[0] < rows:
+                raise ValueError("virtual prefill page-table rows are shorter than unpadded_batch_size")
+            expected_pages = self.model._default_page_table_host
+            if tuple(pages.shape[1:]) != tuple(expected_pages.shape[1:]):
+                raise ValueError("virtual prefill page-table width does not match the physical state")
+        self._preflight_virtual_prefill_claims(requests, slots, generations)
+        for request_id, slot_id, generation, start in zip(requests, slots, generations, starts.tolist()):
+            if start > 0:
+                self._require_virtual_slot(slot_id, request_id, generation)
+        if on_device_sampling:
+            for row in range(rows):
+                if not bool(intermediate[row]):
+                    self._validate_serving_sampling_params(self._sampling_row(sampling_params, row))
+
+        multi_host_compatibility = rows > 1 and not on_device_sampling
+        if multi_host_compatibility:
+            # The plugin selects host sampling for the complete cohort when any
+            # row needs logprobs or a host-only logits processor.  Each physical
+            # B1 prefill reuses the same output storage, so materialize a row
+            # before the next row can overwrite it.  The shared vLLM sampler,
+            # not this generator, owns all host sampling policy.
+            self.host_sampling_compatibility_calls += 1
+        trace_program_cache_entries = self._snapshot_live_trace_program_cache() if _manage_trace_program_cache else None
+        outputs = []
+        started_rows = 0
+        try:
+            for row, (request_id, slot_id, generation) in enumerate(zip(requests, slots, generations)):
+                started_rows += 1
+                virtual = self._claim_virtual_slot(slot_id, request_id, generation)
+                virtual.lease = self.model.begin_virtual_prefill(
+                    slot_id,
+                    request_id,
+                    generation=virtual.lease.generation,
+                )
+                row_pages = (
+                    self.model._default_page_table_host.clone() if pages is None else pages[row : row + 1].clone()
+                )
+                if self.state is None:
+                    self.state = self.model.new_batch_state(
+                        [int(lengths[row])],
+                        request_ids=(request_id,),
+                        page_table=row_pages,
+                    )
+                else:
+                    # Keep the exact trace-bound object and fixed device addresses.
+                    self.state.prompt_lens = lengths[row : row + 1].clone()
+                    self.state.active_mask = torch.ones(1, dtype=torch.bool)
+                    self.state.request_ids = (request_id,)
+                    self.state.page_table_host = row_pages
+                    self.model.reset_batch_state(self.state)
+                logits = self.model.prefill_forward(
+                    token_tensor[row : row + 1, : int(lengths[row])],
+                    state=self.state,
+                    prompt_lens=lengths[row : row + 1],
+                    kv_cache=kv_cache,
+                    return_all_logits=return_all_logits,
+                )
+                row_params = self._sampling_row(sampling_params, row)
+                row_samples = bool(on_device_sampling and not intermediate[row])
+                if row_samples:
+                    self._apply_serving_sampling_params(row_params, reset_seed=True)
+                    virtual.sampling_signature = self._serving_sampling_signature
+                    restore_rng = getattr(self.model, "restore_virtual_slot_sampling_rng_state", None)
+                    if virtual.resumed_sampling_rng_state is not None and callable(restore_rng):
+                        restore_rng(
+                            slot_id,
+                            request_id,
+                            virtual.resumed_sampling_rng_state,
+                            generation=virtual.lease.generation,
+                        )
+                        virtual.resumed_sampling_rng_state = None
+                    output = self.model.sample_logits(logits, self.state)
+                    ttnn.deallocate(logits)
+                    virtual.device_feedback_current = True
+                elif on_device_sampling:
+                    # Intermediate chunks update model/vLLM-owned state but emit no
+                    # token.  Return the compact persistent token as a placeholder;
+                    # the runner suppresses it and never reads full logits.
+                    ttnn.deallocate(logits)
+                    output = self.state.token_input
+                    virtual.device_feedback_current = False
+                else:
+                    output = logits
+                    virtual.device_feedback_current = False
+                virtual.lease = self.model.finish_virtual_prefill(
+                    slot_id,
+                    request_id,
+                    generation=virtual.lease.generation,
+                )
+                if multi_host_compatibility:
+                    try:
+                        output = self.model.logits_to_torch(output).reshape(1, 1, self.model.vocab_size)
+                    finally:
+                        ttnn.deallocate(logits)
+                outputs.append(output)
+        except Exception:
+            # A partially executed admission must not leave an older trace
+            # replayable beside any workload it may have compiled.
+            if _manage_trace_program_cache:
+                self._finish_live_trace_prefill(trace_program_cache_entries, failed=True)
+            if started_rows:
+                self._serving_virtual_decode_poisoned = True
+                self._serving_program_cache_initialization_uncertain = True
+            raise
+
+        if _manage_trace_program_cache:
+            self._finish_live_trace_prefill(trace_program_cache_entries, failed=False)
+        self._serving_device_feedback_current = all(
+            self._serving_virtual_slots[slot].device_feedback_current for slot in slots
+        )
+        if len(outputs) == 1:
+            output = outputs[0]
+            if not read_from_device:
+                return output
+            if on_device_sampling:
+                if bool(intermediate[0]):
+                    return torch.zeros(1, dtype=torch.int64)
+                return self.model.sampled_tokens_to_torch(output, self.state)
+            host = self.model.logits_to_torch(output)
+            ttnn.deallocate(output)
+            return host.reshape(1, 1, self.model.vocab_size)
+        if multi_host_compatibility:
+            return torch.cat(outputs, dim=0)[:rows]
+        # Multi-row prefill is uncommon (the shared runner submits one prompt
+        # at a time), but preserve deferred compact-token semantics if it occurs.
+        devices = tuple(
+            (
+                torch.zeros(1, dtype=torch.int64)
+                if bool(intermediate[row])
+                else self.model.virtual_slot_token(
+                    slot,
+                    request,
+                    generation=self._serving_virtual_slots[slot].lease.generation,
+                )
+            )
+            for row, (slot, request) in enumerate(zip(slots, requests))
+        )
+        if read_from_device:
+            return self.process_decode_output_host(
+                _ServingDecodeOutput("tokens", devices, rows, self.state),
+                is_tokens=True,
+            )
+        return _ServingDecodeOutput("tokens", devices, rows, self.state)
 
     @staticmethod
     def _sampling_values(value, name: str, default):
@@ -385,6 +897,29 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         )
         self._serving_sampling_signature = signature
 
+    def _validate_serving_sampling_params(self, sampling_params) -> None:
+        """Pure validation used to make all row-local failures pre-execution."""
+
+        presence = torch.as_tensor(self._sampling_values(sampling_params, "presence_penalty", 0.0))
+        frequency = torch.as_tensor(self._sampling_values(sampling_params, "frequency_penalty", 0.0))
+        repetition = torch.as_tensor(self._sampling_values(sampling_params, "repetition_penalty", 1.0))
+        enable_log_probs = torch.as_tensor(self._sampling_values(sampling_params, "enable_log_probs", False))
+        if bool(torch.any(presence != 0)) or bool(torch.any(frequency != 0)) or bool(torch.any(repetition != 1)):
+            raise ValueError("Qwen3.8 device sampling requires default penalties; use explicit host compatibility")
+        if bool(torch.any(enable_log_probs)):
+            raise ValueError("Qwen3.8 device sampling does not expose logprobs; use explicit host compatibility")
+        top_k = torch.as_tensor(self._sampling_values(sampling_params, "top_k", 1))
+        top_p = torch.as_tensor(self._sampling_values(sampling_params, "top_p", 0.0))
+        temperature = torch.as_tensor(self._sampling_values(sampling_params, "temperature", 1.0))
+        greedy = temperature == 0
+        normalized_k = torch.where(greedy, torch.ones_like(top_k), top_k)
+        if bool(torch.any((normalized_k < 1) | (normalized_k > 32))):
+            raise ValueError("top_k must be in [1, 32] for Qwen3.8 device sampling")
+        if bool(torch.any((top_p < 0) | (top_p > 1))):
+            raise ValueError("top_p must be in [0, 1]")
+        if bool(torch.any((temperature < 0) | torch.isnan(temperature))):
+            raise ValueError("temperature must be finite and non-negative")
+
     def decode_forward(
         self,
         tokens,
@@ -403,6 +938,10 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         sampling_params=None,
         reset_batch: bool = False,
         slot_remap=None,
+        state_slot_ids=None,
+        state_slot_generations=None,
+        unpadded_batch_size=None,
+        released_state_slots=None,
         serving_mode: bool = False,
         prompt_tokens=None,
         output_tokens=None,
@@ -421,6 +960,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             raise RuntimeError("prefill/allocate_batch_state must run before decode")
         if serving_mode:
             del prompt_tokens, output_tokens
+            self.release_virtual_slots(released_state_slots)
             return self._decode_forward_serving(
                 tokens,
                 start_pos=start_pos,
@@ -432,6 +972,10 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                 sampling_params=sampling_params,
                 reset_batch=reset_batch,
                 slot_remap=slot_remap,
+                request_ids=request_ids,
+                state_slot_ids=state_slot_ids,
+                state_slot_generations=state_slot_generations,
+                unpadded_batch_size=unpadded_batch_size,
             )
         if page_table is not None:
             self.model.update_page_table(state, page_table)
@@ -507,10 +1051,32 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         sampling_params,
         reset_batch: bool,
         slot_remap,
+        request_ids=None,
+        state_slot_ids=None,
+        state_slot_generations=None,
+        unpadded_batch_size=None,
     ):
         """Canonical vLLM decode without a Python token-feedback writeback."""
 
         self.model._require_kv_cache_identity(kv_cache)
+        if state_slot_ids is not None:
+            if slot_remap is not None:
+                raise ValueError("virtual state slots use stable IDs and never a physical gather/remap")
+            return self._decode_virtual_slots(
+                tokens,
+                start_pos=start_pos,
+                page_table=page_table,
+                kv_cache=kv_cache,
+                state=state,
+                read_from_device=read_from_device,
+                enable_trace=enable_trace,
+                sampling_params=sampling_params,
+                reset_batch=reset_batch,
+                request_ids=request_ids,
+                state_slot_ids=state_slot_ids,
+                state_slot_generations=state_slot_generations,
+                unpadded_batch_size=unpadded_batch_size,
+            )
         if slot_remap is not None:
             remap = torch.as_tensor(slot_remap, dtype=torch.int64).reshape(-1)
             identity = torch.arange(remap.numel(), dtype=remap.dtype)
@@ -570,6 +1136,194 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         if read_from_device:
             return self.model.logits_to_torch(output).reshape(self.model.max_batch, 1, self.model.vocab_size)
         return _ServingDecodeOutput("logits", output, self.model.max_batch, state)
+
+    def _decode_virtual_slots(
+        self,
+        tokens,
+        *,
+        start_pos,
+        page_table,
+        kv_cache,
+        state: Qwen38BatchState,
+        read_from_device: bool,
+        enable_trace: bool,
+        sampling_params,
+        reset_batch: bool,
+        request_ids,
+        state_slot_ids,
+        state_slot_generations,
+        unpadded_batch_size,
+    ):
+        """Serialize logical rows through the canonical physical-B1 token-out trace."""
+
+        del reset_batch
+        if getattr(self, "_serving_virtual_decode_poisoned", False):
+            raise RuntimeError(
+                "virtual decode cohort is fail-stopped after a device execution error; "
+                "release its request lifetimes before retrying"
+            )
+        values = torch.as_tensor(tokens, dtype=torch.int64, device="cpu")
+        if values.ndim == 1:
+            values = values.unsqueeze(1)
+        if values.ndim != 2 or values.shape[1] != 1:
+            raise ValueError("virtual decode tokens must be [wire_rows, 1]")
+        rows = self._logical_rows(unpadded_batch_size, request_ids, state_slot_ids)
+        requests, slots, generations = self._validate_virtual_rows(
+            rows=rows,
+            request_ids=request_ids,
+            state_slot_ids=state_slot_ids,
+            state_slot_generations=state_slot_generations,
+        )
+        if values.shape[0] < rows:
+            raise ValueError("virtual decode token rows are shorter than unpadded_batch_size")
+        pages = None if page_table is None else torch.as_tensor(page_table, dtype=torch.int32, device="cpu")
+        if pages is not None and pages.shape[0] < rows:
+            raise ValueError("virtual decode page-table rows are shorter than unpadded_batch_size")
+        if sampling_params is None:
+            # Explicit compatibility cohort: the plugin selects host sampling
+            # for the whole step when any active request needs logprobs or a
+            # host-only logits processor.  Serialize every logical row through
+            # the same physical-B1 model-only trace and materialize its logits
+            # before the next row can overwrite the trace output buffer.  The
+            # all-device cohort below remains the canonical token-out path.
+            positions = None
+            if start_pos is not None:
+                positions = torch.as_tensor(start_pos, dtype=torch.int32).reshape(-1)
+                if positions.numel() < rows:
+                    raise ValueError("virtual decode positions are shorter than unpadded_batch_size")
+            state_pages = getattr(state, "page_table_host", None)
+            if pages is not None and state_pages is not None and tuple(pages.shape[1:]) != tuple(state_pages.shape[1:]):
+                raise ValueError("virtual decode page-table width does not match the trace-bound state")
+            for request_id, slot_id, generation in zip(requests, slots, generations):
+                self._require_virtual_slot(slot_id, request_id, generation)
+
+            self.host_sampling_compatibility_calls += 1
+            host_logits = []
+            executed_rows = 0
+            try:
+                for row, (request_id, slot_id, generation) in enumerate(zip(requests, slots, generations)):
+                    virtual = self._require_virtual_slot(slot_id, request_id, generation)
+                    virtual.lease = self.model.activate_virtual_slot(
+                        slot_id,
+                        request_id,
+                        generation=virtual.lease.generation,
+                    )
+                    state.request_ids = (request_id,)
+                    if pages is not None:
+                        self.model.update_page_table(state, pages[row : row + 1])
+                    self.model.copy_tokens(state, values[row])
+                    if positions is not None:
+                        position = positions[row : row + 1]
+                        host = ttnn.from_torch(position, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+                        ttnn.copy_host_to_device_tensor(host, state.current_pos)
+                        state.position_host_copies += 1
+                    if enable_trace:
+                        output = self.model.replay_model_only_traced(state, values[row : row + 1])
+                        self.model.advance_positions_traced()
+                    else:
+                        output = self.model.decode_forward(
+                            values[row : row + 1],
+                            state=state,
+                            enable_trace=False,
+                            on_device_sampling=False,
+                        )
+                        ttnn.plus_one(state.current_pos, skip_negative_entries=True)
+                    executed_rows += 1
+                    host_logits.append(self.model.logits_to_torch(output).reshape(1, 1, self.model.vocab_size))
+                    virtual.device_feedback_current = False
+                    virtual.lease = self.model.commit_virtual_slot(
+                        slot_id,
+                        request_id,
+                        generation=virtual.lease.generation,
+                    )
+            except Exception:
+                if executed_rows:
+                    self._serving_virtual_decode_poisoned = True
+                    self._serving_program_cache_initialization_uncertain = True
+                raise
+
+            self._serving_device_feedback_current = False
+            wrapped = _ServingDecodeOutput("logits", torch.cat(host_logits, dim=0), rows, state)
+            if read_from_device:
+                return self.process_decode_output_host(wrapped, is_tokens=False)
+            return wrapped
+
+        # Validate the complete logical batch before the first row can advance
+        # recurrent state or RNG. Runtime/device failures after this point are
+        # fail-stopped: exact rollback would require N-1 extra device snapshots.
+        for row, (request_id, slot_id, generation) in enumerate(zip(requests, slots, generations)):
+            self._require_virtual_slot(slot_id, request_id, generation)
+            self._validate_serving_sampling_params(self._sampling_row(sampling_params, row))
+        state_pages = getattr(state, "page_table_host", None)
+        if pages is not None and state_pages is not None and tuple(pages.shape[1:]) != tuple(state_pages.shape[1:]):
+            raise ValueError("virtual decode page-table width does not match the trace-bound state")
+
+        executed_rows = 0
+        try:
+            for row, (request_id, slot_id, generation) in enumerate(zip(requests, slots, generations)):
+                virtual = self._require_virtual_slot(slot_id, request_id, generation)
+                virtual.lease = self.model.activate_virtual_slot(
+                    slot_id,
+                    request_id,
+                    generation=virtual.lease.generation,
+                )
+                # Activation restored this slot's device sampler tensors and the
+                # canonical model's host RNG state; align the signature cache so
+                # an A/B/A row order cannot skip the required parameter upload.
+                self._serving_sampling_signature = virtual.sampling_signature
+                state.request_ids = (request_id,)
+                if pages is not None:
+                    self.model.update_page_table(state, pages[row : row + 1])
+                row_params = self._sampling_row(sampling_params, row)
+                self._apply_serving_sampling_params(row_params)
+                virtual.sampling_signature = self._serving_sampling_signature
+                # The runner token can lag async device feedback. Read one compact
+                # token solely for the declared host PLE lookup; feedback remains
+                # in the restored device token buffer.
+                if virtual.device_feedback_current:
+                    ple_values = self.model.sampled_tokens_to_torch(state.token_input, state)
+                else:
+                    ple_values = values[row : row + 1].reshape(1)
+                if enable_trace:
+                    self.model.decode_token_out_traced(state, ple_values.reshape(1, 1))
+                else:
+                    self.model.decode_forward(
+                        ple_values,
+                        state=state,
+                        enable_trace=False,
+                        on_device_sampling=True,
+                    )
+                executed_rows += 1
+                virtual.device_feedback_current = True
+                virtual.lease = self.model.commit_virtual_slot(
+                    slot_id,
+                    request_id,
+                    generation=virtual.lease.generation,
+                )
+        except Exception:
+            if executed_rows:
+                self._serving_virtual_decode_poisoned = True
+                self._serving_program_cache_initialization_uncertain = True
+            raise
+
+        devices = tuple(
+            self.model.virtual_slot_token(
+                slot,
+                request,
+                generation=self._serving_virtual_slots[slot].lease.generation,
+            )
+            for slot, request in zip(slots, requests)
+        )
+        self._serving_device_feedback_current = True
+        output = _ServingDecodeOutput(
+            "tokens",
+            devices[0] if rows == 1 else devices,
+            rows,
+            state,
+        )
+        if read_from_device:
+            return self.process_decode_output_host(output, is_tokens=True)
+        return output
 
     def read_decode_output(self, tt_out, *, async_read: bool = False):
         """Delegate the vLLM submit/read split to the canonical output."""
@@ -804,7 +1558,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                     top_k=top_k,
                     top_p=top_p,
                     temperature=temperature,
-                    seeds=None if seeds is None else [int(seed) + step for seed in seeds],
+                    seeds=(None if seeds is None else [int(seed) + step for seed in seeds]),
                 )
                 self.model.copy_tokens(state, next_tokens)
                 if enable_trace:

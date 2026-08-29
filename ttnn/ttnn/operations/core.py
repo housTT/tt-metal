@@ -483,6 +483,9 @@ ttnn.register_python_operation(
 ttnn.register_python_operation(
     name="ttnn.copy_host_to_device_tensor",
 )(ttnn._ttnn.operations.core.copy_host_to_device_tensor)
+ttnn.register_python_operation(
+    name="ttnn.copy_host_to_device_tensor_at_coordinate",
+)(ttnn._ttnn.operations.core.copy_host_to_device_tensor_at_coordinate)
 doc = """
 Copies host tensor data into a pre-allocated device tensor, writing only the shards mapped to cores in :attr:`logical_core_filter`.
 

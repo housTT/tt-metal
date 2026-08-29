@@ -531,9 +531,7 @@ class FusedDecoder(FunctionalDecoder):
         )
         _free(window, normed, new_state)
         ttnn.deallocate(normed)
-        ttnn.deallocate(self.user_ple_conv_state[user_id])
-        self.user_ple_conv_state[user_id] = ttnn.clone(new_state, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        _free(new_state, self.user_ple_conv_state[user_id])
+        self._update_prefill_state(self.user_ple_conv_state[user_id], new_state)
         out = ttnn.add(
             gated,
             acc,
@@ -618,9 +616,7 @@ class FusedDecoder(FunctionalDecoder):
             [1, 1, logical + s.linear_conv_kernel_dim - 1, s.linear_qkv_width],
         )
         _free(window, mixed, new_state)
-        ttnn.deallocate(self.user_conv_state[user_id])
-        self.user_conv_state[user_id] = ttnn.clone(new_state, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        _free(new_state, self.user_conv_state[user_id])
+        self._update_prefill_state(self.user_conv_state[user_id], new_state)
         out = ttnn.silu(acc)
         ttnn.deallocate(acc)
         return out
@@ -645,9 +641,7 @@ class FusedDecoder(FunctionalDecoder):
         _free(window, mixed, new_state)
         mixed_bf16 = ttnn.typecast(mixed, ttnn.bfloat16)
         history_bf16 = ttnn.typecast(history, ttnn.bfloat16)
-        ttnn.deallocate(history)
-        self.user_conv_state[user_id] = ttnn.clone(new_state, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        _free(new_state, self.user_conv_state[user_id])
+        self._update_prefill_state(history, new_state)
         mixed_rm = ttnn.to_layout(mixed_bf16, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         history_rm = ttnn.to_layout(history_bf16, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         ttnn.deallocate(mixed_bf16)
@@ -697,8 +691,7 @@ class FusedDecoder(FunctionalDecoder):
             ),
             const_tiles=self.const["gdn_tiles"],
         )
-        ttnn.deallocate(self.user_recurrent_state[user_id])
-        self.user_recurrent_state[user_id] = state
+        self._update_prefill_state(self.user_recurrent_state[user_id], state)
         core = ttnn.reshape(
             core,
             (1, padded, s.linear_num_value_heads, s.linear_value_head_dim),

@@ -50,6 +50,24 @@ def test_fused_class_and_source_contract():
         assert forbidden not in source
 
 
+def test_prefill_state_outputs_copy_into_fixed_buffers():
+    functional_source = inspect.getsource(functional_gates.FunctionalDecoder)
+    fused_source = inspect.getsource(FusedDecoder)
+
+    assert functional_source.count("self._update_prefill_state(") == 3
+    assert fused_source.count("self._update_prefill_state(") == 4
+    for source in (functional_source, fused_source):
+        for forbidden in (
+            "ttnn.deallocate(self.user_recurrent_state",
+            "ttnn.deallocate(self.user_conv_state",
+            "ttnn.deallocate(self.user_ple_conv_state",
+            "self.user_recurrent_state[user_id] =",
+            "self.user_conv_state[user_id] =",
+            "self.user_ple_conv_state[user_id] =",
+        ):
+            assert forbidden not in source
+
+
 def test_target_shape_and_layer_kind_contract(monkeypatch):
     _fused(monkeypatch)
     functional_gates.test_target_shape_and_layer_kind_contract()

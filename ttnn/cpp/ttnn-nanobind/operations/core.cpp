@@ -4,6 +4,7 @@
 
 #include "core.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -16,8 +17,13 @@
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/compute_throttle_utils.hpp"
 #include "ttnn/common/queue_id.hpp"
+#include "ttnn/tensor/tensor_impl.hpp"
 #include "ttnn/tensor/tensor_ops.hpp"
 #include "ttnn/operations/experimental/core_subset_write/copy_to_device_filtered.hpp"
+#include "tt_metal/impl/tensor/mesh_tensor_impl.hpp"
+#include <tt-metalium/host_buffer.hpp>
+#include <tt-metalium/mesh_buffer.hpp>
+#include <tt-metalium/mesh_command_queue.hpp>
 #include <tt-metalium/work_split.hpp>
 #include <tt-metalium/base_types.hpp>
 #include <tt-metalium/core_coord.hpp>
@@ -360,6 +366,67 @@ void py_module(nb::module_& mod) {
 
             Limitations:
                 -  Host and Device tensors must be the same shape, have the same datatype, and have the same data layout (ROW_MAJOR or TILE).
+        )doc");
+
+    mod.def(
+        "copy_host_to_device_tensor_at_coordinate",
+        [](const ttnn::Tensor& host_tensor,
+           ttnn::Tensor& device_tensor,
+           const tt::tt_metal::distributed::MeshCoordinate& coordinate,
+           const std::optional<QueueId>& cq_id) {
+            TT_FATAL(
+                host_tensor.storage_type() == StorageType::HOST,
+                "copy_host_to_device_tensor_at_coordinate expects a host tensor");
+            TT_FATAL(
+                device_tensor.storage_type() == StorageType::DEVICE,
+                "copy_host_to_device_tensor_at_coordinate expects a device tensor");
+            TT_FATAL(device_tensor.is_allocated(), "Destination tensor is not allocated");
+            TT_FATAL(
+                host_tensor.logical_shape() == device_tensor.logical_shape(),
+                "Host and device tensors must have the same logical shape");
+            TT_FATAL(host_tensor.dtype() == device_tensor.dtype(), "Host and device tensors must have the same dtype");
+            TT_FATAL(
+                host_tensor.tensor_spec().page_config() == device_tensor.tensor_spec().page_config(),
+                "Host and device tensors must have the same page config");
+
+            const auto& destination_coords = device_tensor.device_storage().get_coords();
+            TT_FATAL(
+                std::find(destination_coords.begin(), destination_coords.end(), coordinate) != destination_coords.end(),
+                "Coordinate {} is outside the destination tensor's storage",
+                coordinate);
+
+            const auto& host_storage = host_tensor.host_storage();
+            TT_FATAL(
+                host_storage.buffer().shape() == tt::tt_metal::distributed::MeshShape(1, 1),
+                "copy_host_to_device_tensor_at_coordinate expects a single-shard host tensor");
+            const auto host_buffer = host_storage.buffer().get_shard(tt::tt_metal::distributed::MeshCoordinate(0, 0));
+            TT_FATAL(host_buffer.has_value(), "Host tensor has no data");
+            const auto packed_bytes = device_tensor.tensor_spec().compute_packed_buffer_size_bytes();
+            TT_FATAL(
+                host_buffer->view_bytes().size() == packed_bytes,
+                "Host data size ({}) does not match destination packed buffer size ({})",
+                host_buffer->view_bytes().size(),
+                packed_bytes);
+
+            auto mesh_buffer = device_tensor.device_storage().get_mesh_tensor().impl().raw_mesh_buffer();
+            auto transfer =
+                tt::tt_metal::distributed::ShardDataTransfer{coordinate}
+                    .host_data(const_cast<void*>(static_cast<const void*>(host_buffer->view_bytes().data())))
+                    .region(tt::tt_metal::BufferRegion(0, packed_bytes));
+            device_tensor.device()
+                ->mesh_command_queue(ttnn::raw_optional(cq_id))
+                .enqueue_write_shards(mesh_buffer, {std::move(transfer)}, /*blocking=*/false);
+        },
+        nb::arg("host_tensor"),
+        nb::arg("device_tensor"),
+        nb::arg("coordinate"),
+        nb::arg("cq_id") = nb::none(),
+        R"doc(
+        Copy one single-shard host tensor into one coordinate of an existing parent-mesh tensor.
+
+        Unlike the generic non-uniform host-to-device copy, this operation preserves the destination
+        tensor's DeviceStorage and topology. The host tensor must remain alive until the command queue
+        reaches this non-blocking write.
         )doc");
 
     mod.def(
