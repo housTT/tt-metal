@@ -191,4 +191,4 @@ The first frozen-source review returned `more-work-needed` because the adapter a
 Local checkpoint SHAs are appended below after each repository commit. No push is performed.
 
 - vLLM TT plugin: branch `housTT/register-muse-glimmer-30b`, commit `a48857ac68b17c31303e4809f348caaebbf10f74` (`Support Qwen3.8 virtual-slot vLLM serving`).
-- tt-metal implementation/evidence checkpoint: recorded by the follow-up bookkeeping commit after the implementation commit is created.
+- tt-metal implementation/evidence checkpoint: branch `hous/qwen3.8-flash-next`, commit `281c0c1876f1fddd2e91372e2321a22c0fb77b65` (`Complete Qwen3.8 vLLM integration`).
