@@ -274,4 +274,5 @@ of `doc/context_contract.json`.
 - fresh xhigh `$stage-review`: `clean-pass`, with the first-token shortcut
   wording corrected and focused rereview retaining `clean-pass`; report at
   `stage_review.md`;
-- stage-owned local commit SHA: pending; never push.
+- stage-owned local checkpoint: repository `tt-metal`, branch `main`, commit
+  `1989f63169858ef22a6dfff6fba24e3e5f93d889`; not pushed.
