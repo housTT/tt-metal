@@ -13,7 +13,7 @@ the completed fused/optimized decoder boundary; padding stays internal.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 import torch
@@ -89,12 +89,20 @@ class MultichipDecoderPolicy:
     decode_fused_output_projection_ccl: bool = False
     decode_separate_gate_up: bool = False
     router_weight_dtype: object = ttnn.bfloat16
+    normalization_weight_dtype: object = ttnn.bfloat16
     router_prefill_input_l1: bool = False
     router_prefill_explicit_program_config: bool = False
     activation_ccl_dtype: object = ttnn.bfloat16
     attention_activation_ccl_dtype: object | None = ttnn.bfloat8_b
     expert_activation_ccl_dtype: object | None = None
     projection_math_fidelity: object = ttnn.MathFidelity.LoFi
+    prefill_projection_math_fidelity: object = ttnn.MathFidelity.HiFi2
+    attention_sdpa_math_fidelity: object = ttnn.MathFidelity.HiFi4
+    expert_math_fidelity: object = ttnn.MathFidelity.LoFi
+    router_math_fidelity: object = ttnn.MathFidelity.HiFi2
+    residual_dtype: object = ttnn.bfloat16
+    attention_projection_input_dtype: object = ttnn.bfloat8_b
+    expert_intermediate_dtype: object = ttnn.bfloat16
     expert_gate_up_cores: tuple[int, int] = (5, 9)
     expert_gate_up_in0_block_w: int = 30
     expert_gate_up_subblock_w: int = 1
@@ -385,6 +393,71 @@ _SUPPORTED_MULTICHIP_POLICIES = (
     ATTENTION_BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
     EXPERT_BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
 )
+
+_SWEEP_POLICY_FIELDS = {
+    "name",
+    "attention_weight_dtype",
+    "expert_weight_dtype",
+    "kv_cache_dtype",
+    "router_weight_dtype",
+    "normalization_weight_dtype",
+    "activation_ccl_dtype",
+    "attention_activation_ccl_dtype",
+    "expert_activation_ccl_dtype",
+    "projection_math_fidelity",
+    "prefill_projection_math_fidelity",
+    "attention_sdpa_math_fidelity",
+    "expert_math_fidelity",
+    "router_math_fidelity",
+    "residual_dtype",
+    "attention_projection_input_dtype",
+    "expert_intermediate_dtype",
+}
+_SWEEP_DTYPES = {ttnn.bfloat16, ttnn.bfloat8_b, ttnn.bfloat4_b}
+_SWEEP_MATH_FIDELITIES = {
+    ttnn.MathFidelity.LoFi,
+    ttnn.MathFidelity.HiFi2,
+    ttnn.MathFidelity.HiFi3,
+    ttnn.MathFidelity.HiFi4,
+}
+
+
+def _is_supported_multichip_policy(policy: MultichipDecoderPolicy) -> bool:
+    """Accept named bringup policies and dtype-sweep variants of the selected geometry."""
+
+    if policy in _SUPPORTED_MULTICHIP_POLICIES:
+        return True
+    for field in fields(MultichipDecoderPolicy):
+        if field.name not in _SWEEP_POLICY_FIELDS and getattr(policy, field.name) != getattr(
+            DEFAULT_MULTICHIP_POLICY, field.name
+        ):
+            return False
+    dtype_fields = (
+        "attention_weight_dtype",
+        "expert_weight_dtype",
+        "kv_cache_dtype",
+        "router_weight_dtype",
+        "normalization_weight_dtype",
+        "activation_ccl_dtype",
+        "residual_dtype",
+        "attention_projection_input_dtype",
+        "expert_intermediate_dtype",
+    )
+    optional_dtype_fields = ("attention_activation_ccl_dtype", "expert_activation_ccl_dtype")
+    fidelity_fields = (
+        "projection_math_fidelity",
+        "prefill_projection_math_fidelity",
+        "attention_sdpa_math_fidelity",
+        "expert_math_fidelity",
+        "router_math_fidelity",
+    )
+    return (
+        all(getattr(policy, name) in _SWEEP_DTYPES for name in dtype_fields)
+        and all(
+            getattr(policy, name) is None or getattr(policy, name) in _SWEEP_DTYPES for name in optional_dtype_fields
+        )
+        and all(getattr(policy, name) in _SWEEP_MATH_FIDELITIES for name in fidelity_fields)
+    )
 
 
 class _OptimizedMultichipBackend(FusedDecoder):
@@ -815,7 +888,7 @@ class _PhysicalHiddenCollectiveAttention(Attention):
         # is measured with its intended payload instead of rejected at the
         # first API validation error.
         if output.dtype == ttnn.bfloat4_b:
-            converted = ttnn.typecast(output, ttnn.bfloat16)
+            converted = ttnn.typecast(output, self.residual_dtype)
             output.deallocate(True)
             output = converted
         return output
@@ -831,6 +904,7 @@ class _ReplicatedL1Router(TopKRouter):
         state_dict,
         tensor_cache_path=None,
         weight_dtype=ttnn.bfloat16,
+        math_fidelity=ttnn.MathFidelity.HiFi2,
         *,
         prefill_input_l1=False,
         prefill_explicit_program_config=False,
@@ -858,7 +932,13 @@ class _ReplicatedL1Router(TopKRouter):
             cache_file_name=get_cache_file_name(tensor_cache_path, "bias_l1_replicated"),
             memory_config=ttnn.L1_MEMORY_CONFIG,
         )
-        self.compute_config = None
+        self.compute_config = ttnn.init_device_compute_kernel_config(
+            mesh_device.arch(),
+            math_fidelity=math_fidelity,
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=True,
+        )
         self.prefill_input_l1 = prefill_input_l1
         self.prefill_program_config = (
             ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
@@ -932,6 +1012,9 @@ class _ActiveExpertTPMLP(MLP):
         mesh_config,
         expert_weight_dtype,
         router_weight_dtype=ttnn.bfloat16,
+        expert_math_fidelity=ttnn.MathFidelity.LoFi,
+        router_math_fidelity=ttnn.MathFidelity.HiFi2,
+        expert_intermediate_dtype=ttnn.bfloat16,
         router_prefill_input_l1=False,
         router_prefill_explicit_program_config=False,
         activation_ccl_dtype=ttnn.bfloat8_b,
@@ -965,6 +1048,7 @@ class _ActiveExpertTPMLP(MLP):
             substate(state_dict, "router"),
             tensor_cache_path=get_cache_file_name(tensor_cache_path, "router"),
             weight_dtype=router_weight_dtype,
+            math_fidelity=router_math_fidelity,
             prefill_input_l1=router_prefill_input_l1,
             prefill_explicit_program_config=router_prefill_explicit_program_config,
         )
@@ -1004,6 +1088,14 @@ class _ActiveExpertTPMLP(MLP):
         self.top_k = int(hf_config.num_experts_per_tok)
         self.expert_weight_dtype = expert_weight_dtype
         self.activation_ccl_dtype = activation_ccl_dtype
+        self.expert_intermediate_dtype = expert_intermediate_dtype
+        self.expert_compute_kernel_config = ttnn.init_device_compute_kernel_config(
+            mesh_device.arch(),
+            math_fidelity=expert_math_fidelity,
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=True,
+        )
         self.separate_gate_up = separate_gate_up
         self._load_indexed_decode_weights(
             substate(state_dict, "experts"),
@@ -1223,7 +1315,8 @@ class _ActiveExpertTPMLP(MLP):
                         weight.shape[3],
                         k=hidden_states.shape[-1],
                     ),
-                    dtype=self.activation_ccl_dtype,
+                    compute_kernel_config=self.expert_compute_kernel_config,
+                    dtype=self.expert_intermediate_dtype,
                 )
                 projected = ttnn.reshape(projected, (1, self.top_k, self.local_intermediate_size))
                 projected_bias = ttnn.embedding(
@@ -1251,7 +1344,8 @@ class _ActiveExpertTPMLP(MLP):
                     self.indexed_gate_up.shape[3],
                     k=hidden_states.shape[-1],
                 ),
-                dtype=self.activation_ccl_dtype,
+                compute_kernel_config=self.expert_compute_kernel_config,
+                dtype=self.expert_intermediate_dtype,
             )
             gate_up = ttnn.reshape(gate_up, (1, self.top_k, 2 * self.local_intermediate_size))
             gate_up_bias = ttnn.embedding(
@@ -1264,7 +1358,7 @@ class _ActiveExpertTPMLP(MLP):
             gate_up = ttnn.add(gate_up, gate_up_bias, output_tensor=gate_up)
             gate_up_bias.deallocate(True)
             if gate_up.dtype == ttnn.bfloat4_b:
-                converted = ttnn.typecast(gate_up, ttnn.bfloat16)
+                converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
                 gate_up.deallocate(True)
                 gate_up = converted
             gate = ttnn.slice(
@@ -1296,7 +1390,8 @@ class _ActiveExpertTPMLP(MLP):
                 self.indexed_down.shape[-1],
                 k=down_input.shape[-1],
             ),
-            dtype=self.activation_ccl_dtype,
+            compute_kernel_config=self.expert_compute_kernel_config,
+            dtype=self.expert_intermediate_dtype,
         )
         down_input.deallocate(True)
         expert_indices_rm.deallocate(True)
@@ -1317,12 +1412,16 @@ class _ActiveExpertTPMLP(MLP):
         output = ttnn.mul(output, routing_scores_rm, output_tensor=output)
         routing_scores_rm.deallocate(True)
         if output.dtype == ttnn.bfloat4_b:
-            converted = ttnn.typecast(output, ttnn.bfloat16)
+            converted = ttnn.typecast(output, self.expert_intermediate_dtype)
             output.deallocate(True)
             output = converted
         output = ttnn.sum(output, dim=1)
         output = ttnn.unsqueeze_to_4D(output)
         output = ttnn.unsqueeze_to_4D(output)
+        if output.dtype != self.activation_ccl_dtype:
+            converted = ttnn.typecast(output, self.activation_ccl_dtype)
+            output.deallocate(True)
+            output = converted
         output = apply_tensor_parallel_allreduce(
             output,
             self.mesh_config,
@@ -1363,7 +1462,8 @@ class _ActiveExpertTPMLP(MLP):
                         weight.shape[3],
                         k=hidden_4d.shape[-1],
                     ),
-                    dtype=self.activation_ccl_dtype,
+                    compute_kernel_config=self.expert_compute_kernel_config,
+                    dtype=self.expert_intermediate_dtype,
                 )
                 projected = ttnn.transpose(projected, 1, 3)
                 projected = ttnn.reshape(
@@ -1387,7 +1487,8 @@ class _ActiveExpertTPMLP(MLP):
                     self.indexed_gate_up.shape[3],
                     k=hidden_4d.shape[-1],
                 ),
-                dtype=self.activation_ccl_dtype,
+                compute_kernel_config=self.expert_compute_kernel_config,
+                dtype=self.expert_intermediate_dtype,
             )
             gate_up = ttnn.transpose(gate_up, 1, 3)
             gate_up = ttnn.reshape(
@@ -1402,7 +1503,7 @@ class _ActiveExpertTPMLP(MLP):
             # pay the explicit conversion in the BFP4 experiment instead of
             # rejecting the lower-precision family at its first API boundary.
             if gate_up.dtype == ttnn.bfloat4_b:
-                converted = ttnn.typecast(gate_up, ttnn.bfloat16)
+                converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
                 gate_up.deallocate(True)
                 gate_up = converted
             gate = ttnn.slice(
@@ -1453,7 +1554,8 @@ class _ActiveExpertTPMLP(MLP):
                     self.indexed_down.shape[-1],
                     k=down_input_split.shape[-1],
                 ),
-                dtype=self.activation_ccl_dtype,
+                compute_kernel_config=self.expert_compute_kernel_config,
+                dtype=self.expert_intermediate_dtype,
             )
             split_sequence = down_input_split.shape[2]
             down_input_split.deallocate(True)
@@ -1466,7 +1568,7 @@ class _ActiveExpertTPMLP(MLP):
             next_states = apply_routing_weights(next_states, routing_split)
             routing_split.deallocate(True)
             if next_states.dtype == ttnn.bfloat4_b:
-                converted = ttnn.typecast(next_states, ttnn.bfloat16)
+                converted = ttnn.typecast(next_states, self.expert_intermediate_dtype)
                 next_states.deallocate(True)
                 next_states = converted
             reduced = reduce_experts(next_states)
@@ -1501,6 +1603,10 @@ class _ActiveExpertTPMLP(MLP):
                 output_accumulator.deallocate(True)
                 output.deallocate(True)
                 output_accumulator = concatenated
+        if output_accumulator.dtype != self.activation_ccl_dtype:
+            converted = ttnn.typecast(output_accumulator, self.activation_ccl_dtype)
+            output_accumulator.deallocate(True)
+            output_accumulator = converted
         output = apply_tensor_parallel_allreduce(
             output_accumulator,
             self.mesh_config,
@@ -1597,7 +1703,7 @@ class MultichipDecoder(LightweightModule):
         optimized_policy: OptimizedDecoderPolicy | None = None,
     ):
         plan = tensor_plan(mesh_device.shape, hf_config)
-        if policy not in _SUPPORTED_MULTICHIP_POLICIES:
+        if not _is_supported_multichip_policy(policy):
             raise ValueError(f"unsupported multichip decoder policy: {policy!r}")
         if not 1 <= int(max_batch_size) <= 32:
             raise ValueError(f"max_batch_size must be within [1, 32], got {max_batch_size}")
@@ -1641,7 +1747,7 @@ class MultichipDecoder(LightweightModule):
             num_links=get_default_num_links(mesh_device),
             topology=policy.topology,
         )
-        program_config = GPTOSSAttentionProgramConfig()
+        program_config = GPTOSSAttentionProgramConfig(math_fidelity=policy.attention_sdpa_math_fidelity.name)
         physical_context_length = (
             math.ceil(max_context_length / program_config.decode_k_chunk_size) * program_config.decode_k_chunk_size
         )
@@ -1687,6 +1793,15 @@ class MultichipDecoder(LightweightModule):
             paged_attention_config=paged_attention_config,
             transformation_mats=rope_setup.get_both_trans_mats(),
             weight_dtype=policy.attention_weight_dtype,
+            cache_dtype=policy.kv_cache_dtype,
+            prefill_projection_input_dtype=policy.attention_projection_input_dtype,
+            prefill_projection_compute_kernel_config=ttnn.init_device_compute_kernel_config(
+                mesh_device.arch(),
+                math_fidelity=policy.prefill_projection_math_fidelity,
+                math_approx_mode=False,
+                fp32_dest_acc_en=False,
+                packer_l1_acc=True,
+            ),
             tensor_cache_path=get_cache_file_name(cache_root, "self_attn"),
         )
         attention.decode_wqkv = attention.weights.wqkv
@@ -1703,6 +1818,7 @@ class MultichipDecoder(LightweightModule):
         attention.decode_output_to_interleaved = False
         attention.decode_output_physical_hidden = plan.padded_hidden_size
         attention.activation_ccl_dtype = policy.attention_activation_ccl_dtype or policy.activation_ccl_dtype
+        attention.residual_dtype = policy.residual_dtype
         # The regular fused MM+RS kernel is correct and substantially faster
         # for TP4. Its TP2 topology hangs on Blackhole for both native and
         # 3072-column adapted shapes, so TP2 keeps the measured non-fused path.
@@ -1937,6 +2053,7 @@ class MultichipDecoder(LightweightModule):
                 substate(local_state, "input_layernorm"),
                 tensor_cache_path=get_cache_file_name(cache_root, "input_layernorm"),
                 mesh_config=mesh_config,
+                weight_dtype=policy.normalization_weight_dtype,
                 enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
             ),
             post_attention_layernorm=_DecodeShardedRMSNorm(
@@ -1945,6 +2062,7 @@ class MultichipDecoder(LightweightModule):
                 substate(local_state, "post_attention_layernorm"),
                 tensor_cache_path=get_cache_file_name(cache_root, "post_attention_layernorm"),
                 mesh_config=mesh_config,
+                weight_dtype=policy.normalization_weight_dtype,
                 enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
             ),
             attention=attention,
@@ -1957,6 +2075,9 @@ class MultichipDecoder(LightweightModule):
                 mesh_config=mesh_config,
                 expert_weight_dtype=policy.expert_weight_dtype,
                 router_weight_dtype=policy.router_weight_dtype,
+                expert_math_fidelity=policy.expert_math_fidelity,
+                router_math_fidelity=policy.router_math_fidelity,
+                expert_intermediate_dtype=policy.expert_intermediate_dtype,
                 router_prefill_input_l1=policy.router_prefill_input_l1,
                 router_prefill_explicit_program_config=policy.router_prefill_explicit_program_config,
                 activation_ccl_dtype=policy.expert_activation_ccl_dtype or policy.activation_ccl_dtype,

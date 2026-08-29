@@ -361,6 +361,130 @@
       "artifact_root": "optimized_full_model/artifacts"
     }
   },
+  "datatype_sweep": {
+    "status": "selected_and_revalidated",
+    "selected_config_id": "ds00_baseline",
+    "selected_config": "datatype_sweep/selected_precision_config.json",
+    "runtime_consumption_evidence": "datatype_sweep/artifacts/selected/post_selection_token_out.json",
+    "selection_gate": {
+      "top1_min": 0.9,
+      "top5_min": 0.98,
+      "selected_top1_top5_top100": [0.95, 1.0, 1.0],
+      "selected_trace_verified_teacher_forcing_ttft_ms": 3630.938269496255,
+      "selected_trace_verified_teacher_forcing_decode_t_s_u": 61.03824482016593,
+      "selected_warmed_repetitions_t_s_u": [60.92274610300885, 61.15374353732301],
+      "ranking": "fastest evaluated accuracy-passing full-model config using traced teacher-forcing decode"
+    },
+    "optimized_full_model_baseline_refresh": {
+      "top1_top5_top100": [0.95, 1.0, 1.0],
+      "ttft_ms": 3634.946491998562,
+      "trace_verified_teacher_forcing_decode_t_s_u": 60.80080423324522,
+      "warmed_repetitions_t_s_u": [60.80409442301143, 60.79751404347902],
+      "config_sha256": "b8e1e655581ffca37dd8b841285940c494a5e43d6b5deec3ebc10078ddb52c57",
+      "artifact": "optimized_full_model/artifacts/teacher_forcing_readiness.json"
+    },
+    "accounting": "physical TT tile bytes with the same resident 36-layer weights, terminal tensors, page table, and 2 GiB trace/activation reserve as optimized full model",
+    "configured_context": 131072,
+    "batch_size": 1,
+    "kv_cache_capacity_candidates": {
+      "bfloat4_b": {
+        "P150": {
+          "mesh": [1, 1],
+          "total_bytes_per_device": 72479340672,
+          "kv_cache_bytes_per_device": 2717908992,
+          "fits_32_gib": false,
+          "largest_feasible_context": 0,
+          "limit": "fixed resident state already exceeds 32 GiB/device"
+        },
+        "P150x2": {
+          "mesh": [1, 2],
+          "total_bytes_per_device": 38064149376,
+          "kv_cache_bytes_per_device": 1358954496,
+          "fits_32_gib": false,
+          "largest_feasible_context": 0,
+          "limit": "fixed resident state already exceeds 32 GiB/device"
+        },
+        "P150x4": {
+          "mesh": [1, 4],
+          "total_bytes_per_device": 20939093376,
+          "kv_cache_bytes_per_device": 679477248,
+          "fits_32_gib": true,
+          "largest_feasible_context": 131072,
+          "capability_reduction": null
+        }
+      },
+      "bfloat8_b": {
+        "P150": {
+          "mesh": [1, 1],
+          "total_bytes_per_device": 74895259776,
+          "kv_cache_bytes_per_device": 5133828096,
+          "fits_32_gib": false,
+          "largest_feasible_context": 0,
+          "limit": "fixed resident state already exceeds 32 GiB/device"
+        },
+        "P150x2": {
+          "mesh": [1, 2],
+          "total_bytes_per_device": 39272108928,
+          "kv_cache_bytes_per_device": 2566914048,
+          "fits_32_gib": false,
+          "largest_feasible_context": 0,
+          "limit": "fixed resident state already exceeds 32 GiB/device"
+        },
+        "P150x4": {
+          "mesh": [1, 4],
+          "total_bytes_per_device": 21543073152,
+          "kv_cache_bytes_per_device": 1283457024,
+          "fits_32_gib": true,
+          "largest_feasible_context": 131072,
+          "capability_reduction": null
+        }
+      },
+      "bfloat16": {
+        "P150": {
+          "mesh": [1, 1],
+          "total_bytes_per_device": 79425108096,
+          "kv_cache_bytes_per_device": 9663676416,
+          "fits_32_gib": false,
+          "largest_feasible_context": 0,
+          "limit": "fixed resident state already exceeds 32 GiB/device"
+        },
+        "P150x2": {
+          "mesh": [1, 2],
+          "total_bytes_per_device": 41537033088,
+          "kv_cache_bytes_per_device": 4831838208,
+          "fits_32_gib": false,
+          "largest_feasible_context": 0,
+          "limit": "fixed resident state already exceeds 32 GiB/device"
+        },
+        "P150x4": {
+          "mesh": [1, 4],
+          "total_bytes_per_device": 22675535232,
+          "kv_cache_bytes_per_device": 2415919104,
+          "fits_32_gib": true,
+          "largest_feasible_context": 131072,
+          "capability_reduction": null
+        }
+      }
+    },
+    "advertised_capability": {
+      "P150": 0,
+      "P150x2": 0,
+      "P150x4": 131072
+    },
+    "capability_change_from_optimized_full_model": null,
+    "selected_path_validation": {
+      "non_aligned_prompt_tokens": 214,
+      "generated_tokens": 100,
+      "token_out_ttft_seconds": 3.6304320330091286,
+      "token_out_decode_t_s_u": 62.77274472215383,
+      "prompt128_gen128_ttft_seconds": 0.48354722101066727,
+      "prompt128_gen128_token_out_decode_t_s_u": 62.887686431917146,
+      "prompt128_gen128_first_and_final_tokens_exact": true,
+      "trace_lifecycle_endpoint_lengths": [7, 8, 122, 128],
+      "qualitative_prompts": 6,
+      "qualitative_verdict": "pass"
+    }
+  },
   "provenance": {
     "hf_config": "models/demos/gpt_oss/configs/gpt-oss-120b/config.json",
     "checkpoint_index": "model.safetensors.index.json",

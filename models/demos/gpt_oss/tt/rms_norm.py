@@ -9,7 +9,15 @@ from models.demos.gpt_oss.utils.general_utils import get_cache_file_name, get_de
 
 
 class RMSNorm(nn.Module):
-    def __init__(self, mesh_device, hf_config, state_dict, tensor_cache_path=None, mesh_config=None):
+    def __init__(
+        self,
+        mesh_device,
+        hf_config,
+        state_dict,
+        tensor_cache_path=None,
+        mesh_config=None,
+        weight_dtype=ttnn.bfloat16,
+    ):
         super().__init__()
         if state_dict:
             torch_weight = state_dict["weight"].reshape((1, 1, -1, ttnn.TILE_SIZE))
@@ -22,7 +30,7 @@ class RMSNorm(nn.Module):
         self.tt_weight = ttnn.as_tensor(
             torch_weight,
             device=mesh_device,
-            dtype=ttnn.bfloat16,
+            dtype=weight_dtype,
             layout=ttnn.ROW_MAJOR_LAYOUT,
             cache_file_name=get_cache_file_name(tensor_cache_path, "weight"),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,

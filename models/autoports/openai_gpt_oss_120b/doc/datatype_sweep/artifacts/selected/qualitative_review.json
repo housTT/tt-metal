@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "verdict": "pass",
+  "selected_config_id": "ds00_baseline",
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "command": "env GPT_OSS_120B_FULL_MODEL_QUALITATIVE=1 GPT_OSS_120B_DATATYPE_SWEEP_SELECTED=1 LD_LIBRARY_PATH=/tmp/gptoss-libnsl2:/home/ttuser/dev/gpt-oss-20b/tt-metal/build/lib scripts/run_safe_pytest.sh models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k shared_qualitative_chat_suite -s",
+  "tt_artifact": "qualitative_tt_chat.json",
+  "hf_control": "../../../full_model/qualitative/qualitative_hf_chat.json",
+  "generation": {
+    "greedy": true,
+    "maximum_new_tokens": 128,
+    "prompt_count": 6,
+    "chat_template": "tokenizer.apply_chat_template([{role: user, content: prompt}], add_generation_prompt=True)"
+  },
+  "structural_checks": {
+    "prompt_token_ids_exact_against_hf": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "first_completion_token_is_analysis_channel_200005": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "shifted_left_boundary": "pass: each completion begins immediately after the final assistant-start prompt token; no prompt token is duplicated into the generated completion",
+    "tt_completion_lengths": [
+      128,
+      128,
+      128,
+      128,
+      105,
+      128
+    ],
+    "tt_unique_token_counts": [
+      68,
+      90,
+      93,
+      77,
+      58,
+      91
+    ],
+    "tt_hf_common_prefix_tokens": [
+      3,
+      3,
+      3,
+      17,
+      3,
+      18
+    ]
+  },
+  "human_review": [
+    {
+      "id": 0,
+      "task": "haiku",
+      "verdict": "pass_with_fixed_length_limit",
+      "finding": "On-topic syllable-count reasoning; both TT and HF controls reach the 128-token evidence limit before a final-channel answer."
+    },
+    {
+      "id": 1,
+      "task": "supervised versus unsupervised learning",
+      "verdict": "pass_with_fixed_length_limit",
+      "finding": "Clear labeled-flashcard explanation, correct language, coherent final-channel answer, truncated only by the shared 128-token limit."
+    },
+    {
+      "id": 2,
+      "task": "story continuation",
+      "verdict": "pass_with_fixed_length_limit",
+      "finding": "Coherent English creative continuation with no looping or stale-token behavior; truncated by the shared 128-token limit."
+    },
+    {
+      "id": 3,
+      "task": "thermodynamics",
+      "verdict": "pass_with_fixed_length_limit",
+      "finding": "On-topic handling of conventional law numbering and the zeroth-law ambiguity; truncated by the shared 128-token limit."
+    },
+    {
+      "id": 4,
+      "task": "French translation",
+      "verdict": "pass",
+      "finding": "Correct formal and informal French translations, correct target language, and clean return-token termination at 105 tokens."
+    },
+    {
+      "id": 5,
+      "task": "Fibonacci Python function",
+      "verdict": "pass_with_fixed_length_limit",
+      "finding": "Coherent code-answer setup with an appropriate generator/list design and no malformed or repetitive output; truncated by the shared 128-token limit."
+    }
+  ],
+  "aggregate_findings": {
+    "on_task": true,
+    "correct_language": true,
+    "no_phrase_loop_or_semantic_collapse": true,
+    "no_replacement_character_or_malformed_control_tail": true,
+    "comparison_interpretation": "TT and exact-checkpoint HF outputs use identical prompt token sequences and compatible answer structures. Greedy wording divergence is expected and is not an accuracy gate; the AIME24 shifted-left top-k gate supplies the quantitative full-model check."
+  },
+  "limitations": [
+    "Five prompts intentionally stop at the common 128-token evidence limit, so their answers are partial rather than end-to-end task completions.",
+    "Qualitative output is reviewed for coherence and degeneration; it is not used in Pareto ranking."
+  ]
+}

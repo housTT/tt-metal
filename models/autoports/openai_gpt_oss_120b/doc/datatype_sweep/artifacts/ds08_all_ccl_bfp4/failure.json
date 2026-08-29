@@ -1,0 +1,50 @@
+{
+  "schema_version": 2,
+  "config_id": "ds08_all_ccl_bfp4",
+  "precision_config_path": "models/autoports/openai_gpt_oss_120b/doc/datatype_sweep/candidates/ds08_all_ccl_bfp4.json",
+  "precision_config_sha256": "d285dadac3d0ba025028dd7de7e7998ab78b6d3f972740a68297b45a4b2cd17a",
+  "status": "rejected_exact_ttnn_runtime_blocker",
+  "measurement_regime": "full-model AIME24 chat-template prefill before traced teacher-forcing decode",
+  "hardware": "4x p300c (P150 semantic target)",
+  "mesh": [1, 4],
+  "error": "TT_FATAL: LayerNorm accepts FLOAT32, BFLOAT16, or BFLOAT8_B input, but received BFLOAT4_B after the attention CCL boundary. The wrapper exited 1.",
+  "blocker_scope": "The all-CCL-BFP4 policy reaches the first post-attention normalization with a BFP4 residual. TTNN layernorm rejects that dtype; this is a CCL/normalization-boundary policy blocker, not a BFP4 matmul group.",
+  "command": "env PATH=$PWD/python_env/bin:$PATH GPT_OSS_120B_FULL_MODEL_READINESS=1 GPT_OSS_120B_DATATYPE_SWEEP_CONFIG=models/autoports/openai_gpt_oss_120b/doc/datatype_sweep/candidates/ds08_all_ccl_bfp4.json LD_LIBRARY_PATH=/tmp/gptoss-libnsl2:$PWD/build/lib scripts/run_safe_pytest.sh models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k run_teacher_forcing_aime24_top100 -s",
+  "raw_log": "artifacts/ds08_all_ccl_bfp4/stable_failure.log",
+  "raw_log_sha256": "f390b4dedd1c9f2dc9735576d65cc0c9cc700f96b6974f207869f52465ccb6ba",
+  "runtime_consumption_evidence": "artifacts/ds08_all_ccl_bfp4/runtime_precision_evidence.json",
+  "runtime_source_provenance": {
+    "repo": "/home/ttuser/dev/gpt-oss-20b/tt-metal",
+    "source_branch": "main",
+    "source_commit": "8166f54ddb5befcf5c7e92bc58d9e1670de55204",
+    "source_dirty": true,
+    "runtime_source_state_sha256": "5f7cc129329864bf6c5977fede08235ad3b90f3fc12a4da61340f69d625a7e96",
+    "runtime_source_files": {
+      "models/autoports/openai_gpt_oss_120b/tests/test_full_model.py": "04b2b9d784e4e093b8cfb10bc0261f9b9aba4b2d39f237d7c461c4a5dbbd160c",
+      "models/autoports/openai_gpt_oss_120b/tt/generator.py": "5ed6aa39aab92c0caa2dede23ccb11f0e1a044de265a7e076bf8c2d370495c5b",
+      "models/autoports/openai_gpt_oss_120b/tt/model.py": "47e59d55c93b19f654cca91766cb876a111eaf8ea44c151d500439064aa05bfc",
+      "models/autoports/openai_gpt_oss_120b/tt/multichip_decoder.py": "e5a4eb15a4f1537e9c6da2272ede45d5f1e7749390d2f9e985e47c30906e4413",
+      "models/autoports/openai_gpt_oss_120b/tt/precision.py": "e815c4f7e84fa1f36f618eca028d4b4396baee52ff2d033b63ac652d9835cd84",
+      "models/common/sampling/generator.py": "60ab3c434c1b3bfdda21084ee3a2211ec81b8864c2af4fcb9bcd5ab18987c071",
+      "models/common/sampling/tt_sampling.py": "16f8ef638fd0926f4ed315e659c98eff6e5710214e27504bf5d01267b98b506e",
+      "models/demos/gpt_oss/tt/attention/__init__.py": "b525c4a24391fd3f940aa6e92a304fc56ebf99f1c59945e819e7706d6195435b",
+      "models/demos/gpt_oss/tt/attention/operations.py": "db7070dc440bc75d67ea15b95b42f8e8c521d07a26b90a0a60f38d57f3dd6fd5",
+      "models/demos/gpt_oss/tt/attention/prefill.py": "ccab1a82c77b1bc99bea163d295738aadff13aced11cbe52859b2927ef4b35b3",
+      "models/demos/gpt_oss/tt/model.py": "fb48cee340c8245761bf472bbb476f26bcdaa8f97359a63d48877e544377a7b3",
+      "models/demos/gpt_oss/tt/rms_norm.py": "77cc1cc3678ebe5d837c273074720f8c7d8f0da8447994187cea92e275b9842f",
+      "models/tt_transformers/tt/generator.py": "0bd1c8ca6e3353aed7d1fd7db21957acf95b448c1706243a69609a62784d2e97"
+    }
+  },
+  "runner_provenance": {
+    "source_path": "/home/ttuser/dev/scratch/tt-metal/models/common/readiness_check/run_teacher_forcing.py",
+    "source_sha256": "11f812bd493c687e61710bf3f81e0df749f88f14f47677c6497394d3cc1537a8",
+    "repo": "/home/ttuser/dev/scratch/tt-metal",
+    "branch": "agentic-research/hous/muse-glimmer-30b",
+    "commit": "0dd37ce6ee33826ebb8ce23a5d83a45bca7d6b29",
+    "last_change_commit": "3b4d5c102639cbe35784b7b9cd7ac9841a2fe92c",
+    "git_blob": "e0461ec72b7b318ef51ebadb83e792a39ec4b4a8",
+    "dirty": false
+  },
+  "autofix_disposition": "AutoFix isolated this as a runtime legality boundary, not an implementation error in the selected policy. The selected expert-matmul BFP4 group has both LoFi and HiFi2 measurements, so this blocker is not used to waive a required BFP4-matmul fidelity pair.",
+  "post_failure_health": "2026-08-29T21:10:59Z: all four devices enumerated; DRAM training true; correctable and uncorrectable GDDR errors zero; thermal trip counts zero"
+}

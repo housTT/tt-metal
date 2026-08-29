@@ -19,6 +19,7 @@ that require logits.  It is not the optimized or measured token-out path.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +66,9 @@ SAMPLER_DECISION = {
 class TraceEvidence:
     decode_calls: int = 0
     trace_replays: int = 0
+    model_execute_submissions: int = 0
+    sampling_execute_submissions: int = 0
+    unclassified_execute_submissions: int = 0
     full_input_refreshes: int = 0
     page_table_only_refreshes: int = 0
     page_table_reuses: int = 0
@@ -130,8 +134,11 @@ class Generator(_ReadinessGenerator):
         self._lifetime_prefill_variant_compilations = 0
         self._lifetime_decode_trace_releases_for_prefill_compile = 0
         self._torn_down = False
+        self.runtime_evidence_path: Path | None = None
         self.last_generation_metrics: dict[str, Any] = {}
         self.trace_evidence = TraceEvidence()
+        self._warmed_before_measurement = False
+        self._trace_handles_before_measurement: dict[str, Any] = {}
 
     @property
     def kv_cache(self):
@@ -364,8 +371,6 @@ class Generator(_ReadinessGenerator):
         was_started = self._decode_started
         full_refresh = sampling_mode == "host" or reset_batch or not was_started or mode_changed
         self.trace_evidence.decode_calls += 1
-        if enable_trace:
-            self.trace_evidence.trace_replays += 1
         if full_refresh:
             self.trace_evidence.full_input_refreshes += 1
             self.trace_evidence.token_input_host_refreshes += 1
@@ -384,6 +389,40 @@ class Generator(_ReadinessGenerator):
         self._last_page_table = current
         self._last_sampling_mode = sampling_mode
         self._decode_started = True
+
+    def _call_with_trace_submission_accounting(self, call):
+        """Count successful submissions at the actual ``ttnn.execute_trace`` boundary."""
+
+        original_execute_trace = ttnn.execute_trace
+
+        def counted_execute_trace(mesh_device, trace_id, *args, **kwargs):
+            result = original_execute_trace(mesh_device, trace_id, *args, **kwargs)
+            cq_id = kwargs.get("cq_id", args[0] if args else 0)
+            model_store = getattr(self._inner, "trace_ids_decode", {})
+            model_ids_by_device = model_store.get(True, {}) if hasattr(model_store, "get") else {}
+            model_ids = set((model_ids_by_device or {}).values())
+            sampling = getattr(self.model, "sampling", None)
+            sampling_states = getattr(sampling, "_trace_states", {}) if sampling is not None else {}
+            sampling_ids = {
+                state.get("id")
+                for state in sampling_states.values()
+                if isinstance(state, dict) and state.get("id") is not None
+            }
+            sampling_cq = getattr(sampling, "cq_id", None)
+            if trace_id in sampling_ids and (sampling_cq is None or cq_id == sampling_cq):
+                self.trace_evidence.sampling_execute_submissions += 1
+            elif trace_id in model_ids:
+                self.trace_evidence.model_execute_submissions += 1
+                self.trace_evidence.trace_replays += 1
+            else:
+                self.trace_evidence.unclassified_execute_submissions += 1
+            return result
+
+        ttnn.execute_trace = counted_execute_trace
+        try:
+            return call()
+        finally:
+            ttnn.execute_trace = original_execute_trace
 
     def decode_forward(
         self,
@@ -460,34 +499,40 @@ class Generator(_ReadinessGenerator):
             # the host token/position rather than silently continuing free-run.
             self._inner._slots_prefilled_since_decode.update(range(tokens.shape[0]))
         if reuse_fixed_sampling:
-            result = self._inner.decode_forward(
-                tokens=tokens,
-                start_pos=start_pos,
-                page_table=page_table_host,
-                kv_cache=self._outer_cache(kv_cache),
-                enable_trace=enable_trace,
-                read_from_device=False,
-                sampling_params=None,
-                defer_device_sampling=True,
-                reset_batch=False,
+            result = self._call_with_trace_submission_accounting(
+                lambda: self._inner.decode_forward(
+                    tokens=tokens,
+                    start_pos=start_pos,
+                    page_table=page_table_host,
+                    kv_cache=self._outer_cache(kv_cache),
+                    enable_trace=enable_trace,
+                    read_from_device=False,
+                    sampling_params=None,
+                    defer_device_sampling=True,
+                    reset_batch=False,
+                )
             )
-            result = self._replay_prepared_sampling(result, enable_trace=enable_trace)
+            result = self._call_with_trace_submission_accounting(
+                lambda: self._replay_prepared_sampling(result, enable_trace=enable_trace)
+            )
             self.trace_evidence.fixed_sampling_state_replays += 1
             if prepared_sampling_params == GREEDY:
                 self.trace_evidence.fixed_greedy_sampling_replays += 1
         else:
             effective_sampling_params = (sampling_params or GREEDY) if sampling_mode == "device" else None
-            result = self._inner.decode_forward(
-                tokens=tokens,
-                start_pos=start_pos,
-                page_table=page_table_host,
-                kv_cache=self._outer_cache(kv_cache),
-                enable_trace=enable_trace,
-                read_from_device=read_from_device,
-                sampling_params=effective_sampling_params,
-                reset_batch=reset_batch,
-                prompt_tokens=prompt_tokens,
-                output_tokens=output_tokens,
+            result = self._call_with_trace_submission_accounting(
+                lambda: self._inner.decode_forward(
+                    tokens=tokens,
+                    start_pos=start_pos,
+                    page_table=page_table_host,
+                    kv_cache=self._outer_cache(kv_cache),
+                    enable_trace=enable_trace,
+                    read_from_device=read_from_device,
+                    sampling_params=effective_sampling_params,
+                    reset_batch=reset_batch,
+                    prompt_tokens=prompt_tokens,
+                    output_tokens=output_tokens,
+                )
             )
             if sampling_mode == "device":
                 self.trace_evidence.sampling_state_host_refreshes += 1
@@ -813,7 +858,71 @@ class Generator(_ReadinessGenerator):
             "decode_tokens_per_second_per_user": decode_tokens / decode_seconds if decode_seconds else None,
             "total_seconds": generation_end - generation_start,
         }
+        self._write_runtime_evidence()
         return predictions
+
+    def _trace_handle_evidence(self) -> dict[str, Any]:
+        model_trace_store = getattr(self._inner, "trace_ids_decode", {})
+        model_trace_ids = model_trace_store.get(True, {}) if hasattr(model_trace_store, "get") else {}
+        sampling = getattr(self.model, "sampling", None)
+        sampling_states = getattr(sampling, "_trace_states", {}) if sampling is not None else {}
+        sampling_trace_count = sum(
+            1
+            for state in sampling_states.values()
+            if isinstance(state, dict) and state.get("id") is not None and state.get("output") is not None
+        )
+        return {
+            "model_decode_trace_count": len(model_trace_ids or {}),
+            "sampling_trace_count": sampling_trace_count,
+            "model_decode_trace_present": bool(model_trace_ids),
+            "sampling_trace_present": sampling_trace_count > 0,
+        }
+
+    def mark_warmed_measurement(self) -> None:
+        """Assert traces already exist and tag the next timed generation as warmed."""
+
+        handles = self._trace_handle_evidence()
+        if not handles["model_decode_trace_present"] or not handles["sampling_trace_present"]:
+            raise RuntimeError("warmed measurement requires pre-existing model and sampling trace handles")
+        self._warmed_before_measurement = True
+        self._trace_handles_before_measurement = handles
+
+    def _write_runtime_evidence(self) -> None:
+        if self.runtime_evidence_path is None:
+            return
+        evidence = self.model.precision_runtime_evidence()
+        trace = self.trace_evidence.to_dict()
+        handles = self._trace_handle_evidence()
+        expected_decode_calls = max(int(self.last_generation_metrics.get("output_tokens", 1)) - 1, 0)
+        trace_verified = (
+            self.last_generation_metrics.get("enable_trace") is True
+            and self._warmed_before_measurement
+            and expected_decode_calls > 0
+            and trace["decode_calls"] == expected_decode_calls
+            and trace["model_execute_submissions"] == expected_decode_calls
+            and trace["sampling_execute_submissions"] == expected_decode_calls
+            and trace["unclassified_execute_submissions"] == 0
+            and self._trace_handles_before_measurement.get("model_decode_trace_present") is True
+            and self._trace_handles_before_measurement.get("sampling_trace_present") is True
+            and handles["model_decode_trace_present"]
+            and handles["sampling_trace_present"]
+        )
+        evidence["measurement"] = {
+            "schema_version": 2,
+            "generation_metrics": dict(self.last_generation_metrics),
+            "trace_counters": trace,
+            "warmed_before_timing": self._warmed_before_measurement,
+            "trace_handles_before_timing": dict(self._trace_handles_before_measurement),
+            "trace_handles": handles,
+            "expected_decode_calls": expected_decode_calls,
+            "trace_verified": trace_verified,
+            "trace_verification_rule": (
+                "enable_trace=true; model and sampling trace handles exist before timing; successful model and "
+                "sampling execute_trace submissions each equal output_tokens-1; no submission is unclassified"
+            ),
+        }
+        self.runtime_evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        self.runtime_evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
 
     def reset(self) -> None:
         """Clear cache content and per-request state while retaining warmed traces.
@@ -897,6 +1006,8 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Generator:
     max_batch_size = int(kwargs.pop("max_batch_size", 1))
     snapshot_path = kwargs.pop("snapshot_path", None)
     tensor_cache_path = kwargs.pop("tensor_cache_path", None)
+    precision_config = kwargs.pop("precision_config", None)
+    runtime_evidence_path = kwargs.pop("runtime_evidence_path", None)
     if kwargs:
         unknown = ", ".join(sorted(kwargs))
         raise TypeError(f"Unknown build_generator arguments: {unknown}")
@@ -908,8 +1019,14 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Generator:
         max_context_length=max_context_length,
         num_layers=num_layers,
         allow_reduced_model=num_layers != MODEL_LAYERS,
+        precision_config=precision_config,
     )
-    return Generator(model, args, kv_cache=kv_cache)
+    generator = Generator(model, args, kv_cache=kv_cache)
+    if runtime_evidence_path is not None:
+        evidence_path = Path(runtime_evidence_path)
+        generator.runtime_evidence_path = evidence_path
+        generator._write_runtime_evidence()
+    return generator
 
 
 __all__ = ["GREEDY", "Generator", "SAMPLER_DECISION", "TraceEvidence", "build_generator"]

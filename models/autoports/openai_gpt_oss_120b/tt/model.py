@@ -26,14 +26,14 @@ from transformers import AutoConfig, AutoTokenizer, GenerationConfig
 from transformers.integrations.mxfp4 import convert_moe_packed_tensors
 
 import ttnn
-from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
-    DECODE_K_CHUNK_SIZE,
-    DEFAULT_MULTICHIP_POLICY,
-    MultichipDecoder,
-    MultichipDecoderPolicy,
-    tensor_plan,
-)
+from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import DECODE_K_CHUNK_SIZE, MultichipDecoder, tensor_plan
 from models.autoports.openai_gpt_oss_120b.tt.optimized_decoder import _DecodeShardedRMSNorm
+from models.autoports.openai_gpt_oss_120b.tt.precision import (
+    PrecisionConfig,
+    dtype_name,
+    load_precision_config,
+    math_fidelity_name,
+)
 from models.demos.gpt_oss.config import MeshConfig, ModeConfig
 from models.demos.gpt_oss.tt.ccl import CCLManager
 from models.demos.gpt_oss.tt.model import Model as _GPTOSSModel
@@ -49,6 +49,8 @@ TRACE_ACTIVATION_RESERVE_BYTES = 2 * 1024**3
 INTERLEAVED_LM_HEAD = "interleaved"
 DRAM_SHARDED_LM_HEAD = "dram_sharded"
 _BFP8_TILE_BYTES = 1088
+_BFP4_TILE_BYTES = 576
+_BF16_TILE_BYTES = 2048
 _TILE_ELEMENTS = 32 * 32
 
 # Measured physical TT tensor storage from the completed optimized multichip
@@ -77,6 +79,7 @@ class CapacityEvidence:
     rope_bytes: int
     page_table_bytes: int
     kv_cache_bytes: int
+    kv_cache_dtype: str
     trace_activation_reserve_bytes: int
     total_bytes_per_device: int
     device_dram_bytes: int
@@ -96,12 +99,22 @@ def _bfp8_tensor_bytes(height: int, width: int) -> int:
     return height * width // _TILE_ELEMENTS * _BFP8_TILE_BYTES
 
 
-def _kv_cache_bytes(*, tp: int, num_layers: int, batch_size: int, context_length: int) -> int:
+def _dtype_tile_bytes(dtype) -> int:
+    if dtype == ttnn.bfloat16:
+        return _BF16_TILE_BYTES
+    if dtype == ttnn.bfloat8_b:
+        return _BFP8_TILE_BYTES
+    if dtype == ttnn.bfloat4_b:
+        return _BFP4_TILE_BYTES
+    raise ValueError(f"unsupported KV-cache dtype for capacity accounting: {dtype!r}")
+
+
+def _kv_cache_bytes(*, tp: int, num_layers: int, batch_size: int, context_length: int, dtype) -> int:
     physical_context = math.ceil(context_length / DECODE_K_CHUNK_SIZE) * DECODE_K_CHUNK_SIZE
     blocks = math.ceil(physical_context / PAGE_SIZE)
     local_kv_heads = 8 // tp
     elements = 2 * num_layers * batch_size * blocks * local_kv_heads * PAGE_SIZE * 64
-    return math.ceil(elements / _TILE_ELEMENTS) * _BFP8_TILE_BYTES
+    return math.ceil(elements / _TILE_ELEMENTS) * _dtype_tile_bytes(dtype)
 
 
 def capacity_evidence(
@@ -111,6 +124,7 @@ def capacity_evidence(
     max_context_length: int = HF_CONTEXT_LENGTH,
     num_layers: int = MODEL_LAYERS,
     reserve_bytes: int = TRACE_ACTIVATION_RESERVE_BYTES,
+    kv_cache_dtype=ttnn.bfloat8_b,
 ) -> CapacityEvidence:
     """Return conservative physical TT storage for one resident TP rank."""
 
@@ -143,6 +157,7 @@ def capacity_evidence(
                 num_layers=num_layers,
                 batch_size=max_batch_size,
                 context_length=context_length,
+                dtype=kv_cache_dtype,
             )
         )
 
@@ -159,6 +174,7 @@ def capacity_evidence(
         num_layers=num_layers,
         batch_size=max_batch_size,
         context_length=max_context_length,
+        dtype=kv_cache_dtype,
     )
     total = fixed + page_table + kv_cache
     return CapacityEvidence(
@@ -173,6 +189,7 @@ def capacity_evidence(
         rope_bytes=rope,
         page_table_bytes=page_table,
         kv_cache_bytes=kv_cache,
+        kv_cache_dtype=dtype_name(kv_cache_dtype),
         trace_activation_reserve_bytes=reserve_bytes,
         total_bytes_per_device=total,
         device_dram_bytes=DEVICE_DRAM_BYTES,
@@ -188,12 +205,14 @@ def require_resident_capacity(
     max_context_length: int,
     num_layers: int,
     allow_reduced_model: bool = False,
+    kv_cache_dtype=ttnn.bfloat8_b,
 ) -> CapacityEvidence:
     evidence = capacity_evidence(
         tp=tp,
         max_batch_size=max_batch_size,
         max_context_length=max_context_length,
         num_layers=num_layers,
+        kv_cache_dtype=kv_cache_dtype,
     )
     if num_layers != MODEL_LAYERS and not allow_reduced_model:
         raise FullModelCapacityError(
@@ -268,6 +287,7 @@ class FullModelArgs:
         max_batch_size: int,
         max_context_length: int,
         num_layers: int,
+        precision_config: PrecisionConfig,
     ):
         self.mesh_device = mesh_device
         self.hf_config = hf_config
@@ -296,13 +316,31 @@ class FullModelArgs:
         self.trace_prefill_supported_seq_lens = [128] if max_context_length >= 128 else []
         self.cluster_shape = tuple(int(v) for v in mesh_device.shape)
         self.num_devices = mesh_device.get_num_devices()
+        self.precision_config_id = precision_config.config_id
+        self.precision_config_source = (
+            str(precision_config.source_path) if precision_config.source_path is not None else "builtin"
+        )
+        # TTSampling currently has a single numerically supported accumulator
+        # policy.  Carry the selected contract into its construction path so
+        # the full model can validate the real device buffers below.
+        self.sampling_accumulator_dtype = precision_config.terminal_dtypes()["sampling_accumulator"]
+        full_logits_gather = precision_config.terminal_dtypes()["full_logits_gather"]
         self.sampling_all_gather_axis = 1
         self.sampling_dp = 1
         self.use_topk_logprobs = True
         self.is_galaxy = False
-        # Empty config selects SamplingGenerator/TTSampling's regular sharded
-        # top-k path.  It deliberately disables force-argmax/full-vocab gather.
-        self.model_config = {}
+        # The selected non-materialized full-logit-gather policy explicitly
+        # disables TTSampling's full-vocabulary force-argmax path.  The regular
+        # sampler consumes the sharded LM-head output and gathers only top-k
+        # values/indices.
+        self.model_config = {
+            "SAMPLING_AG_CONFIG": {
+                "allow_force_argmax": full_logits_gather["mode"] != "not_materialized",
+                "num_links": 1,
+                "chunks_per_sync": 10,
+                "topology": ttnn.Topology.Linear,
+            }
+        }
 
     @property
     def base_model_name(self):
@@ -534,11 +572,13 @@ class Model(_GPTOSSModel):
         max_batch_size: int,
         max_context_length: int,
         num_layers: int,
-        policy: MultichipDecoderPolicy = DEFAULT_MULTICHIP_POLICY,
+        precision_config: PrecisionConfig,
         lm_head_policy: str = INTERLEAVED_LM_HEAD,
     ):
         tp = int(mesh_device.shape[1])
         tensor_plan(mesh_device.shape, hf_config)
+        base_policy = precision_config.decoder_policy_for_layer(0)
+        terminal_dtypes = precision_config.terminal_dtypes()
         mesh_config = MeshConfig(
             mesh_device.shape,
             decode=ModeConfig(tp=tp, ep=1, sp=1),
@@ -547,7 +587,7 @@ class Model(_GPTOSSModel):
         ccl_manager = CCLManager(
             mesh_device,
             num_links=get_default_num_links(mesh_device),
-            topology=policy.topology,
+            topology=base_policy.topology,
         )
         cache_root = Path(tensor_cache_path)
         cache_root.mkdir(parents=True, exist_ok=True)
@@ -570,6 +610,9 @@ class Model(_GPTOSSModel):
             max_local_batch_size=max_batch_size,
             users_row_sharded=False,
             use_throughput_experts=False,
+            embedding_dtype=terminal_dtypes["embedding"],
+            lm_head_weight_dtype=terminal_dtypes["lm_head_weight"],
+            lm_head_output_dtype=terminal_dtypes["lm_head_output"],
         )
         self.hf_config = hf_config
         self.args = args
@@ -578,12 +621,25 @@ class Model(_GPTOSSModel):
         self.dtype = ttnn.bfloat8_b
         self.max_context_length = int(max_context_length)
         self.page_size = PAGE_SIZE
-        self.policy = policy
+        self.precision_config = precision_config
+        self.policy = base_policy
+        self.precision_config_id = precision_config.config_id
+        self.lm_head_compute_kernel_config = ttnn.init_device_compute_kernel_config(
+            mesh_device.arch(),
+            math_fidelity=terminal_dtypes["lm_head_math_fidelity"],
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=True,
+        )
+        self.sampling_accumulator_dtype = terminal_dtypes["sampling_accumulator"]
+        self.full_logits_gather_policy = terminal_dtypes["full_logits_gather"]
+        self.topk_values_gather_dtype = terminal_dtypes["topk_values_gather_dtype"]
         self.capacity = capacity_evidence(
             tp=tp,
             max_batch_size=max_batch_size,
             max_context_length=max_context_length,
             num_layers=num_layers,
+            kv_cache_dtype=base_policy.kv_cache_dtype,
         )
         if lm_head_policy not in {INTERLEAVED_LM_HEAD, DRAM_SHARDED_LM_HEAD}:
             raise ValueError(f"unknown LM-head policy {lm_head_policy!r}")
@@ -600,6 +656,7 @@ class Model(_GPTOSSModel):
             {"weight": terminal_state_dict["model.norm.weight"]},
             tensor_cache_path=str(cache_root / "terminal" / "final_norm_decode_sharded"),
             mesh_config=mesh_config,
+            weight_dtype=terminal_dtypes["normalization"],
             enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
         )
         if lm_head_policy == DRAM_SHARDED_LM_HEAD:
@@ -617,6 +674,7 @@ class Model(_GPTOSSModel):
         for layer_idx in range(num_layers):
             logger.info(f"Loading optimized GPT-OSS 120B layer {layer_idx + 1}/{num_layers}")
             layer_state = layer_loader(layer_idx)
+            layer_policy = precision_config.decoder_policy_for_layer(layer_idx)
             decoder = MultichipDecoder.from_state_dict(
                 layer_state,
                 hf_config=hf_config,
@@ -627,12 +685,13 @@ class Model(_GPTOSSModel):
                 page_size=PAGE_SIZE,
                 tensor_cache_path=str(cache_root / f"layer_{layer_idx:02d}"),
                 calibrated_checkpoint_revision=MODEL_REVISION,
-                policy=policy,
+                policy=layer_policy,
             )
             self.layers.append(_LayerAdapter(decoder))
             del layer_state
             gc.collect()
         self.kv_cache = [layer.kv_cache for layer in self.layers]
+        self._validate_precision_runtime()
 
     def _forward_layers_and_head(self, *args, is_decode=True, **kwargs):
         self.norm.decode_mode = is_decode
@@ -642,7 +701,174 @@ class Model(_GPTOSSModel):
     def _apply_lm_head(self, hidden_states):
         if self.dram_sharded_lm_head is not None and self._terminal_uses_single_tile:
             return self.dram_sharded_lm_head(hidden_states)
-        return super()._apply_lm_head(hidden_states)
+        return ttnn.matmul(
+            hidden_states,
+            self.lm_head_weight,
+            dtype=self.lm_head_output_dtype,
+            compute_kernel_config=self.lm_head_compute_kernel_config,
+        )
+
+    def _validate_precision_runtime(self) -> None:
+        """Fail construction if any selected precision field misses the measured runtime path."""
+
+        terminal = self.precision_config.terminal_dtypes()
+        if self.embedding_weight.dtype != terminal["embedding"]:
+            raise RuntimeError("precision config embedding dtype was not consumed")
+        if self.norm.tt_weight.dtype != terminal["normalization"]:
+            raise RuntimeError("precision config final normalization dtype was not consumed")
+        if self.lm_head_weight.dtype != terminal["lm_head_weight"]:
+            raise RuntimeError("precision config LM-head weight dtype was not consumed")
+        if self.lm_head_output_dtype != terminal["lm_head_output"]:
+            raise RuntimeError("precision config LM-head output dtype was not consumed")
+        if self.sampling_accumulator_dtype != terminal["sampling_accumulator"]:
+            raise RuntimeError("precision config sampling accumulator assumption was not consumed")
+        if self.full_logits_gather_policy != terminal["full_logits_gather"]:
+            raise RuntimeError("precision config full-logits-gather policy was not consumed")
+        if self.topk_values_gather_dtype != terminal["topk_values_gather_dtype"]:
+            raise RuntimeError("precision config top-k values gather dtype was not consumed")
+        if self.sampling is None:
+            raise RuntimeError("selected sampling precision cannot be validated without on-device sampling")
+        sampling = self.sampling.tt_sampling
+        if sampling._allow_force_argmax_sampling:
+            raise RuntimeError("non-materialized logits-gather policy enabled the full-vocabulary argmax path")
+        if sampling._force_argmax_sampling:
+            raise RuntimeError("non-materialized logits-gather policy selected the full-vocabulary argmax path")
+        if self.topk_values_gather_dtype != ttnn.bfloat16:
+            raise RuntimeError("TTSampling's top-k values gather must use bfloat16")
+        if any(
+            tensor.dtype != self.sampling_accumulator_dtype
+            for tensor in (sampling.p_tensor, sampling.temp_tensor, sampling._greedy_col)
+        ):
+            raise RuntimeError("precision config sampling accumulator did not match TTSampling device buffers")
+        for layer_idx, adapter in enumerate(self.layers):
+            decoder = adapter.decoder
+            policy = self.precision_config.decoder_policy_for_layer(layer_idx)
+            attention = decoder.self_attn
+            mlp = decoder.mlp
+            checks = {
+                "decoder_policy": decoder.policy == policy,
+                "attention_qkv_weight": attention.weights.wqkv.dtype == policy.attention_weight_dtype,
+                "attention_output_weight": attention.weights.o_proj.dtype == policy.attention_weight_dtype,
+                "kv_cache": all(cache.dtype == policy.kv_cache_dtype for cache in decoder.kv_cache),
+                "router_weight": mlp.router.weight.dtype == policy.router_weight_dtype,
+                "input_normalization_weight": decoder.input_layernorm.tt_weight.dtype
+                == policy.normalization_weight_dtype,
+                "post_attention_normalization_weight": decoder.post_attention_layernorm.tt_weight.dtype
+                == policy.normalization_weight_dtype,
+                "expert_down_weight": mlp.indexed_down.dtype == policy.expert_weight_dtype,
+                "attention_ccl": attention.activation_ccl_dtype
+                == (policy.attention_activation_ccl_dtype or policy.activation_ccl_dtype),
+                "expert_ccl": mlp.activation_ccl_dtype
+                == (policy.expert_activation_ccl_dtype or policy.activation_ccl_dtype),
+                "attention_projection_input": attention.prefill_projection_input_dtype
+                == policy.attention_projection_input_dtype,
+                "expert_intermediate": mlp.expert_intermediate_dtype == policy.expert_intermediate_dtype,
+                "stack_residual": attention.residual_dtype == policy.residual_dtype,
+                "decode_attention_fidelity": attention.decode_projection_compute_kernel_config.math_fidelity
+                == policy.projection_math_fidelity,
+                "prefill_attention_fidelity": attention.prefill_projection_compute_kernel_config.math_fidelity
+                == policy.prefill_projection_math_fidelity,
+                "expert_fidelity": mlp.expert_compute_kernel_config.math_fidelity == policy.expert_math_fidelity,
+                "router_fidelity": mlp.router.compute_config.math_fidelity == policy.router_math_fidelity,
+                "sdpa_fidelity": attention.program_config.math_fidelity == policy.attention_sdpa_math_fidelity.name,
+            }
+            if mlp.indexed_gate_up is not None:
+                checks["expert_gate_up_weight"] = mlp.indexed_gate_up.dtype == policy.expert_weight_dtype
+            failed = sorted(name for name, passed in checks.items() if not passed)
+            if failed:
+                raise RuntimeError(f"precision config fields not consumed by layer {layer_idx}: {failed}")
+
+    def precision_runtime_evidence(self) -> dict:
+        """Compact proof that the selected JSON controls the constructed tensors and kernels."""
+
+        repo_root = Path(__file__).resolve().parents[4]
+
+        def normalized_path(path: Path | None) -> str:
+            if path is None:
+                return "builtin"
+            resolved = path.resolve()
+            try:
+                return str(resolved.relative_to(repo_root))
+            except ValueError:
+                return str(resolved)
+
+        unique = {}
+        for index, adapter in enumerate(self.layers):
+            policy = self.precision_config.decoder_policy_for_layer(index)
+            decoder = adapter.decoder
+            attention = decoder.self_attn
+            mlp = decoder.mlp
+            signature = (
+                dtype_name(attention.weights.wqkv.dtype),
+                dtype_name(mlp.indexed_down.dtype),
+                dtype_name(mlp.router.weight.dtype),
+                dtype_name(decoder.input_layernorm.tt_weight.dtype),
+                dtype_name(decoder.post_attention_layernorm.tt_weight.dtype),
+                dtype_name(decoder.kv_cache[0].dtype),
+                dtype_name(attention.activation_ccl_dtype),
+                dtype_name(mlp.activation_ccl_dtype),
+                dtype_name(attention.residual_dtype),
+                dtype_name(attention.prefill_projection_input_dtype),
+                dtype_name(mlp.expert_intermediate_dtype),
+                math_fidelity_name(attention.decode_projection_compute_kernel_config.math_fidelity),
+                math_fidelity_name(attention.prefill_projection_compute_kernel_config.math_fidelity),
+                attention.program_config.math_fidelity,
+                math_fidelity_name(mlp.expert_compute_kernel_config.math_fidelity),
+                math_fidelity_name(mlp.router.compute_config.math_fidelity),
+            )
+            unique.setdefault(signature, []).append(index)
+        return {
+            "schema_version": 2,
+            "config_id": self.precision_config.config_id,
+            "config_path": normalized_path(self.precision_config.source_path),
+            "config_sha256": self.precision_config.source_sha256,
+            "default_selected_config_path": normalized_path(
+                Path(__file__).resolve().parents[1] / "doc/datatype_sweep/selected_precision_config.json"
+            ),
+            "terminal": {
+                "embedding_weight": dtype_name(self.embedding_weight.dtype),
+                "normalization_weight": dtype_name(self.norm.tt_weight.dtype),
+                "lm_head_weight": dtype_name(self.lm_head_weight.dtype),
+                "lm_head_output": dtype_name(self.lm_head_output_dtype),
+                "lm_head_math_fidelity": math_fidelity_name(self.lm_head_compute_kernel_config.math_fidelity),
+                "sampling_accumulator": dtype_name(self.sampling_accumulator_dtype),
+                "sampling_device_buffers": {
+                    "p": dtype_name(self.sampling.tt_sampling.p_tensor.dtype),
+                    "temperature": dtype_name(self.sampling.tt_sampling.temp_tensor.dtype),
+                    "greedy_mask": dtype_name(self.sampling.tt_sampling._greedy_col.dtype),
+                },
+                "full_logits_gather": {
+                    **self.full_logits_gather_policy,
+                    "runtime_path": "sharded TTSampling consumes LM-head output directly",
+                    "force_full_vocab_argmax_allowed": self.sampling.tt_sampling._allow_force_argmax_sampling,
+                    "force_full_vocab_argmax_selected": self.sampling.tt_sampling._force_argmax_sampling,
+                },
+                "topk_values_gather_dtype": dtype_name(self.topk_values_gather_dtype),
+            },
+            "layer_runtime_groups": [
+                {
+                    "layers": layer_indices,
+                    "attention_weight": signature[0],
+                    "expert_weight": signature[1],
+                    "router_weight": signature[2],
+                    "input_normalization_weight": signature[3],
+                    "post_attention_normalization_weight": signature[4],
+                    "kv_cache": signature[5],
+                    "attention_ccl": signature[6],
+                    "expert_ccl": signature[7],
+                    "residual": signature[8],
+                    "attention_projection_input": signature[9],
+                    "expert_intermediate": signature[10],
+                    "decode_attention_fidelity": signature[11],
+                    "prefill_attention_fidelity": signature[12],
+                    "attention_sdpa_fidelity": signature[13],
+                    "expert_fidelity": signature[14],
+                    "router_fidelity": signature[15],
+                }
+                for signature, layer_indices in unique.items()
+            ],
+            "validation": "all selected fields matched constructed tensors/kernel configs",
+        }
 
     @classmethod
     def from_checkpoint(
@@ -655,7 +881,7 @@ class Model(_GPTOSSModel):
         max_context_length: int = HF_CONTEXT_LENGTH,
         num_layers: int = MODEL_LAYERS,
         allow_reduced_model: bool = False,
-        policy: MultichipDecoderPolicy = DEFAULT_MULTICHIP_POLICY,
+        precision_config: PrecisionConfig | str | Path | None = None,
         lm_head_policy: str = INTERLEAVED_LM_HEAD,
     ):
         snapshot_path = Path(
@@ -670,12 +896,19 @@ class Model(_GPTOSSModel):
                 f"Pinned GPT-OSS config must advertise {HF_CONTEXT_LENGTH}, got {hf_config.max_position_embeddings}"
             )
         tp = int(mesh_device.shape[1])
+        precision_config = (
+            precision_config
+            if isinstance(precision_config, PrecisionConfig)
+            else load_precision_config(precision_config)
+        )
+        base_policy = precision_config.decoder_policy_for_layer(0)
         evidence = require_resident_capacity(
             tp=tp,
             max_batch_size=max_batch_size,
             max_context_length=max_context_length,
             num_layers=num_layers,
             allow_reduced_model=allow_reduced_model,
+            kv_cache_dtype=base_policy.kv_cache_dtype,
         )
         logger.info(
             f"Resident full-model capacity: TP={tp}, {evidence.total_bytes_per_device / 1024**3:.3f} GiB/device"
@@ -701,6 +934,7 @@ class Model(_GPTOSSModel):
             max_batch_size=max_batch_size,
             max_context_length=max_context_length,
             num_layers=num_layers,
+            precision_config=precision_config,
         )
         terminal = checkpoint.terminal_state_dict()
         model = cls(
@@ -713,7 +947,7 @@ class Model(_GPTOSSModel):
             max_batch_size=max_batch_size,
             max_context_length=max_context_length,
             num_layers=num_layers,
-            policy=policy,
+            precision_config=precision_config,
             lm_head_policy=lm_head_policy,
         )
         del terminal

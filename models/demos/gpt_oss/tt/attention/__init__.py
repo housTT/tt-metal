@@ -34,6 +34,9 @@ class Attention:
         paged_attention_config=None,
         transformation_mats=None,
         weight_dtype=ttnn.bfloat8_b,
+        cache_dtype=ttnn.bfloat8_b,
+        prefill_projection_input_dtype=ttnn.bfloat8_b,
+        prefill_projection_compute_kernel_config=None,
         tensor_cache_path=None,
         create_kv_cache=True,
     ):
@@ -51,6 +54,9 @@ class Attention:
             paged_attention_config: Optional paged attention configuration
             transformation_mats: Optional transformation matrices for RoPE
             weight_dtype: Data type for weights (default: bfloat8_b)
+            cache_dtype: Data type for K/V cache tensors (default: bfloat8_b)
+            prefill_projection_input_dtype: Input dtype for the prefill output projection
+            prefill_projection_compute_kernel_config: Explicit prefill projection math policy
             tensor_cache_path: Optional path for weight caching
             create_kv_cache: Whether to create KV cache (default: True)
         """
@@ -62,6 +68,9 @@ class Attention:
         self.layer_idx = layer_idx
         self.transformation_mats = transformation_mats
         self.paged_attention_config = paged_attention_config
+        self.cache_dtype = cache_dtype
+        self.prefill_projection_input_dtype = prefill_projection_input_dtype
+        self.prefill_projection_compute_kernel_config = prefill_projection_compute_kernel_config
 
         # Determine sliding window based on layer index
         self.use_sliding_window = self.layer_idx % 2 == 0
@@ -85,6 +94,7 @@ class Attention:
                 config=config,
                 mesh_config=mesh_config,
                 paged_attention_config=paged_attention_config,
+                cache_dtype=cache_dtype,
                 tensor_cache_path=tensor_cache_path,
             )
             self.layer_past = self.kv_cache  # For tt-transformers compatibility
@@ -178,4 +188,6 @@ class Attention:
                 page_table=page_table,
                 ccl_manager=self.ccl_manager,
                 batch_size=batch_size,
+                projection_input_dtype=self.prefill_projection_input_dtype,
+                projection_compute_kernel_config=self.prefill_projection_compute_kernel_config,
             )

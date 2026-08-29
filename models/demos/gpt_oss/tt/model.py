@@ -102,6 +102,9 @@ class Model:
         max_local_batch_size=1,
         users_row_sharded=False,
         use_throughput_experts=False,
+        embedding_dtype=ttnn.bfloat16,
+        lm_head_weight_dtype=ttnn.bfloat8_b,
+        lm_head_output_dtype=ttnn.bfloat8_b,
     ):
         """
         Initialize GPT-OSS model
@@ -123,6 +126,9 @@ class Model:
         self.head_dim = hf_config.head_dim
         self.max_local_batch_size = max_local_batch_size
         self.users_row_sharded = users_row_sharded
+        self.embedding_dtype = embedding_dtype
+        self.lm_head_weight_dtype = lm_head_weight_dtype
+        self.lm_head_output_dtype = lm_head_output_dtype
 
         self.ccl_manager = ccl_manager
 
@@ -161,7 +167,7 @@ class Model:
 
         self.embedding_weight = ttnn.as_tensor(
             embedding_weight,
-            dtype=ttnn.bfloat16,
+            dtype=embedding_dtype,
             device=mesh_device,
             layout=ttnn.ROW_MAJOR_LAYOUT,
             cache_file_name=get_cache_file_name(tensor_cache_path, "model.embed_tokens.weight"),
@@ -217,7 +223,7 @@ class Model:
             lm_head_weight,
             device=mesh_device,
             layout=ttnn.TILE_LAYOUT,
-            dtype=ttnn.bfloat8_b,
+            dtype=lm_head_weight_dtype,
             cache_file_name=get_cache_file_name(tensor_cache_path, "lm_head_padded_pow2.weight"),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             mesh_mapper=self.mesh_config.column_parallel(mesh_device),
@@ -328,7 +334,7 @@ class Model:
         return None
 
     def _apply_lm_head(self, hidden_states):
-        return ttnn.matmul(hidden_states, self.lm_head_weight, dtype=ttnn.bfloat8_b)
+        return ttnn.matmul(hidden_states, self.lm_head_weight, dtype=self.lm_head_output_dtype)
 
     def _forward_layers_and_head(
         self,

@@ -33,6 +33,8 @@ def prefill_forward(
     ccl_manager,
     user_id=0,
     batch_size=1,
+    projection_input_dtype=ttnn.bfloat8_b,
+    projection_compute_kernel_config=None,
 ):
     """
     Prefill forward pass - optimized for sequence processing (seq_len>1).
@@ -68,7 +70,11 @@ def prefill_forward(
         raise ValueError(f"Prefill mode requires seq_len>1, got {seq_len}. Use decode mode for single tokens.")
 
     # QKV projection
-    xqkv_fused = apply_qkv_projection(hidden_states, weights)
+    xqkv_fused = apply_qkv_projection(
+        hidden_states,
+        weights,
+        compute_kernel_config=projection_compute_kernel_config,
+    )
     hidden_states.deallocate(True)  # Free input activations after projection
 
     # Reshape for batch: [1, 1, B*S, QKV] -> [B, 1, S, QKV]
@@ -176,7 +182,13 @@ def prefill_forward(
         tt_sdpa_out.deallocate(True)
         tt_out_result = apply_allgather_and_slice(rs_out, mesh_config, ccl_manager, hidden_size)
     else:
-        tt_out = apply_output_projection(tt_sdpa_out, weights, activation_dtype)
+        tt_out = apply_output_projection(
+            tt_sdpa_out,
+            weights,
+            activation_dtype,
+            input_dtype=projection_input_dtype,
+            compute_kernel_config=projection_compute_kernel_config,
+        )
         tt_sdpa_out.deallocate(True)
         tt_out_result = apply_allreduce(tt_out, mesh_config, ccl_manager, hidden_size)
     return tt_out_result

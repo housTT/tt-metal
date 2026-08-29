@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import inspect
 import json
 import os
+import statistics
+import subprocess
 from pathlib import Path
 from types import MethodType, SimpleNamespace
 
@@ -15,6 +18,7 @@ import torch
 from tracy import signpost
 
 import ttnn
+from models.autoports.openai_gpt_oss_120b.tt import precision as precision_module
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, SAMPLER_DECISION, Generator, TraceEvidence
 from models.autoports.openai_gpt_oss_120b.tt.model import (
     DRAM_SHARDED_LM_HEAD,
@@ -22,10 +26,16 @@ from models.autoports.openai_gpt_oss_120b.tt.model import (
     INTERLEAVED_LM_HEAD,
     MODEL_LAYERS,
     FullModelCapacityError,
+    Model,
     StreamingCheckpoint,
     _LayerAdapter,
     capacity_evidence,
     require_resident_capacity,
+)
+from models.autoports.openai_gpt_oss_120b.tt.precision import (
+    DEFAULT_PRECISION_CONFIG_PATH,
+    PrecisionConfig,
+    load_precision_config,
 )
 from models.common.sampling.generator import SamplingGenerator, SamplingParams, format_sampling_params
 from models.demos.utils.trace_region_sizes import TRACE_MODEL_KEY_PARAM
@@ -35,10 +45,59 @@ SNAPSHOT = Path(
     "snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
 )
 
+_RUNTIME_SOURCE_PATHS = (
+    "models/autoports/openai_gpt_oss_120b/tests/test_full_model.py",
+    "models/autoports/openai_gpt_oss_120b/tt/generator.py",
+    "models/autoports/openai_gpt_oss_120b/tt/model.py",
+    "models/autoports/openai_gpt_oss_120b/tt/multichip_decoder.py",
+    "models/autoports/openai_gpt_oss_120b/tt/precision.py",
+    "models/demos/gpt_oss/tt/attention/__init__.py",
+    "models/demos/gpt_oss/tt/attention/operations.py",
+    "models/demos/gpt_oss/tt/attention/prefill.py",
+    "models/demos/gpt_oss/tt/model.py",
+    "models/demos/gpt_oss/tt/rms_norm.py",
+    "models/common/sampling/generator.py",
+    "models/common/sampling/tt_sampling.py",
+    "models/tt_transformers/tt/generator.py",
+)
+
 
 def _tensor_sha256(tensor: torch.Tensor) -> str:
     raw = tensor.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes()
     return hashlib.sha256(raw).hexdigest()
+
+
+def _git_text(repo: Path, *args: str) -> str:
+    return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
+
+
+def _runtime_source_provenance() -> dict:
+    repo = Path(__file__).resolve().parents[4]
+    files = {path: hashlib.sha256((repo / path).read_bytes()).hexdigest() for path in _RUNTIME_SOURCE_PATHS}
+    state_payload = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+    return {
+        "repo": str(repo),
+        "source_branch": _git_text(repo, "branch", "--show-current"),
+        "source_commit": _git_text(repo, "rev-parse", "HEAD"),
+        "source_dirty": bool(_git_text(repo, "status", "--porcelain", "--", *_RUNTIME_SOURCE_PATHS)),
+        "runtime_source_state_sha256": hashlib.sha256(state_payload).hexdigest(),
+        "runtime_source_files": files,
+    }
+
+
+def _runner_provenance(module) -> dict:
+    source_path = Path(inspect.getsourcefile(module)).resolve()
+    runner_repo = source_path.parents[3]
+    return {
+        "source_path": str(source_path),
+        "source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+        "repo": str(runner_repo),
+        "branch": _git_text(runner_repo, "branch", "--show-current"),
+        "commit": _git_text(runner_repo, "rev-parse", "HEAD"),
+        "last_change_commit": _git_text(runner_repo, "log", "-1", "--format=%H", "--", str(source_path)),
+        "git_blob": _git_text(runner_repo, "hash-object", str(source_path)),
+        "dirty": bool(_git_text(runner_repo, "status", "--porcelain", "--", str(source_path))),
+    }
 
 
 def test_full_stack_capacity_selects_only_physical_tp4_target():
@@ -59,6 +118,178 @@ def test_full_stack_capacity_selects_only_physical_tp4_target():
     # page-only estimate advertised 130880 while its padded final SDPA read
     # exceeded DRAM; 130816 is the largest physically safe logical value.
     assert capacity_evidence(tp=4, max_batch_size=11).largest_context_for_batch == 130_816
+
+
+@pytest.mark.parametrize(
+    ("dtype", "tp", "expected_total_bytes", "expected_kv_bytes", "expected_fits", "expected_context"),
+    [
+        (ttnn.bfloat4_b, 1, 72_479_340_672, 2_717_908_992, False, 0),
+        (ttnn.bfloat4_b, 2, 38_064_149_376, 1_358_954_496, False, 0),
+        (ttnn.bfloat4_b, 4, 20_939_093_376, 679_477_248, True, HF_CONTEXT_LENGTH),
+        (ttnn.bfloat8_b, 1, 74_895_259_776, 5_133_828_096, False, 0),
+        (ttnn.bfloat8_b, 2, 39_272_108_928, 2_566_914_048, False, 0),
+        (ttnn.bfloat8_b, 4, 21_543_073_152, 1_283_457_024, True, HF_CONTEXT_LENGTH),
+        (ttnn.bfloat16, 1, 79_425_108_096, 9_663_676_416, False, 0),
+        (ttnn.bfloat16, 2, 41_537_033_088, 4_831_838_208, False, 0),
+        (ttnn.bfloat16, 4, 22_675_535_232, 2_415_919_104, True, HF_CONTEXT_LENGTH),
+    ],
+)
+def test_kv_candidate_capacity_uses_physical_dtype_tile_bytes(
+    dtype, tp, expected_total_bytes, expected_kv_bytes, expected_fits, expected_context
+):
+    evidence = capacity_evidence(tp=tp, kv_cache_dtype=dtype)
+
+    assert evidence.total_bytes_per_device == expected_total_bytes
+    assert evidence.kv_cache_bytes == expected_kv_bytes
+    assert evidence.fits is expected_fits
+    assert evidence.largest_context_for_batch == expected_context
+
+
+def test_selected_precision_is_the_default_and_all_candidates_validate(monkeypatch):
+    monkeypatch.delenv("GPT_OSS_120B_PRECISION_CONFIG", raising=False)
+    selected = load_precision_config()
+    candidate_root = DEFAULT_PRECISION_CONFIG_PATH.parent / "candidates"
+    candidates = [load_precision_config(path) for path in sorted(candidate_root.glob("*.json"))]
+
+    assert selected.source_path == DEFAULT_PRECISION_CONFIG_PATH.resolve()
+    assert selected.config_id == "ds00_baseline"
+    assert selected.to_dict() == load_precision_config(candidate_root / "ds00_baseline.json").to_dict()
+    assert [candidate.config_id for candidate in candidates] == [
+        "ds00_baseline",
+        "ds01_attention_bfp4_lofi",
+        "ds02_attention_bfp4_hifi2",
+        "ds03_expert_bfp4_hifi2",
+        "ds04_canonical_bfp8_hifi2",
+        "ds05_kv_bfp4",
+        "ds06_kv_bf16",
+        "ds07_expert_ccl_bfp8",
+        "ds08_all_ccl_bfp4",
+        "ds09_expert_intermediate_bfp8",
+        "ds10_attention_bfp8_hifi2",
+        "ds11_lm_head_lofi",
+        "ds12_attention_hifi2_lm_head_lofi",
+    ]
+
+
+def test_precision_mutations_propagate_or_fail_explicitly(monkeypatch, expect_error):
+    raw = load_precision_config().to_dict()
+    sentinel = object()
+    monkeypatch.setitem(precision_module._DTYPES, "bfloat16", sentinel)
+    mutated = PrecisionConfig(copy.deepcopy(raw))
+
+    assert mutated.terminal_dtypes()["normalization"] is sentinel
+    assert all(
+        mutated.decoder_policy_for_layer(layer).normalization_weight_dtype is sentinel for layer in range(MODEL_LAYERS)
+    )
+
+    ignored_terminal = copy.deepcopy(raw)
+    ignored_terminal["layer_exceptions"] = {"0": {"weight_groups": {"lm_head": "bfloat8_b"}}}
+    with expect_error(ValueError, "unsupported layer exception weight_groups"):
+        PrecisionConfig(ignored_terminal)
+
+    materialized = copy.deepcopy(raw)
+    materialized["logits_sampling_dtype_assumptions"]["full_logits_gather"]["mode"] = "full_vocab"
+    with expect_error(ValueError, "requires full_logits_gather.mode=not_materialized"):
+        PrecisionConfig(materialized)
+
+    non_bf16_norm = copy.deepcopy(raw)
+    non_bf16_norm["weight_groups"]["normalization"] = "bfloat8_b"
+    with expect_error(ValueError, "requires bfloat16 normalization weights"):
+        PrecisionConfig(non_bf16_norm)
+
+
+def _fake_precision_runtime_model(config: PrecisionConfig) -> Model:
+    model = Model.__new__(Model)
+    terminal = config.terminal_dtypes()
+    model.precision_config = config
+    model.embedding_weight = SimpleNamespace(dtype=terminal["embedding"])
+    model.norm = SimpleNamespace(tt_weight=SimpleNamespace(dtype=terminal["normalization"]))
+    model.lm_head_weight = SimpleNamespace(dtype=terminal["lm_head_weight"])
+    model.lm_head_output_dtype = terminal["lm_head_output"]
+    model.lm_head_compute_kernel_config = SimpleNamespace(math_fidelity=terminal["lm_head_math_fidelity"])
+    model.sampling_accumulator_dtype = terminal["sampling_accumulator"]
+    model.full_logits_gather_policy = terminal["full_logits_gather"]
+    model.topk_values_gather_dtype = terminal["topk_values_gather_dtype"]
+    sampling_tensors = {
+        name: SimpleNamespace(dtype=terminal["sampling_accumulator"])
+        for name in ("p_tensor", "temp_tensor", "_greedy_col")
+    }
+    model.sampling = SimpleNamespace(
+        tt_sampling=SimpleNamespace(
+            **sampling_tensors,
+            _allow_force_argmax_sampling=False,
+            _force_argmax_sampling=False,
+        )
+    )
+    model.layers = []
+    for layer_idx in range(MODEL_LAYERS):
+        policy = config.decoder_policy_for_layer(layer_idx)
+        attention = SimpleNamespace(
+            weights=SimpleNamespace(
+                wqkv=SimpleNamespace(dtype=policy.attention_weight_dtype),
+                o_proj=SimpleNamespace(dtype=policy.attention_weight_dtype),
+            ),
+            activation_ccl_dtype=policy.attention_activation_ccl_dtype,
+            residual_dtype=policy.residual_dtype,
+            prefill_projection_input_dtype=policy.attention_projection_input_dtype,
+            decode_projection_compute_kernel_config=SimpleNamespace(math_fidelity=policy.projection_math_fidelity),
+            prefill_projection_compute_kernel_config=SimpleNamespace(
+                math_fidelity=policy.prefill_projection_math_fidelity
+            ),
+            program_config=SimpleNamespace(math_fidelity=policy.attention_sdpa_math_fidelity.name),
+        )
+        mlp = SimpleNamespace(
+            indexed_gate_up=SimpleNamespace(dtype=policy.expert_weight_dtype),
+            indexed_down=SimpleNamespace(dtype=policy.expert_weight_dtype),
+            router=SimpleNamespace(
+                weight=SimpleNamespace(dtype=policy.router_weight_dtype),
+                compute_config=SimpleNamespace(math_fidelity=policy.router_math_fidelity),
+            ),
+            activation_ccl_dtype=policy.expert_activation_ccl_dtype,
+            expert_intermediate_dtype=policy.expert_intermediate_dtype,
+            expert_compute_kernel_config=SimpleNamespace(math_fidelity=policy.expert_math_fidelity),
+        )
+        decoder = SimpleNamespace(
+            policy=policy,
+            self_attn=attention,
+            mlp=mlp,
+            input_layernorm=SimpleNamespace(tt_weight=SimpleNamespace(dtype=policy.normalization_weight_dtype)),
+            post_attention_layernorm=SimpleNamespace(
+                tt_weight=SimpleNamespace(dtype=policy.normalization_weight_dtype)
+            ),
+            kv_cache=[SimpleNamespace(dtype=policy.kv_cache_dtype), SimpleNamespace(dtype=policy.kv_cache_dtype)],
+        )
+        model.layers.append(SimpleNamespace(decoder=decoder))
+    return model
+
+
+def test_precision_runtime_validation_uses_actual_terminal_and_both_layer_norms(expect_error):
+    model = _fake_precision_runtime_model(load_precision_config())
+    model._validate_precision_runtime()
+    evidence = model.precision_runtime_evidence()
+
+    assert evidence["schema_version"] == 2
+    assert sorted(layer for group in evidence["layer_runtime_groups"] for layer in group["layers"]) == list(
+        range(MODEL_LAYERS)
+    )
+    assert all(
+        group["input_normalization_weight"] == "bfloat16" and group["post_attention_normalization_weight"] == "bfloat16"
+        for group in evidence["layer_runtime_groups"]
+    )
+    for tensor in (
+        model.norm.tt_weight,
+        model.layers[0].decoder.input_layernorm.tt_weight,
+        model.layers[0].decoder.post_attention_layernorm.tt_weight,
+    ):
+        original = tensor.dtype
+        tensor.dtype = ttnn.bfloat8_b
+        with expect_error(RuntimeError, "normalization"):
+            model._validate_precision_runtime()
+        tensor.dtype = original
+
+    model.sampling.tt_sampling._allow_force_argmax_sampling = True
+    with expect_error(RuntimeError, "full-vocabulary argmax"):
+        model._validate_precision_runtime()
 
 
 @pytest.mark.parametrize("tp", [1, 2])
@@ -262,7 +493,11 @@ def test_trace_evidence_distinguishes_reset_page_change_and_steady_replay():
         reset_batch=False,
     )
 
-    assert generator.trace_evidence.trace_replays == 3
+    # Staging records the requested decode shape only. Actual replay counters
+    # advance exclusively at successful ttnn.execute_trace submissions.
+    assert generator.trace_evidence.trace_replays == 0
+    assert generator.trace_evidence.model_execute_submissions == 0
+    assert generator.trace_evidence.sampling_execute_submissions == 0
     assert generator.trace_evidence.full_input_refreshes == 1
     assert generator.trace_evidence.page_table_reuses == 1
     assert generator.trace_evidence.page_table_only_refreshes == 1
@@ -1753,6 +1988,7 @@ def test_real_weight_36_layer_full_context_token_out_smoke(mesh_device, device_p
         "non_aligned_token_out": non_aligned_token_out,
         "warmed_non_aligned_prompt214_gen100": non_aligned_warmed_token_out,
         "capacity": model.capacity.to_dict(),
+        "precision_runtime_evidence": model.precision_runtime_evidence(),
         "warmed_prompt128_gen128": {
             "prompt_length": len(benchmark_prompt),
             "output_tokens": len(baseline_predictions),
@@ -1786,8 +2022,14 @@ def test_real_weight_36_layer_full_context_token_out_smoke(mesh_device, device_p
             },
         },
     }
-    artifact_path = Path(
-        "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/" "p150x4_prompt128_gen128_perf.json"
+    artifact_path = (
+        Path("models/autoports/openai_gpt_oss_120b/doc/datatype_sweep/artifacts/selected")
+        / "post_selection_token_out.json"
+        if os.environ.get("GPT_OSS_120B_DATATYPE_SWEEP_SELECTED") == "1"
+        else Path(
+            "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/"
+            "p150x4_prompt128_gen128_perf.json"
+        )
     )
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
@@ -1845,6 +2087,131 @@ def _readiness_runner(name: str):
     return importlib.import_module(f"models.common.readiness_check.{name}")
 
 
+def _datatype_sweep_readiness_kwargs(model_dir: Path):
+    config_path = os.environ.get("GPT_OSS_120B_DATATYPE_SWEEP_CONFIG")
+    if not config_path:
+        if os.environ.get("GPT_OSS_120B_DATATYPE_SWEEP_DEFAULT_REFRESH") == "1":
+            artifact_dir = model_dir / "doc/datatype_sweep/artifacts/default_selected_refresh"
+            return {"runtime_evidence_path": artifact_dir / "runtime_precision_evidence.json"}, artifact_dir
+        return {
+            "runtime_evidence_path": model_dir / "doc/optimized_full_model/artifacts/runtime_precision_evidence.json"
+        }, None
+    config_path = Path(config_path).expanduser().resolve()
+    config_id = json.loads(config_path.read_text(encoding="utf-8"))["config_id"]
+    artifact_dir = model_dir / "doc/datatype_sweep/artifacts" / config_id
+    return {
+        "precision_config": config_path,
+        "runtime_evidence_path": artifact_dir / "runtime_precision_evidence.json",
+    }, artifact_dir
+
+
+def _validated_trace_measurement(runtime_evidence: dict) -> dict:
+    assert set(runtime_evidence) == {
+        "schema_version",
+        "config_id",
+        "config_path",
+        "config_sha256",
+        "default_selected_config_path",
+        "terminal",
+        "layer_runtime_groups",
+        "validation",
+        "measurement",
+    }
+    assert runtime_evidence["schema_version"] == 2
+    assert set(runtime_evidence["terminal"]) == {
+        "embedding_weight",
+        "normalization_weight",
+        "lm_head_weight",
+        "lm_head_output",
+        "lm_head_math_fidelity",
+        "sampling_accumulator",
+        "sampling_device_buffers",
+        "full_logits_gather",
+        "topk_values_gather_dtype",
+    }
+    groups = runtime_evidence["layer_runtime_groups"]
+    assert sorted(layer for group in groups for layer in group["layers"]) == list(range(MODEL_LAYERS))
+    assert all(
+        "input_normalization_weight" in group and "post_attention_normalization_weight" in group for group in groups
+    )
+    measurement = runtime_evidence["measurement"]
+    counters = measurement["trace_counters"]
+    before = measurement["trace_handles_before_timing"]
+    after = measurement["trace_handles"]
+    expected = measurement["expected_decode_calls"]
+    trace_measurement = {
+        "requested": measurement["generation_metrics"]["enable_trace"],
+        "warmed_before_timing": measurement["warmed_before_timing"],
+        "expected_decode_steps": expected,
+        "model_trace_handles_before_timing": before["model_decode_trace_count"],
+        "sampling_trace_handles_before_timing": before["sampling_trace_count"],
+        "model_trace_handles_after_timing": after["model_decode_trace_count"],
+        "sampling_trace_handles_after_timing": after["sampling_trace_count"],
+        "model_execute_submissions": counters["model_execute_submissions"],
+        "sampling_execute_submissions": counters["sampling_execute_submissions"],
+        "unclassified_execute_submissions": counters["unclassified_execute_submissions"],
+        "trace_verified": measurement["trace_verified"],
+    }
+    assert trace_measurement == {
+        "requested": True,
+        "warmed_before_timing": True,
+        "expected_decode_steps": 99,
+        "model_trace_handles_before_timing": 1,
+        "sampling_trace_handles_before_timing": 1,
+        "model_trace_handles_after_timing": 1,
+        "sampling_trace_handles_after_timing": 1,
+        "model_execute_submissions": 99,
+        "sampling_execute_submissions": 99,
+        "unclassified_execute_submissions": 0,
+        "trace_verified": True,
+    }
+    return trace_measurement
+
+
+def _run_warmed_teacher_forcing(
+    *, runner, model_dir: Path, reference: Path, mesh_device, build_kwargs: dict, repetitions: int
+) -> list[dict]:
+    build_generator_fn = runner._import_build_generator(model_dir)
+    generator = build_generator_fn(model_dir=model_dir, mesh_device=mesh_device, **build_kwargs)
+    runtime_path = Path(build_kwargs["runtime_evidence_path"])
+    runner_provenance = _runner_provenance(runner)
+    source_provenance = _runtime_source_provenance()
+    try:
+        warm_acc = runner.TokenAccuracy(reference)
+        for entry_idx in range(warm_acc.num_entries):
+            if entry_idx > 0:
+                generator.reset()
+            runner._run_one_entry(generator=generator, acc=warm_acc, entry_idx=entry_idx)
+
+        repeated_rows = []
+        for repetition in range(repetitions):
+            acc = runner.TokenAccuracy(reference)
+            generator.reset()
+            generator.mark_warmed_measurement()
+            if acc.num_entries != 1:
+                raise RuntimeError("datatype-sweep readiness reference must contain exactly one entry")
+            stats = runner._run_one_entry(generator=generator, acc=acc, entry_idx=0)
+            runtime_evidence = json.loads(runtime_path.read_text(encoding="utf-8"))
+            stats["trace_measurement"] = _validated_trace_measurement(runtime_evidence)
+            stats["runner_provenance"] = runner_provenance
+            stats["runtime_source_provenance"] = source_provenance
+            stats["precision_config_id"] = runtime_evidence["config_id"]
+            stats["precision_config_path"] = runtime_evidence["config_path"]
+            stats["precision_config_sha256"] = runtime_evidence["config_sha256"]
+            stats["measurement_repetition"] = repetition + 1
+            repeated_rows.append(stats)
+            print(runner._format_row(f"warmed[{repetition + 1}]", stats))
+
+        result = copy.deepcopy(repeated_rows[-1])
+        for key in ("elapsed_s", "e2e_t/s/u", "ttft_ms", "decode_elapsed_s", "decode_t/s/u"):
+            result[key] = statistics.median(row[key] for row in repeated_rows)
+        result["warmed_repetitions"] = repeated_rows
+        result["measurement_repetition"] = "median"
+        return [result]
+    finally:
+        generator.teardown()
+
+
 @pytest.mark.skipif(
     os.environ.get("GPT_OSS_120B_FULL_MODEL_READINESS") != "1" or not SNAPSHOT.is_dir(),
     reason="set GPT_OSS_120B_FULL_MODEL_READINESS=1 for the all-layer AIME24 readiness gates",
@@ -1871,6 +2238,7 @@ def test_run_prefill_check_aime24_top100(mesh_device, device_params, reset_seeds
     del device_params, reset_seeds
     runner = _readiness_runner("run_prefill_check")
     model_dir = Path("models/autoports/openai_gpt_oss_120b").resolve()
+    sweep_kwargs, sweep_artifact_dir = _datatype_sweep_readiness_kwargs(model_dir)
     reference = model_dir / "doc/full_model/references/aime24_chat_100_top100.refpt"
     stats = runner.run_prefill_check(
         model_dir=model_dir,
@@ -1881,11 +2249,16 @@ def test_run_prefill_check_aime24_top100(mesh_device, device_params, reset_seeds
             "tensor_cache_path": "/tmp/gpt_oss_120b_full_model_tensor_cache",
             "max_seq_len": HF_CONTEXT_LENGTH,
             "max_batch_size": 1,
+            **sweep_kwargs,
         },
     )
     assert stats[0]["top5"] >= 0.98
     assert stats[0]["top100"] == 1.0
-    artifact = model_dir / "doc/optimized_full_model/artifacts/prefill_readiness.json"
+    artifact = (
+        sweep_artifact_dir / "prefill_readiness.json"
+        if sweep_artifact_dir is not None
+        else model_dir / "doc/optimized_full_model/artifacts/prefill_readiness.json"
+    )
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
 
@@ -1911,28 +2284,41 @@ def test_run_prefill_check_aime24_top100(mesh_device, device_params, reset_seeds
     indirect=True,
 )
 def test_run_teacher_forcing_aime24_top100(mesh_device, device_params, reset_seeds):
-    """Run canonical traced teacher forcing on the fresh 100-token HF reference."""
+    """Run canonical traced teacher forcing after an unmeasured same-process warmup."""
 
     del device_params, reset_seeds
     runner = _readiness_runner("run_teacher_forcing")
     model_dir = Path("models/autoports/openai_gpt_oss_120b").resolve()
+    sweep_kwargs, sweep_artifact_dir = _datatype_sweep_readiness_kwargs(model_dir)
     reference = model_dir / "doc/full_model/references/aime24_chat_100_top100.refpt"
-    stats = runner.run_teacher_forcing(
+    build_kwargs = {
+        "snapshot_path": SNAPSHOT,
+        "tensor_cache_path": "/tmp/gpt_oss_120b_full_model_tensor_cache",
+        "max_seq_len": HF_CONTEXT_LENGTH,
+        "max_batch_size": 1,
+        **sweep_kwargs,
+    }
+    repetitions = int(os.environ.get("GPT_OSS_120B_DATATYPE_SWEEP_REPETITIONS", "1"))
+    if repetitions < 1:
+        raise ValueError("GPT_OSS_120B_DATATYPE_SWEEP_REPETITIONS must be at least one")
+    stats = _run_warmed_teacher_forcing(
+        runner=runner,
         model_dir=model_dir,
-        reference_path=reference,
+        reference=reference,
         mesh_device=mesh_device,
-        build_kwargs={
-            "snapshot_path": SNAPSHOT,
-            "tensor_cache_path": "/tmp/gpt_oss_120b_full_model_tensor_cache",
-            "max_seq_len": HF_CONTEXT_LENGTH,
-            "max_batch_size": 1,
-        },
+        build_kwargs=build_kwargs,
+        repetitions=repetitions,
     )
-    assert stats[0]["top5"] >= 0.98
-    assert stats[0]["top100"] == 1.0
-    artifact = model_dir / "doc/optimized_full_model/artifacts/teacher_forcing_readiness.json"
+    artifact = (
+        sweep_artifact_dir / "teacher_forcing_readiness.json"
+        if sweep_artifact_dir is not None
+        else model_dir / "doc/optimized_full_model/artifacts/teacher_forcing_readiness.json"
+    )
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
+    if sweep_artifact_dir is None:
+        assert stats[0]["top5"] >= 0.98
+        assert stats[0]["top100"] == 1.0
 
 
 @pytest.mark.skipif(
@@ -2076,7 +2462,11 @@ def test_shared_qualitative_chat_suite(mesh_device, device_params, reset_seeds):
                 "trace_evidence": generator.trace_evidence.to_dict(),
             }
         )
-    artifact = model_dir / "doc/optimized_full_model/qualitative/qualitative_tt_chat.json"
+    artifact = (
+        model_dir / "doc/datatype_sweep/artifacts/selected/qualitative_tt_chat.json"
+        if os.environ.get("GPT_OSS_120B_DATATYPE_SWEEP_SELECTED") == "1"
+        else model_dir / "doc/optimized_full_model/qualitative/qualitative_tt_chat.json"
+    )
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(outputs, indent=2) + "\n", encoding="utf-8")
     generator.teardown()
