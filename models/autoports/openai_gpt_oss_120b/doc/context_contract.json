@@ -36,6 +36,102 @@
     "capability_reduction": null,
     "status": "functional_decoder_complete"
   },
+  "multichip_decoder": {
+    "status": "multichip_decoder_complete_stage_review_clean_pass",
+    "target_meshes": {
+      "P150": [1, 1],
+      "P150x2": [1, 2],
+      "P150x4": [1, 4]
+    },
+    "parallelism": "1D tensor parallelism on mesh axis 1 with a replicated logical residual boundary; OptimizedDecoder is the exact TP=1 baseline",
+    "meaningful_layer_kinds_tested": [
+      "sliding_attention",
+      "full_attention"
+    ],
+    "page_size": 64,
+    "configured_context_length": 131072,
+    "supported_decoder_layer_context_length": 131072,
+    "capability_reduction": null,
+    "kv_cache": {
+      "dtype": "bfloat8_b",
+      "layout": "paged local KV heads per TP rank",
+      "global_kv_heads": 8,
+      "local_kv_heads": {"1": 8, "2": 4, "4": 2},
+      "combined_kv_bytes_per_layer_batch1_at_131072": {
+        "1": 142606336,
+        "2": 71303168,
+        "4": 35651584
+      },
+      "combined_kv_gib_per_device_36_layers_batch1_at_131072": {
+        "1": 4.78125,
+        "2": 2.390625,
+        "4": 1.1953125
+      },
+      "real_weight_layout_tested": true,
+      "randomized_page_table_tested": true,
+      "positions_tested": [127, 128, 129, 71839, 76544, 82911, 91904, 93713, 117841, 131071],
+      "reconstruction_pcc_min": 0.9997028074280635,
+      "largest_decode_position_tested": 131071
+    },
+    "tensor_plan": {
+      "logical_hidden": 2880,
+      "local_hidden": {"1": 2880, "2": 1440, "4": 720},
+      "physical_local_hidden": {"1": 2880, "2": 1440, "4": 736},
+      "physical_hidden": {"1": 2880, "2": 2880, "4": 2944},
+      "local_q_heads": {"1": 64, "2": 32, "4": 16},
+      "local_qkv_width": {"1": 5120, "2": 2560, "4": 1280},
+      "logical_local_intermediate": {"1": 2880, "2": 1440, "4": 720},
+      "physical_local_intermediate": {"1": 2880, "2": 1440, "4": 736},
+      "tp4_attention_collective": "reduce physical width 2944 as 736 columns per rank, then slice to logical 2880",
+      "expert_collective": "reduce logical width 2880; measured runtime padding to 2944 was 1.637604699x slower"
+    },
+    "moe": {
+      "global_experts": 128,
+      "decode_active_experts": 4,
+      "router": "replicated bfloat16 L1",
+      "expert_weight_dtype": "bfloat4_b",
+      "decode_execution": "gate-selected indexed sparse_matmul",
+      "dense_all_expert_decode": false
+    },
+    "validation": {
+      "optimized_ttnn_baseline": true,
+      "real_checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+      "prefill_logical_sequence_length": 127,
+      "non_aligned_logical_lengths_preserved": true,
+      "page_size": 64,
+      "trace_decode": true,
+      "trace_input_refreshes": 2,
+      "trace_repeats_per_latency_sample": 100,
+      "trace_latency_samples": 5,
+      "watcher_trace_repeats_per_sample": 1000,
+      "exact_rank_replication": true,
+      "configured_batch_range": [1, 32],
+      "largest_correctness_batch_tested": 2,
+      "largest_non_aligned_prefill_batch_tested": 2,
+      "batch_3_through_32_status": "constructor_and_capacity_only_not_hardware_correctness_qualified",
+      "exact_maximum_decode_position_tested": 131071,
+      "trace_allocation_tracking": "clean_for_batch1_and_batch2_after_release_before_cache_inspection",
+      "batch2_page_table_only_refresh_tested": true,
+      "batch2_bitwise_replay_determinism": true,
+      "runtime_fallback_audit": "clean",
+      "watcher_scope": "Tensix watcher clean with dispatch and Ethernet watcher instrumentation disabled; active-fabric ordinary-dispatch stress clean"
+    },
+    "performance_summary": "multichip_decoder/performance_summary.csv",
+    "artifact_root": "multichip_decoder/artifacts/20260828_final_v2",
+    "decoder_weight_gib_per_device_36_layers": {
+      "1": 61.11334276199341,
+      "2": 30.476531267166138,
+      "4": 15.571487188339233
+    },
+    "reserved_trace_activation_buffer_gib_per_device_estimate": 2.0,
+    "full_stack_capacity_note": "Physical TT tile accounting is a lower bound before embeddings, LM head, allocator fragmentation, CCL, trace, and activation buffers. TP=1 and TP=2 do not fit a resident 36-layer 120B stack plus batch-1 full-context KV in 32 GiB/device. TP=4 does; the later full-model stage must measure its exact non-decoder allocations and largest feasible batch. The decoder-layer API does not reduce the 131072-token model contract.",
+    "mesh_plan": "multichip_decoder/mesh_plan.md",
+    "limitations": [
+      "Neither TP2 nor TP4 improves warmed batch-1 decode latency over P150",
+      "P150 and P150x2 do not fit the estimated resident 36-layer decoder weights plus batch-1 full-context KV cache in 32 GiB per device",
+      "Full-model and vLLM assembly are outside this stage"
+    ]
+  },
   "provenance": {
     "hf_config": "models/demos/gpt_oss/configs/gpt-oss-120b/config.json",
     "checkpoint_index": "model.safetensors.index.json",
