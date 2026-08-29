@@ -203,3 +203,14 @@ The raw baseline and final server logs remain at `before/server.log.gz` and
 locally, but are not added to Git because both exceed the repository's 500 KB
 artifact limit. Versioned JSON/XML and the small sampling, benchmark, and stage
 gate logs preserve the selected measurements and derived contract assertions.
+
+Local checkpoint record:
+
+- Starting tt-metal HEAD: `adcfaa2191584bdb6e56c1d2e8b49ecc278a9a51`.
+- Stage-owned implementation, tests, review, and selected-evidence commit:
+  `b3233ad4ee106f63e23b1c525c535ab96c62a80d` (`Optimize Qwen3.8 vLLM
+  serving`).
+- External `/home/ttuser/dev/vllm-tt-plugin`: no stage-owned commit; the
+  pre-existing dirty `src/vllm_tt_plugin/platform.py` was used read-only and
+  preserved unchanged.
+- Push status: not pushed.
