@@ -37,13 +37,13 @@
     "status": "functional_decoder_complete"
   },
   "multichip_decoder": {
-    "status": "multichip_decoder_complete_stage_review_clean_pass",
+    "status": "optimized_multichip_decoder_complete_stage_review_clean_pass",
     "target_meshes": {
       "P150": [1, 1],
       "P150x2": [1, 2],
       "P150x4": [1, 4]
     },
-    "parallelism": "1D tensor parallelism on mesh axis 1 with a replicated logical residual boundary; OptimizedDecoder is the exact TP=1 baseline",
+    "parallelism": "1D tensor parallelism on mesh axis 1 with a replicated logical BF16 residual boundary: L1-interleaved for decode and DRAM-interleaved for prefill; OptimizedDecoder is the exact TP=1 baseline",
     "meaningful_layer_kinds_tested": [
       "sliding_attention",
       "full_attention"
@@ -83,7 +83,7 @@
       "logical_local_intermediate": {"1": 2880, "2": 1440, "4": 720},
       "physical_local_intermediate": {"1": 2880, "2": 1440, "4": 736},
       "tp4_attention_collective": "reduce physical width 2944 as 736 columns per rank, then slice to logical 2880",
-      "expert_collective": "reduce logical width 2880; measured runtime padding to 2944 was 1.637604699x slower"
+      "expert_collective": "reduce logical width 2880; measured runtime padding to 2944 was 1.7799x slower"
     },
     "moe": {
       "global_experts": 128,
@@ -92,6 +92,21 @@
       "expert_weight_dtype": "bfloat4_b",
       "decode_execution": "gate-selected indexed sparse_matmul",
       "dense_all_expert_decode": false
+    },
+    "optimized_decode_contract": {
+      "inter_layer_residual": "logical [1,1,batch,2880] BF16, replicated across ranks, L1 interleaved; producer-owned and consumer-borrowed",
+      "inter_layer_collective": null,
+      "decode_norm": "10-core L1 width-sharded RMSNorm for both norms",
+      "attention_weight_dtype": "bfloat8_b",
+      "attention_math_fidelity": "decode projections LoFi; prefill packed QKV HiFi2 and output projection LoFi",
+      "attention_ccl_dtype": "bfloat8_b",
+      "prefill_attention_ccl_dtype_at_tested_length_127": "bfloat16; inherited prefill fused reduce-scatter plus all-gather path, outside the custom decode-tail CCL dtype sweep",
+      "expert_ccl_dtype": "bfloat16",
+      "expert_geometry": "gate/up 45 cores with in0_block_w=30 and TP2/TP4 subblock 1x2/1x1; decode down 15 cores with subblock 1x6; prefill down 45 cores with subblock 1x2",
+      "tp2_decode_output_projection": "16-core DRAM-width-sharded BFP8 weight; physical output 3072, internally sliced to logical 2880",
+      "tp4_decode_output_projection": "native L1 path at physical output 2944, internally sliced to logical 2880",
+      "public_non_aligned_lengths_preserved": true,
+      "runtime_fallback": null
     },
     "validation": {
       "optimized_ttnn_baseline": true,
@@ -103,31 +118,37 @@
       "trace_input_refreshes": 2,
       "trace_repeats_per_latency_sample": 100,
       "trace_latency_samples": 5,
-      "watcher_trace_repeats_per_sample": 1000,
+      "stress_trace_repeats_per_sample": 1000,
       "exact_rank_replication": true,
       "configured_batch_range": [1, 32],
       "largest_correctness_batch_tested": 2,
       "largest_non_aligned_prefill_batch_tested": 2,
       "batch_3_through_32_status": "constructor_and_capacity_only_not_hardware_correctness_qualified",
       "exact_maximum_decode_position_tested": 131071,
-      "trace_allocation_tracking": "clean_for_batch1_and_batch2_after_release_before_cache_inspection",
+      "trace_allocation_tracking": "not enabled in this stage; replay release ordering is exercised by batch-1 stress and batch-2 cache/refresh tests",
       "batch2_page_table_only_refresh_tested": true,
       "batch2_bitwise_replay_determinism": true,
       "runtime_fallback_audit": "clean",
-      "watcher_scope": "Tensix watcher clean with dispatch and Ethernet watcher instrumentation disabled; active-fabric ordinary-dispatch stress clean"
+      "watcher_scope": "fully enabled TT_METAL_WATCHER=10 with TT_METAL_FABRIC_OPT_LEVEL=Os passed TP2/TP4 sliding/full in one process, including fabric stop/reopen and clean final teardown; ordinary active-fabric 1000x3 stress also clean"
     },
-    "performance_summary": "multichip_decoder/performance_summary.csv",
-    "artifact_root": "multichip_decoder/artifacts/20260828_final_v2",
+    "performance_summary": "optimized_multichip_decoder/performance_summary.csv",
+    "artifact_root": "optimized_multichip_decoder/artifacts",
     "decoder_weight_gib_per_device_36_layers": {
       "1": 61.11334276199341,
-      "2": 30.476531267166138,
+      "2": 30.70085835456848,
       "4": 15.571487188339233
+    },
+    "optimization_persistent_memory": {
+      "tp2_extra_decode_output_weight_and_bias_bytes_per_layer": 6690816,
+      "tp2_extra_decode_output_weight_and_bias_gib_for_36_layers": 0.22432708740234375,
+      "tp4_extra_bytes_per_layer": 0,
+      "context_effect": "none; KV dtype/layout and configured/supported decoder context remain unchanged"
     },
     "reserved_trace_activation_buffer_gib_per_device_estimate": 2.0,
     "full_stack_capacity_note": "Physical TT tile accounting is a lower bound before embeddings, LM head, allocator fragmentation, CCL, trace, and activation buffers. TP=1 and TP=2 do not fit a resident 36-layer 120B stack plus batch-1 full-context KV in 32 GiB/device. TP=4 does; the later full-model stage must measure its exact non-decoder allocations and largest feasible batch. The decoder-layer API does not reduce the 131072-token model contract.",
     "mesh_plan": "multichip_decoder/mesh_plan.md",
     "limitations": [
-      "Neither TP2 nor TP4 improves warmed batch-1 decode latency over P150",
+      "TP2 fused matmul-reduce-scatter hangs on this Blackhole runtime for both padded-3072 and native-2880 adapted contracts; the faster complete-layer default uses a separate projection and physical-width ring reduction",
       "P150 and P150x2 do not fit the estimated resident 36-layer decoder weights plus batch-1 full-context KV cache in 32 GiB per device",
       "Full-model and vLLM assembly are outside this stage"
     ]

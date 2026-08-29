@@ -33,16 +33,58 @@ from models.autoports.openai_gpt_oss_120b.tests.real_weight_utils import load_re
 from models.autoports.openai_gpt_oss_120b.tt.fused_decoder import _FULL_LOCAL_CHECKPOINT_REVISION
 from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
     _DOWN_SUBBLOCK_WIDTH_BY_TP,
+    ATTENTION_BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
+    ATTENTION_BFP4_MULTICHIP_POLICY,
+    ATTENTION_BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
+    ATTENTION_HIFI2_MULTICHIP_POLICY,
+    ATTENTION_HIFI4_MULTICHIP_POLICY,
+    ATTENTION_LOFI_MULTICHIP_POLICY,
+    BF16_ACTIVATION_CCL_MULTICHIP_POLICY,
+    BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
+    BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
     DEFAULT_MULTICHIP_POLICY,
     DEFAULT_OPTIMIZED_POLICY,
+    DRAM_SHARDED_OUTPUT_2_CORE_MULTICHIP_POLICY,
+    DRAM_SHARDED_OUTPUT_4_CORE_MULTICHIP_POLICY,
+    DRAM_SHARDED_OUTPUT_16_CORE_MULTICHIP_POLICY,
+    DRAM_SHARDED_OUTPUT_MULTICHIP_POLICY,
+    DRAM_SHARDED_QKV_MULTICHIP_POLICY,
+    EXPERT_BF16_MULTICHIP_POLICY,
+    EXPERT_BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
+    EXPERT_BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
+    EXPERT_BFP8_MULTICHIP_POLICY,
+    EXPERT_DOWN_15_CORE_MULTICHIP_POLICY,
+    EXPERT_DOWN_18_CORE_MULTICHIP_POLICY,
+    EXPERT_DOWN_45_CORE_MULTICHIP_POLICY,
+    EXPERT_DOWN_48_CORE_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_9_CORE_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_15_CORE_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_30_CORE_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_45_CORE_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_45_CORE_TP2_SUBBLOCK2_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_NARROW_SUBBLOCK_MULTICHIP_POLICY,
+    EXPERT_GATE_UP_WIDE_SUBBLOCK_MULTICHIP_POLICY,
+    EXPLICIT_OUTPUT_PROJECTION_MULTICHIP_POLICY,
+    FUSED_OUTPUT_CCL_MULTICHIP_POLICY,
+    PREFILL_DOWN_45_CORE_MULTICHIP_POLICY,
+    ROUTER_BFP4_MULTICHIP_POLICY,
+    ROUTER_BFP8_MULTICHIP_POLICY,
+    ROUTER_PREFILL_EXPLICIT_MULTICHIP_POLICY,
+    ROUTER_PREFILL_L1_EXPLICIT_MULTICHIP_POLICY,
+    ROUTER_PREFILL_L1_MULTICHIP_POLICY,
+    SELECTED_EXPERT_GEOMETRY_MULTICHIP_POLICY,
+    SEPARATE_GATE_UP_MULTICHIP_POLICY,
+    SEPARATE_QKV_MULTICHIP_POLICY,
     SUPPORTED_MESH_SHAPES,
     MultichipDecoder,
     _ActiveExpertTPMLP,
+    _allreduce_physical_hidden,
     _PhysicalHiddenCollectiveAttention,
     tensor_plan,
 )
 from models.autoports.openai_gpt_oss_120b.tt.optimized_decoder import OptimizedDecoder
 from models.common.utility_functions import comp_pcc
+from models.demos.gpt_oss.config import MeshConfig, ModeConfig
 from models.demos.gpt_oss.tt.ccl import CCLManager
 from models.demos.gpt_oss.utils.general_utils import get_default_num_links
 from models.demos.utils.trace_region_sizes import TRACE_MODEL_KEY_PARAM
@@ -52,6 +94,7 @@ CONTEXT_CONTRACT = Path(__file__).parents[1] / "doc/context_contract.json"
 REAL_WEIGHT_SNAPSHOT = os.environ.get("GPT_OSS_120B_SNAPSHOT")
 RUN_ACCEPTANCE = os.environ.get("GPT_OSS_120B_MULTICHIP_ACCEPTANCE") == "1"
 RUN_TOPOLOGY_PROBE = os.environ.get("GPT_OSS_120B_MULTICHIP_TOPOLOGY_PROBE") == "1"
+RUN_FUSED_OUTPUT_PROBE = os.environ.get("GPT_OSS_120B_MULTICHIP_FUSED_OUTPUT_PROBE") == "1"
 ARTIFACT_DIR = os.environ.get("GPT_OSS_120B_MULTICHIP_ARTIFACT_DIR")
 ACCEPTANCE_RUN_ID = os.environ.get("GPT_OSS_120B_MULTICHIP_RUN_ID")
 PROCESS_UUID = uuid.uuid4().hex
@@ -256,6 +299,52 @@ def _constructor(
     max_batch_size=1,
     optimized_policy=None,
 ):
+    candidate_name = os.environ.get("GPT_OSS_120B_MULTICHIP_CANDIDATE", "default")
+    candidate_policies = {
+        "default": DEFAULT_MULTICHIP_POLICY,
+        "dram_sharded_qkv": DRAM_SHARDED_QKV_MULTICHIP_POLICY,
+        "dram_sharded_output": DRAM_SHARDED_OUTPUT_MULTICHIP_POLICY,
+        "dram_sharded_output_16_core": DRAM_SHARDED_OUTPUT_16_CORE_MULTICHIP_POLICY,
+        "dram_sharded_output_4_core": DRAM_SHARDED_OUTPUT_4_CORE_MULTICHIP_POLICY,
+        "dram_sharded_output_2_core": DRAM_SHARDED_OUTPUT_2_CORE_MULTICHIP_POLICY,
+        "explicit_output_projection": EXPLICIT_OUTPUT_PROJECTION_MULTICHIP_POLICY,
+        "fused_output_ccl": FUSED_OUTPUT_CCL_MULTICHIP_POLICY,
+        "router_bfp8": ROUTER_BFP8_MULTICHIP_POLICY,
+        "router_bfp4": ROUTER_BFP4_MULTICHIP_POLICY,
+        "router_prefill_explicit": ROUTER_PREFILL_EXPLICIT_MULTICHIP_POLICY,
+        "router_prefill_l1": ROUTER_PREFILL_L1_MULTICHIP_POLICY,
+        "router_prefill_l1_explicit": ROUTER_PREFILL_L1_EXPLICIT_MULTICHIP_POLICY,
+        "activation_ccl_bf16": BF16_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "activation_ccl_bfp8": BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "activation_ccl_bfp4": BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "attention_activation_ccl_bfp8": ATTENTION_BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "expert_activation_ccl_bfp8": EXPERT_BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "attention_activation_ccl_bfp4": ATTENTION_BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "expert_activation_ccl_bfp4": EXPERT_BFP4_ACTIVATION_CCL_MULTICHIP_POLICY,
+        "attention_bfp4": ATTENTION_BFP4_MULTICHIP_POLICY,
+        "attention_lofi": ATTENTION_LOFI_MULTICHIP_POLICY,
+        "attention_hifi2": ATTENTION_HIFI2_MULTICHIP_POLICY,
+        "attention_hifi4": ATTENTION_HIFI4_MULTICHIP_POLICY,
+        "expert_bfp8": EXPERT_BFP8_MULTICHIP_POLICY,
+        "expert_bf16": EXPERT_BF16_MULTICHIP_POLICY,
+        "expert_gate_up_subblock2": EXPERT_GATE_UP_WIDE_SUBBLOCK_MULTICHIP_POLICY,
+        "expert_gate_up_subblock1": EXPERT_GATE_UP_NARROW_SUBBLOCK_MULTICHIP_POLICY,
+        "expert_gate_up_30_core": EXPERT_GATE_UP_30_CORE_MULTICHIP_POLICY,
+        "expert_down_48_core": EXPERT_DOWN_48_CORE_MULTICHIP_POLICY,
+        "expert_gate_up_15_core": EXPERT_GATE_UP_15_CORE_MULTICHIP_POLICY,
+        "expert_down_45_core": EXPERT_DOWN_45_CORE_MULTICHIP_POLICY,
+        "expert_gate_up_9_core": EXPERT_GATE_UP_9_CORE_MULTICHIP_POLICY,
+        "expert_gate_up_45_core": EXPERT_GATE_UP_45_CORE_MULTICHIP_POLICY,
+        "expert_gate_up_45_core_tp2_subblock2": EXPERT_GATE_UP_45_CORE_TP2_SUBBLOCK2_MULTICHIP_POLICY,
+        "expert_down_15_core": EXPERT_DOWN_15_CORE_MULTICHIP_POLICY,
+        "expert_down_18_core": EXPERT_DOWN_18_CORE_MULTICHIP_POLICY,
+        "prefill_down_45_core": PREFILL_DOWN_45_CORE_MULTICHIP_POLICY,
+        "selected_expert_geometry": SELECTED_EXPERT_GEOMETRY_MULTICHIP_POLICY,
+        "separate_qkv": SEPARATE_QKV_MULTICHIP_POLICY,
+        "separate_gate_up": SEPARATE_GATE_UP_MULTICHIP_POLICY,
+    }
+    if candidate_name not in candidate_policies:
+        raise ValueError(f"unknown GPT_OSS_120B_MULTICHIP_CANDIDATE={candidate_name!r}")
     return MultichipDecoder.from_state_dict(
         state_dict=state_dict,
         hf_config=config,
@@ -266,6 +355,7 @@ def _constructor(
         page_size=accepted.PAGE_SIZE,
         tensor_cache_path=cache_root,
         calibrated_checkpoint_revision=_FULL_LOCAL_CHECKPOINT_REVISION,
+        policy=candidate_policies[candidate_name],
         optimized_policy=optimized_policy,
     )
 
@@ -417,11 +507,27 @@ def test_runtime_fallback_and_active_expert_audit():
     assert "self.experts.weights = None" in mlp_source
     assert "ThroughputExperts" not in mlp_source
     assert DEFAULT_MULTICHIP_POLICY.expert_weight_dtype == ttnn.bfloat4_b
+    assert DEFAULT_MULTICHIP_POLICY.attention_activation_ccl_dtype == ttnn.bfloat8_b
+    assert DEFAULT_MULTICHIP_POLICY.expert_activation_ccl_dtype is None
+    assert DEFAULT_MULTICHIP_POLICY.activation_ccl_dtype == ttnn.bfloat16
+    assert DEFAULT_MULTICHIP_POLICY.projection_math_fidelity == ttnn.MathFidelity.LoFi
+    assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_cores == (5, 9)
+    assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_subblock_w == 1
+    assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_subblock_w_tp2 == 2
+    assert DEFAULT_MULTICHIP_POLICY.expert_down_cores == (5, 3)
+    assert DEFAULT_MULTICHIP_POLICY.expert_prefill_down_cores == (5, 9)
+    assert DEFAULT_MULTICHIP_POLICY.expert_prefill_down_subblock_w == 2
+    assert DEFAULT_MULTICHIP_POLICY.expert_prefill_down_cores_tp2 is None
+    assert DEFAULT_MULTICHIP_POLICY.expert_prefill_down_subblock_w_tp2 is None
+    assert DEFAULT_MULTICHIP_POLICY.decode_dram_sharded_output
+    assert not DEFAULT_MULTICHIP_POLICY.decode_dram_sharded_output_tp4
+    assert DEFAULT_MULTICHIP_POLICY.decode_dram_sharded_output_input_cores == 16
+    assert not DEFAULT_MULTICHIP_POLICY.decode_fused_output_projection_ccl
     assert "expert_weight_dtype=policy.expert_weight_dtype" in source
     attention_source = inspect.getsource(_PhysicalHiddenCollectiveAttention)
     assert "_allreduce_physical_hidden" in attention_source
     assert "if not is_decode" in attention_source
-    assert MultichipDecoder.optimization_manifest[-1] == "replicated_stack_residual_contract"
+    assert MultichipDecoder.optimization_manifest[-1] == "replicated_decode_l1_prefill_dram_stack_residual_contract"
     assert DEFAULT_MULTICHIP_POLICY.residual_layout == "replicated"
     assert SUPPORTED_MESH_SHAPES == ((1, 1), (1, 2), (1, 4))
     assert _DOWN_SUBBLOCK_WIDTH_BY_TP == {2: 1, 4: 3}
@@ -453,8 +559,9 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
 
     The attention comparison warms and times all three shape-faithful chains:
 
-      current: slice 2944 -> 2880 -> DRAM -> L1 -> all-reduce -> norm/QKV;
+      preoptimized: slice 2944 -> 2880 -> DRAM -> L1 -> all-reduce -> norm/QKV;
       selected: all-reduce 2944 -> slice 2880 -> norm/QKV;
+      explicit async: reduce-scatter -> all-gather -> slice 2880 -> norm/QKV;
       local row partial -> reduce-scatter -> distributed RMSNorm
       -> fused all-gather + local packed-QKV projection.
 
@@ -473,6 +580,9 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
     plan = tensor_plan((1, logical_tp), config)
     physical_hidden = plan.padded_hidden_size
     local_qkv_width = plan.local_qkv_width
+    collective_dtype = (
+        DEFAULT_MULTICHIP_POLICY.attention_activation_ccl_dtype or DEFAULT_MULTICHIP_POLICY.activation_ccl_dtype
+    )
     generator = torch.Generator().manual_seed(818_000 + logical_tp)
 
     partials_host = torch.randn(
@@ -485,7 +595,7 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         return ttnn.from_torch(
             host,
             device=target_mesh,
-            dtype=ttnn.bfloat8_b,
+            dtype=collective_dtype,
             layout=ttnn.TILE_LAYOUT,
             memory_config=ttnn.L1_MEMORY_CONFIG,
             mesh_mapper=ttnn.create_mesh_mapper(
@@ -554,6 +664,33 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         num_links=get_default_num_links(target_mesh),
         topology=ttnn.Topology.Ring,
     )
+    rs_intermediate, rs_penultimate = ttnn.experimental.reduce_scatter_minimal_async_create_intermediate_buffer(
+        partials,
+        dim=3,
+        topology=ttnn.Topology.Ring,
+        cluster_axis=1,
+    )
+    rs_output_shape = list(partials.shape)
+    rs_output_shape[3] //= logical_tp
+    rs_persistent_output = ttnn.from_torch(
+        torch.zeros(rs_output_shape),
+        device=target_mesh,
+        dtype=collective_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+    )
+    ag_persistent_output = ttnn.from_torch(
+        torch.zeros(tuple(int(dimension) for dimension in partials.shape)),
+        device=target_mesh,
+        dtype=collective_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+    )
+    rs_persistent_buffers = [rs_intermediate, rs_persistent_output]
+    if rs_penultimate is not None:
+        rs_persistent_buffers.append(rs_penultimate)
     qkv_tiles = local_qkv_width // ttnn.TILE_SIZE
     qkv_per_core_n = qkv_tiles // 8
     qkv_program_config = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
@@ -630,10 +767,55 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         normalized.deallocate(True)
         return projected
 
-    def sharded_chain():
+    def async_replicated_chain(*, persistent=False):
+        scattered = ttnn.experimental.reduce_scatter_minimal_async(
+            partials,
+            persistent_output_buffers=rs_persistent_buffers if persistent else None,
+            dim=3,
+            multi_device_global_semaphore=ccl.get_rs_ping_pong_semaphore(),
+            barrier_semaphore=ccl.get_barrier_semaphore(),
+            num_links=ccl.num_links,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            intermediate_memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            topology=ttnn.Topology.Ring,
+        )
+        gathered = ttnn.experimental.all_gather_async(
+            scattered,
+            persistent_output_buffer=ag_persistent_output if persistent else None,
+            dim=3,
+            multi_device_global_semaphore=ccl.get_ag_ping_pong_semaphore(),
+            barrier_semaphore=ccl.get_barrier_semaphore(),
+            num_links=ccl.num_links,
+            topology=ttnn.Topology.Ring,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            chunks_per_sync=10,
+            num_workers_per_link=2,
+            num_buffers_per_channel=2,
+        )
+        sliced = ttnn.slice(
+            gathered,
+            starts=[0, 0, 0, 0],
+            ends=[gathered.shape[0], gathered.shape[1], gathered.shape[2], config.hidden_size],
+            steps=[1, 1, 1, 1],
+        )
+        normalized = ttnn.rms_norm(sliced, epsilon=config.rms_norm_eps, weight=gamma_current)
+        projected = ttnn.linear(
+            normalized,
+            qkv_current,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        if not persistent:
+            scattered.deallocate(True)
+            gathered.deallocate(True)
+        sliced.deallocate(True)
+        normalized.deallocate(True)
+        return projected
+
+    def sharded_chain(*, persistent=False):
         reduced = ttnn.experimental.reduce_scatter_minimal_async(
             partials,
-            persistent_output_buffers=None,
+            persistent_output_buffers=rs_persistent_buffers if persistent else None,
             dim=3,
             multi_device_global_semaphore=ccl.get_rs_ping_pong_semaphore(),
             barrier_semaphore=ccl.get_barrier_semaphore(),
@@ -660,7 +842,7 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         gathered, projected = ttnn.experimental.all_gather_matmul_async(
             normalized,
             qkv_weight,
-            persistent_output_buffer=None,
+            persistent_output_buffer=ag_persistent_output if persistent else None,
             dim=3,
             multi_device_global_semaphore=ccl.get_ag_ping_pong_semaphore(),
             all_gather_core_grid_offset=(0, 6),
@@ -675,11 +857,13 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
             num_workers_per_link=2,
             num_buffers_per_channel=2,
         )
-        reduced.deallocate(True)
+        if not persistent:
+            reduced.deallocate(True)
         stats.deallocate(True)
         gathered_stats.deallocate(True)
         normalized.deallocate(True)
-        gathered.deallocate(True)
+        if not persistent:
+            gathered.deallocate(True)
         return projected
 
     def expert_current_chain():
@@ -717,17 +901,33 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
 
     current_output = current_replicated_chain()
     padded_replicated_output = padded_replicated_chain()
+    async_replicated_output = async_replicated_chain()
+    async_replicated_persistent_output = async_replicated_chain(persistent=True)
     sharded_output = sharded_chain()
+    sharded_persistent_output = sharded_chain(persistent=True)
     expert_current_output = expert_current_chain()
     expert_padded_output = expert_runtime_padded_chain()
     ttnn.synchronize_device(target_mesh)
     padded_pcc_details = []
     sharded_pcc_details = []
-    for rank, (current_rank, padded_rank, sharded_rank) in enumerate(
+    async_pcc_details = []
+    async_persistent_pcc_details = []
+    sharded_persistent_pcc_details = []
+    for rank, (
+        current_rank,
+        padded_rank,
+        async_rank,
+        async_persistent_rank,
+        sharded_rank,
+        sharded_persistent_rank,
+    ) in enumerate(
         zip(
             ttnn.get_device_tensors(current_output),
             ttnn.get_device_tensors(padded_replicated_output),
+            ttnn.get_device_tensors(async_replicated_output),
+            ttnn.get_device_tensors(async_replicated_persistent_output),
             ttnn.get_device_tensors(sharded_output),
+            ttnn.get_device_tensors(sharded_persistent_output),
         )
     ):
         current_host = ttnn.to_torch(current_rank)
@@ -747,9 +947,36 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
                 f"TP{logical_tp} residual-sharded fused-QKV rank {rank}",
             )
         )
+        async_pcc_details.append(
+            _assert_pcc(
+                ttnn.to_torch(async_rank),
+                ttnn.to_torch(padded_rank),
+                0.999,
+                f"TP{logical_tp} explicit-async replicated rank {rank}",
+            )
+        )
+        async_persistent_pcc_details.append(
+            _assert_pcc(
+                ttnn.to_torch(async_persistent_rank),
+                ttnn.to_torch(padded_rank),
+                0.999,
+                f"TP{logical_tp} persistent explicit-async replicated rank {rank}",
+            )
+        )
+        sharded_persistent_pcc_details.append(
+            _assert_pcc(
+                ttnn.to_torch(sharded_persistent_rank),
+                current_host,
+                0.99,
+                f"TP{logical_tp} persistent residual-sharded fused-QKV rank {rank}",
+            )
+        )
     current_output.deallocate(True)
     padded_replicated_output.deallocate(True)
+    async_replicated_output.deallocate(True)
+    async_replicated_persistent_output.deallocate(True)
     sharded_output.deallocate(True)
+    sharded_persistent_output.deallocate(True)
     for rank, (current_rank, padded_rank) in enumerate(
         zip(ttnn.get_device_tensors(expert_current_output), ttnn.get_device_tensors(expert_padded_output))
     ):
@@ -777,12 +1004,33 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
     ttnn.synchronize_device(target_mesh)
     padded_replicated_ms = (time.perf_counter() - padded_replicated_started) * 1000 / repeats
 
+    async_replicated_started = time.perf_counter()
+    for _ in range(repeats):
+        output = async_replicated_chain()
+        output.deallocate(True)
+    ttnn.synchronize_device(target_mesh)
+    async_replicated_ms = (time.perf_counter() - async_replicated_started) * 1000 / repeats
+
+    async_persistent_started = time.perf_counter()
+    for _ in range(repeats):
+        output = async_replicated_chain(persistent=True)
+        output.deallocate(True)
+    ttnn.synchronize_device(target_mesh)
+    async_persistent_ms = (time.perf_counter() - async_persistent_started) * 1000 / repeats
+
     sharded_started = time.perf_counter()
     for _ in range(repeats):
         output = sharded_chain()
         output.deallocate(True)
     ttnn.synchronize_device(target_mesh)
     sharded_ms = (time.perf_counter() - sharded_started) * 1000 / repeats
+
+    sharded_persistent_started = time.perf_counter()
+    for _ in range(repeats):
+        output = sharded_chain(persistent=True)
+        output.deallocate(True)
+    ttnn.synchronize_device(target_mesh)
+    sharded_persistent_ms = (time.perf_counter() - sharded_persistent_started) * 1000 / repeats
 
     expert_current_started = time.perf_counter()
     for _ in range(repeats):
@@ -799,19 +1047,236 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
     expert_padded_ms = (time.perf_counter() - expert_padded_started) * 1000 / repeats
     print(
         "MULTICHIP_TOPOLOGY_PROBE "
-        f"tp={logical_tp} physical_hidden={physical_hidden} local_hidden={plan.padded_local_hidden} "
+        f"tp={logical_tp} dtype={collective_dtype} physical_hidden={physical_hidden} "
+        f"local_hidden={plan.padded_local_hidden} "
         f"local_qkv={local_qkv_width} repeats={repeats} current_replicated_ms={current_ms:.9f} "
         f"padded_replicated_ms={padded_replicated_ms:.9f} sharded_fused_qkv_ms={sharded_ms:.9f} "
+        f"async_replicated_ms={async_replicated_ms:.9f} async_replicated_persistent_ms={async_persistent_ms:.9f} "
+        f"sharded_fused_qkv_persistent_ms={sharded_persistent_ms:.9f} "
         f"padded_ratio_vs_current={padded_replicated_ms / current_ms:.9f} "
         f"sharded_ratio_vs_current={sharded_ms / current_ms:.9f} "
+        f"sharded_persistent_ratio_vs_current={sharded_persistent_ms / current_ms:.9f} "
+        f"async_ratio_vs_selected={async_replicated_ms / padded_replicated_ms:.9f} "
+        f"async_persistent_ratio_vs_selected={async_persistent_ms / padded_replicated_ms:.9f} "
         f"padded_pcc={' | '.join(map(str, padded_pcc_details))} "
-        f"sharded_pcc={' | '.join(map(str, sharded_pcc_details))}"
+        f"sharded_pcc={' | '.join(map(str, sharded_pcc_details))} "
+        f"async_pcc={' | '.join(map(str, async_pcc_details))} "
+        f"async_persistent_pcc={' | '.join(map(str, async_persistent_pcc_details))} "
+        f"sharded_persistent_pcc={' | '.join(map(str, sharded_persistent_pcc_details))}"
     )
     print(
         "MULTICHIP_EXPERT_COLLECTIVE_PROBE "
         f"tp={logical_tp} logical_hidden={config.hidden_size} physical_hidden={physical_hidden} repeats={repeats} "
         f"current_ms={expert_current_ms:.9f} runtime_padded_ms={expert_padded_ms:.9f} "
         f"padded_ratio_vs_current={expert_padded_ms / expert_current_ms:.9f}"
+    )
+
+
+@pytest.mark.skipif(
+    not RUN_FUSED_OUTPUT_PROBE,
+    reason="set GPT_OSS_120B_MULTICHIP_FUSED_OUTPUT_PROBE=1 for the output-projection CCL probe",
+)
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("logical_tp", [4], ids=["tp4"])
+@pytest.mark.parametrize(
+    "mesh_device,device_params",
+    [
+        pytest.param(
+            (1, 4),
+            {
+                "fabric_config": ttnn.FabricConfig.FABRIC_1D_RING,
+                "require_exact_physical_num_devices": True,
+                TRACE_MODEL_KEY_PARAM: "gpt-oss-120b",
+            },
+            id="p150x4",
+        )
+    ],
+    indirect=True,
+)
+def test_fused_output_projection_reduce_scatter_probe(mesh_device, device_params, logical_tp, reset_seeds):
+    """Compare the exact TP4 decode O-projection family through replicated output.
+
+    The selected chain is BF16 local matmul -> BFP8 physical-hidden all-reduce.
+    The candidate is BFP8 fused matmul+reduce-scatter -> all-gather.  The fused
+    family starts from the decoder's native physical width. Candidate retries
+    may select a larger internal multiple, but both chains own any padding and
+    slice back to the 2880 public residual width. TP2 is intentionally excluded:
+    both adapted-3072 and native-2880 variants hung and required reset, so its
+    preserved evidence is the captured triage/provenance log rather than a
+    routinely runnable hardware test.
+    """
+    del device_params, reset_seeds
+    config = _config()
+    target_mesh = (
+        mesh_device
+        if logical_tp == 4
+        else mesh_device.create_submesh(ttnn.MeshShape(1, logical_tp), offset=ttnn.MeshCoordinate(0, 0))
+    )
+    local_attention_width = config.num_attention_heads * config.head_dim // logical_tp
+    physical_hidden = tensor_plan((1, logical_tp), config).padded_hidden_size
+    batch = ttnn.TILE_SIZE
+    generator = torch.Generator().manual_seed(919_004)
+    input_host = (
+        torch.randn((1, 1, batch, local_attention_width * logical_tp), generator=generator, dtype=torch.float32) * 0.02
+    ).to(torch.bfloat16)
+    weight_host = (
+        torch.randn(
+            (1, 1, local_attention_width * logical_tp, physical_hidden),
+            generator=generator,
+            dtype=torch.float32,
+        )
+        * 0.02
+    ).to(torch.bfloat16)
+    input_tensor = ttnn.from_torch(
+        input_host,
+        device=target_mesh,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.ShardTensorToMesh(target_mesh, dim=3),
+    )
+    weight = ttnn.from_torch(
+        weight_host,
+        device=target_mesh,
+        dtype=ttnn.bfloat8_b,
+        layout=ttnn.TILE_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.ShardTensorToMesh(target_mesh, dim=2),
+    )
+    ccl = CCLManager(target_mesh, num_links=get_default_num_links(target_mesh), topology=ttnn.Topology.Ring)
+    mesh_config = MeshConfig(
+        target_mesh.shape,
+        decode=ModeConfig(tp=logical_tp, ep=1, sp=1),
+        prefill=ModeConfig(tp=logical_tp, ep=1, sp=1),
+    )
+    program_config = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+        compute_with_storage_grid_size=(8, 6),
+        in0_block_w=4,
+        out_subblock_h=1,
+        out_subblock_w=1,
+        per_core_M=1,
+        per_core_N=math.ceil((physical_hidden // ttnn.TILE_SIZE) / 8),
+        out_block_w=max(1, math.ceil((physical_hidden // ttnn.TILE_SIZE) / 8) // 2),
+        transpose_mcast=False,
+        fused_activation=None,
+        fuse_batch=False,
+    )
+    compute_config = ttnn.init_device_compute_kernel_config(
+        target_mesh.arch(),
+        math_fidelity=ttnn.MathFidelity.LoFi,
+        math_approx_mode=True,
+        fp32_dest_acc_en=True,
+        packer_l1_acc=True,
+    )
+    persistent_intermediate = ttnn.from_torch(
+        torch.zeros((1, 1, batch, physical_hidden)),
+        device=target_mesh,
+        dtype=ttnn.bfloat8_b,
+        layout=ttnn.TILE_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+    )
+    persistent_output = ttnn.from_torch(
+        torch.zeros((1, 1, batch, physical_hidden // logical_tp)),
+        device=target_mesh,
+        dtype=ttnn.bfloat8_b,
+        layout=ttnn.TILE_LAYOUT,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+    )
+
+    def selected_chain():
+        partial = ttnn.linear(
+            input_tensor,
+            weight,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
+            compute_kernel_config=compute_config,
+        )
+        partial_bfp8 = ttnn.typecast(partial, ttnn.bfloat8_b)
+        partial.deallocate(True)
+        return _allreduce_physical_hidden(
+            partial_bfp8,
+            hidden_size=config.hidden_size,
+            padded_hidden_size=physical_hidden,
+            mesh_config=mesh_config,
+            ccl_manager=ccl,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+
+    def fused_chain():
+        fused_input = ttnn.typecast(input_tensor, ttnn.bfloat8_b)
+        matmul_output, scattered = ttnn.experimental.matmul_reduce_scatter_async(
+            fused_input,
+            weight,
+            persistent_intermediate_buffer=persistent_intermediate,
+            persistent_output_buffer=persistent_output,
+            dim=3,
+            multi_device_global_semaphore=ccl.get_rs_ping_pong_semaphore(),
+            reduce_scatter_core_grid_offset=(0, 6),
+            barrier_semaphore=ccl.get_barrier_semaphore(),
+            num_links=ccl.num_links,
+            memory_config_rs=ttnn.DRAM_MEMORY_CONFIG,
+            topology=ttnn.Topology.Ring,
+            subdevice_id=None,
+            memory_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+            program_config=program_config,
+            compute_kernel_config=compute_config,
+        )
+        gathered = ttnn.experimental.all_gather_async(
+            scattered,
+            dim=3,
+            multi_device_global_semaphore=ccl.get_ag_ping_pong_semaphore(),
+            barrier_semaphore=ccl.get_barrier_semaphore(),
+            num_links=ccl.num_links,
+            topology=ttnn.Topology.Ring,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+        output = ttnn.slice(
+            gathered,
+            starts=[0, 0, 0, 0],
+            ends=[1, 1, batch, config.hidden_size],
+            steps=[1, 1, 1, 1],
+        )
+        fused_input.deallocate(True)
+        matmul_output.deallocate(True)
+        gathered.deallocate(True)
+        return output
+
+    selected = selected_chain()
+    fused = fused_chain()
+    ttnn.synchronize_device(target_mesh)
+    pcc_details = []
+    for rank, (selected_rank, fused_rank) in enumerate(
+        zip(ttnn.get_device_tensors(selected), ttnn.get_device_tensors(fused))
+    ):
+        pcc_details.append(
+            _assert_pcc(
+                ttnn.to_torch(fused_rank),
+                ttnn.to_torch(selected_rank),
+                0.95,
+                f"TP{logical_tp} fused matmul-reduce-scatter output rank {rank}",
+            )
+        )
+    selected.deallocate(True)
+    fused.deallocate(True)
+    repeats = int(os.environ.get("GPT_OSS_120B_MULTICHIP_TOPOLOGY_REPEATS", "20"))
+
+    def measure(chain):
+        started = time.perf_counter()
+        for _ in range(repeats):
+            output = chain()
+            output.deallocate(True)
+        ttnn.synchronize_device(target_mesh)
+        return (time.perf_counter() - started) * 1000 / repeats
+
+    selected_ms = measure(selected_chain)
+    fused_ms = measure(fused_chain)
+    print(
+        "MULTICHIP_FUSED_OUTPUT_PROBE "
+        f"tp={logical_tp} logical_hidden={config.hidden_size} internal_hidden={physical_hidden} repeats={repeats} "
+        f"selected_matmul_allreduce_ms={selected_ms:.9f} fused_mmrs_allgather_ms={fused_ms:.9f} "
+        f"fused_ratio_vs_selected={fused_ms / selected_ms:.9f} pcc={' | '.join(map(str, pcc_details))}"
     )
 
 
@@ -1276,9 +1741,24 @@ def test_real_weight_multichip_against_baseline_artifact(
         expected_plan.local_intermediate_size,
         config.hidden_size,
     )
-    assert all(
-        tuple(shard.shape) == expected_gate_up_shape for shard in ttnn.get_device_tensors(multichip.mlp.indexed_gate_up)
-    )
+    if multichip.policy.decode_separate_gate_up:
+        expected_separate_shape = (
+            1,
+            config.num_local_experts,
+            config.hidden_size,
+            expected_plan.local_intermediate_size,
+        )
+        assert multichip.mlp.indexed_gate_up is None
+        assert all(
+            tuple(shard.shape) == expected_separate_shape
+            for weight in (multichip.mlp.indexed_gate, multichip.mlp.indexed_up)
+            for shard in ttnn.get_device_tensors(weight)
+        )
+    else:
+        assert all(
+            tuple(shard.shape) == expected_gate_up_shape
+            for shard in ttnn.get_device_tensors(multichip.mlp.indexed_gate_up)
+        )
     assert all(
         tuple(shard.shape) == expected_down_shape for shard in ttnn.get_device_tensors(multichip.mlp.indexed_down)
     )

@@ -2948,6 +2948,9 @@ __attribute__((optimize("Os"))) void teardown(
     static_assert(noc_mode != DM_DYNAMIC_NOC, "Update here when enabling dynamic noc mode");
     noc_async_write_barrier();
     noc_async_atomic_barrier();
+    // Transaction IDs are sticky command-buffer state. Leave all write-capable
+    // buffers at transaction ID 0 for the next kernel.
+    noc_clear_packet_tags(noc_index);
 
     if constexpr (NUM_ACTIVE_ERISCS > 1) {
         wait_for_other_local_erisc();
