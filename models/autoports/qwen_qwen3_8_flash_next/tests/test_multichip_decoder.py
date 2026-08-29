@@ -346,13 +346,13 @@ def test_route_sparsity_uses_row_major_metadata_reshape_without_debug_scaffoldin
         assert forbidden not in production_sources
 
 
-def test_host_expert_staging_uses_one_parent_allocation_and_coordinate_h2d(monkeypatch, expect_error):
-    """Guard the allocator-safe, physically rank-local expert upload path."""
+def test_host_expert_slots_use_direct_coordinate_h2d(monkeypatch, expect_error):
+    """Guard the allocator-safe direct persistent-slot upload path."""
 
     init_source = inspect.getsource(QwenDeviceExpertCache.__init__)
-    assert "self._upload_storage" in init_source
+    assert "self._upload_storage" not in init_source
     assert "self._zero_storage" in init_source
-    assert "get_device_tensors(storage.gate_up)" in init_source
+    assert "self.slots[0].gate_up.device_coords()" in init_source
     assert "get_device_tensors(self._zero_storage.gate_up)" in init_source
     assert "device_coords()" in init_source
     assert "MeshCoordinateRange(mesh_device.shape)" not in init_source
@@ -369,9 +369,10 @@ def test_host_expert_staging_uses_one_parent_allocation_and_coordinate_h2d(monke
         probe_source = inspect.getsource(probe)
         assert "copy_host_to_device_tensor_at_coordinate" in probe_source
         assert "ttnn.copy_host_to_device_tensor(" not in probe_source
+        assert "self.directory.reset()" in probe_source
+        assert "self._published_indices = None" in probe_source
     close_source = inspect.getsource(QwenDeviceExpertCache.close)
-    assert "for staging in self._upload_storage" in close_source
-    assert "for rank_staging in self.upload_by_rank" not in close_source
+    assert "self._upload_storage" not in close_source
 
     host_only = ttnn.from_torch(torch.zeros((1, 1, 32, 32), dtype=torch.bfloat16), layout=ttnn.TILE_LAYOUT)
     with expect_error(RuntimeError, "expects a device tensor"):
@@ -385,16 +386,16 @@ def test_host_expert_staging_uses_one_parent_allocation_and_coordinate_h2d(monke
     )
     cache = object.__new__(QwenDeviceExpertCache)
     cache._rank_coordinates = ("rank-0", "rank-1")
-    cache._upload_storage = (SimpleNamespace(gate_up="shared-gate", down="shared-down"),)
+    cache.slots = (SimpleNamespace(gate_up="slot-gate", down="slot-down"),)
     prepared = SimpleNamespace(
+        slot=0,
         identity=SimpleNamespace(expert_id=3),
-        staging_index=0,
         packed=((None, None), ("owner-gate", "owner-down")),
     )
     assert cache._enqueue_prepared_h2d(prepared) >= 0.0
     assert calls == [
-        ("owner-gate", "shared-gate", "rank-1"),
-        ("owner-down", "shared-down", "rank-1"),
+        ("owner-gate", "slot-gate", "rank-1"),
+        ("owner-down", "slot-down", "rank-1"),
     ]
 
     cpp_source = (Path(__file__).resolve().parents[4] / "ttnn/cpp/ttnn-nanobind/operations/core.cpp").read_text()
@@ -626,8 +627,15 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
     assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
     metrics = host_backed.host_expert_cache.metrics()
     assert metrics["misses"] >= 10 and metrics["h2d_bytes"] == metrics["misses"] * 2_764_800
-    assert metrics["zero_d2d_bytes"] == metrics["h2d_bytes"]
-    assert metrics["device_bytes_per_rank"] == 33_177_600
+    # Construction-time slots are already exact zero on both ranks, so the
+    # first owner upload needs no redundant peer-zero D2D. Exact peer contents
+    # were checked against the packed source immediately above.
+    assert metrics["zero_d2d_bytes"] == 0
+    assert metrics["zero_d2d_resets"] == 0
+    assert metrics["zero_d2d_skips"] == metrics["misses"]
+    assert metrics["direct_slot_h2d_bytes"] == metrics["h2d_bytes"]
+    assert metrics["owner_d2d_bytes"] == 0
+    assert metrics["device_bytes_per_rank"] == 30_412_800
     host_backed.close_host_backing()
 
 
@@ -665,7 +673,11 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
             after = cache.metrics()
             owner_bytes = int(after["h2d_bytes"] - before["h2d_bytes"])
             assert owner_bytes == 10 * 2_764_800
-            assert int(after["zero_d2d_bytes"] - before["zero_d2d_bytes"]) == owner_bytes
+            # Each controlled wave advances expert ids by ten, preserving the
+            # per-slot EP2 owner. The peer shard remains exact zero and all ten
+            # peer resets should therefore be skipped.
+            assert int(after["zero_d2d_bytes"] - before["zero_d2d_bytes"]) == 0
+            assert int(after["zero_d2d_skips"] - before["zero_d2d_skips"]) == 10
             completed.append(
                 {
                     "wave": wave_index,
@@ -688,10 +700,29 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
         enqueue_p95_seconds = enqueue_seconds[max(0, (95 * len(enqueue_seconds) + 99) // 100 - 1)]
         wait_p50_seconds = completion_wait_seconds[(len(completion_wait_seconds) - 1) // 2]
         wait_p95_seconds = completion_wait_seconds[max(0, (95 * len(completion_wait_seconds) + 99) // 100 - 1)]
-        # Untimed exactness guard for both EP2 owners after the last completed
-        # wave. This catches staging alias/reordering errors without polluting
-        # any service sample above.
-        for expert_id in (198, 199):
+        # Untimed all-slot exactness guard after the same-owner waves. This
+        # catches staging alias/reordering errors and proves skipped peer-zero
+        # copies left every non-owner shard exact zero.
+        for expert_id in range(190, 200):
+            slot_index, record = next(
+                (slot_index, record)
+                for slot_index, record in enumerate(cache.directory.records)
+                if record.valid and record.identity.expert_id == expert_id
+            )
+            exact = layer.host_expert_source.load(expert_id)
+            slot = cache.slots[slot_index]
+            for rank in range(2):
+                gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
+                down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
+                assert H.pcc(exact.gate_up_by_rank[rank], gate_host) >= 0.99
+                assert H.pcc(exact.down_by_rank[rank], down_host) >= 0.99
+        before_flip = cache.metrics()
+        cache.ensure_indexed(range(201, 211))
+        ttnn.synchronize_device(bh_1d_mesh_device)
+        after_flip = cache.metrics()
+        assert int(after_flip["zero_d2d_bytes"] - before_flip["zero_d2d_bytes"]) == 10 * EXPERT_PACKED_BYTES_PER_RANK
+        assert int(after_flip["zero_d2d_resets"] - before_flip["zero_d2d_resets"]) == 10
+        for expert_id in range(201, 211):
             slot_index, record = next(
                 (slot_index, record)
                 for slot_index, record in enumerate(cache.directory.records)

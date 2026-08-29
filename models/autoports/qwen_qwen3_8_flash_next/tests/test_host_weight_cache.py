@@ -21,10 +21,14 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import (
     PLE_LOGICAL_ROWS,
     PLE_PADDED_ROWS,
     PLE_TABLE_BYTES,
+    DeviceExpertSlot,
+    ExpertCacheMetrics,
     ExpertIdentity,
     ExpertSlotDirectory,
+    PreparedExpertSlotLoad,
     Qwen38ExpertHostSource,
     Qwen38PLEHostStore,
+    QwenDeviceExpertCache,
     SafetensorCheckpoint,
 )
 
@@ -257,6 +261,67 @@ def test_slot_directory_capacity_one_thrash_duplicate_underfill_reset_and_failur
     assert directory.resident_entries == 1
 
 
+def test_expert_slot_same_owner_reuse_skips_redundant_peer_zero(monkeypatch):
+    import ttnn
+
+    copies = []
+    monkeypatch.setattr(ttnn, "copy", lambda source, target: copies.append((source, target)))
+    cache = object.__new__(QwenDeviceExpertCache)
+    cache.zero_by_rank = (
+        DeviceExpertSlot("zero-gate-0", "zero-down-0"),
+        DeviceExpertSlot("zero-gate-1", "zero-down-1"),
+    )
+    cache._metrics = ExpertCacheMetrics()
+
+    def prepared(*, expert_id, reset_non_owner):
+        return PreparedExpertSlotLoad(
+            slot=0,
+            identity=ExpertIdentity(4, expert_id),
+            generation=1,
+            packed=None,
+            gate_shards=("slot-gate-0", "slot-gate-1"),
+            down_shards=("slot-down-0", "slot-down-1"),
+            reset_non_owner=reset_non_owner,
+        )
+
+    same_owner = prepared(expert_id=2, reset_non_owner=False)
+    cache._enqueue_prepared_d2d(same_owner)
+    assert copies == []
+    cache._account_submitted((same_owner,), 0.0)
+    assert cache._metrics.direct_slot_h2d_bytes == EXPERT_PACKED_BYTES_PER_RANK
+    assert cache._metrics.direct_slot_h2d_copies == 2
+    assert cache._metrics.owner_d2d_bytes == 0
+    assert cache._metrics.owner_d2d_copies == 0
+    assert cache._metrics.zero_d2d_bytes == 0
+    assert cache._metrics.zero_d2d_resets == 0
+    assert cache._metrics.zero_d2d_skips == 1
+
+    copies.clear()
+    changed_owner = prepared(expert_id=3, reset_non_owner=True)
+    cache._enqueue_prepared_d2d(changed_owner)
+    assert copies == [
+        ("zero-gate-0", "slot-gate-0"),
+        ("zero-down-0", "slot-down-0"),
+    ]
+    cache._account_submitted((changed_owner,), 0.0)
+    assert cache._metrics.zero_d2d_bytes == EXPERT_PACKED_BYTES_PER_RANK
+    assert cache._metrics.zero_d2d_resets == 1
+    assert cache._metrics.zero_d2d_skips == 1
+
+
+def test_expert_slot_owner_ledger_is_conservative_after_failure():
+    cache = object.__new__(QwenDeviceExpertCache)
+    cache._slot_last_owner = [None, 0]
+    prepared = (
+        PreparedExpertSlotLoad(0, ExpertIdentity(1, 2), 1, None, (), (), False),
+        PreparedExpertSlotLoad(1, ExpertIdentity(1, 3), 1, None, (), (), True),
+    )
+    cache._mark_slot_owners(prepared, failed=False)
+    assert cache._slot_last_owner == [0, 1]
+    cache._mark_slot_owners(prepared, failed=True)
+    assert cache._slot_last_owner == [-1, -1]
+
+
 def test_slot_directory_batched_plan_is_serial_equivalent_and_failure_is_invalid(expect_error):
     serial = ExpertSlotDirectory(4)
     batched = ExpertSlotDirectory(4)
@@ -437,7 +502,7 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
     assert json.loads(json.dumps(payload))["ple_table_bytes"] == PLE_TABLE_BYTES
     contract_path = Path(__file__).resolve().parents[1] / "doc" / "host_weight_contract.json"
     contract = json.loads(contract_path.read_text())
-    assert contract["expert_cache"]["device_bytes_per_rank_full_48_layer_stack"] == 1_592_524_800
+    assert contract["expert_cache"]["device_bytes_per_rank_full_48_layer_stack"] == 1_459_814_400
     capacity = contract["full_stack_capacity"]
     expected_total = sum(
         capacity[name]
@@ -451,7 +516,7 @@ def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):
             "full_model_endpoint_runtime_bytes_per_device",
         )
     )
-    assert expected_total == 10_004_550_744
+    assert expected_total == 9_871_840_344
     assert capacity["planned_total_bytes_per_device"] == expected_total
     assert capacity["headroom_bytes_per_device"] == capacity["dram_bytes_per_device"] - expected_total
     assert capacity["fits"] is True

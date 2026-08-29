@@ -168,6 +168,8 @@ def select_benchmark_windows(
     ci_requests: int,
     primary_trace_replays: int = 127,
     ci_trace_replays: int = 3168,
+    primary_trace_captures: int = 0,
+    ci_trace_captures: int = 0,
 ) -> tuple[int, int, int]:
     """Return primary-start, shared boundary, and CI-end marker indices.
 
@@ -190,18 +192,25 @@ def select_benchmark_windows(
         for ci_start_index in reversed(by_count.get(ci_end_count - ci_requests, ())):
             if ci_start_index >= ci_end_index:
                 continue
-            if traced_decode_steps(markers[ci_end_index], markers[ci_start_index]) != ci_trace_replays:
+            if (
+                traced_decode_steps(markers[ci_end_index], markers[ci_start_index])
+                != ci_trace_replays - ci_trace_captures
+            ):
                 continue
             primary_start_count = int(markers[ci_start_index]["completed_requests"]) - primary_requests
             for primary_start_index in reversed(by_count.get(primary_start_count, ())):
                 if primary_start_index >= ci_start_index:
                     continue
-                if traced_decode_steps(markers[ci_start_index], markers[primary_start_index]) == primary_trace_replays:
+                if (
+                    traced_decode_steps(markers[ci_start_index], markers[primary_start_index])
+                    == primary_trace_replays - primary_trace_captures
+                ):
                     return primary_start_index, ci_start_index, ci_end_index
     raise ValueError(
         "no markers delimit the exact primary/CI logical-request and traced-decode signatures: "
-        f"primary={primary_requests} requests/{primary_trace_replays} replay-or-recapture steps, "
-        f"CI={ci_requests} requests/{ci_trace_replays} replay-or-recapture steps"
+        f"primary={primary_requests} requests/{primary_trace_replays} steps "
+        f"({primary_trace_captures} initial captures), CI={ci_requests} requests/{ci_trace_replays} steps "
+        f"({ci_trace_captures} initial captures)"
     )
 
 
@@ -219,7 +228,19 @@ def validate_runtime_contract(
         audit = runtime(marker)
         assert marker["attention_cache_owner"] == "vllm"
         assert audit["prohibited_host_work"] == EXPECTED_PROHIBITED_HOST_WORK
-        assert audit["declared_host_work"] == EXPECTED_DECLARED_HOST_WORK
+        declared = audit["declared_host_work"]
+        for name, expected in EXPECTED_DECLARED_HOST_WORK.items():
+            if name == "explicit_non_greedy_seed_control_h2d":
+                # The start marker is emitted before the measured prefill
+                # installs its sampling parameters, so a warmed greedy window
+                # may inherit ``True`` from the preceding sampled qualitative
+                # request. The measured window separately proves zero seed
+                # copies, and its end boundary must advertise greedy mode.
+                assert isinstance(declared[name], bool)
+                if boundary == "end":
+                    assert declared[name] is False
+            else:
+                assert declared[name] == expected
         ownership = audit["ownership"]
         for name, expected in EXPECTED_OWNERSHIP.items():
             assert ownership[name] == expected
@@ -260,7 +281,13 @@ def window(
 ) -> dict[str, object]:
     runtime_start = runtime(start)
     runtime_end = runtime(end)
-    cumulative_runtime_counters = ("trace_replays", "model_only_trace_replays", "sampling_seed_host_copies")
+    cumulative_runtime_counters = (
+        "trace_replays",
+        "model_only_trace_replays",
+        "sampling_seed_host_copies",
+        "async_feedback_host_reuses",
+        "async_feedback_device_fallbacks",
+    )
     slots_start = virtual_slots(start)
     slots_end = virtual_slots(end)
     bank_start = slots_start["bank"]
@@ -317,12 +344,18 @@ def main() -> None:
     parser.add_argument("--ci-requests", type=int, default=32)
     parser.add_argument("--primary-trace-replays", type=int, default=127)
     parser.add_argument("--ci-trace-replays", type=int, default=3168)
+    parser.add_argument("--primary-trace-captures", type=int, default=0)
+    parser.add_argument("--ci-trace-captures", type=int, default=0)
     parser.add_argument("--max-num-seqs", type=int, default=2)
     parser.add_argument("--physical-batch", type=int, default=1)
     parser.add_argument("--virtual-slot-capacity", type=int, default=2)
     args = parser.parse_args()
     if args.max_num_seqs != args.virtual_slot_capacity:
         raise SystemExit("served max-num-seqs must equal the declared virtual-slot capacity")
+    if not 0 <= args.primary_trace_captures <= args.primary_trace_replays:
+        raise SystemExit("primary trace captures must be between zero and the expected primary decode steps")
+    if not 0 <= args.ci_trace_captures <= args.ci_trace_replays:
+        raise SystemExit("CI trace captures must be between zero and the expected CI decode steps")
 
     markers = parse_markers(args.server_log)
     try:
@@ -332,6 +365,8 @@ def main() -> None:
             ci_requests=args.ci_requests,
             primary_trace_replays=args.primary_trace_replays,
             ci_trace_replays=args.ci_trace_replays,
+            primary_trace_captures=args.primary_trace_captures,
+            ci_trace_captures=args.ci_trace_captures,
         )
     except ValueError as error:
         raise SystemExit(str(error)) from error
@@ -348,7 +383,7 @@ def main() -> None:
             "virtual_slot_capacity": args.virtual_slot_capacity,
         },
         "marker_selection": {
-            "method": "latest exact logical-request and canonical replay-plus-trace-invalidation signatures",
+            "method": "latest exact logical-request and canonical replay-plus-invalidation-plus-declared-initial-capture signatures",
             "grouped_virtual_prefills_supported": True,
             "primary_start_index": primary_start_index,
             "primary_end_ci_start_index": ci_start_index,
@@ -357,10 +392,12 @@ def main() -> None:
             "ci_start_completed_requests": int(ci_start["completed_requests"]),
             "ci_end_completed_requests": int(ci_end["completed_requests"]),
             "primary_expected_decode_steps": args.primary_trace_replays,
+            "primary_initial_trace_captures": args.primary_trace_captures,
             "primary_trace_replays": int(trace_replays(ci_start)) - int(trace_replays(primary_start)),
             "primary_prefill_trace_invalidations": int(prefill_trace_invalidations(ci_start))
             - int(prefill_trace_invalidations(primary_start)),
             "ci_expected_decode_steps": args.ci_trace_replays,
+            "ci_initial_trace_captures": args.ci_trace_captures,
             "ci_trace_replays": int(trace_replays(ci_end)) - int(trace_replays(ci_start)),
             "ci_prefill_trace_invalidations": int(prefill_trace_invalidations(ci_end))
             - int(prefill_trace_invalidations(ci_start)),
@@ -401,19 +438,35 @@ def main() -> None:
     assert primary["completed_requests_delta"] == args.primary_requests
     assert burst["completed_requests_delta"] == args.ci_requests
     assert (
-        primary["runtime_counter_delta"]["trace_replays"] + primary["virtual_slot_delta"]["prefill_trace_invalidations"]
+        primary["runtime_counter_delta"]["trace_replays"]
+        + primary["virtual_slot_delta"]["prefill_trace_invalidations"]
+        + args.primary_trace_captures
         == args.primary_trace_replays
     )
     assert (
-        burst["runtime_counter_delta"]["trace_replays"] + burst["virtual_slot_delta"]["prefill_trace_invalidations"]
+        burst["runtime_counter_delta"]["trace_replays"]
+        + burst["virtual_slot_delta"]["prefill_trace_invalidations"]
+        + args.ci_trace_captures
         == args.ci_trace_replays
     )
     for section in (primary, burst):
+        completed_requests = int(section["completed_requests_delta"])
+        expected_feedback_steps = completed_requests * (int(section["workload"]["output_tokens"]) - 1)
         assert section["runtime_counter_delta"]["trace_replays"] > 0
         assert section["decode_timing_delta"]["replay_tokens"] == section["runtime_counter_delta"]["trace_replays"]
         assert section["runtime_counter_delta"]["model_only_trace_replays"] == 0
         assert section["runtime_counter_delta"]["sampling_seed_host_copies"] == 0
         assert section["host_sampling_compatibility_calls_delta"] == 0
+        assert section["runtime_counter_delta"]["async_feedback_device_fallbacks"] == completed_requests
+        assert (
+            section["runtime_counter_delta"]["async_feedback_host_reuses"]
+            == expected_feedback_steps - completed_requests
+        )
+        assert (
+            section["runtime_counter_delta"]["async_feedback_host_reuses"]
+            + section["runtime_counter_delta"]["async_feedback_device_fallbacks"]
+            == expected_feedback_steps
+        )
         assert section["virtual_slot_delta"]["assignments"] == section["completed_requests_delta"]
         assert section["virtual_slot_delta"]["releases"] == section["completed_requests_delta"]
         assert section["virtual_slot_delta"]["stale_rejections"] == 0
@@ -427,9 +480,16 @@ def main() -> None:
         assert section["host_service_delta"]["expert_hits"] > 0
         assert section["host_service_delta"]["expert_misses"] > 0
         assert section["host_service_delta"]["expert_h2d_bytes"] > 0
+        assert (
+            section["host_service_delta"]["expert_direct_slot_h2d_bytes"]
+            == section["host_service_delta"]["expert_h2d_bytes"]
+        )
+        assert section["host_service_delta"]["expert_owner_d2d_bytes"] == 0
+        assert section["host_service_delta"]["expert_dma_completion_syncs"] == 0
         assert section["host_service_delta"]["ple_lookup_calls"] > 0
         assert section["host_service_delta"]["ple_selected_rows"] > 0
         assert section["host_service_delta"]["ple_device_h2d_bytes"] > 0
+        assert section["host_service_delta"]["ple_device_completion_syncs"] == 0
     # The B1 path stays resident and must not pay virtual-bank copies.  The CI
     # burst actively overlaps rows on physical B1, so it must prove both sides
     # of the bank lifecycle rather than merely advertise capacity two.

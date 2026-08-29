@@ -16,7 +16,11 @@ from models.autoports.qwen_qwen3_8_flash_next.tt import generator as generator_m
 from models.autoports.qwen_qwen3_8_flash_next.tt import generator_vllm as adapter_module
 from models.autoports.qwen_qwen3_8_flash_next.tt import model as model_module
 from models.autoports.qwen_qwen3_8_flash_next.tt.functional_decoder import FunctionalDecoder
-from models.autoports.qwen_qwen3_8_flash_next.tt.generator import Qwen38Generator, _ServingDecodeOutput
+from models.autoports.qwen_qwen3_8_flash_next.tt.generator import (
+    Qwen38Generator,
+    _ServingDecodeHost,
+    _ServingDecodeOutput,
+)
 from models.autoports.qwen_qwen3_8_flash_next.tt.generator_vllm import Qwen4ExpForConditionalGeneration
 from models.autoports.qwen_qwen3_8_flash_next.tt.model import Qwen38FullModel
 
@@ -510,6 +514,60 @@ def test_generator_steady_decode_reads_device_token_only_for_ple() -> None:
     assert isinstance(result, _ServingDecodeOutput)
     assert result.device is sampled_output
     assert ple_inputs[0].reshape(-1).tolist() == [77]
+
+
+def test_generator_async_output_supplies_next_virtual_ple_token_once(monkeypatch) -> None:
+    events = []
+    conversions = []
+    completion = object()
+    host_tensor = object()
+    state = SimpleNamespace(token_input=object(), compact_token_readbacks=0)
+
+    monkeypatch.setattr(generator_module.ttnn, "event_synchronize", lambda event: events.append(event))
+    monkeypatch.setattr(generator_module.ttnn, "get_device_tensors", lambda value: (value,))
+    monkeypatch.setattr(
+        generator_module.ttnn,
+        "to_torch",
+        lambda value: conversions.append(value) or torch.tensor([77], dtype=torch.int32),
+    )
+
+    class FakeModel:
+        def sampled_tokens_to_torch(self, token, current_state):
+            assert token is state.token_input and current_state is state
+            return torch.tensor([88], dtype=torch.int64)
+
+    generator = object.__new__(Qwen38Generator)
+    generator.model = FakeModel()
+    generator.async_feedback_host_reuses = 0
+    generator.async_feedback_device_fallbacks = 0
+    virtual = generator_module._ServingVirtualSlot(
+        "req-a",
+        4,
+        SimpleNamespace(slot_id=0, request_id="req-a", generation=11),
+        True,
+    )
+    generator._serving_virtual_slots = {0: virtual}
+    host = _ServingDecodeHost("tokens", host_tensor, 1, state, completion)
+    output = _ServingDecodeOutput("tokens", object(), 1, state, ((0, "req-a", 4),))
+
+    generator._attach_virtual_token_host(output, host)
+    assert virtual.pending_token_host == (host, 0)
+    assert generator._consume_virtual_ple_token(virtual, state).tolist() == [77]
+    # Plugin finalization formats the same host object without another wait,
+    # conversion, or compact device read.
+    assert host.to_torch(generator.model, is_tokens=True).tolist() == [77]
+    assert events == [completion]
+    assert conversions == [host_tensor]
+    assert state.compact_token_readbacks == 1
+    assert generator.async_feedback_host_reuses == 1
+    assert generator.async_feedback_device_fallbacks == 0
+    assert virtual.pending_token_host is None
+
+    stale = _ServingDecodeOutput("tokens", object(), 1, state, ((0, "req-a", 3),))
+    generator._attach_virtual_token_host(stale, host)
+    assert virtual.pending_token_host is None
+    assert generator._consume_virtual_ple_token(virtual, state).tolist() == [88]
+    assert generator.async_feedback_device_fallbacks == 1
 
 
 def test_generator_virtual_decode_microbatches_real_rows_and_ignores_padding() -> None:

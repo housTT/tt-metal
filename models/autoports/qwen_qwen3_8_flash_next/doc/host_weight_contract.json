@@ -8,8 +8,8 @@
     "expert_decode": [
       "D2H compact sorted top-10 expert ids from rank 0",
       "mmap and deterministically prepack every exact full-K BFP4 checkpoint expert once at full-model load; reduced/cold-warm validation may preserve lazy exact packing",
-      "H2D only the exact missed owner shard through fixed owner-rank staging",
-      "local D2D owner copy plus exact immutable-zero peer reset into fixed generation-checked slots"
+      "H2D only the exact missed owner shard directly into its fixed persistent slot coordinate",
+      "skip the exact immutable-zero peer reset while slot ownership is unchanged; enqueue a local peer-zero D2D only when ownership flips"
     ],
     "expert_prefill": [
       "D2H compact unique routed expert ids",
@@ -36,7 +36,7 @@
     "experts": 512,
     "active_experts_per_token": 10,
     "device_slots_per_layer": 10,
-    "upload_staging_experts_per_rank_per_layer": 1,
+    "upload_staging_experts_per_rank_per_layer": 0,
     "immutable_zero_experts_per_rank_per_layer": 1,
     "packed_host_cache_experts_per_layer": 512,
     "packed_host_cache_bytes_per_layer_at_capacity": 1418342400,
@@ -59,23 +59,23 @@
     ],
     "device_dtype": "BFP4_B",
     "packed_bytes_per_rank_per_expert": 2764800,
-    "device_bytes_per_rank_per_layer_including_staging": 33177600,
-    "device_bytes_per_rank_full_48_layer_stack": 1592524800,
+    "device_bytes_per_rank_per_layer_including_staging": 30412800,
+    "device_bytes_per_rank_full_48_layer_stack": 1459814400,
     "cold_decode_h2d_bytes_owner_only": 27648000,
     "cold_decode_zero_d2d_bytes_non_owner": 27648000,
     "hit_decode_h2d_bytes": 0,
     "checkpoint_bf16_bytes_read_per_miss": 9830400,
     "replacement": "stable indexed generation-checked LRU slots for traced decode; deterministic generation-checked LRU waves for prefill",
-    "trace_index_contract": "a persistent replicated uint16 slot-index row changes router order without relocating hit expert weights; owner H2D, non-owner zero D2D, index publication, and the consuming back trace remain ordered on CQ0 with completion observed at the next compact route/token boundary",
-    "failure_semantics": "publish a generation only after the owner upload and exact non-owner D2D zero reset are successfully enqueued; invalidate on a submission failure, and surface asynchronous device failures at the next mandatory route/token completion boundary"
+    "trace_index_contract": "a persistent replicated uint16 slot-index row changes router order without relocating hit expert weights; direct owner H2D, conditional non-owner zero D2D, index publication, and the consuming back trace remain ordered on CQ0 with completion observed at the next compact route/token boundary",
+    "failure_semantics": "publish a generation only after the owner upload and any required exact non-owner D2D zero reset are successfully enqueued; mark slot ownership unknown on a submission failure, invalidate the directory record, and surface asynchronous device failures at the next mandatory route/token completion boundary"
   },
   "host_staging_policy": {
     "selected_miss_wave_policy": "serial",
     "selected_staging_depth": 1,
     "selected_creates_thread_pool": false,
-    "completed_cache_service_gbps": 6.820373,
-    "completed_cache_service_p50_ms": 4.051894,
-    "completed_cache_service_p95_ms": 4.077123,
+    "completed_cache_service_gbps": 12.496113,
+    "completed_cache_service_p50_ms": 2.171385,
+    "completed_cache_service_p95_ms": 2.699363,
     "raw_x4_gbps_per_link": 7.876923,
     "raw_two_link_gbps": 15.753846,
     "pure_single_owner_gbps": 6.127343,
@@ -85,9 +85,10 @@
       "serial staging depths 2 and 10",
       "owner-partitioned depths 1, 2, and 10",
       "owner-coalesced depth 10",
-      "owner-threaded depth 10 with a prestarted reused executor"
+      "owner-threaded depth 10 with a prestarted reused executor",
+      "decode-only PLE unique-row fast path: exact CPU microbenchmarks improved 6.89x cold and 1.14x hot, but same-workload vLLM TPOT regressed to 270.037506 ms"
     ],
-    "next_boundary": "native batched TTNN H2D submission with one call/event per physical owner; first require a pure-dual result materially above 6.497517 GB/s"
+    "next_boundary": "native batched TTNN H2D submission with one call/event per physical owner; direct persistent-slot H2D already removes the owner D2D leg and reaches 12.496113 GB/s for the completed ten-expert service window"
   },
   "ple_table": {
     "layer_zero_based": 1,
@@ -130,7 +131,7 @@
     "decoder_non_expert_weight_bytes_per_device": 3181259776,
     "full_text_endpoint_weight_bytes_per_device": 1279016960,
     "non_expert_weight_allowance_bytes_per_device": 4460276736,
-    "host_expert_cache_and_staging_bytes_per_device": 1592524800,
+    "host_expert_cache_and_staging_bytes_per_device": 1459814400,
     "ple_staging_bytes_per_device": 819200,
     "canonical_decode_state_bytes_per_device": 260702208,
     "additional_prefill_user_state_bytes_per_device": 208928768,
@@ -141,8 +142,8 @@
     "shared_decode_workspace_l1_bytes_per_worker": 120832,
     "shared_decode_workspace_l1_actual_bytes_per_device": 12976128,
     "shared_decode_workspace_l1_bank_reserved_bytes_per_device": 13291520,
-    "planned_total_bytes_per_device": 10004550744,
-    "headroom_bytes_per_device": 24220969896,
+    "planned_total_bytes_per_device": 9871840344,
+    "headroom_bytes_per_device": 24353680296,
     "fits": true
   },
   "full_model_eager_batch32_seq4096_capacity": {
@@ -243,7 +244,7 @@
       "datatype_sweep/full_runs/context_bf16/advertised_context_construction.json"
     ]
   },
-  "blocking_limitation": "No exact Python-level cache scheduling candidate improved selected serial depth 1. Reaching the raw two-link opportunity requires a native batched TTNN H2D submission/event boundary that the current Python cache API does not expose.",
+  "blocking_limitation": "Direct persistent-slot H2D removes upload scratch and owner D2D, but the Python API still submits each physical owner tensor separately. Reaching the raw two-link opportunity requires a native batched TTNN H2D submission/event boundary.",
   "measured_limitations": [
     "Deterministically prepacking 24,576 exact host experts adds 240.979 seconds and 68,080,435,200 bytes to model load, but removes source packing from request TTFT and decode.",
     "Host-backed segmented token-out tracing is batch one; the all-48 host-backed eager fixed-slot path is validated at batch 32 and context 4096.",

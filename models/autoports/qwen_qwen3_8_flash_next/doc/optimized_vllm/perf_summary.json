@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "model": "Qwen/Qwen3.8-Flash-Next",
+  "measured_path": "models.autoports.qwen_qwen3_8_flash_next.tt.generator_vllm:Qwen4ExpForConditionalGeneration through the vLLM TT plugin",
+  "serving_config": {
+    "mesh": "P300 1x2",
+    "max_num_seqs": 2,
+    "physical_decode_batch": 1,
+    "virtual_slot_capacity": 2,
+    "max_model_len": 262144,
+    "block_size": 64,
+    "sampling_profile": "full",
+    "sample_on_device_mode": "all",
+    "generation_config_mode": "explicit",
+    "temperature": 0.0,
+    "trace_mode": "decode_only",
+    "trace_region_size": 1073741824,
+    "fabric_config": "FABRIC_1D",
+    "fabric_packet_payload_bytes": 8192,
+    "host_miss_wave_policy": "serial",
+    "host_staging_depth": 1,
+    "expert_slots_per_layer": 10,
+    "ple_row_cache_capacity": 8192,
+    "warmup": "12 sequential qualitative requests before the primary benchmark"
+  },
+  "primary_single_user_128_128_1": {
+    "before": {
+      "ttft_p50_ms": 4007.855929,
+      "ttft_p99_ms": 4007.855929,
+      "tpot_mean_ms": 268.980406,
+      "tpot_p99_ms": 268.980406,
+      "itl_p50_ms": 271.870091,
+      "itl_p99_ms": 303.711892,
+      "output_throughput_tokens_per_second": 3.353537,
+      "tpot_decode_tokens_per_second_per_user": 3.717743
+    },
+    "after_definitive": {
+      "ttft_p50_ms": 4484.083915,
+      "ttft_p99_ms": 4484.083915,
+      "tpot_mean_ms": 269.661299,
+      "tpot_p99_ms": 269.661299,
+      "itl_p50_ms": 272.195659,
+      "itl_p99_ms": 303.694477,
+      "output_throughput_tokens_per_second": 3.304815,
+      "tpot_decode_tokens_per_second_per_user": 3.708356
+    },
+    "after_same_source_repeat_a": {
+      "ttft_p50_ms": 4146.630753,
+      "ttft_p99_ms": 4146.630753,
+      "tpot_mean_ms": 267.016417,
+      "tpot_p99_ms": 267.016417,
+      "itl_p50_ms": 266.566413,
+      "itl_p99_ms": 301.019668,
+      "output_throughput_tokens_per_second": 3.363287,
+      "tpot_decode_tokens_per_second_per_user": 3.745088
+    },
+    "verdict": "neutral within repeat variation; definitive decode -0.25%, repeat A +0.74% versus baseline"
+  },
+  "ci_serving_burst_100_100_32": {
+    "before": {
+      "ttft_p50_ms": 495900.588359,
+      "ttft_p99_ms": 984280.693984,
+      "tpot_mean_ms": 608.992298,
+      "tpot_p99_ms": 633.142100,
+      "itl_p50_ms": 622.197126,
+      "itl_p99_ms": 675.488786,
+      "output_throughput_tokens_per_second": 3.059929,
+      "tpot_capacity_context_tokens_per_second_per_user": 1.642057
+    },
+    "after_definitive": {
+      "ttft_p50_ms": 486420.899099,
+      "ttft_p99_ms": 965326.408495,
+      "tpot_mean_ms": 594.469610,
+      "tpot_p99_ms": 622.155683,
+      "itl_p50_ms": 605.782734,
+      "itl_p99_ms": 642.478880,
+      "output_throughput_tokens_per_second": 3.123112,
+      "tpot_capacity_context_tokens_per_second_per_user": 1.682172
+    },
+    "verdict": "secondary capacity evidence: mean TPOT -2.38%, aggregate output +2.06%; not headline decode"
+  },
+  "full_model_comparison_128_128_batch1": {
+    "optimized_full_model_token_out_ms": 231.594,
+    "optimized_full_model_tokens_per_second_per_user": 4.317901,
+    "vllm_definitive_tpot_ms": 269.661299,
+    "vllm_definitive_tokens_per_second_per_user": 3.708356,
+    "vllm_latency_overhead_percent": 16.437084,
+    "vllm_throughput_gap_percent": -14.116708
+  },
+  "completed_expert_cache_service": {
+    "before_gigabytes_per_second": 6.820373,
+    "after_gigabytes_per_second": 12.496113,
+    "before_p50_ms": 4.051894,
+    "after_p50_ms": 2.171385,
+    "before_p95_ms": 4.077123,
+    "after_p95_ms": 2.699363,
+    "owner_d2d_after_bytes": 0,
+    "device_bytes_saved_per_rank": 132710400
+  },
+  "async_evidence": {
+    "primary_host_reuses": 126,
+    "primary_device_fallbacks": 1,
+    "ci_host_reuses": 3136,
+    "ci_device_fallbacks": 32,
+    "expert_completion_syncs": 0,
+    "ple_completion_syncs": 0,
+    "model_only_trace_replays": 0,
+    "host_sampling_compatibility_calls": 0
+  },
+  "gates": {
+    "plugin_sampling": "72 passed, 1 expected skip",
+    "qualitative": "pass",
+    "prompt_correct_qualitative": "pass",
+    "non_aligned_prompt_lengths": [1, 63, 64, 65, 67, 127, 129],
+    "real_virtual_b2_async_stale_isolation": "pass",
+    "active_cancel_lifecycle": "pass",
+    "context_tokens": 262144,
+    "final_static": "62 passed, 2 explicit hardware-gated skips",
+    "process_cleanup": "pass"
+  },
+  "profiler_collection": "intentionally none for optimized-vLLM"
+}

@@ -522,7 +522,13 @@ class ExpertCacheMetrics:
     h2d_bytes: int = 0
     source_pack_seconds: float = 0.0
     h2d_seconds: float = 0.0
+    direct_slot_h2d_bytes: int = 0
+    direct_slot_h2d_copies: int = 0
+    owner_d2d_bytes: int = 0
+    owner_d2d_copies: int = 0
     zero_d2d_bytes: int = 0
+    zero_d2d_resets: int = 0
+    zero_d2d_skips: int = 0
     deferred_dma_misses: int = 0
     dma_completion_syncs: int = 0
     index_h2d_bytes: int = 0
@@ -553,7 +559,7 @@ class PreparedExpertSlotLoad:
     packed: object
     gate_shards: tuple[object, ...]
     down_shards: tuple[object, ...]
-    staging_index: int
+    reset_non_owner: bool = True
 
 
 def _replicated_device_zeros(mesh_device, shape: tuple[int, ...], *, dtype):
@@ -617,6 +623,12 @@ class QwenDeviceExpertCache:
         self.staging_layout = staging_layout
         self.directory = ExpertSlotDirectory(capacity)
         self.capacity = int(capacity)
+        # ``None`` means construction-time all-zero storage.  Rank 0/1 means
+        # that rank contains the last published expert while its peer is known
+        # zero.  ``-1`` is the conservative state after a failed submission.
+        # Directory reset does not change physical storage, so this ownership
+        # ledger intentionally survives reset and can still prove a peer zero.
+        self._slot_last_owner: list[int | None] = [None] * self.capacity
         self.indexed_width = int(indexed_width)
         if not 1 <= self.indexed_width <= self.capacity:
             raise ValueError("indexed expert width must be positive and no larger than the device cache")
@@ -649,47 +661,20 @@ class QwenDeviceExpertCache:
             )
             for _ in range(self.capacity)
         )
-        # One replicated parent-mesh allocation per depth gives each rank one
-        # fixed physical staging buffer while keeping all DRAM allocation in
-        # the parent MeshDevice allocator.  The rank rows below are stable
-        # coordinate-limited views of those buffers; they do not allocate.
-        self._upload_storage = tuple(
-            DeviceExpertSlot(
-                gate_up=_replicated_device_zeros(
-                    mesh_device,
-                    (1, 1, HIDDEN_SIZE, 2 * GLOBAL_INTERMEDIATE),
-                    dtype=ttnn.bfloat4_b,
-                ),
-                down=_replicated_device_zeros(
-                    mesh_device,
-                    (1, 1, GLOBAL_INTERMEDIATE, HIDDEN_SIZE),
-                    dtype=ttnn.bfloat4_b,
-                ),
-            )
-            for _ in range(self.staging_depth)
-        )
-        # Derive coordinates from actual DeviceStorage. The Python
+        # Owner H2D writes target the already allocated persistent slot
+        # directly. Derive coordinates from actual DeviceStorage. The Python
         # MeshCoordinateRange(MeshShape) constructor can duplicate coordinate
         # zero after an in-place MeshDevice reshape.
-        rank_coordinates = tuple(self._upload_storage[0].gate_up.device_coords())
+        rank_coordinates = tuple(self.slots[0].gate_up.device_coords())
         if len(rank_coordinates) != TP_SIZE:
-            raise RuntimeError("expert upload staging requires exactly two physical ranks")
+            raise RuntimeError("expert slots require exactly two physical ranks")
         if any(
-            tuple(storage.gate_up.device_coords()) != rank_coordinates
-            or tuple(storage.down.device_coords()) != rank_coordinates
-            for storage in self._upload_storage
+            tuple(slot.gate_up.device_coords()) != rank_coordinates
+            or tuple(slot.down.device_coords()) != rank_coordinates
+            for slot in self.slots
         ):
-            raise RuntimeError("expert upload staging storage has inconsistent device coordinates")
+            raise RuntimeError("expert slot storage has inconsistent device coordinates")
         self._rank_coordinates = rank_coordinates
-        upload_shards = tuple(
-            (tuple(ttnn.get_device_tensors(storage.gate_up)), tuple(ttnn.get_device_tensors(storage.down)))
-            for storage in self._upload_storage
-        )
-        if any(len(gate) != TP_SIZE or len(down) != TP_SIZE for gate, down in upload_shards):
-            raise RuntimeError("expert upload staging requires exactly two device shards")
-        self.upload_by_rank = tuple(
-            tuple(DeviceExpertSlot(gate[rank], down[rank]) for gate, down in upload_shards) for rank in range(TP_SIZE)
-        )
         # EP2 assigns every routed expert to exactly one rank.  Keep one
         # immutable replicated zero allocation so a miss uploads only the
         # owner weights; each non-owner shard is reset with local D2D instead
@@ -736,13 +721,12 @@ class QwenDeviceExpertCache:
         self._packed: OrderedDict[ExpertIdentity, tuple[tuple[object, object], tuple[object, object]]] = OrderedDict()
         self._published_indices: tuple[int, ...] | None = tuple(range(self.capacity))
         self._metrics = ExpertCacheMetrics()
-        self._next_staging_by_owner = [0] * TP_SIZE
         self._owner_h2d_executor: ThreadPoolExecutor | None = None
         self._lock = threading.RLock()
 
     @property
     def device_bytes_per_rank(self) -> int:
-        return (self.capacity + 1 + self.staging_depth) * EXPERT_PACKED_BYTES_PER_RANK
+        return (self.capacity + 1) * EXPERT_PACKED_BYTES_PER_RANK
 
     @property
     def packed_host_bytes(self) -> int:
@@ -812,7 +796,6 @@ class QwenDeviceExpertCache:
         slot: int,
         identity: ExpertIdentity,
         generation: int,
-        staging_index: int = 0,
     ) -> PreparedExpertSlotLoad:
         import ttnn
 
@@ -822,21 +805,33 @@ class QwenDeviceExpertCache:
         down_shards = ttnn.get_device_tensors(target.down)
         if len(gate_shards) != TP_SIZE or len(down_shards) != TP_SIZE:
             raise RuntimeError("expert slots require exactly two device shards")
-        return PreparedExpertSlotLoad(slot, identity, generation, packed, gate_shards, down_shards, staging_index)
+        owner = identity.expert_id % TP_SIZE
+        previous_owner = self._slot_last_owner[slot]
+        reset_non_owner = previous_owner is not None and previous_owner != owner
+        return PreparedExpertSlotLoad(
+            slot,
+            identity,
+            generation,
+            packed,
+            gate_shards,
+            down_shards,
+            reset_non_owner,
+        )
 
     def _enqueue_prepared_h2d(self, prepared: PreparedExpertSlotLoad) -> float:
         import ttnn
 
         owner = prepared.identity.expert_id % TP_SIZE
         started = time.perf_counter()
-        # Write only the checkpoint-owning coordinate of the shared staging
-        # allocation without changing its DeviceStorage/topology. Rank-local
-        # D2D then copies the owner and exact-zero non-owner shards. All work
-        # stays ordered on parent CQ0 before the indexed expert trace.
-        storage = self._upload_storage[prepared.staging_index]
+        # Write the checkpoint-owning coordinate directly into the stable slot
+        # allocation without changing DeviceStorage, topology, or address.
+        # This removes two owner-slot D2D submissions per miss. The retained
+        # packed host tensor outlives the nonblocking CQ0 write, and any peer
+        # reset plus the indexed expert trace remain ordered after it.
+        target = self.slots[prepared.slot]
         coordinate = self._rank_coordinates[owner]
-        ttnn.copy_host_to_device_tensor_at_coordinate(prepared.packed[owner][0], storage.gate_up, coordinate)
-        ttnn.copy_host_to_device_tensor_at_coordinate(prepared.packed[owner][1], storage.down, coordinate)
+        ttnn.copy_host_to_device_tensor_at_coordinate(prepared.packed[owner][0], target.gate_up, coordinate)
+        ttnn.copy_host_to_device_tensor_at_coordinate(prepared.packed[owner][1], target.down, coordinate)
         return time.perf_counter() - started
 
     def _enqueue_prepared_d2d(self, prepared: PreparedExpertSlotLoad) -> float:
@@ -845,12 +840,10 @@ class QwenDeviceExpertCache:
         owner = prepared.identity.expert_id % TP_SIZE
         non_owner = 1 - owner
         started = time.perf_counter()
-        staging = self.upload_by_rank[owner][prepared.staging_index]
-        ttnn.copy(staging.gate_up, prepared.gate_shards[owner])
-        ttnn.copy(staging.down, prepared.down_shards[owner])
-        zero = self.zero_by_rank[non_owner]
-        ttnn.copy(zero.gate_up, prepared.gate_shards[non_owner])
-        ttnn.copy(zero.down, prepared.down_shards[non_owner])
+        if prepared.reset_non_owner:
+            zero = self.zero_by_rank[non_owner]
+            ttnn.copy(zero.gate_up, prepared.gate_shards[non_owner])
+            ttnn.copy(zero.down, prepared.down_shards[non_owner])
         # Do not fence each miss.  All uploads, rank-local copies, the compact
         # index update, and the consuming back trace use CQ0.  Completion is
         # therefore observed at the next required route-id read (or the final
@@ -859,10 +852,19 @@ class QwenDeviceExpertCache:
         return time.perf_counter() - started
 
     def _account_submitted(self, prepared: Sequence[PreparedExpertSlotLoad], enqueue_seconds: float) -> None:
+        zero_resets = sum(item.reset_non_owner for item in prepared)
         self._metrics.h2d_seconds += enqueue_seconds
         self._metrics.h2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
-        self._metrics.zero_d2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
+        self._metrics.direct_slot_h2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
+        self._metrics.direct_slot_h2d_copies += len(prepared) * 2
+        self._metrics.zero_d2d_bytes += zero_resets * EXPERT_PACKED_BYTES_PER_RANK
+        self._metrics.zero_d2d_resets += zero_resets
+        self._metrics.zero_d2d_skips += len(prepared) - zero_resets
         self._metrics.deferred_dma_misses += len(prepared)
+
+    def _mark_slot_owners(self, prepared: Sequence[PreparedExpertSlotLoad], *, failed: bool) -> None:
+        for item in prepared:
+            self._slot_last_owner[item.slot] = -1 if failed else item.identity.expert_id % TP_SIZE
 
     def _owner_executor(self) -> ThreadPoolExecutor:
         if self._owner_h2d_executor is None:
@@ -876,21 +878,20 @@ class QwenDeviceExpertCache:
         return self._owner_h2d_executor
 
     def _load_slot(self, slot: int, identity: ExpertIdentity, generation: int) -> None:
-        owner = identity.expert_id % TP_SIZE
-        staging_index = self._next_staging_by_owner[owner] % self.staging_depth
-        self._next_staging_by_owner[owner] += 1
-        prepared = self._prepare_slot_load(slot, identity, generation, staging_index)
-        elapsed = self._enqueue_prepared_h2d(prepared) + self._enqueue_prepared_d2d(prepared)
+        prepared = self._prepare_slot_load(slot, identity, generation)
+        try:
+            elapsed = self._enqueue_prepared_h2d(prepared) + self._enqueue_prepared_d2d(prepared)
+        except BaseException:
+            self._mark_slot_owners((prepared,), failed=True)
+            raise
+        self._mark_slot_owners((prepared,), failed=False)
         self._account_submitted((prepared,), elapsed)
 
     def _load_slots_owner_partitioned(self, loads: tuple[tuple[int, ExpertIdentity, int], ...]) -> None:
         prepare_started = time.perf_counter()
-        owner_offsets = [0] * TP_SIZE
         prepared_rows = []
         for load in loads:
-            owner = load[1].expert_id % TP_SIZE
-            prepared_rows.append(self._prepare_slot_load(*load, owner_offsets[owner] % self.staging_depth))
-            owner_offsets[owner] += 1
+            prepared_rows.append(self._prepare_slot_load(*load))
         prepared = tuple(prepared_rows)
         self._metrics.policy_prepare_seconds += time.perf_counter() - prepare_started
 
@@ -898,32 +899,32 @@ class QwenDeviceExpertCache:
         submit_started = time.perf_counter()
         h2d_seconds = 0.0
         d2d_seconds = 0.0
-        if self.miss_wave_policy == "owner_partitioned":
-            for item in by_owner:
-                h2d_seconds += self._enqueue_prepared_h2d(item)
-                d2d_seconds += self._enqueue_prepared_d2d(item)
-        else:
-            # Coalescing must retain every owner payload until its later D2D.
-            # Refuse to alias staging rather than silently corrupt a slot.
-            required_depth = max(owner_offsets)
-            if required_depth > self.staging_depth:
-                raise ValueError(f"{self.miss_wave_policy} needs staging depth >= {required_depth} for this miss wave")
-            if self.miss_wave_policy == "owner_threaded":
-                owner_rows = tuple(
-                    tuple(item for item in by_owner if item.identity.expert_id % TP_SIZE == owner)
-                    for owner in range(TP_SIZE)
-                )
-
-                def enqueue_owner(rows):
-                    return sum(self._enqueue_prepared_h2d(item) for item in rows)
-
-                h2d_seconds = sum(self._owner_executor().map(enqueue_owner, owner_rows))
+        try:
+            if self.miss_wave_policy == "owner_partitioned":
+                for item in by_owner:
+                    h2d_seconds += self._enqueue_prepared_h2d(item)
+                    d2d_seconds += self._enqueue_prepared_d2d(item)
             else:
-                h2d_seconds = sum(self._enqueue_prepared_h2d(item) for item in by_owner)
-            # Threaded work above is physical-owner H2D only. Peer-zero D2D is
-            # deliberately serialized here because each miss touches both
-            # devices, so per-owner D2D workers would not be device-disjoint.
-            d2d_seconds = sum(self._enqueue_prepared_d2d(item) for item in prepared)
+                if self.miss_wave_policy == "owner_threaded":
+                    owner_rows = tuple(
+                        tuple(item for item in by_owner if item.identity.expert_id % TP_SIZE == owner)
+                        for owner in range(TP_SIZE)
+                    )
+
+                    def enqueue_owner(rows):
+                        return sum(self._enqueue_prepared_h2d(item) for item in rows)
+
+                    h2d_seconds = sum(self._owner_executor().map(enqueue_owner, owner_rows))
+                else:
+                    h2d_seconds = sum(self._enqueue_prepared_h2d(item) for item in by_owner)
+                # Threaded work above is physical-owner H2D only. Conditional
+                # peer-zero D2D remains serialized because an owner change
+                # touches the other device.
+                d2d_seconds = sum(self._enqueue_prepared_d2d(item) for item in prepared)
+        except BaseException:
+            self._mark_slot_owners(prepared, failed=True)
+            raise
+        self._mark_slot_owners(prepared, failed=False)
         self._account_submitted(prepared, h2d_seconds + d2d_seconds)
         self._metrics.policy_submit_seconds += time.perf_counter() - submit_started
         self._metrics.policy_h2d_submit_seconds += h2d_seconds
@@ -950,7 +951,7 @@ class QwenDeviceExpertCache:
         with self._lock:
             packed = self._host_packed(identity)
             owner = identity.expert_id % TP_SIZE
-            storage = self._upload_storage[0]
+            storage = self.slots[0]
             coordinate = self._rank_coordinates[owner]
             started = time.perf_counter()
             ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][0], storage.gate_up, coordinate)
@@ -959,6 +960,13 @@ class QwenDeviceExpertCache:
             completion = ttnn.record_event(storage.gate_up.device(), 0)
             ttnn.event_synchronize(completion)
             completed = time.perf_counter()
+            # The diagnostic deliberately overwrote persistent slot zero
+            # outside the directory protocol. Invalidate every published
+            # record so a later serving call cannot mistake probe bytes for a
+            # cached expert. The physical-owner ledger stays conservative.
+            self.directory.reset()
+            self._published_indices = None
+            self._slot_last_owner[0] = -1
         elapsed = completed - started
         return {
             "expert_id": identity.expert_id,
@@ -984,7 +992,7 @@ class QwenDeviceExpertCache:
             packed = tuple(self._host_packed(identity) for identity in identities)
 
             def enqueue_owner(owner: int) -> None:
-                storage = self._upload_storage[0]
+                storage = self.slots[0]
                 coordinate = self._rank_coordinates[owner]
                 ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][owner][0], storage.gate_up, coordinate)
                 ttnn.copy_host_to_device_tensor_at_coordinate(packed[owner][owner][1], storage.down, coordinate)
@@ -992,12 +1000,13 @@ class QwenDeviceExpertCache:
             started = time.perf_counter()
             tuple(self._owner_executor().map(enqueue_owner, range(TP_SIZE)))
             enqueued = time.perf_counter()
-            completions = tuple(
-                ttnn.record_event(self._upload_storage[0].gate_up.device(), 0) for _owner in range(TP_SIZE)
-            )
+            completions = tuple(ttnn.record_event(self.slots[0].gate_up.device(), 0) for _owner in range(TP_SIZE))
             for completion in completions:
                 ttnn.event_synchronize(completion)
             completed = time.perf_counter()
+            self.directory.reset()
+            self._published_indices = None
+            self._slot_last_owner[0] = -1
         elapsed = completed - started
         transferred_bytes = TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
         return {
@@ -1090,7 +1099,6 @@ class QwenDeviceExpertCache:
     def reset(self) -> None:
         self.directory.reset()
         self._published_indices = None
-        self._next_staging_by_owner = [0] * TP_SIZE
 
     def metrics(self) -> dict[str, object]:
         return dataclasses.asdict(self._metrics) | {
@@ -1102,9 +1110,10 @@ class QwenDeviceExpertCache:
             "packed_host_bytes": self.packed_host_bytes,
             "miss_wave_policy": self.miss_wave_policy,
             "staging_depth": self.staging_depth,
-            "rank_local_staging": True,
+            "rank_local_staging": False,
+            "direct_persistent_slot_h2d": True,
             "h2d_bytes_scope": "physical owner-only service H2D; one TP rank per miss; excludes initialization",
-            "h2d_timing_scope": "host DMA/D2D enqueue; completion is charged at the next route/token boundary",
+            "h2d_timing_scope": "direct persistent-slot host DMA and conditional peer-zero D2D enqueue; completion is charged at the next route/token boundary",
         }
 
     def close(self) -> None:
@@ -1115,10 +1124,6 @@ class QwenDeviceExpertCache:
             self._owner_h2d_executor = None
         if self.local_indices.is_allocated():
             ttnn.deallocate(self.local_indices)
-        for staging in self._upload_storage:
-            for tensor in (staging.gate_up, staging.down):
-                if tensor.is_allocated():
-                    ttnn.deallocate(tensor)
         for tensor in (self._zero_storage.gate_up, self._zero_storage.down):
             if tensor.is_allocated():
                 ttnn.deallocate(tensor)

@@ -300,6 +300,8 @@ def test_reduced_real_weight_vllm_virtual_b2_trace_isolation(
         assert not any(audit["prohibited_host_work"].values())
         assert audit["counters"]["model_only_trace_replays"] == 0
         assert generator.host_sampling_compatibility_calls == 0
+        assert generator.async_feedback_host_reuses > 0
+        assert generator.async_feedback_device_fallbacks > 0
         assert audit["counters"]["compact_token_readbacks"] >= len(control_a) + len(control_b)
 
         record_property("physical_batch", 1)
@@ -309,6 +311,8 @@ def test_reduced_real_weight_vllm_virtual_b2_trace_isolation(
         record_property("virtual_tokens", json.dumps(observed, sort_keys=True))
         record_property("control_tokens", json.dumps({_REQUEST_A: control_a, _REQUEST_B: control_b}, sort_keys=True))
         record_property("virtual_bank_metrics", json.dumps(bank.metrics(), sort_keys=True))
+        record_property("async_feedback_host_reuses", generator.async_feedback_host_reuses)
+        record_property("async_feedback_device_fallbacks", generator.async_feedback_device_fallbacks)
         record_property("runtime_fallback_audit", json.dumps(audit, sort_keys=True, default=str))
     finally:
         model.close(best_effort=True)

@@ -14,14 +14,20 @@ from derive_serving_host_metrics import parse_markers, select_benchmark_windows,
 from run_host_serving_lifecycle import lifecycle_metric_evidence  # noqa: E402
 
 
-def _runtime(slots: dict[str, object], *, trace_replays: int = 0) -> dict[str, object]:
+def _runtime(
+    slots: dict[str, object],
+    *,
+    trace_replays: int = 0,
+    completed_requests: int = 0,
+    explicit_non_greedy_seed_control_h2d: bool = False,
+) -> dict[str, object]:
     return {
         "declared_host_work": {
             "model_load_exact_expert_prepack": True,
             "expert_route_id_read_and_exact_weight_dma": True,
             "ple_ngram_hash_row_lookup_and_dma": True,
             "caller_visible_compact_token_readback": True,
-            "explicit_non_greedy_seed_control_h2d": False,
+            "explicit_non_greedy_seed_control_h2d": explicit_non_greedy_seed_control_h2d,
         },
         "prohibited_host_work": {
             "expert_projection": False,
@@ -45,6 +51,8 @@ def _runtime(slots: dict[str, object], *, trace_replays: int = 0) -> dict[str, o
             "trace_replays": trace_replays,
             "model_only_trace_replays": 0,
             "sampling_seed_host_copies": 0,
+            "async_feedback_host_reuses": trace_replays - completed_requests,
+            "async_feedback_device_fallbacks": completed_requests,
             "virtual_decode_slots": slots,
         },
         "host_sampling_compatibility_calls": 0,
@@ -98,15 +106,20 @@ def _marker(
     *,
     trace_replays: int = 0,
     host_scale: int = 0,
+    explicit_non_greedy_seed_control_h2d: bool = False,
 ) -> dict[str, object]:
     host = {
         "expert_requests": float(host_scale),
         "expert_hits": float(host_scale),
         "expert_misses": float(host_scale),
         "expert_h2d_bytes": float(host_scale * 100),
+        "expert_direct_slot_h2d_bytes": float(host_scale * 100),
+        "expert_owner_d2d_bytes": 0.0,
+        "expert_dma_completion_syncs": 0.0,
         "ple_lookup_calls": float(host_scale),
         "ple_selected_rows": float(host_scale),
         "ple_device_h2d_bytes": float(host_scale * 10),
+        "ple_device_completion_syncs": 0.0,
     }
     return {
         "event": "prefill_start",
@@ -120,7 +133,12 @@ def _marker(
         "host_service": host,
         "host_gauges": {"ple_history_entries": 0.0},
         "decode_timing": {"replay_tokens": float(trace_replays)},
-        "runtime_fallback": _runtime(slots, trace_replays=trace_replays),
+        "runtime_fallback": _runtime(
+            slots,
+            trace_replays=trace_replays,
+            completed_requests=completed,
+            explicit_non_greedy_seed_control_h2d=explicit_non_greedy_seed_control_h2d,
+        ),
         "request_counters": {},
     }
 
@@ -175,6 +193,21 @@ def test_select_windows_counts_trace_recapture_after_prefill_invalidation():
     assert (primary_start, ci_start, ci_end) == (0, 1, 2)
 
 
+def test_select_windows_counts_declared_initial_trace_capture():
+    markers = [
+        _marker(5, _slots(5, 5), trace_replays=100),
+        _marker(6, _slots(6, 6), trace_replays=226),
+        _marker(38, _slots(38, 38), trace_replays=3394),
+    ]
+    primary_start, ci_start, ci_end = select_benchmark_windows(
+        markers,
+        primary_requests=1,
+        ci_requests=32,
+        primary_trace_captures=1,
+    )
+    assert (primary_start, ci_start, ci_end) == (0, 1, 2)
+
+
 def test_select_windows_does_not_accept_missing_replays_without_invalidation(expect_error):
     markers = [
         _marker(5, _slots(5, 5), trace_replays=100),
@@ -202,6 +235,26 @@ def test_window_reports_virtual_bank_deltas_and_exact_ownership():
     assert result["virtual_bank_delta"]["commits"] == 0
     assert result["attention_cache_owner_end"] == "vllm"
     assert result["runtime_counter_delta"]["trace_replays"] == 127
+
+
+def test_window_accepts_sampled_warmup_state_before_a_greedy_measured_window():
+    start = _marker(
+        9,
+        _slots(9, 9),
+        trace_replays=100,
+        host_scale=10,
+        explicit_non_greedy_seed_control_h2d=True,
+    )
+    end = _marker(10, _slots(10, 10), trace_replays=227, host_scale=20)
+    result = window(
+        "primary",
+        {"prompt_tokens": 128, "output_tokens": 128, "requests": 1},
+        start,
+        end,
+        physical_batch=1,
+        virtual_slot_capacity=2,
+    )
+    assert result["runtime_counter_delta"]["sampling_seed_host_copies"] == 0
 
 
 def test_lifecycle_metrics_prove_active_banking_and_four_releases():

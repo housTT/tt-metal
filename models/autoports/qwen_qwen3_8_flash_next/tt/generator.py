@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import secrets
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -93,25 +94,34 @@ class _ServingDecodeHost:
     host: Any
     rows: int
     state: Qwen38BatchState | None = None
+    completion_event: Any = None
+    _cached_tokens: torch.Tensor | None = dataclasses.field(default=None, init=False, repr=False)
+    _cache_lock: threading.Lock = dataclasses.field(default_factory=threading.Lock, init=False, repr=False)
 
     def to_torch(self, model: Qwen38FullModel, *, is_tokens: bool) -> torch.Tensor:
         if is_tokens != (self.kind == "tokens"):
             raise ValueError(f"decode produced {self.kind}, caller requested {'tokens' if is_tokens else 'logits'}")
         if self.kind == "tokens":
-            hosts = self.host if isinstance(self.host, tuple) else (self.host,)
-            values = []
-            device_readbacks = 0
-            for host in hosts:
-                if isinstance(host, torch.Tensor):
-                    values.append(host.reshape(-1)[0].to(torch.int64))
-                else:
-                    shard = ttnn.get_device_tensors(host)[0]
-                    values.append(ttnn.to_torch(shard).reshape(-1)[0].to(torch.int64))
-                    device_readbacks += 1
-            result = torch.stack(values)[: self.rows]
-            if self.state is not None:
-                self.state.compact_token_readbacks += device_readbacks
-            return result
+            with self._cache_lock:
+                if self._cached_tokens is not None:
+                    return self._cached_tokens
+                if self.completion_event is not None:
+                    ttnn.event_synchronize(self.completion_event)
+                    self.completion_event = None
+                hosts = self.host if isinstance(self.host, tuple) else (self.host,)
+                values = []
+                device_readbacks = 0
+                for host in hosts:
+                    if isinstance(host, torch.Tensor):
+                        values.append(host.reshape(-1)[0].to(torch.int64))
+                    else:
+                        shard = ttnn.get_device_tensors(host)[0]
+                        values.append(ttnn.to_torch(shard).reshape(-1)[0].to(torch.int64))
+                        device_readbacks += 1
+                self._cached_tokens = torch.stack(values)[: self.rows]
+                if self.state is not None:
+                    self.state.compact_token_readbacks += device_readbacks
+                return self._cached_tokens
         if isinstance(self.host, torch.Tensor):
             return self.host.reshape(self.rows, 1, model.vocab_size)
         hosts = self.host if isinstance(self.host, tuple) else (self.host,)
@@ -130,6 +140,7 @@ class _ServingDecodeOutput:
     device: Any
     rows: int
     state: Qwen38BatchState | None = None
+    slot_keys: tuple[tuple[int, object, int], ...] = ()
 
     def read(self, *, blocking: bool) -> _ServingDecodeHost:
         devices = self.device if isinstance(self.device, tuple) else (self.device,)
@@ -154,6 +165,7 @@ class _ServingVirtualSlot:
     device_feedback_current: bool = False
     sampling_signature: tuple | None = None
     resumed_sampling_rng_state: tuple[object, ...] | None = None
+    pending_token_host: tuple[_ServingDecodeHost, int] | None = None
 
 
 def _resolve_snapshot(model_dir: str | Path) -> Path:
@@ -192,6 +204,8 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         self.last_generated_tokens: torch.Tensor | None = None
         self.last_prompt_tokens: torch.Tensor | None = None
         self.host_sampling_compatibility_calls = 0
+        self.async_feedback_host_reuses = 0
+        self.async_feedback_device_fallbacks = 0
         self._serving_device_feedback_current = False
         self._serving_sampling_signature = None
         self._serving_virtual_slots: dict[int, _ServingVirtualSlot] = {}
@@ -347,6 +361,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                 current.request_id,
                 generation=current.lease.generation,
             )
+            current.pending_token_host = None
         lease = self.model.assign_virtual_slot(slot_id, request_id)
         resumed = getattr(self, "_serving_preempted_sampling", {}).pop(request_id, None)
         current = _ServingVirtualSlot(
@@ -370,6 +385,35 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                 f"({request_id!r}, {external_generation})"
             )
         return current
+
+    def _attach_virtual_token_host(self, output: _ServingDecodeOutput, host: _ServingDecodeHost) -> None:
+        """Publish one already-enqueued plugin read for the next exact PLE lookup."""
+
+        if output.kind != "tokens" or not output.slot_keys:
+            return
+        if len(output.slot_keys) != host.rows:
+            raise RuntimeError("deferred token rows do not match virtual-slot ownership keys")
+        for row, (slot_id, request_id, external_generation) in enumerate(output.slot_keys):
+            current = self._serving_virtual_slots.get(slot_id)
+            if current is None:
+                continue
+            if current.request_id == request_id and current.external_generation == external_generation:
+                current.pending_token_host = (host, row)
+
+    def _consume_virtual_ple_token(self, virtual: _ServingVirtualSlot, state: Qwen38BatchState) -> torch.Tensor:
+        """Reuse the plugin's compact D2H instead of issuing a duplicate read."""
+
+        pending = virtual.pending_token_host
+        if pending is not None:
+            virtual.pending_token_host = None
+            host, row = pending
+            values = host.to_torch(self.model, is_tokens=True)
+            if not 0 <= row < values.numel():
+                raise RuntimeError("deferred virtual token row is outside the compact host result")
+            self.async_feedback_host_reuses = getattr(self, "async_feedback_host_reuses", 0) + 1
+            return values.reshape(-1)[row : row + 1]
+        self.async_feedback_device_fallbacks = getattr(self, "async_feedback_device_fallbacks", 0) + 1
+        return self.model.sampled_tokens_to_torch(state.token_input, state)
 
     def _preflight_virtual_prefill_claims(
         self,
@@ -454,6 +498,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                 request_id,
                 generation=current.lease.generation,
             )
+            current.pending_token_host = None
             del self._serving_virtual_slots[slot_id]
         if not self._serving_virtual_slots:
             self._serving_virtual_decode_poisoned = False
@@ -1281,7 +1326,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
                 # token solely for the declared host PLE lookup; feedback remains
                 # in the restored device token buffer.
                 if virtual.device_feedback_current:
-                    ple_values = self.model.sampled_tokens_to_torch(state.token_input, state)
+                    ple_values = self._consume_virtual_ple_token(virtual, state)
                 else:
                     ple_values = values[row : row + 1].reshape(1)
                 if enable_trace:
@@ -1320,6 +1365,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             devices[0] if rows == 1 else devices,
             rows,
             state,
+            tuple(zip(slots, requests, generations)),
         )
         if read_from_device:
             return self.process_decode_output_host(output, is_tokens=True)
@@ -1332,8 +1378,12 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             return tt_out
         host = tt_out.read(blocking=not async_read)
         if not async_read:
+            self._attach_virtual_token_host(tt_out, host)
             return host
-        return host, [ttnn.record_event(self.mesh_device, 0)]
+        completion = ttnn.record_event(self.mesh_device, 0)
+        host.completion_event = completion
+        self._attach_virtual_token_host(tt_out, host)
+        return host, [completion]
 
     def process_decode_output_host(self, tt_out, *, is_tokens: bool = False) -> torch.Tensor:
         """Format only; sampling and device feedback have already completed."""

@@ -356,7 +356,11 @@ class Qwen4ExpForConditionalGeneration:
                     "declared_host_work": runtime["declared_host_work"],
                     "prohibited_host_work": runtime["prohibited_host_work"],
                     "ownership": runtime["ownership"],
-                    "counters": runtime["counters"],
+                    "counters": runtime["counters"]
+                    | {
+                        "async_feedback_host_reuses": self.generator.async_feedback_host_reuses,
+                        "async_feedback_device_fallbacks": self.generator.async_feedback_device_fallbacks,
+                    },
                     "host_sampling_compatibility_calls": self.generator.host_sampling_compatibility_calls,
                 }
             ),
@@ -369,6 +373,8 @@ class Qwen4ExpForConditionalGeneration:
                     "page_table_host_copies": state.page_table_host_copies,
                     "page_table_unchanged_skips": state.page_table_unchanged_skips,
                     "compact_token_readbacks": state.compact_token_readbacks,
+                    "async_feedback_host_reuses": self.generator.async_feedback_host_reuses,
+                    "async_feedback_device_fallbacks": self.generator.async_feedback_device_fallbacks,
                 }
             ),
         }

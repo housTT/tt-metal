@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="98.270" timestamp="2026-08-29T05:41:17.629003-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder" name="test_host_backed_layer0_decode_matches_optimized_reference[blackhole-True-device_params0]" time="98.136"><properties><property name="start_timestamp" value="2026-08-29T05:41:17" /><property name="end_timestamp" value="2026-08-29T05:42:55" /></properties><failure message="assert 0.8637402653694153 &gt;= 0.995&#10; +  where 0.8637402653694153 = &lt;function pcc at 0x797376c634c0&gt;(tensor([[[[ 0.0170, -0.1104, -0.1050,  ..., -0.0491, -0.0449,  0.0732]]]],\n       dtype=torch.bfloat16), tensor([[[[-0.0586, -0.0996, -0.1875,  ..., -0.0216, -0.0444,  0.0962]]]],\n       dtype=torch.bfloat16))&#10; +    where &lt;function pcc at 0x797376c634c0&gt; = H.pcc">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x797376ad63a0&gt;}
+
+    @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+    def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
+        """Real route-id D2H, EP2 expert H2D, and TT math match optimized TTNN."""
+
+        torch.manual_seed(20260828)
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        state = H.load_real_layer_state(0)
+        reference = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=0,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=128,
+        )
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=0,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=128,
+        )
+        prompt_hidden = (torch.randn(1, 1, 33, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+        reference_prefill = reference.prefill_forward(_replicated_upload(prompt_hidden, mesh_device))
+        host_prefill = host_backed.prefill_forward(_replicated_upload(prompt_hidden, mesh_device))
+        ttnn.synchronize_device(mesh_device)
+        assert H.pcc(_rank_zero_host(reference_prefill), _rank_zero_host(host_prefill)) &gt;= 0.995
+        assert list(host_prefill.shape) == [1, 1, 33, 10240]
+        reference.prepare_decode_state()
+        host_backed.prepare_decode_state()
+        hidden_host = (torch.randn(1, 1, 1, 10240, dtype=torch.bfloat16) * 0.02).contiguous()
+        current_pos_host = torch.tensor([33], dtype=torch.int32)
+        reference_out = reference.decode_forward(
+            _replicated_upload(hidden_host, mesh_device),
+            current_pos=_replicated_upload(current_pos_host, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+        )
+        host_out = host_backed.decode_forward(
+            _replicated_upload(hidden_host, mesh_device),
+            current_pos=_replicated_upload(current_pos_host, mesh_device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+        )
+        ttnn.synchronize_device(mesh_device)
+        first_slot, first_record = next(
+            (slot_index, record)
+            for slot_index, record in enumerate(host_backed.host_expert_cache.directory.records)
+            if record.valid
+        )
+        packed = host_backed.host_expert_source.load(first_record.identity.expert_id)
+        for rank in range(2):
+            slot = host_backed.host_expert_cache.slots[first_slot]
+            gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
+            down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
+            assert H.pcc(packed.gate_up_by_rank[rank], gate_host) &gt;= 0.99
+            assert H.pcc(packed.down_by_rank[rank], down_host) &gt;= 0.99
+        assert len(host_backed.host_setup_expert_shapes) == 6
+        assert all(shape[1] == 512 for shape in host_backed.host_setup_expert_shapes)
+        expected = _rank_zero_host(reference_out)
+        actual = _rank_zero_host(host_out)
+&gt;       assert H.pcc(expected, actual) &gt;= 0.995
+E       assert 0.8637402653694153 &gt;= 0.995
+E        +  where 0.8637402653694153 = &lt;function pcc at 0x797376c634c0&gt;(tensor([[[[ 0.0170, -0.1104, -0.1050,  ..., -0.0491, -0.0449,  0.0732]]]],\n       dtype=torch.bfloat16), tensor([[[[-0.0586, -0.0996, -0.1875,  ..., -0.0216, -0.0444,  0.0962]]]],\n       dtype=torch.bfloat16))
+E        +    where &lt;function pcc at 0x797376c634c0&gt; = H.pcc
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder.py:625: AssertionError</failure></testcase></testsuite></testsuites>
