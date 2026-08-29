@@ -7,9 +7,11 @@ The default token-out path is canonical split sampling: the shared
 ``tt_transformers`` generator captures the model graph and the repository
 ``SamplingGenerator`` captures sampling over the vocab-sharded LM-head output.
 The sampled token is written into the persistent decode token input, and the
-model advances position and RoPE indices inside its trace.  Steady-state Python
-only submits replays and reads the sampled token for the caller; it never feeds
-that token back or reads full logits.
+model advances position and RoPE indices inside its trace.  The optimized
+steady-state path submits model and sampling replays without reading a token or
+refreshing fixed greedy parameters between steps.  A caller may collect the
+device output synchronously or asynchronously at an explicit boundary; full
+logits never cross that boundary.
 
 ``sampling_mode="host"`` is an explicit compatibility path for accuracy tools
 that require logits.  It is not the optimized or measured token-out path.
@@ -27,6 +29,7 @@ import torch
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.model import HF_CONTEXT_LENGTH, MODEL_LAYERS, PAGE_SIZE, Model, build_model
 from models.common.sampling.generator import SamplingParams
+from models.tt_transformers.tt.common import get_padded_prefill_len
 from models.tt_transformers.tt.generator import Generator as _TTGenerator
 
 try:
@@ -45,7 +48,8 @@ SAMPLER_DECISION = {
     "selected": "models.common.sampling.generator.SamplingGenerator",
     "selected_reason": (
         "It is already integrated with tt_transformers decode capture, persistent tt_out_tok feedback, "
-        "per-slot sampling state, penalties, seeds, and log-prob handling."
+        "per-slot sampling state, penalties, seeds, and log-prob handling. Its split greedy path avoids "
+        "the slower full-vocabulary all-gather used by generic force-argmax."
     ),
     "rejected": "models.common.modules.sampling.sampling_1d.Sampling1D",
     "rejected_reason": (
@@ -76,6 +80,14 @@ class TraceEvidence:
     steady_page_table_host_refreshes: int = 0
     caller_visible_token_synchronizations: int = 0
     validation_full_logit_synchronizations: int = 0
+    device_token_out_submissions: int = 0
+    fixed_sampling_state_replays: int = 0
+    fixed_greedy_sampling_replays: int = 0
+    sampling_state_host_refreshes: int = 0
+    decode_output_collections: int = 0
+    asynchronous_decode_output_collections: int = 0
+    new_prefill_variants_compiled: int = 0
+    decode_trace_releases_for_prefill_compile: int = 0
 
     def to_dict(self):
         return dict(vars(self))
@@ -113,6 +125,10 @@ class Generator(_ReadinessGenerator):
         self._last_page_table: torch.Tensor | None = None
         self._last_sampling_mode: str | None = None
         self._decode_started = False
+        self._prepared_device_sampling_params: SamplingParams | None = None
+        self._compiled_prefill_variants: set[tuple[int, str]] = set()
+        self._lifetime_prefill_variant_compilations = 0
+        self._lifetime_decode_trace_releases_for_prefill_compile = 0
         self._torn_down = False
         self.last_generation_metrics: dict[str, Any] = {}
         self.trace_evidence = TraceEvidence()
@@ -125,10 +141,20 @@ class Generator(_ReadinessGenerator):
     def page_table(self):
         return self._page_table
 
+    @property
+    def _greedy_sampling_prepared(self) -> bool:
+        """Compatibility view for callers that predate generic fixed sampling state."""
+
+        return getattr(self, "_prepared_device_sampling_params", None) == GREEDY
+
+    @_greedy_sampling_prepared.setter
+    def _greedy_sampling_prepared(self, value: bool) -> None:
+        self._prepared_device_sampling_params = GREEDY if value else None
+
     def allocate_page_table(self) -> torch.Tensor:
         """Allocate fixed private page ranges for all configured request slots."""
 
-        blocks_per_slot = (self.model_args.max_context_len + PAGE_SIZE - 1) // PAGE_SIZE
+        blocks_per_slot = (self.model_args.physical_kv_context_len + PAGE_SIZE - 1) // PAGE_SIZE
         return torch.arange(
             self.model_args.max_batch_size * blocks_per_slot,
             dtype=torch.int32,
@@ -169,6 +195,100 @@ class Generator(_ReadinessGenerator):
         tp = int(self.mesh_device.shape[1])
         gathered = torch.cat([ttnn.to_torch(shards[index]) for index in range(tp)], dim=-1)
         return gathered[..., : self.model.vocab_size]
+
+    def _decode_trace_stores(self):
+        """Return every shared-generator decode trace store without duplicating aliases."""
+
+        stores = []
+        for bucket_store in getattr(self._inner, "_bucket_trace_store", {}).values():
+            if bucket_store is not None and bucket_store[0] is not None:
+                stores.append(bucket_store[0])
+        stores.append(self._inner.trace_ids_decode)
+        unique = []
+        seen = set()
+        for store in stores:
+            if id(store) not in seen:
+                unique.append(store)
+                seen.add(id(store))
+        return unique
+
+    def _has_live_decode_trace(self) -> bool:
+        for store in self._decode_trace_stores():
+            for trace_ids in store.values():
+                if trace_ids is not None and any(trace_id is not None for trace_id in trace_ids.values()):
+                    return True
+        return False
+
+    def _release_decode_traces_for_prefill_compile(self) -> None:
+        """Release live decode/sampling captures before a new prefill compile.
+
+        TTNN traces bind allocator addresses that are opaque to subsequent
+        allocations.  Compiling a new padded prefill shape while a decode trace
+        is live can therefore allocate into trace scratch and be overwritten by
+        a later replay.  This synchronized release is a one-time request-boundary
+        cost for each prefill variant; warmed token-out replay never enters it.
+        """
+
+        ttnn.synchronize_device(self.mesh_device)
+        for model in self._inner.model:
+            sampling = getattr(model, "sampling", None)
+            trace_states = getattr(sampling, "_trace_states", None)
+            if trace_states is not None:
+                released_sampling_ids = set()
+                for slot in trace_states.values():
+                    trace_id = slot.get("id")
+                    if trace_id is not None and trace_id not in released_sampling_ids:
+                        # SamplingGenerator.reset_trace intentionally swallows
+                        # release failures.  A lifecycle transition cannot: if
+                        # this release fails, clearing its metadata would let a
+                        # new prefill compile while the old capture is live.
+                        ttnn.release_trace(sampling.mesh_device, trace_id)
+                        released_sampling_ids.add(trace_id)
+                trace_states.clear()
+                sampling._active_trace_bucket = None
+            elif sampling is not None and hasattr(sampling, "reset_trace"):
+                sampling.reset_trace()
+
+        released = set()
+        for store in self._decode_trace_stores():
+            for trace_ids in store.values():
+                if trace_ids is None:
+                    continue
+                for model_id, trace_id in trace_ids.items():
+                    key = (int(model_id), trace_id)
+                    if trace_id is not None and key not in released:
+                        ttnn.release_trace(self._inner.model_args[model_id].mesh_device, trace_id)
+                        released.add(key)
+
+        self._inner.trace_ids_decode.clear()
+        self._inner.trace_inputs_decode.clear()
+        self._inner.trace_output_decode.clear()
+        bucket_store = getattr(self._inner, "_bucket_trace_store", None)
+        if hasattr(bucket_store, "clear"):
+            bucket_store.clear()
+        self._inner.mode = None
+        self._inner.prev_page_table = None
+        self._inner._prev_on_device_sampling = None
+        self._inner._slots_prefilled_since_decode = set()
+        self._inner._defer_trace_recording = False
+        self._inner._pending_decode_trace = None
+        self._prepared_device_sampling_params = None
+        self.trace_evidence.decode_trace_releases_for_prefill_compile += 1
+        self._lifetime_decode_trace_releases_for_prefill_compile += 1
+
+    def _prepare_prefill_variants(self, prompt_lens: List[int], *, path: str) -> set[tuple[int, str]]:
+        """Make first-time padded prefill compilation safe with existing traces."""
+
+        variants = {(get_padded_prefill_len(int(prompt_len)), path) for prompt_len in prompt_lens}
+        unseen = variants.difference(self._compiled_prefill_variants)
+        if unseen and self._has_live_decode_trace():
+            self._release_decode_traces_for_prefill_compile()
+        return unseen
+
+    def _record_compiled_prefill_variants(self, variants: set[tuple[int, str]]) -> None:
+        self._compiled_prefill_variants.update(variants)
+        self.trace_evidence.new_prefill_variants_compiled += len(variants)
+        self._lifetime_prefill_variant_compilations += len(variants)
 
     def _prefill_one(self, token_ids, page_table_row, layer_cache, *, return_all_logits):
         logical_len = int(token_ids.shape[-1])
@@ -212,6 +332,8 @@ class Generator(_ReadinessGenerator):
         del kwargs
         page_table_host = _to_torch_page_table(page_table)
         self._validate_prefill(tokens, prompt_lens, page_table_host)
+        path = "host_all_logits" if return_all_logits else "host_last_logits"
+        new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
         layer_cache = self._layer_cache(kv_cache)
         rows = []
         for user, prompt_len in enumerate(prompt_lens):
@@ -226,6 +348,7 @@ class Generator(_ReadinessGenerator):
             )
         self._dirty_cache = True
         self._inner.mode = None
+        self._record_compiled_prefill_variants(new_variants)
         if return_all_logits:
             max_len = max(int(length) for length in prompt_lens)
             output = torch.zeros(len(rows), max_len, self.model.vocab_size, dtype=rows[0].dtype)
@@ -276,9 +399,21 @@ class Generator(_ReadinessGenerator):
         force_host_tokens: bool = False,
         prompt_tokens: torch.Tensor | None = None,
         output_tokens: torch.Tensor | None = None,
+        read_from_device: bool = True,
+        reuse_sampling_state: bool = False,
+        reuse_greedy_sampling_state: bool = False,
         **kwargs: Any,
-    ) -> torch.Tensor:
-        """Decode active and inactive rows through the explicit serving state."""
+    ):
+        """Decode active and inactive rows through the explicit serving state.
+
+        ``read_from_device=False`` is the serving/performance split boundary:
+        it returns the sampler's device output without synchronizing.  After
+        one canonical device-sampling call has initialized persistent state,
+        ``reuse_sampling_state=True`` replays both traces without copying
+        unchanged k/p/temperature state from the host. Explicit request seeds
+        are deliberately excluded because they require a per-token seed update.
+        ``reuse_greedy_sampling_state`` remains as a compatibility alias.
+        """
 
         del kwargs
         if sampling_mode not in {"device", "host"}:
@@ -295,6 +430,22 @@ class Generator(_ReadinessGenerator):
         page_table_host = _to_torch_page_table(page_table)
         if page_table_host.shape[0] < tokens.shape[0]:
             raise ValueError("page_table does not cover every decode row")
+        if sampling_mode == "host" and not read_from_device:
+            raise ValueError("host sampling requires read_from_device=True")
+        reuse_fixed_sampling = reuse_sampling_state or reuse_greedy_sampling_state
+        if reuse_fixed_sampling and sampling_mode != "device":
+            raise ValueError("fixed sampling-state reuse is valid only for device sampling")
+        if reuse_fixed_sampling and not enable_trace:
+            raise ValueError("fixed sampling-state reuse requires enable_trace=True")
+        if reuse_fixed_sampling and (reset_batch or force_host_tokens):
+            raise ValueError("fixed sampling replay cannot reset the batch or force host tokens")
+        prepared_sampling_params = getattr(self, "_prepared_device_sampling_params", None)
+        if reuse_fixed_sampling and prepared_sampling_params is None:
+            raise RuntimeError("initialize unseeded device sampling once before reusing its persistent state")
+        if reuse_greedy_sampling_state and prepared_sampling_params != GREEDY:
+            raise RuntimeError("reuse_greedy_sampling_state requires canonical greedy persistent state")
+        if reuse_fixed_sampling and self._sampling_has_active_request_seed():
+            raise RuntimeError("fixed traced sampling-state reuse does not support explicit request seeds")
         self._record_decode_staging(
             page_table=page_table_host,
             sampling_mode=sampling_mode,
@@ -308,20 +459,46 @@ class Generator(_ReadinessGenerator):
             # Mark these fixed slots as freshly supplied so its reset path copies
             # the host token/position rather than silently continuing free-run.
             self._inner._slots_prefilled_since_decode.update(range(tokens.shape[0]))
-        result = self._inner.decode_forward(
-            tokens=tokens,
-            start_pos=start_pos,
-            page_table=page_table_host,
-            kv_cache=self._outer_cache(kv_cache),
-            enable_trace=enable_trace,
-            read_from_device=True,
-            sampling_params=(sampling_params or GREEDY) if sampling_mode == "device" else None,
-            reset_batch=reset_batch,
-            prompt_tokens=prompt_tokens,
-            output_tokens=output_tokens,
-        )
+        if reuse_fixed_sampling:
+            result = self._inner.decode_forward(
+                tokens=tokens,
+                start_pos=start_pos,
+                page_table=page_table_host,
+                kv_cache=self._outer_cache(kv_cache),
+                enable_trace=enable_trace,
+                read_from_device=False,
+                sampling_params=None,
+                defer_device_sampling=True,
+                reset_batch=False,
+            )
+            result = self._replay_prepared_sampling(result, enable_trace=enable_trace)
+            self.trace_evidence.fixed_sampling_state_replays += 1
+            if prepared_sampling_params == GREEDY:
+                self.trace_evidence.fixed_greedy_sampling_replays += 1
+        else:
+            effective_sampling_params = (sampling_params or GREEDY) if sampling_mode == "device" else None
+            result = self._inner.decode_forward(
+                tokens=tokens,
+                start_pos=start_pos,
+                page_table=page_table_host,
+                kv_cache=self._outer_cache(kv_cache),
+                enable_trace=enable_trace,
+                read_from_device=read_from_device,
+                sampling_params=effective_sampling_params,
+                reset_batch=reset_batch,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+            )
+            if sampling_mode == "device":
+                self.trace_evidence.sampling_state_host_refreshes += 1
+                self._prepared_device_sampling_params = (
+                    None if self._sampling_has_active_request_seed() else effective_sampling_params
+                )
         self._dirty_cache = True
         if sampling_mode == "device":
+            self.trace_evidence.device_token_out_submissions += 1
+            if not read_from_device:
+                return result
             self.trace_evidence.sampled_token_readbacks += 1
             self.trace_evidence.caller_visible_token_synchronizations += 1
             if isinstance(result, tuple):
@@ -333,7 +510,173 @@ class Generator(_ReadinessGenerator):
             result = result[0]
         return result[:, 0, :]
 
-    def _device_prefill_sample(self, prompt: torch.Tensor, page_table: torch.Tensor) -> int:
+    def _sampling_has_active_request_seed(self) -> bool:
+        for inner_model in self._inner.model:
+            sampling = getattr(inner_model, "sampling", None)
+            seed_manager = getattr(sampling, "seed_manager", None)
+            if seed_manager is not None and seed_manager.has_active_request_seed():
+                return True
+        return False
+
+    def _replay_prepared_sampling(self, tt_logits, *, enable_trace: bool):
+        """Replay fixed unseeded sampling without host sampling-state mutation."""
+
+        sampled_outputs = []
+        for model_id, logits in enumerate(tt_logits):
+            sampling = self._inner.model[model_id].sampling
+            if sampling is None:
+                raise RuntimeError("fixed sampling replay requires an on-device sampling module")
+            if isinstance(logits, tuple):
+                logits = logits[0]
+            trace_inputs = self._inner.trace_inputs_decode[True][model_id]
+            tt_out_tok = self._inner._decode_token_feedback_buffer(self._inner.model[model_id], trace_inputs)
+            sampled_outputs.append(
+                sampling.sample(
+                    logits=logits,
+                    tt_out_tok=tt_out_tok,
+                    enable_trace=enable_trace,
+                )
+            )
+        return sampled_outputs
+
+    def _replay_prepared_greedy_sampling(self, tt_logits, *, enable_trace: bool):
+        """Compatibility wrapper for the original split-greedy helper."""
+
+        if not self._greedy_sampling_prepared:
+            raise RuntimeError("canonical greedy sampling state is not prepared")
+        return self._replay_prepared_sampling(tt_logits, enable_trace=enable_trace)
+
+    def read_decode_output(self, device_output, *, async_read: bool = False):
+        """Collect an explicitly submitted device token output.
+
+        Async collection returns the shared runtime's ``(host_outputs,
+        events)`` pair.  Synchronous collection waits and converts the sampled
+        token IDs to a flat int64 tensor.
+        """
+
+        host_output = self._inner.read_decode_output(device_output, async_read=async_read)
+        if async_read:
+            self.trace_evidence.asynchronous_decode_output_collections += 1
+            return host_output
+        self.trace_evidence.decode_output_collections += 1
+        self.trace_evidence.sampled_token_readbacks += 1
+        self.trace_evidence.caller_visible_token_synchronizations += 1
+        result = self._inner.process_decode_output_host(host_output, is_tokens=True)
+        if isinstance(result, tuple):
+            result = result[0]
+        return result.reshape(-1).to(torch.int64)
+
+    def run_device_token_out(
+        self,
+        prompt_token_ids: List[int],
+        max_new_tokens: int,
+        *,
+        sampling_params: SamplingParams = GREEDY,
+        page_table: torch.Tensor | None = None,
+        enable_trace: bool = True,
+    ) -> dict[str, Any]:
+        """Run an unseeded device-sampling loop with no per-token readback.
+
+        TTFT deliberately includes the one caller-visible prefill token.  The
+        decode interval queues every model and sampling replay, then collects
+        only the final token.  This path cannot stop early on EOS because doing
+        so would require a per-token host boundary.
+        """
+
+        if not prompt_token_ids:
+            raise ValueError("prompt_token_ids must contain at least one token")
+        if max_new_tokens < 1:
+            raise ValueError("max_new_tokens must be at least 1")
+        if len(prompt_token_ids) + max_new_tokens > self.model_args.max_context_len:
+            raise ValueError("prompt plus requested generation exceeds the configured context")
+        if not enable_trace:
+            raise ValueError("token-out replay requires enable_trace=True")
+        if sampling_params.seed is not None:
+            raise ValueError("split token-out replay does not support explicit request seeds")
+        self.reset()
+        prompt = torch.tensor([prompt_token_ids], dtype=torch.long)
+        pages = self._page_table[:1] if page_table is None else _to_torch_page_table(page_table)
+        generation_start = time.perf_counter()
+        first_token = self._device_prefill_sample(prompt, pages, sampling_params=sampling_params)
+        first_token_time = time.perf_counter()
+
+        decode_tokens = max_new_tokens - 1
+        final_token = first_token
+        decode_start = time.perf_counter()
+        if decode_tokens:
+            device_output = self.decode_forward(
+                torch.tensor([[first_token]], dtype=torch.long),
+                torch.tensor([len(prompt_token_ids)], dtype=torch.int64),
+                page_table=pages,
+                kv_cache=self._kv_cache,
+                enable_trace=True,
+                sampling_mode="device",
+                sampling_params=sampling_params,
+                reset_batch=True,
+                prompt_tokens=prompt,
+                read_from_device=False,
+            )
+            stale_token = torch.tensor([[first_token]], dtype=torch.long)
+            stale_position = torch.tensor([len(prompt_token_ids) + 1], dtype=torch.int64)
+            for _ in range(1, decode_tokens):
+                device_output = self.decode_forward(
+                    stale_token,
+                    stale_position,
+                    page_table=pages,
+                    kv_cache=self._kv_cache,
+                    enable_trace=True,
+                    sampling_mode="device",
+                    reuse_sampling_state=True,
+                    read_from_device=False,
+                )
+                stale_position += 1
+            final_token = int(self.read_decode_output(device_output)[0])
+        generation_end = time.perf_counter()
+        decode_seconds = generation_end - decode_start
+        metrics = {
+            "sampling_mode": "device_split_unseeded_no_per_token_readback",
+            "enable_trace": True,
+            "prompt_tokens": len(prompt_token_ids),
+            "output_tokens": max_new_tokens,
+            "ttft_seconds": first_token_time - generation_start,
+            "decode_seconds": decode_seconds,
+            "decode_tokens_per_second_per_user": decode_tokens / decode_seconds if decode_seconds else None,
+            "total_seconds": generation_end - generation_start,
+            "first_token": first_token,
+            "final_token": final_token,
+        }
+        self.last_generation_metrics = metrics
+        return dict(metrics)
+
+    def run_greedy_token_out(
+        self,
+        prompt_token_ids: List[int],
+        max_new_tokens: int,
+        *,
+        page_table: torch.Tensor | None = None,
+        enable_trace: bool = True,
+    ) -> dict[str, Any]:
+        """Compatibility wrapper for canonical greedy split token-out."""
+
+        metrics = self.run_device_token_out(
+            prompt_token_ids,
+            max_new_tokens,
+            sampling_params=GREEDY,
+            page_table=page_table,
+            enable_trace=enable_trace,
+        )
+        metrics["sampling_mode"] = "device_split_greedy_no_per_token_readback"
+        self.last_generation_metrics = dict(metrics)
+        return metrics
+
+    def _device_prefill_sample(
+        self,
+        prompt: torch.Tensor,
+        page_table: torch.Tensor,
+        *,
+        sampling_params: SamplingParams,
+    ) -> int:
+        new_variants = self._prepare_prefill_variants([prompt.shape[1]], path="device_sampling")
         result = self._inner.prefill_forward_text(
             prompt,
             page_table=page_table,
@@ -341,13 +684,14 @@ class Generator(_ReadinessGenerator):
             prompt_lens=[prompt.shape[1]],
             empty_slots=[0],
             enable_trace=False,
-            sampling_params=GREEDY,
+            sampling_params=sampling_params,
             warmup_prefill=False,
         )
         tokens = result[0] if isinstance(result, tuple) else result
         self.trace_evidence.sampled_token_readbacks += 1
         self.trace_evidence.caller_visible_token_synchronizations += 1
         self._dirty_cache = True
+        self._record_compiled_prefill_variants(new_variants)
         return int(torch.as_tensor(tokens).reshape(-1)[0])
 
     def _eos_token_ids(self) -> set[int]:
@@ -372,6 +716,7 @@ class Generator(_ReadinessGenerator):
         next_input: Optional[Callable[[int, int], int]] = None,
         enable_trace: bool = True,
         sampling_mode: str = "device",
+        sampling_params: SamplingParams | None = None,
         stop_on_eos: bool = False,
         **kwargs: Any,
     ) -> List[int]:
@@ -394,11 +739,16 @@ class Generator(_ReadinessGenerator):
             raise ValueError("optimized token-out generation requires enable_trace=True")
 
         self.reset()
+        effective_sampling_params = sampling_params or GREEDY
         generation_start = time.perf_counter()
         prompt = torch.tensor([prompt_token_ids], dtype=torch.long)
         page_table = self._page_table[:1]
         if sampling_mode == "device":
-            predicted = self._device_prefill_sample(prompt, page_table)
+            predicted = self._device_prefill_sample(
+                prompt,
+                page_table,
+                sampling_params=effective_sampling_params,
+            )
         else:
             logits = self.prefill_forward(
                 prompt,
@@ -427,7 +777,7 @@ class Generator(_ReadinessGenerator):
                 kv_cache=self._kv_cache,
                 enable_trace=enable_trace,
                 sampling_mode=sampling_mode,
-                sampling_params=GREEDY,
+                sampling_params=effective_sampling_params,
                 reset_batch=(step == 1 or teacher_forced),
                 force_host_tokens=teacher_forced,
                 prompt_tokens=prompt if step == 1 else None,
@@ -466,7 +816,13 @@ class Generator(_ReadinessGenerator):
         return predictions
 
     def reset(self) -> None:
-        """Clear cache content and per-request state while retaining warmed traces."""
+        """Clear cache content and per-request state while retaining warmed traces.
+
+        Decode attention consumes fixed-size physical K chunks.  Clearing the
+        resident cache is therefore part of request isolation: logically
+        invalidating page ownership alone can expose stale values in the final
+        partially populated chunk when a fixed slot is reused.
+        """
 
         if self._dirty_cache:
             self.model.clear_kv_caches()
@@ -478,6 +834,7 @@ class Generator(_ReadinessGenerator):
         self._last_page_table = None
         self._last_sampling_mode = None
         self._decode_started = False
+        self._prepared_device_sampling_params = None
         self.trace_evidence = TraceEvidence()
 
     def capability_report(self) -> dict[str, Any]:
@@ -486,6 +843,7 @@ class Generator(_ReadinessGenerator):
             "mesh_shape": [int(v) for v in self.mesh_device.shape],
             "max_batch_size": self.model_args.max_batch_size,
             "max_context_length": self.model_args.max_context_len,
+            "physical_kv_context_length": self.model_args.physical_kv_context_len,
             "page_size": PAGE_SIZE,
             "cache_owner": "generator unless explicit kv_cache is passed to the low-level API",
             "inactive_row_sentinel": -1,
@@ -493,6 +851,17 @@ class Generator(_ReadinessGenerator):
             "trace_evidence": self.trace_evidence.to_dict(),
             "last_generation_metrics": dict(self.last_generation_metrics),
             "host_sampling_compatibility": True,
+            "device_greedy": True,
+            "device_top_k_top_p": True,
+            "split_token_out_collection": "explicit sync or async boundary; no steady per-token readback",
+            "compiled_prefill_variants": [
+                {"padded_length": padded_length, "path": path}
+                for padded_length, path in sorted(self._compiled_prefill_variants)
+            ],
+            "lifetime_prefill_variant_compilations": self._lifetime_prefill_variant_compilations,
+            "lifetime_decode_trace_releases_for_prefill_compile": (
+                self._lifetime_decode_trace_releases_for_prefill_compile
+            ),
         }
 
     def teardown(self):

@@ -17,7 +17,9 @@ from tracy import signpost
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, SAMPLER_DECISION, Generator, TraceEvidence
 from models.autoports.openai_gpt_oss_120b.tt.model import (
+    DRAM_SHARDED_LM_HEAD,
     HF_CONTEXT_LENGTH,
+    INTERLEAVED_LM_HEAD,
     MODEL_LAYERS,
     FullModelCapacityError,
     StreamingCheckpoint,
@@ -25,6 +27,7 @@ from models.autoports.openai_gpt_oss_120b.tt.model import (
     capacity_evidence,
     require_resident_capacity,
 )
+from models.common.sampling.generator import SamplingGenerator, SamplingParams, format_sampling_params
 from models.demos.utils.trace_region_sizes import TRACE_MODEL_KEY_PARAM
 
 SNAPSHOT = Path(
@@ -52,7 +55,10 @@ def test_full_stack_capacity_selects_only_physical_tp4_target():
     assert p150x4.kv_cache_bytes == 1_283_457_024
     assert capacity_evidence(tp=4, max_batch_size=10).fits
     assert not capacity_evidence(tp=4, max_batch_size=11).fits
-    assert capacity_evidence(tp=4, max_batch_size=11).largest_context_for_batch == 130_880
+    # KV capacity is reserved in whole 128-token decode K chunks.  The prior
+    # page-only estimate advertised 130880 while its padded final SDPA read
+    # exceeded DRAM; 130816 is the largest physically safe logical value.
+    assert capacity_evidence(tp=4, max_batch_size=11).largest_context_for_batch == 130_816
 
 
 @pytest.mark.parametrize("tp", [1, 2])
@@ -81,6 +87,20 @@ def test_reduced_stack_needs_explicit_probe_authorization(expect_error):
         num_layers=2,
         allow_reduced_model=True,
     ).fits
+
+
+def test_generator_page_table_covers_padded_final_decode_chunk():
+    generator = Generator.__new__(Generator)
+    generator.model_args = SimpleNamespace(
+        max_batch_size=2,
+        max_context_len=130,
+        physical_kv_context_len=256,
+    )
+
+    page_table = generator.allocate_page_table()
+
+    assert page_table.shape == (2, 4)
+    assert page_table.tolist() == [[0, 1, 2, 3], [4, 5, 6, 7]]
 
 
 @pytest.mark.skipif(not SNAPSHOT.is_dir(), reason="pinned GPT-OSS checkpoint is not present")
@@ -164,6 +184,7 @@ def test_readiness_generate_signature_explicitly_requires_trace_keyword():
     signature = inspect.signature(Generator.generate)
     assert "enable_trace" in signature.parameters
     assert signature.parameters["enable_trace"].default is True
+    assert "sampling_params" in signature.parameters
     for method in ("prefill_forward", "decode_forward", "generate", "reset"):
         assert callable(getattr(Generator, method))
 
@@ -253,13 +274,203 @@ def test_trace_evidence_distinguishes_reset_page_change_and_steady_replay():
     assert generator.trace_evidence.steady_page_table_host_refreshes == 1
 
 
+def test_reset_clears_resident_cache_before_reusing_fixed_slots():
+    class CacheOwner:
+        def __init__(self):
+            self.clear_calls = 0
+
+        def clear_kv_caches(self):
+            self.clear_calls += 1
+
+    generator = Generator.__new__(Generator)
+    cache_owner = CacheOwner()
+    generator.model = cache_owner
+    generator._inner = SimpleNamespace(
+        mode="decode",
+        prev_page_table=torch.ones(1, 2),
+        _prev_on_device_sampling=True,
+        _slots_prefilled_since_decode={0},
+    )
+    generator._dirty_cache = True
+    generator._last_page_table = torch.ones(1, 2, dtype=torch.int32)
+    generator._last_sampling_mode = "device"
+    generator._decode_started = True
+    generator._greedy_sampling_prepared = True
+    generator.trace_evidence = TraceEvidence(decode_calls=7)
+
+    generator.reset()
+
+    assert cache_owner.clear_calls == 1
+    assert not generator._dirty_cache
+    assert generator._inner.mode is None
+    assert generator._inner.prev_page_table is None
+    assert generator._inner._prev_on_device_sampling is None
+    assert generator._inner._slots_prefilled_since_decode == set()
+    assert generator._last_page_table is None
+    assert generator._last_sampling_mode is None
+    assert not generator._decode_started
+    assert not generator._greedy_sampling_prepared
+    assert generator.trace_evidence == TraceEvidence()
+
+    generator.reset()
+    assert cache_owner.clear_calls == 1
+
+
+def test_unseen_prefill_variant_releases_live_decode_and_sampling_traces(monkeypatch):
+    class FakeSampling:
+        reset_calls = 0
+
+        def reset_trace(self):
+            self.reset_calls += 1
+
+    sampling = FakeSampling()
+    inner = SimpleNamespace(
+        model=[SimpleNamespace(sampling=sampling)],
+        model_args=[SimpleNamespace(mesh_device="mesh")],
+        trace_ids_decode={True: {0: 41}},
+        trace_inputs_decode={True: {0: ["persistent-input"]}},
+        trace_output_decode={True: {0: "persistent-output"}},
+        mode="decode",
+        prev_page_table=torch.ones(1, 2),
+        _prev_on_device_sampling=True,
+        _slots_prefilled_since_decode={0},
+    )
+    generator = Generator.__new__(Generator)
+    generator.mesh_device = "mesh"
+    generator._inner = inner
+    generator._compiled_prefill_variants = {(1024, "device_sampling")}
+    generator._lifetime_prefill_variant_compilations = 1
+    generator._lifetime_decode_trace_releases_for_prefill_compile = 0
+    generator._greedy_sampling_prepared = True
+    generator.trace_evidence = TraceEvidence()
+    synchronized = []
+    released = []
+    monkeypatch.setattr(ttnn, "synchronize_device", synchronized.append)
+    monkeypatch.setattr(ttnn, "release_trace", lambda mesh, trace_id: released.append((mesh, trace_id)))
+
+    unseen = generator._prepare_prefill_variants([127, 128], path="device_sampling")
+
+    assert unseen == {(128, "device_sampling")}
+    assert synchronized == ["mesh"]
+    assert released == [("mesh", 41)]
+    assert sampling.reset_calls == 1
+    assert inner.trace_ids_decode == {}
+    assert inner.trace_inputs_decode == {}
+    assert inner.trace_output_decode == {}
+    assert inner.mode is None
+    assert inner.prev_page_table is None
+    assert inner._prev_on_device_sampling is None
+    assert inner._slots_prefilled_since_decode == set()
+    assert not generator._greedy_sampling_prepared
+    assert generator.trace_evidence.decode_trace_releases_for_prefill_compile == 1
+
+    generator._record_compiled_prefill_variants(unseen)
+    assert generator._prepare_prefill_variants([1, 128], path="device_sampling") == set()
+    assert synchronized == ["mesh"]
+    assert released == [("mesh", 41)]
+    assert generator._lifetime_prefill_variant_compilations == 2
+    assert generator._lifetime_decode_trace_releases_for_prefill_compile == 1
+
+
+def test_split_greedy_submission_has_one_explicit_collection_boundary():
+    class FakeSampling:
+        def __init__(self):
+            self.calls = []
+
+        def sample(self, **kwargs):
+            self.calls.append(kwargs)
+            return "sampled-device-output"
+
+    sampling = FakeSampling()
+    inner_model = SimpleNamespace(sampling=sampling)
+
+    class FakeInner:
+        model = [inner_model]
+        mode = "decode"
+        trace_inputs_decode = {True: {0: ["persistent-token"]}}
+
+        @staticmethod
+        def _decode_token_feedback_buffer(model, trace_inputs):
+            del model
+            return trace_inputs[0]
+
+        def decode_forward(self, **kwargs):
+            if kwargs.get("defer_device_sampling"):
+                return ["device-logits"]
+            return ["initialized-device-output"]
+
+        @staticmethod
+        def read_decode_output(output, async_read=False):
+            assert output == ["sampled-device-output"]
+            assert not async_read
+            return ["host-token"]
+
+        @staticmethod
+        def process_decode_output_host(output, is_tokens=False):
+            assert output == ["host-token"]
+            assert is_tokens
+            return torch.tensor([17])
+
+    generator = Generator.__new__(Generator)
+    generator.model_args = SimpleNamespace(max_batch_size=1, max_context_len=128)
+    generator._inner = FakeInner()
+    generator._kv_cache = ["cache"]
+    generator._last_page_table = None
+    generator._last_sampling_mode = None
+    generator._decode_started = False
+    generator._greedy_sampling_prepared = False
+    generator._dirty_cache = False
+    generator.trace_evidence = TraceEvidence()
+    pages = torch.arange(2, dtype=torch.int32).reshape(1, 2)
+    tokens = torch.tensor([[11]], dtype=torch.long)
+
+    device_output = generator.decode_forward(
+        tokens,
+        torch.tensor([7]),
+        page_table=pages,
+        kv_cache=generator._kv_cache,
+        sampling_params=GREEDY,
+        reset_batch=True,
+        read_from_device=False,
+    )
+    assert device_output == ["initialized-device-output"]
+    for position in (8, 9):
+        device_output = generator.decode_forward(
+            tokens,
+            torch.tensor([position]),
+            page_table=pages,
+            kv_cache=generator._kv_cache,
+            reuse_greedy_sampling_state=True,
+            read_from_device=False,
+        )
+    collected = generator.read_decode_output(device_output)
+
+    assert collected.tolist() == [17]
+    assert len(sampling.calls) == 2
+    assert all(call["tt_out_tok"] == "persistent-token" for call in sampling.calls)
+    evidence = generator.trace_evidence
+    assert evidence.device_token_out_submissions == 3
+    assert evidence.sampling_state_host_refreshes == 1
+    assert evidence.fixed_greedy_sampling_replays == 2
+    assert evidence.decode_output_collections == 1
+    assert evidence.sampled_token_readbacks == 1
+    assert evidence.caller_visible_token_synchronizations == 1
+    assert evidence.full_input_refreshes == 1
+    assert evidence.page_table_reuses == 2
+
+
 def test_mixed_prefill_keeps_distinct_physical_rows_with_local_page_coordinate():
     generator = Generator.__new__(Generator)
     generator.model_args = SimpleNamespace(max_batch_size=2, max_context_len=128)
     generator.model = SimpleNamespace(n_layers=1, vocab_size=8)
     generator._kv_cache = [["k", "v"]]
     generator._inner = SimpleNamespace(mode="decode")
+    generator._inner.trace_ids_decode = {}
+    generator._compiled_prefill_variants = set()
+    generator._lifetime_prefill_variant_compilations = 0
+    generator._lifetime_decode_trace_releases_for_prefill_compile = 0
     generator._dirty_cache = False
+    generator.trace_evidence = TraceEvidence()
     captured = []
 
     def fake_prefill_one(self, token_ids, page_table_row, layer_cache, *, return_all_logits):
@@ -280,6 +491,152 @@ def test_mixed_prefill_keeps_distinct_physical_rows_with_local_page_coordinate()
     assert output.shape == (2, 1, 8)
     assert [row.tolist() for _, row in captured] == [[[0, 1]], [[2, 3]]]
     assert [row.tolist() for row, _ in captured] == [[[11, 12, 13]], [[21, 22]]]
+
+
+@pytest.mark.skipif(
+    os.environ.get("GPT_OSS_120B_SAMPLER_TRACE_PROBE") != "1",
+    reason="set GPT_OSS_120B_SAMPLER_TRACE_PROBE=1 for the TP4 sampling-trace isolation",
+)
+@pytest.mark.timeout(600)
+@pytest.mark.parametrize(
+    "mesh_device,device_params",
+    [
+        pytest.param(
+            (1, 4),
+            {
+                "fabric_config": ttnn.FabricConfig.FABRIC_1D_RING,
+                "require_exact_physical_num_devices": True,
+                TRACE_MODEL_KEY_PARAM: "gpt-oss-120b",
+            },
+            id="p150x4",
+        )
+    ],
+    indirect=True,
+)
+def test_tp4_sampling_trace_tracks_production_state_matrix(mesh_device, device_params, reset_seeds):
+    """Isolate sampler trace replay with production-shaped mutable state.
+
+    Cover the two differences omitted by the original sampler-only probe: the
+    decode token-feedback output tensor and the per-step greedy parameter
+    refresh performed by the canonical synchronous generator.  Also queue a
+    no-readback replay train to exercise the optimized split boundary.
+    """
+
+    del device_params, reset_seeds
+    vocab_size = 201_088
+    padded_vocab_size = 262_144
+    batch_size = 32
+    args = SimpleNamespace(
+        vocab_size=vocab_size,
+        padded_vocab_size=padded_vocab_size,
+        cluster_shape=tuple(mesh_device.shape),
+        sampling_all_gather_axis=1,
+        sampling_dp=1,
+        max_batch_size=1,
+        max_top_k=32,
+        sub_core_grids=None,
+        sub_core_grid_topk=None,
+        use_topk_logprobs=True,
+        model_config={},
+    )
+    mapper = ttnn.ShardTensor2dMesh(mesh_device, dims=(None, 3), mesh_shape=mesh_device.shape)
+
+    def host_logits(token, runner_up):
+        logits = torch.full((1, 1, batch_size, padded_vocab_size), -10.0, dtype=torch.bfloat16)
+        logits[..., token] = 23.5
+        logits[..., runner_up] = 23.0
+        logits[..., vocab_size:] = -float("inf")
+        return ttnn.from_torch(
+            logits,
+            device=None,
+            mesh_mapper=mapper,
+            dtype=ttnn.bfloat8_b,
+            layout=ttnn.TILE_LAYOUT,
+        )
+
+    host_a = host_logits(5310, 1131)
+    host_b = host_logits(1131, 5310)
+    tt_logits = ttnn.to_device(host_a, mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+    sampling = SamplingGenerator(args=args, mesh_device=mesh_device, tt_ccl=None)
+    host_feedback = ttnn.from_torch(
+        torch.zeros(1, 1, 1, batch_size, dtype=torch.int32),
+        device=None,
+        mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+        dtype=ttnn.uint32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
+    tt_feedback = ttnn.to_device(host_feedback, mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+
+    def read_first_token(sampled):
+        tokens = sampled[0] if isinstance(sampled, tuple) else sampled
+        return int(ttnn.to_torch(ttnn.get_device_tensors(tokens)[0]).reshape(-1)[0])
+
+    cases = []
+    expected = [5310 if step % 2 == 0 else 1131 for step in range(128)]
+    for use_feedback in (False, True):
+        for refresh_params in (False, True):
+            sampling.reset_trace()
+            sampling.reset_sampling_params(format_sampling_params(GREEDY, batch_size))
+            sampling.seed_manager.reset_seed(None, list(range(batch_size)))
+            feedback = tt_feedback if use_feedback else None
+            observed = []
+            for step, expected_token in enumerate(expected):
+                ttnn.copy_host_to_device_tensor(host_a if expected_token == 5310 else host_b, tt_logits)
+                if refresh_params:
+                    sampling.apply_decode_state([GREEDY], reset_batch=(step == 0))
+                sampling.seed_manager.get_new_values()
+                sampled = sampling.sample(tt_logits, tt_out_tok=feedback, enable_trace=True)
+                ttnn.synchronize_device(mesh_device)
+                observed.append(read_first_token(sampled))
+            cases.append(
+                {
+                    "feedback": use_feedback,
+                    "refresh_params_each_step": refresh_params,
+                    "collection": "per_step",
+                    "expected": expected,
+                    "observed": observed,
+                    "first_divergence": next(
+                        (index for index, pair in enumerate(zip(expected, observed)) if pair[0] != pair[1]),
+                        None,
+                    ),
+                }
+            )
+
+            sampling.reset_trace()
+            sampling.reset_sampling_params(format_sampling_params(GREEDY, batch_size))
+            sampling.seed_manager.reset_seed(None, list(range(batch_size)))
+            sampled = None
+            for step, expected_token in enumerate(expected):
+                ttnn.copy_host_to_device_tensor(host_a if expected_token == 5310 else host_b, tt_logits)
+                if refresh_params:
+                    sampling.apply_decode_state([GREEDY], reset_batch=(step == 0))
+                sampling.seed_manager.get_new_values()
+                sampled = sampling.sample(tt_logits, tt_out_tok=feedback, enable_trace=True)
+            ttnn.synchronize_device(mesh_device)
+            queued_token = read_first_token(sampled)
+            cases.append(
+                {
+                    "feedback": use_feedback,
+                    "refresh_params_each_step": refresh_params,
+                    "collection": "final_only",
+                    "expected_final": expected[-1],
+                    "observed_final": queued_token,
+                    "first_divergence": None if queued_token == expected[-1] else len(expected) - 1,
+                }
+            )
+
+    artifact = {
+        "mesh_shape": list(mesh_device.shape),
+        "steps_per_case": len(expected),
+        "cases": cases,
+    }
+    artifact_path = Path(
+        "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/" "tp4_sampling_trace_isolation.json"
+    )
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
+    assert all(case["first_divergence"] is None for case in cases)
+    sampling.reset_trace()
 
 
 @pytest.mark.skipif(
@@ -308,17 +665,35 @@ def test_real_weight_two_layer_full_model_split_sampling_probe(mesh_device, devi
     del device_params, reset_seeds
     from models.autoports.openai_gpt_oss_120b.tt.model import build_model
 
+    output_tokens = int(os.environ.get("GPT_OSS_120B_PROBE_OUTPUT_TOKENS", "4"))
+    isolation_lengths = [
+        int(value) for value in os.environ.get("GPT_OSS_120B_ASYNC_ISOLATION_LENGTHS", "").split(",") if value
+    ]
+    prompt_extra_tokens = int(os.environ.get("GPT_OSS_120B_PROBE_PROMPT_EXTRA_TOKENS", "0"))
+    probe_prompt_len = 7 + prompt_extra_tokens
+    assert output_tokens >= 2
     model, args, kv_cache = build_model(
         mesh_device,
         snapshot_path=SNAPSHOT,
         tensor_cache_path="/tmp/gpt_oss_120b_full_model_probe_cache",
         max_batch_size=1,
-        max_context_length=128,
+        max_context_length=max(
+            128,
+            probe_prompt_len + output_tokens,
+            *(probe_prompt_len + value for value in isolation_lengths),
+        ),
         num_layers=2,
         allow_reduced_model=True,
+        lm_head_policy=os.environ.get("GPT_OSS_120B_LM_HEAD_POLICY", INTERLEAVED_LM_HEAD),
     )
     generator = Generator(model, args, kv_cache=kv_cache)
-    prompt = torch.tensor([[200006, 1734, 25, 392, 876, 13, 200007]], dtype=torch.long)
+    profile_drain = os.environ.get("GPT_OSS_120B_PROFILE_DRAIN") == "1"
+    if profile_drain:
+        ttnn.ReadDeviceProfiler(mesh_device)
+    prompt = torch.tensor(
+        [[200006, 1734, 25, 392, 876, 13, *([13] * prompt_extra_tokens), 200007]],
+        dtype=torch.long,
+    )
     pages = generator.page_table[:1]
 
     host_logits = generator.prefill_forward(
@@ -328,29 +703,121 @@ def test_real_weight_two_layer_full_model_split_sampling_probe(mesh_device, devi
         prompt_lens=[prompt.shape[1]],
     )
     expected_first = int(torch.argmax(host_logits[0, 0]).item())
+    if profile_drain:
+        ttnn.ReadDeviceProfiler(mesh_device)
+
+    # The selected split sampler must retain the generic traced top-k/top-p
+    # topology used by serving requests, not merely its fast greedy settings.
+    # Explicit request seeds intentionally bypass sampler trace replay, so this
+    # contract probe is unseeded and counts the actual sampling trace executor.
+    sampled_params = SamplingParams(temperature=0.8, top_k=20, top_p=0.9)
+    sampling = model.sampling
+    sampling_trace_replays = 0
+    original_execute_trace = sampling._execute_trace
+
+    def counted_execute_trace(key):
+        nonlocal sampling_trace_replays
+        sampling_trace_replays += 1
+        return original_execute_trace(key)
+
+    sampling._execute_trace = counted_execute_trace
+    signpost("FULL_MODEL_TOP_K_TOP_P")
+    top_k_top_p_metrics = generator.run_device_token_out(
+        prompt[0].tolist(),
+        5,
+        enable_trace=True,
+        sampling_params=sampled_params,
+    )
+    signpost("FULL_MODEL_TOP_K_TOP_P_END")
+    sampling._execute_trace = original_execute_trace
+    active_sampling_traces = [(key, slot) for key, slot in sampling._trace_states.items() if slot.get("id") is not None]
+    assert len(active_sampling_traces) == 1
+    sampling_key, sampling_slot = active_sampling_traces[0]
+    trace_inputs = generator._inner.trace_inputs_decode[True][0]
+    feedback_buffer = generator._inner._decode_token_feedback_buffer(model, trace_inputs)
+    tt_out_tok_identity = isinstance(sampling_slot["output"], tuple) and sampling_slot["output"][0] is feedback_buffer
+    assert tt_out_tok_identity
+    assert not sampling_key.force_argmax
+    assert not sampling.seed_manager.has_active_request_seed()
+    # Prefill sampling captured the compatible terminal-shape trace, so all
+    # four decode submissions replay it (including the first model decode).
+    assert sampling_trace_replays == 4
+    top_k_top_p_evidence = generator.trace_evidence
+    assert top_k_top_p_evidence.trace_replays == 4
+    assert top_k_top_p_evidence.device_token_out_submissions == 4
+    assert top_k_top_p_evidence.sampling_state_host_refreshes == 1
+    assert top_k_top_p_evidence.fixed_sampling_state_replays == 3
+    assert top_k_top_p_evidence.fixed_greedy_sampling_replays == 0
+    assert top_k_top_p_evidence.decode_output_collections == 1
+    assert top_k_top_p_evidence.sampled_token_readbacks == 2
+    assert top_k_top_p_evidence.caller_visible_token_synchronizations == 2
+    assert top_k_top_p_evidence.full_input_refreshes == 1
+    assert top_k_top_p_evidence.page_table_reuses == 3
+    assert top_k_top_p_evidence.steady_token_input_host_refreshes == 0
+    assert top_k_top_p_evidence.steady_position_rope_host_refreshes == 0
+    assert top_k_top_p_evidence.steady_page_table_host_refreshes == 0
+    assert top_k_top_p_evidence.full_logits_readbacks == 0
+    assert 0 <= top_k_top_p_metrics["first_token"] < model.vocab_size
+    assert 0 <= top_k_top_p_metrics["final_token"] < model.vocab_size
+
+    def first_shard_to_torch(tensor):
+        return ttnn.to_torch(ttnn.get_device_tensors(tensor)[0])
+
+    persistent_token = first_shard_to_torch(trace_inputs[0]).reshape(-1)
+    persistent_position = first_shard_to_torch(trace_inputs[1]).reshape(-1)
+    persistent_rope_position = first_shard_to_torch(trace_inputs[2]).reshape(-1)
+    assert int(persistent_token[0]) == top_k_top_p_metrics["final_token"]
+    assert int(persistent_position[0]) == prompt.shape[1] + 4
+    assert int(persistent_rope_position[0]) == prompt.shape[1] + 4
+    top_k_top_p_artifact = Path(
+        "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/" "top_k_top_p_trace_contract.json"
+    )
+    top_k_top_p_artifact.parent.mkdir(parents=True, exist_ok=True)
+    top_k_top_p_artifact.write_text(
+        json.dumps(
+            {
+                "mesh_shape": list(mesh_device.shape),
+                "layers": 2,
+                "sampling_params": {"temperature": 0.8, "top_k": 20, "top_p": 0.9, "seed": None},
+                "sampling_trace_id": str(sampling_slot["id"]),
+                "sampling_trace_replays": sampling_trace_replays,
+                "sampling_force_argmax": sampling_key.force_argmax,
+                "tt_out_tok_feedback_identity": tt_out_tok_identity,
+                "metrics": top_k_top_p_metrics,
+                "persistent_token": int(persistent_token[0]),
+                "persistent_position": int(persistent_position[0]),
+                "persistent_rope_position": int(persistent_rope_position[0]),
+                "trace_evidence": top_k_top_p_evidence.to_dict(),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    if profile_drain:
+        ttnn.ReadDeviceProfiler(mesh_device)
+
     signpost("FULL_MODEL_TOKEN_OUT")
     predictions = generator.generate(
         prompt[0].tolist(),
-        4,
+        output_tokens,
         enable_trace=True,
         sampling_mode="device",
     )
     signpost("FULL_MODEL_TOKEN_OUT_END")
+    if profile_drain:
+        ttnn.ReadDeviceProfiler(mesh_device)
     assert predictions[0] == expected_first
     assert all(0 <= token < model.vocab_size for token in predictions)
     evidence = generator.trace_evidence
-    assert evidence.trace_replays == 3
+    assert evidence.trace_replays == output_tokens - 1
     assert evidence.full_input_refreshes == 1
-    assert evidence.page_table_reuses == 2
+    assert evidence.page_table_reuses == output_tokens - 2
     assert evidence.page_table_only_refreshes == 0
     assert evidence.host_argmax_calls == 0
     assert evidence.full_logits_readbacks == 0
     assert evidence.forced_token_refreshes == 0
-
     trace_inputs = generator._inner.trace_inputs_decode[True][0]
-
-    def first_shard_to_torch(tensor):
-        return ttnn.to_torch(ttnn.get_device_tensors(tensor)[0])
 
     persistent_token = first_shard_to_torch(trace_inputs[0]).reshape(-1)
     persistent_position = first_shard_to_torch(trace_inputs[1]).reshape(-1)
@@ -377,10 +844,271 @@ def test_real_weight_two_layer_full_model_split_sampling_probe(mesh_device, devi
     assert int(persistent_token[0]) == int(changed_result[0])
     assert int(persistent_position[0]) == prompt.shape[1] + len(predictions)
     assert torch.equal(persistent_pages, changed_pages)
-    assert evidence.trace_replays == 4
+    assert evidence.trace_replays == output_tokens
     assert evidence.full_input_refreshes == 1
-    assert evidence.page_table_reuses == 2
+    assert evidence.page_table_reuses == output_tokens - 2
     assert evidence.page_table_only_refreshes == 1
+
+    signpost("FULL_MODEL_ASYNC_TOKEN_OUT")
+    token_out_metrics = generator.run_greedy_token_out(
+        prompt[0].tolist(),
+        output_tokens,
+        enable_trace=True,
+    )
+    signpost("FULL_MODEL_ASYNC_TOKEN_OUT_END")
+    if profile_drain:
+        ttnn.ReadDeviceProfiler(mesh_device)
+    evidence = generator.trace_evidence
+    assert token_out_metrics["first_token"] == predictions[0]
+    assert token_out_metrics["final_token"] == predictions[-1]
+    trace_inputs = generator._inner.trace_inputs_decode[True][0]
+    persistent_token = first_shard_to_torch(trace_inputs[0]).reshape(-1)
+    persistent_position = first_shard_to_torch(trace_inputs[1]).reshape(-1)
+    assert int(persistent_token[0]) == token_out_metrics["final_token"]
+    assert int(persistent_position[0]) == prompt.shape[1] + output_tokens - 1
+    assert evidence.device_token_out_submissions == output_tokens - 1
+    assert evidence.sampling_state_host_refreshes == 1
+    assert evidence.fixed_sampling_state_replays == output_tokens - 2
+    assert evidence.fixed_greedy_sampling_replays == output_tokens - 2
+    assert evidence.decode_output_collections == 1
+    assert evidence.sampled_token_readbacks == 2  # one TTFT token plus one final decode token
+    assert evidence.caller_visible_token_synchronizations == 2
+    assert evidence.full_input_refreshes == 1
+    assert evidence.page_table_reuses == output_tokens - 2
+    assert evidence.steady_token_input_host_refreshes == 0
+    assert evidence.steady_position_rope_host_refreshes == 0
+    assert evidence.steady_page_table_host_refreshes == 0
+
+    if isolation_lengths:
+        isolation = []
+        for length in isolation_lengths:
+            sync_predictions = generator.generate(
+                prompt[0].tolist(),
+                length,
+                enable_trace=True,
+                sampling_mode="device",
+            )
+            sync_predictions_repeat = generator.generate(
+                prompt[0].tolist(),
+                length,
+                enable_trace=True,
+                sampling_mode="device",
+            )
+            split_metrics = generator.run_greedy_token_out(
+                prompt[0].tolist(),
+                length,
+                enable_trace=True,
+            )
+            isolation_trace_inputs = generator._inner.trace_inputs_decode[True][0]
+            isolation_token = first_shard_to_torch(isolation_trace_inputs[0]).reshape(-1)
+            isolation_position = first_shard_to_torch(isolation_trace_inputs[1]).reshape(-1)
+            isolation_rope_position = first_shard_to_torch(isolation_trace_inputs[2]).reshape(-1)
+            isolation.append(
+                {
+                    "output_tokens": length,
+                    "logical_context_length": args.max_context_len,
+                    "physical_kv_context_length": args.physical_kv_context_len,
+                    "decode_k_chunk_size": args.decode_k_chunk_size,
+                    "sync_final_token": sync_predictions[-1],
+                    "sync_repeat_final_token": sync_predictions_repeat[-1],
+                    "sync_runs_exact": sync_predictions == sync_predictions_repeat,
+                    "sync_first_divergence": next(
+                        (
+                            index
+                            for index, (left, right) in enumerate(zip(sync_predictions, sync_predictions_repeat))
+                            if left != right
+                        ),
+                        None,
+                    ),
+                    "sync_predictions": sync_predictions,
+                    "sync_repeat_predictions": sync_predictions_repeat,
+                    "split_final_token": split_metrics["final_token"],
+                    "persistent_token": int(isolation_token[0]),
+                    "persistent_position": int(isolation_position[0]),
+                    "persistent_rope_position": int(isolation_rope_position[0]),
+                    "exact": sync_predictions == sync_predictions_repeat
+                    and sync_predictions[-1] == split_metrics["final_token"],
+                }
+            )
+        artifact_path = Path(
+            "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/"
+            "split_token_out_length_isolation.json"
+        )
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_text(json.dumps(isolation, indent=2) + "\n", encoding="utf-8")
+        assert all(row["exact"] for row in isolation)
+    generator.teardown()
+
+
+@pytest.mark.skipif(
+    os.environ.get("GPT_OSS_120B_FULL_MODEL_PROFILE") != "1" or not SNAPSHOT.is_dir(),
+    reason="set GPT_OSS_120B_FULL_MODEL_PROFILE=1 for the isolated full-path profiler probe",
+)
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize(
+    "mesh_device,device_params",
+    [
+        pytest.param(
+            (1, 4),
+            {
+                "fabric_config": ttnn.FabricConfig.FABRIC_1D_RING,
+                "require_exact_physical_num_devices": True,
+                TRACE_MODEL_KEY_PARAM: "gpt-oss-120b",
+            },
+            id="p150x4",
+        )
+    ],
+    indirect=True,
+)
+def test_real_weight_two_layer_optimized_full_model_profile(mesh_device, device_params, reset_seeds):
+    """Capture one isolated warmed operation window for each full-path phase."""
+
+    del device_params, reset_seeds
+    from models.autoports.openai_gpt_oss_120b.tt.model import build_model
+
+    phase = os.environ.get("GPT_OSS_120B_FULL_MODEL_PROFILE_PHASE")
+    supported_phases = {"prefill", "teacher_forcing_decode", "split_token_out_decode"}
+    assert phase in supported_phases, f"select one profile phase from {sorted(supported_phases)}"
+    profile_drain = os.environ.get("GPT_OSS_120B_PROFILE_DRAIN") == "1"
+
+    model, args, kv_cache = build_model(
+        mesh_device,
+        snapshot_path=SNAPSHOT,
+        tensor_cache_path="/tmp/gpt_oss_120b_full_model_probe_cache",
+        max_batch_size=1,
+        max_context_length=256,
+        num_layers=2,
+        allow_reduced_model=True,
+        lm_head_policy=os.environ.get("GPT_OSS_120B_LM_HEAD_POLICY", INTERLEAVED_LM_HEAD),
+    )
+    generator = Generator(model, args, kv_cache=kv_cache)
+    reference = torch.load(
+        "models/autoports/openai_gpt_oss_120b/doc/full_model/references/aime24_chat_100_top100.refpt",
+        map_location="cpu",
+        weights_only=False,
+    )["entries"][0]
+    prompt = reference["prompt_tokens"][0, :128].to(torch.long).unsqueeze(0)
+    teacher_tokens = reference["generated_tokens"][0, :4].to(torch.long)
+    pages = generator.page_table[:1]
+
+    def drain_profiler():
+        ttnn.synchronize_device(mesh_device)
+        if profile_drain:
+            ttnn.ReadDeviceProfiler(mesh_device)
+
+    evidence = {
+        "phase": phase,
+        "mesh_shape": list(mesh_device.shape),
+        "layers": 2,
+        "prompt_length": 128,
+        "lm_head_policy": model.lm_head_policy,
+        "lm_head_candidate_manifest": (
+            model.dram_sharded_lm_head.manifest if model.dram_sharded_lm_head is not None else None
+        ),
+    }
+    if phase == "prefill":
+        generator._device_prefill_sample(prompt, pages, sampling_params=GREEDY)
+        generator.reset()
+        drain_profiler()
+        signpost("OPTIMIZED_FULL_MODEL_PROFILE_PREFILL")
+        predicted = generator._device_prefill_sample(prompt, pages, sampling_params=GREEDY)
+        signpost("OPTIMIZED_FULL_MODEL_PROFILE_PREFILL_END")
+        drain_profiler()
+        assert 0 <= predicted < model.vocab_size
+        evidence["predicted_token"] = predicted
+    elif phase == "teacher_forcing_decode":
+        generator._device_prefill_sample(prompt, pages, sampling_params=GREEDY)
+        for step in range(2):
+            prediction = generator.decode_forward(
+                teacher_tokens[step].reshape(1, 1),
+                torch.tensor([prompt.shape[1] + step], dtype=torch.int64),
+                page_table=pages,
+                kv_cache=kv_cache,
+                enable_trace=True,
+                sampling_mode="device",
+                sampling_params=GREEDY,
+                reset_batch=True,
+                force_host_tokens=True,
+                prompt_tokens=prompt if step == 0 else None,
+                read_from_device=True,
+            )
+        drain_profiler()
+        signpost("OPTIMIZED_FULL_MODEL_PROFILE_TEACHER_FORCING_DECODE")
+        prediction = generator.decode_forward(
+            teacher_tokens[2].reshape(1, 1),
+            torch.tensor([prompt.shape[1] + 2], dtype=torch.int64),
+            page_table=pages,
+            kv_cache=kv_cache,
+            enable_trace=True,
+            sampling_mode="device",
+            sampling_params=GREEDY,
+            reset_batch=True,
+            force_host_tokens=True,
+            read_from_device=True,
+        )
+        signpost("OPTIMIZED_FULL_MODEL_PROFILE_TEACHER_FORCING_DECODE_END")
+        drain_profiler()
+        evidence["predicted_token"] = int(prediction[0])
+    else:
+        first_token = generator._device_prefill_sample(prompt, pages, sampling_params=GREEDY)
+        device_output = generator.decode_forward(
+            torch.tensor([[first_token]], dtype=torch.long),
+            torch.tensor([prompt.shape[1]], dtype=torch.int64),
+            page_table=pages,
+            kv_cache=kv_cache,
+            enable_trace=True,
+            sampling_mode="device",
+            sampling_params=GREEDY,
+            reset_batch=True,
+            prompt_tokens=prompt,
+            read_from_device=False,
+        )
+        device_output = generator.decode_forward(
+            torch.tensor([[first_token]], dtype=torch.long),
+            torch.tensor([prompt.shape[1] + 1], dtype=torch.int64),
+            page_table=pages,
+            kv_cache=kv_cache,
+            enable_trace=True,
+            sampling_mode="device",
+            reuse_greedy_sampling_state=True,
+            read_from_device=False,
+        )
+        generator.read_decode_output(device_output)
+        drain_profiler()
+        signpost("OPTIMIZED_FULL_MODEL_PROFILE_SPLIT_TOKEN_OUT_DECODE")
+        device_output = generator.decode_forward(
+            torch.tensor([[first_token]], dtype=torch.long),
+            torch.tensor([prompt.shape[1] + 2], dtype=torch.int64),
+            page_table=pages,
+            kv_cache=kv_cache,
+            enable_trace=True,
+            sampling_mode="device",
+            reuse_greedy_sampling_state=True,
+            read_from_device=False,
+        )
+        signpost("OPTIMIZED_FULL_MODEL_PROFILE_SPLIT_TOKEN_OUT_DECODE_END")
+        drain_profiler()
+        final_token = int(generator.read_decode_output(device_output)[0])
+        evidence.update(
+            {
+                "first_token": first_token,
+                "final_token": final_token,
+                "trace_evidence": generator.trace_evidence.to_dict(),
+            }
+        )
+        assert evidence["trace_evidence"]["steady_token_input_host_refreshes"] == 0
+        assert evidence["trace_evidence"]["steady_position_rope_host_refreshes"] == 0
+        assert evidence["trace_evidence"]["steady_page_table_host_refreshes"] == 0
+
+    artifact = Path(
+        "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/profiler/"
+        f"final_source/{model.lm_head_policy}/{phase}/phase_evidence.json"
+    )
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    if model.lm_head_policy == DRAM_SHARDED_LM_HEAD:
+        assert model.dram_sharded_lm_head is not None
+        assert model.dram_sharded_lm_head.manifest["num_splits"] == 8
     generator.teardown()
 
 
@@ -456,6 +1184,34 @@ def test_real_weight_two_layer_mixed_prompt_fixed_slots(mesh_device, device_para
     persistent_positions = ttnn.to_torch(ttnn.get_device_tensors(trace_inputs[1])[0]).reshape(-1)
     assert int(persistent_positions[0]) == 8
     assert int(persistent_positions[1]) == -1
+    artifact = Path(
+        "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/"
+        "mixed_prompt_fixed_slots_inactive_row.json"
+    )
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(
+        json.dumps(
+            {
+                "mesh_shape": list(mesh_device.shape),
+                "layers": 2,
+                "batch_size": 2,
+                "prompt_lengths": [7, 5],
+                "prompt_rows_distinct": not torch.equal(prompts[0], prompts[1]),
+                "page_table_rows_distinct": not torch.equal(pages[0], pages[1]),
+                "decode_start_positions": [7, -1],
+                "persistent_positions_after_decode": [
+                    int(persistent_positions[0]),
+                    int(persistent_positions[1]),
+                ],
+                "inactive_row_preserved": int(persistent_positions[1]) == -1,
+                "active_token": int(decoded[0]),
+                "trace_evidence": generator.trace_evidence.to_dict(),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     generator.teardown()
 
 
@@ -677,7 +1433,8 @@ def test_real_weight_two_layer_batch2_logit_reproducibility(mesh_device, device_
         max_context_length=512,
         tensor_cache_path="/tmp/gpt_oss_120b_full_model_probe_cache",
         artifact_path=Path(
-            "models/autoports/openai_gpt_oss_120b/doc/full_model/artifacts/logit_reproducibility_probe.json"
+            "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/"
+            "batch2_logit_reproducibility_probe.json"
         ),
     )
 
@@ -703,10 +1460,14 @@ def test_real_weight_two_layer_batch2_logit_reproducibility(mesh_device, device_
     indirect=True,
 )
 def test_real_weight_36_layer_full_context_token_out_smoke(mesh_device, device_params, reset_seeds):
-    """Allocate the full contract and run trace-fed greedy token-out decode."""
+    """Run non-aligned correctness and warmed prompt-128/token-128 performance."""
 
     del device_params, reset_seeds
     from models.autoports.openai_gpt_oss_120b.tt.model import build_model
+
+    isolation_lengths = [
+        int(value) for value in os.environ.get("GPT_OSS_120B_FULL_ASYNC_ISOLATION_LENGTHS", "").split(",") if value
+    ]
 
     model, args, kv_cache = build_model(
         mesh_device,
@@ -717,29 +1478,270 @@ def test_real_weight_36_layer_full_context_token_out_smoke(mesh_device, device_p
         num_layers=MODEL_LAYERS,
     )
     generator = Generator(model, args, kv_cache=kv_cache)
+    reference = torch.load(
+        "models/autoports/openai_gpt_oss_120b/doc/full_model/references/aime24_chat_100_top100.refpt",
+        map_location="cpu",
+        weights_only=False,
+    )["entries"][0]
+    benchmark_prompt = reference["prompt_tokens"][0, :128].to(torch.long).tolist()
+    assert len(benchmark_prompt) == 128
+
+    lifecycle_pre_release = None
+    if os.environ.get("GPT_OSS_120B_FULL_TRACE_LIFECYCLE_ISOLATION") == "1":
+        generator.generate(benchmark_prompt, 4, enable_trace=True, sampling_mode="device")
+        before_release_a = generator.generate(benchmark_prompt, 16, enable_trace=True, sampling_mode="device")
+        before_release_b = generator.generate(benchmark_prompt, 16, enable_trace=True, sampling_mode="device")
+        lifecycle_pre_release = {
+            "exact": before_release_a == before_release_b,
+            "first_divergence": next(
+                (index for index, pair in enumerate(zip(before_release_a, before_release_b)) if pair[0] != pair[1]),
+                None,
+            ),
+            "first": before_release_a,
+            "second": before_release_b,
+            "decode_trace_release_count": generator._lifetime_decode_trace_releases_for_prefill_compile,
+        }
+
     prompts_path = Path("models/demos/deepseek_v3/demo/aime_under_8k_prompts.json")
     prompt_text = json.loads(prompts_path.read_text(encoding="utf-8"))[0]["prompt"]
     prompt = args.encode_prompt(prompt_text)
     assert len(prompt) % 32 != 0, "acceptance prompt must exercise public non-aligned prefill"
     predictions = generator.generate(prompt, 4, enable_trace=True, sampling_mode="device")
+    non_aligned_token_out = generator.run_greedy_token_out(prompt, 4, enable_trace=True)
     decoded = args.tokenizer.decode(predictions, skip_special_tokens=False)
     assert len(predictions) == 4
     assert len(set(predictions)) > 1
     assert all(0 <= token < model.vocab_size for token in predictions)
+    assert non_aligned_token_out["first_token"] == predictions[0]
+    assert non_aligned_token_out["final_token"] == predictions[-1]
+
+    # Preserve an apples-to-apples optimized measurement for the completed
+    # full-model stage's prompt-214/generation-100 baseline.  The four-token
+    # request above has already compiled and warmed this non-aligned bucket.
+    signpost("OPTIMIZED_FULL_MODEL_ASYNC_PROMPT214_GEN100")
+    non_aligned_warmed_token_out = generator.run_greedy_token_out(
+        prompt,
+        100,
+        enable_trace=True,
+    )
+    signpost("OPTIMIZED_FULL_MODEL_ASYNC_PROMPT214_GEN100_END")
+    assert non_aligned_warmed_token_out["prompt_tokens"] == len(prompt)
+    assert non_aligned_warmed_token_out["output_tokens"] == 100
+    assert non_aligned_warmed_token_out["first_token"] == predictions[0]
+
+    # The first request for a new padded prefill variant exercises the safe
+    # request-boundary trace release and compilation path.  Performance starts
+    # only after that bucket and the recaptured decode/sampling traces are warm.
+    warmup_predictions = generator.generate(
+        benchmark_prompt,
+        4,
+        enable_trace=True,
+        sampling_mode="device",
+    )
+    assert len(warmup_predictions) == 4
+    assert generator._lifetime_prefill_variant_compilations == 2
+    assert generator._lifetime_decode_trace_releases_for_prefill_compile == 1
+
+    signpost("OPTIMIZED_FULL_MODEL_SYNC_PROMPT128_GEN128")
+    baseline_predictions = generator.generate(
+        benchmark_prompt,
+        128,
+        enable_trace=True,
+        sampling_mode="device",
+    )
+    signpost("OPTIMIZED_FULL_MODEL_SYNC_PROMPT128_GEN128_END")
+    baseline_metrics = dict(generator.last_generation_metrics)
+    baseline_evidence = generator.trace_evidence.to_dict()
+
+    if isolation_lengths:
+        assert all(2 <= length <= len(baseline_predictions) for length in isolation_lengths)
+        sync_repeat = generator.generate(
+            benchmark_prompt,
+            len(baseline_predictions),
+            enable_trace=True,
+            sampling_mode="device",
+        )
+        sync_first_divergence = next(
+            (index for index, (left, right) in enumerate(zip(baseline_predictions, sync_repeat)) if left != right),
+            None,
+        )
+        divergence_logits = None
+        if sync_first_divergence is not None:
+            pages = generator.page_table[:1]
+            padded_per_device = model.sampling.tt_sampling.padded_vocab_size // mesh_device.get_num_devices()
+
+            def capture_true_bucket_at_divergence():
+                generator.reset()
+                generator._device_prefill_sample(
+                    torch.tensor([benchmark_prompt], dtype=torch.long),
+                    pages,
+                    sampling_params=GREEDY,
+                )
+                for output_index in range(1, sync_first_divergence):
+                    generator.decode_forward(
+                        torch.tensor([[baseline_predictions[output_index - 1]]], dtype=torch.long),
+                        torch.tensor([len(benchmark_prompt) + output_index - 1], dtype=torch.int64),
+                        page_table=pages,
+                        kv_cache=generator.kv_cache,
+                        enable_trace=True,
+                        sampling_mode="device",
+                        sampling_params=GREEDY,
+                        reset_batch=True,
+                        force_host_tokens=True,
+                        read_from_device=False,
+                    )
+
+                # Replay only the real on-device-sampling model bucket.  The
+                # host-sampling bucket has a different output/padding contract
+                # and is not an oracle for the tensor bound to the sampler trace.
+                generator._inner._slots_prefilled_since_decode.add(0)
+                tt_logits = generator._inner.decode_forward(
+                    tokens=torch.tensor([[baseline_predictions[sync_first_divergence - 1]]], dtype=torch.long),
+                    start_pos=torch.tensor([len(benchmark_prompt) + sync_first_divergence - 1], dtype=torch.int64),
+                    page_table=pages,
+                    kv_cache=generator._outer_cache(generator.kv_cache),
+                    enable_trace=True,
+                    read_from_device=False,
+                    sampling_params=None,
+                    reset_batch=True,
+                    defer_device_sampling=True,
+                )
+                ttnn.synchronize_device(mesh_device)
+                logits = tt_logits[0][0] if isinstance(tt_logits[0], tuple) else tt_logits[0]
+                device_rows = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(logits)]
+                row = torch.cat(device_rows, dim=-1)[0, 0, 0, : model.vocab_size].float()
+                global_max = row.max()
+                shard_ties = []
+                for device_index in range(mesh_device.get_num_devices()):
+                    start = device_index * padded_per_device
+                    end = min(start + padded_per_device, model.vocab_size)
+                    shard = row[start:end]
+                    shard_max = shard.max()
+                    shard_ties.append(
+                        {
+                            "device": device_index,
+                            "valid_start": start,
+                            "valid_end": end,
+                            "max": float(shard_max),
+                            "exact_local_max_count": int((shard == shard_max).sum()),
+                            "exact_global_max_count": int((shard == global_max).sum()),
+                            "lowest_local_max_token": start + int(torch.argmax(shard)),
+                        }
+                    )
+
+                # The synchronization above is an isolation discriminator: if
+                # this sample is correct while the natural adjacent traces are
+                # not, the bug is a model-trace -> sampler-trace dependency.
+                sampled = generator._replay_prepared_greedy_sampling(tt_logits, enable_trace=True)
+                sampled_token = int(generator.read_decode_output(sampled)[0])
+                return {
+                    "host_global_argmax": int(torch.argmax(row)),
+                    "global_max": float(global_max),
+                    "global_exact_max_count": int((row == global_max).sum()),
+                    "sample_after_model_sync": sampled_token,
+                    "shards": shard_ties,
+                }
+
+            true_bucket_captures = [capture_true_bucket_at_divergence() for _ in range(2)]
+            divergence_logits = {
+                "oracle_bucket": "trace_output_decode[True][0]",
+                "output_index": sync_first_divergence,
+                "baseline_sample": baseline_predictions[sync_first_divergence],
+                "repeat_sample": sync_repeat[sync_first_divergence],
+                "padded_per_device": padded_per_device,
+                "captures": true_bucket_captures,
+            }
+        isolation = []
+        for length in isolation_lengths:
+            split_metrics = generator.run_greedy_token_out(
+                benchmark_prompt,
+                length,
+                enable_trace=True,
+            )
+            trace_inputs = generator._inner.trace_inputs_decode[True][0]
+            persistent_token = ttnn.to_torch(ttnn.get_device_tensors(trace_inputs[0])[0]).reshape(-1)
+            persistent_position = ttnn.to_torch(ttnn.get_device_tensors(trace_inputs[1])[0]).reshape(-1)
+            persistent_rope_position = ttnn.to_torch(ttnn.get_device_tensors(trace_inputs[2])[0]).reshape(-1)
+            isolation.append(
+                {
+                    "output_tokens": length,
+                    "sync_token": baseline_predictions[length - 1],
+                    "sync_repeat_token": sync_repeat[length - 1],
+                    "split_token": split_metrics["final_token"],
+                    "sync_runs_exact_through_length": (baseline_predictions[:length] == sync_repeat[:length]),
+                    "split_endpoint_exact": split_metrics["final_token"] == baseline_predictions[length - 1],
+                    "persistent_token": int(persistent_token[0]),
+                    "persistent_position": int(persistent_position[0]),
+                    "persistent_rope_position": int(persistent_rope_position[0]),
+                }
+            )
+        isolation_artifact = Path(
+            "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/"
+            "p150x4_full_stack_split_isolation.json"
+        )
+        isolation_artifact.parent.mkdir(parents=True, exist_ok=True)
+        isolation_artifact.write_text(
+            json.dumps(
+                {
+                    "sync_runs_exact": baseline_predictions == sync_repeat,
+                    "sync_first_divergence": sync_first_divergence,
+                    "sync_predictions": baseline_predictions,
+                    "sync_repeat_predictions": sync_repeat,
+                    "before_unseen_prefill_trace_release": lifecycle_pre_release,
+                    "decode_trace_release_count": generator._lifetime_decode_trace_releases_for_prefill_compile,
+                    "first_divergence_sampler_ready_logits": divergence_logits,
+                    "rows": isolation,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        assert sync_first_divergence is None
+        assert all(row["split_endpoint_exact"] for row in isolation)
+
+    signpost("OPTIMIZED_FULL_MODEL_ASYNC_PROMPT128_GEN128")
+    optimized_metrics = generator.run_greedy_token_out(
+        benchmark_prompt,
+        128,
+        enable_trace=True,
+    )
+    signpost("OPTIMIZED_FULL_MODEL_ASYNC_PROMPT128_GEN128_END")
     evidence = generator.trace_evidence
-    assert evidence.trace_replays == 3
+    assert optimized_metrics["first_token"] == baseline_predictions[0]
+    assert optimized_metrics["final_token"] == baseline_predictions[-1]
+    assert evidence.trace_replays == 127
     assert evidence.full_input_refreshes == 1
-    assert evidence.page_table_reuses == 2
+    assert evidence.page_table_reuses == 126
     assert evidence.token_input_host_refreshes == 1
     assert evidence.position_rope_host_refreshes == 1
     assert evidence.page_table_host_refreshes == 1
     assert evidence.steady_token_input_host_refreshes == 0
     assert evidence.steady_position_rope_host_refreshes == 0
     assert evidence.steady_page_table_host_refreshes == 0
-    assert evidence.caller_visible_token_synchronizations == 4
+    assert evidence.device_token_out_submissions == 127
+    assert evidence.sampling_state_host_refreshes == 1
+    assert evidence.fixed_greedy_sampling_replays == 126
+    assert evidence.decode_output_collections == 1
+    assert evidence.sampled_token_readbacks == 2
+    assert evidence.caller_visible_token_synchronizations == 2
     assert evidence.validation_full_logit_synchronizations == 0
     assert evidence.full_logits_readbacks == 0
     assert evidence.host_argmax_calls == 0
+
+    lower_bound = json.loads(
+        Path("models/autoports/openai_gpt_oss_120b/doc/full_model/artifacts/profiler/profiler_analysis.json").read_text(
+            encoding="utf-8"
+        )
+    )["layer_stack_lower_bound"]
+    baseline_decode_ms = 1000.0 / baseline_metrics["decode_tokens_per_second_per_user"]
+    optimized_decode_ms = 1000.0 / optimized_metrics["decode_tokens_per_second_per_user"]
+    stack_ms = float(lower_bound["decoder_stack_ms"])
+    terminal_ms = float(lower_bound["named_terminal_device_ms"]["sum"])
+    stack_plus_terminal_ms = stack_ms + terminal_ms
+    avoidable_gap_ms = optimized_decode_ms - stack_plus_terminal_ms
+    overhead_over_stack_plus_terminal_percent = 100.0 * avoidable_gap_ms / stack_plus_terminal_ms
+    assert overhead_over_stack_plus_terminal_percent <= 15.0
     artifact = {
         "checkpoint_revision": SNAPSHOT.name,
         "mesh_shape": list(mesh_device.shape),
@@ -748,12 +1750,44 @@ def test_real_weight_36_layer_full_context_token_out_smoke(mesh_device, device_p
         "prompt_length": len(prompt),
         "predicted_tokens": predictions,
         "decoded": decoded,
+        "non_aligned_token_out": non_aligned_token_out,
+        "warmed_non_aligned_prompt214_gen100": non_aligned_warmed_token_out,
         "capacity": model.capacity.to_dict(),
-        "metrics": generator.last_generation_metrics,
-        "trace_evidence": evidence.to_dict(),
+        "warmed_prompt128_gen128": {
+            "prompt_length": len(benchmark_prompt),
+            "output_tokens": len(baseline_predictions),
+            "sync_token_readback_baseline": baseline_metrics,
+            "split_token_out": optimized_metrics,
+            "first_token_exact_match": optimized_metrics["first_token"] == baseline_predictions[0],
+            "final_token_exact_match": optimized_metrics["final_token"] == baseline_predictions[-1],
+            "sync_decode_ms_per_token": baseline_decode_ms,
+            "split_token_out_decode_ms_per_token": optimized_decode_ms,
+            "speedup": baseline_decode_ms / optimized_decode_ms,
+            "sync_trace_evidence": baseline_evidence,
+            "split_token_out_trace_evidence": evidence.to_dict(),
+            "prefill_variant_lifecycle": {
+                "compiled": [
+                    {"padded_length": padded_length, "path": path}
+                    for padded_length, path in sorted(generator._compiled_prefill_variants)
+                ],
+                "compile_count": generator._lifetime_prefill_variant_compilations,
+                "decode_trace_release_count": generator._lifetime_decode_trace_releases_for_prefill_compile,
+            },
+            "decoder_layer_stack_lower_bound": lower_bound,
+            "optimized_full_path_closure": {
+                "decoder_stack_ms": stack_ms,
+                "named_terminal_device_ms": terminal_ms,
+                "stack_plus_terminal_ms": stack_plus_terminal_ms,
+                "measured_split_token_out_ms": optimized_decode_ms,
+                "avoidable_gap_ms": avoidable_gap_ms,
+                "overhead_over_stack_plus_terminal_percent": overhead_over_stack_plus_terminal_percent,
+                "gate_percent": 15.0,
+                "gate_pass": overhead_over_stack_plus_terminal_percent <= 15.0,
+            },
+        },
     }
     artifact_path = Path(
-        "models/autoports/openai_gpt_oss_120b/doc/full_model/artifacts/full_model_token_out_smoke.json"
+        "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/" "p150x4_prompt128_gen128_perf.json"
     )
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
@@ -787,7 +1821,10 @@ def test_real_weight_36_layer_batch2_logit_reproducibility(mesh_device, device_p
         num_layers=MODEL_LAYERS,
         max_context_length=HF_CONTEXT_LENGTH,
         tensor_cache_path="/tmp/gpt_oss_120b_full_model_tensor_cache",
-        artifact_path=Path("models/autoports/openai_gpt_oss_120b/doc/full_model/artifacts/logit_reproducibility.json"),
+        artifact_path=Path(
+            "models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/"
+            "batch2_logit_reproducibility.json"
+        ),
     )
 
 
@@ -797,10 +1834,14 @@ def _readiness_runner(name: str):
     import importlib
 
     import models.common
+    import models.common.readiness_check
 
     sibling_common = "/home/ttuser/dev/scratch/tt-metal/models/common"
     if sibling_common not in models.common.__path__:
         models.common.__path__.append(sibling_common)
+    sibling_readiness = f"{sibling_common}/readiness_check"
+    if sibling_readiness not in models.common.readiness_check.__path__:
+        models.common.readiness_check.__path__.append(sibling_readiness)
     return importlib.import_module(f"models.common.readiness_check.{name}")
 
 
@@ -844,7 +1885,8 @@ def test_run_prefill_check_aime24_top100(mesh_device, device_params, reset_seeds
     )
     assert stats[0]["top5"] >= 0.98
     assert stats[0]["top100"] == 1.0
-    artifact = model_dir / "doc/full_model/artifacts/prefill_readiness.json"
+    artifact = model_dir / "doc/optimized_full_model/artifacts/prefill_readiness.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
 
 
@@ -888,7 +1930,8 @@ def test_run_teacher_forcing_aime24_top100(mesh_device, device_params, reset_see
     )
     assert stats[0]["top5"] >= 0.98
     assert stats[0]["top100"] == 1.0
-    artifact = model_dir / "doc/full_model/artifacts/teacher_forcing_readiness.json"
+    artifact = model_dir / "doc/optimized_full_model/artifacts/teacher_forcing_readiness.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
 
 
@@ -940,7 +1983,7 @@ def test_run_autoregressive_aime24_hf_and_tt(mesh_device, device_params, reset_s
         return tracked_build
 
     monkeypatch.setattr(runner, "_import_build_generator", tracked_import)
-    output_dir = model_dir / "doc/full_model/artifacts/autoregressive"
+    output_dir = model_dir / "doc/optimized_full_model/artifacts/autoregressive"
     paths = runner.run_autoregressive(
         model_dir=model_dir,
         hf_model_id=str(SNAPSHOT),
@@ -1033,6 +2076,7 @@ def test_shared_qualitative_chat_suite(mesh_device, device_params, reset_seeds):
                 "trace_evidence": generator.trace_evidence.to_dict(),
             }
         )
-    artifact = model_dir / "doc/full_model/qualitative/qualitative_tt_chat.json"
+    artifact = model_dir / "doc/optimized_full_model/qualitative/qualitative_tt_chat.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text(json.dumps(outputs, indent=2) + "\n", encoding="utf-8")
     generator.teardown()

@@ -1,0 +1,27 @@
+{
+  "date_utc": "2026-08-29",
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "mesh": [1, 4],
+  "scope": "real-weight reduced full path with the temporary eight-way 8192-column DRAM-width-sharded LM-head candidate",
+  "pytest_command": "TT_METAL_PROFILER_MID_RUN_DUMP=1 GPT_OSS_120B_PROFILE_DRAIN=1 GPT_OSS_120B_FULL_MODEL_PROBE=1 scripts/run_safe_pytest.sh --profile models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k real_weight_two_layer_full_model_split_sampling_probe -s",
+  "tt_perf_report_command": "/home/ttuser/dev/ornith/ornith-pyenv/bin/tt-perf-report --start-signpost FULL_MODEL_ASYNC_TOKEN_OUT --end-signpost FULL_MODEL_ASYNC_TOKEN_OUT_END --active-experts 4 --csv models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/profiler/rejected_lm_head/decode_perf_report.csv --summary-file models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/profiler/rejected_lm_head/decode_summary.csv --no-color generated/profiler/reports/2026_08_29_09_13_23/ops_perf_results_2026_08_29_09_13_23.csv",
+  "source": {
+    "path": "generated/profiler/reports/2026_08_29_09_13_23/ops_perf_results_2026_08_29_09_13_23.csv",
+    "sha256": "511223742b876a1e64b1bbc4edcc07f52f4fdec3c830821706a00d407de18df7",
+    "retention": "workspace generated/profiler tree; normalized tables and visualization are retained with this stage"
+  },
+  "artifacts": {
+    "decode_perf_report.csv.gz": {
+      "stored_sha256": "757f809fd4167f855f46e00d1ac68b46958c5c44ab02e5935a5cb421cd6ba1da",
+      "uncompressed_sha256": "9b0813dd97f5f4d33aae6fd46ed3454d84cbfaf71eaa3973f0844db31d697f69"
+    },
+    "decode_summary.csv.gz": {
+      "stored_sha256": "e08acd40a350a2c4ea6a672feb7a00b105b31cfe8355d29be6c31a87844ec513",
+      "uncompressed_sha256": "44077256026563ef9139835f42700da526dddcdc38e8ecaf8c06e962a9c2200c"
+    },
+    "decode_summary.png": "c6c6a66e652d8a62f21ac7dbd002ce2390c06b81059e52012f98dea6694f7652",
+    "tt_perf_report.txt": "37c01731b5cca07710eeee93dc429a0478f5e94e6c8490eb33f6ac6728547f0d"
+  },
+  "storage": "Generated CSV artifacts are losslessly gzip-compressed after report generation.",
+  "conclusion": "rejected; conversion overhead made summed device work 0.567% slower than the selected LM head"
+}

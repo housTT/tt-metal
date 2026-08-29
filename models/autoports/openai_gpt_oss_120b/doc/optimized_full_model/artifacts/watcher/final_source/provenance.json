@@ -1,0 +1,48 @@
+{
+  "date_utc": "2026-08-29",
+  "scope": "fully enabled watcher qualification for the optimized reduced full-model path on P150x4",
+  "original_failure": {
+    "artifact": "../autofix/sampling_only_before.log.gz",
+    "stored_sha256": "aaf45a371f5c03f203ef169de24aad273ad9c1499c54a5e0ee621985039b7b0d",
+    "uncompressed_sha256": "62eb06ae73a1819e4c09522be7fddce6d5c0b56359ba35877e929a139a431b34",
+    "result": "NCRISC watcher assert during the UINT32 split-sampler all-gather",
+    "watcher_reported_line": 279
+  },
+  "root_cause": {
+    "classification": "source inspection plus isolated before/after reproduction",
+    "detail": "For the sampler's one-page UINT32 all-gather, pages_per_packet is one and use_scatter_write is false. The writer correctly sends through the unicast path, but its constructor still initialized unused scatter-write state with only one chunk, violating the scatter API's minimum chunk contract under watcher validation.",
+    "repair": "Compile out scatter-write set_state when use_scatter_write is false in the multicast primary and alternate routes and in the standard unicast writer. The active unicast-write state and data path are unchanged."
+  },
+  "source_sha256": {
+    "ttnn/cpp/ttnn/operations/ccl/all_gather/device/kernels/multicast_common.hpp": "c3e41e9d927627cd739e5546b7bd42010955d5aec20c89474697391b6f4b9783",
+    "ttnn/cpp/ttnn/operations/ccl/all_gather/device/kernels/unicast_common.hpp": "59953f62de8f19a24f431ce0f757d9f4e4cb9bf8477022d41256a978bf53942b"
+  },
+  "isolated_validation": [
+    {
+      "artifact": "../autofix/sampling_only_after.log.gz",
+      "stored_sha256": "b7688299e6cb88b3151a4539714a51440b1f1c6c905f3e6290a83f9700675d15",
+      "uncompressed_sha256": "36daad4d4ac20c1a58b0aa7000433df029ef36acc8c03893c64ce7a0c7fc1021",
+      "result": "pass: production TP4 sampler trace-state matrix under watcher"
+    },
+    {
+      "artifact": "../ccl_uint32/functional.log.gz",
+      "stored_sha256": "ac6229cd4cf9a70ecd7d338eca13e2bfd12de18a65c16bdb6fc74363b20afec1",
+      "uncompressed_sha256": "a15aaa289127d60ba7ae0f15b02a9cf312b18054ee1aa441a73b479f9db0397b",
+      "result": "pass: UINT32 all-gather eager and trace functional cases, PCC 1.0"
+    }
+  ],
+  "final_validation": {
+    "command": "env -u TT_METAL_SLOW_DISPATCH_MODE TT_METAL_WATCHER=1 GPT_OSS_120B_FULL_MODEL_PROBE=1 scripts/run_safe_pytest.sh models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k real_weight_two_layer_full_model_split_sampling_probe -s",
+    "host_log": "watcher_final_both_headers.log.gz",
+    "host_log_stored_sha256": "7bf0ed5830fa58d970f4d781ff9d6aa4f7a1cf54b71682625a5c4422ccb4d1ac",
+    "host_log_uncompressed_sha256": "e26bfc37c0163ac09d2c6b721d32e8030bdb172c1a7283e49d9084d96bd6cd23",
+    "device_log": "device_watcher_final_both_headers.log.gz",
+    "device_log_stored_sha256": "fa0927689a6caef6057b6f69c5da9d22b099027b7e5cc2d94c5e297a0d110f15",
+    "device_log_uncompressed_sha256": "5eab9a3493afdc60ce00ba980bb456a33661b80d297506484e9927df1f9f4898",
+    "watcher_disabled_features": "None",
+    "coverage": "embedding, sliding and full-attention decoder layers, final norm, LM head, traced greedy, traced top-k/top-p, tt_out_tok feedback, token-out, async collection, cache/page state, and teardown",
+    "result": "pass with clean watcher stop and device teardown",
+    "storage": "Generated watcher logs are losslessly gzip-compressed; stored and uncompressed hashes are recorded."
+  },
+  "scope_limit": "The generic high-bandwidth all-gather fixture that selects a different fabric firmware configuration remains outside this model-stage fix; its pre-test firmware-size failure is recorded separately and is not a measured-path fallback."
+}

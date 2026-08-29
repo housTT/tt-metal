@@ -1,0 +1,29 @@
+{
+  "date_utc": "2026-08-29",
+  "scope": "real-weight two-layer full-path probe with one sliding and one full-attention layer plus embedding, terminal norm, TP-sharded LM head, sampling, trace feedback, and cache state",
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "mesh": [1, 4],
+  "prompt_tokens": 7,
+  "output_tokens": 32,
+  "selected_split_greedy": {
+    "decode_seconds": 0.20093114199698903,
+    "decode_tokens_per_second_per_user": 154.28170910641884,
+    "ttft_seconds": 0.11931405100040138,
+    "predictions": [81288, 12777, 18013, 49413, 50073, 9586, 13953, 13537, 4338, 13559, 78219, 16367, 633, 138762, 18866, 23393, 2960, 68680, 125044, 23003, 103779, 445, 10374, 23003, 31330, 34577, 134613, 58065, 18684, 53423, 131489, 149344]
+  },
+  "rejected_generic_force_argmax": {
+    "decode_seconds": 0.2227953269975842,
+    "decode_tokens_per_second_per_user": 139.14115891818565,
+    "ttft_seconds": 0.0812140289999661,
+    "predictions": [81288, 12777, 18013, 49413, 50073, 9586, 13953, 13537, 4338, 13559, 78219, 16367, 633, 138762, 18866, 23393, 2960, 68680, 125044, 23003, 103779, 445, 10374, 23003, 31330, 34577, 134613, 58065, 18684, 53423, 131489, 149344]
+  },
+  "exact_prediction_match": true,
+  "force_argmax_decode_regression_percent": 9.813574321885232,
+  "selected_over_force_argmax_speedup": 1.1088143171003468,
+  "decision": "keep canonical split greedy; generic force-argmax adds a full-vocabulary all-gather and is slower",
+  "commands": {
+    "split_greedy": "GPT_OSS_120B_FULL_MODEL_PROBE=1 GPT_OSS_120B_SAMPLER_BENCH=1 scripts/run_safe_pytest.sh models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k real_weight_two_layer_full_model_split_sampling_probe -s",
+    "force_argmax_candidate": "GPT_OSS_120B_FULL_MODEL_PROBE=1 GPT_OSS_120B_SAMPLER_BENCH=1 GPT_OSS_120B_FORCE_ARGMAX_CANDIDATE=1 scripts/run_safe_pytest.sh models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k real_weight_two_layer_full_model_split_sampling_probe -s"
+  },
+  "provenance_note": "The temporary candidate hooks used only for the A/B run were removed after the decision; the selected production path and its permanent regression probe remain in source."
+}

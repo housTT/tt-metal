@@ -794,9 +794,13 @@ class OptimizedDecoder(FusedDecoder):
             prefill=ModeConfig(tp=1, ep=1, sp=1),
         )
         ccl_manager = CCLManager(mesh_device, num_links=get_default_num_links(mesh_device))
+        program_config = GPTOSSAttentionProgramConfig()
+        physical_context_length = (
+            math.ceil(max_context_length / program_config.decode_k_chunk_size) * program_config.decode_k_chunk_size
+        )
         paged_attention_config = PagedAttentionConfig(
             block_size=page_size,
-            max_num_blocks=max_batch_size * ((max_context_length + page_size - 1) // page_size),
+            max_num_blocks=max_batch_size * math.ceil(physical_context_length / page_size),
         )
         attention_config = AttentionConfig(
             hidden_size=hf_config.hidden_size,
@@ -826,7 +830,7 @@ class OptimizedDecoder(FusedDecoder):
             state_dict=substate(local_state, "self_attn"),
             ccl_manager=ccl_manager,
             mesh_config=mesh_config,
-            program_config=GPTOSSAttentionProgramConfig(),
+            program_config=program_config,
             layer_idx=layer_idx,
             paged_attention_config=paged_attention_config,
             transformation_mats=rope_setup.get_both_trans_mats(),

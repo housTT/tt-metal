@@ -1,0 +1,46 @@
+{
+  "date_utc": "2026-08-29",
+  "mesh": [1, 4],
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "decoder_stack": {
+    "source": "../optimized_multichip_decoder/performance_summary.csv",
+    "sliding_layers": 18,
+    "sliding_layer_ms": 0.39641363,
+    "sliding_stack_ms": 7.13544534,
+    "full_attention_layers": 18,
+    "full_attention_layer_ms": 0.39635362,
+    "full_attention_stack_ms": 7.13436516,
+    "stack_ms": 14.2698105
+  },
+  "named_terminal_floor": {
+    "source": "artifacts/profiler/final_source/interleaved/split_token_out_decode/tt_perf_report.csv.gz",
+    "lm_head_device_ms": 0.707269,
+    "sampler_device_ms": {
+      "TopkLargeIndicesDeviceOperation": 0.279933,
+      "TopKDeviceOperation": 0.044329,
+      "SamplingDeviceOperation": 0.027416,
+      "sum": 0.351678
+    },
+    "sum_ms": 1.058947,
+    "stack_plus_named_terminal_ms": 15.3287575,
+    "note": "This conservative floor includes the complete identifiable sampler chain, not only SamplingDeviceOperation. Embedding, final norm, feedback/position helpers, and remaining op gaps stay in the measured residual, so they cannot make the closure look artificially better."
+  },
+  "measured_token_out": {
+    "source": "artifacts/p150x4_prompt128_gen128_perf.json",
+    "workload": "warmed batch-1 prompt-128/generate-128 split greedy token-out",
+    "tokens_per_second_per_user": 62.87921373843022,
+    "ms_per_token": 15.903506748030864,
+    "excess_over_stack_plus_named_terminal_ms": 0.574749248030864,
+    "excess_over_stack_plus_named_terminal_percent": 3.749483596637653,
+    "gate_percent": 15.0,
+    "gate_pass": true
+  },
+  "profiler_dominance": {
+    "reduced_split_window_us": 2335.916,
+    "lm_head_percent_of_window": 30.278015134105846,
+    "complete_sampler_percent_of_window": 15.055250274410552,
+    "force_argmax": false,
+    "full_vocab_all_gather": false,
+    "conclusion": "The complete canonical sampler chain is materially smaller than the LM head and does not dominate token-out."
+  }
+}

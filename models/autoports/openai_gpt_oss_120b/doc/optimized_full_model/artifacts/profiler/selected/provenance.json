@@ -1,0 +1,27 @@
+{
+  "date_utc": "2026-08-29",
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "mesh": [1, 4],
+  "scope": "real-weight reduced full path: one sliding and one full-attention layer, embedding, final norm, selected TP-sharded LM head, split sampling, persistent token/position/RoPE/page-table state, and trace replay",
+  "pytest_command": "TT_METAL_PROFILER_MID_RUN_DUMP=1 GPT_OSS_120B_PROFILE_DRAIN=1 GPT_OSS_120B_FULL_MODEL_PROBE=1 scripts/run_safe_pytest.sh --profile models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k real_weight_two_layer_full_model_split_sampling_probe -s",
+  "tt_perf_report_command": "/home/ttuser/dev/ornith/ornith-pyenv/bin/tt-perf-report --start-signpost FULL_MODEL_ASYNC_TOKEN_OUT --end-signpost FULL_MODEL_ASYNC_TOKEN_OUT_END --active-experts 4 --csv models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/profiler/selected/decode_perf_report.csv --summary-file models/autoports/openai_gpt_oss_120b/doc/optimized_full_model/artifacts/profiler/selected/decode_summary.csv --no-color generated/profiler/reports/2026_08_29_09_11_51/ops_perf_results_2026_08_29_09_11_51.csv",
+  "source": {
+    "path": "generated/profiler/reports/2026_08_29_09_11_51/ops_perf_results_2026_08_29_09_11_51.csv",
+    "sha256": "26dd2d4fe54f5df4612df42cca7f88b036d9b88c9e1aa068de975d0155472581",
+    "retention": "workspace generated/profiler tree; normalized tables and visualization are retained with this stage"
+  },
+  "artifacts": {
+    "decode_perf_report.csv.gz": {
+      "stored_sha256": "7db9ea2724119817cbb93dbdad2806a28db5fddcdef7e41be280cf7e944a357e",
+      "uncompressed_sha256": "758b15447a1a225b2f8b9cbe7671f18c8110cffbf84682ae5fbcfa3ddb6d2452"
+    },
+    "decode_summary.csv.gz": {
+      "stored_sha256": "09720cf3ed9156694ed4cdb5a8196fc9cfa143fa263d53afbc43a7e22c38baaa",
+      "uncompressed_sha256": "2b79ac0843ae76e972e6742884ba1e6f56018a4b07b561d044c11511d581fa68"
+    },
+    "decode_summary.png": "10081eb5b740fceb1dc83989654f0719100a36342e0c319636a514d5eb2a14f7",
+    "tt_perf_report.txt": "86118f1771137125b7014755cae7e07b2966fd990c5f8a61f174bda165e7812b"
+  },
+  "storage": "Generated CSV artifacts are losslessly gzip-compressed after report generation.",
+  "conclusion": "selected; 22.0% modeled DRAM roofline (113 GB/s), with no force-argmax or full-vocabulary all-gather in the measured token-out path"
+}

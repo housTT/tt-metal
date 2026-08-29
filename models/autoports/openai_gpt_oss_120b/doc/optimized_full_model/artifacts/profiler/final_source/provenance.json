@@ -1,0 +1,149 @@
+{
+  "date_utc": "2026-08-29",
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "mesh": [1, 4],
+  "hardware": "P150x4",
+  "test": "models/autoports/openai_gpt_oss_120b/tests/test_full_model.py::test_real_weight_two_layer_optimized_full_model_profile",
+  "common_environment": {
+    "TT_METAL_PROFILER_MID_RUN_DUMP": "1",
+    "GPT_OSS_120B_PROFILE_DRAIN": "1",
+    "GPT_OSS_120B_FULL_MODEL_PROFILE": "1",
+    "TT_METAL_WATCHER": "unset",
+    "TT_METAL_SLOW_DISPATCH_MODE": "unset"
+  },
+  "pytest_command_template": "env -u TT_METAL_WATCHER -u TT_METAL_SLOW_DISPATCH_MODE TT_METAL_PROFILER_MID_RUN_DUMP=1 GPT_OSS_120B_PROFILE_DRAIN=1 GPT_OSS_120B_FULL_MODEL_PROFILE=1 GPT_OSS_120B_FULL_MODEL_PROFILE_PHASE=<phase> GPT_OSS_120B_LM_HEAD_POLICY=<policy> scripts/run_safe_pytest.sh --profile models/autoports/openai_gpt_oss_120b/tests/test_full_model.py -q -k real_weight_two_layer_optimized_full_model_profile -s",
+  "tt_perf_report_commands": [
+    "/home/ttuser/dev/ornith/ornith-pyenv/bin/tt-perf-report --start-signpost <start> --end-signpost <end> --active-experts 4 --no-color --no-summary --csv <phase>/tt_perf_report.csv <phase>/raw_ops.csv",
+    "/home/ttuser/dev/ornith/ornith-pyenv/bin/tt-perf-report --start-signpost <start> --end-signpost <end> --active-experts 4 --no-color --no-summary <phase>/raw_ops.csv"
+  ],
+  "raw_ops_storage": "The exact command inputs are losslessly stored as raw_ops.csv.xz to satisfy the repository's 500 KB per-file commit limit. raw_ops_sha256 is the uncompressed CSV content hash; raw_ops_stored_sha256 is the committed xz hash.",
+  "generated_text_storage": "Generated profiler .csv and .log files are losslessly stored with a .gz suffix. Fields ending in _sha256 retain the uncompressed content hash; _stored_sha256 fields identify the committed gzip bytes.",
+  "tt_perf_report_text_normalization": "Repository pre-commit removed trailing padding and normalized the final newline in the human-readable tables. No table rows or values changed; tt_perf_report_txt_sha256 identifies the normalized committed table.",
+  "source_sha256": {
+    "models/demos/gpt_oss/tt/model.py": "869e7bd6e71c329204d8d56ac1448e8663df0ecb2539a8b96dcaa4fc9a430f8f",
+    "models/autoports/openai_gpt_oss_120b/tt/model.py": "9e6c816b9c2c10730a4f836f93d7692f1981eafb4ee9707abe3d5d6243e79ef2",
+    "models/autoports/openai_gpt_oss_120b/tt/generator.py": "595bdd4eb2342f25d137136e8422b1896a4a56ebb2c19e6a7add13c6aa18e90e",
+    "models/autoports/openai_gpt_oss_120b/tt/multichip_decoder.py": "e85045dfb4af68a4f52a23ccb4f2103474a8a3aae7635b5e4e5e9ce904d7bc5b",
+    "models/autoports/openai_gpt_oss_120b/tt/optimized_decoder.py": "33623514a496908affdcf5386a37d35d12c3d45654d8c40eaddef08131c81d41",
+    "models/autoports/openai_gpt_oss_120b/tests/test_full_model.py": "72998ba0e6c239231499cee9f5268b280bc94bdcd1d21d4fc061269ead25dbb0",
+    "ttnn/cpp/ttnn/operations/ccl/all_gather/device/kernels/multicast_common.hpp": "c3e41e9d927627cd739e5546b7bd42010955d5aec20c89474697391b6f4b9783",
+    "ttnn/cpp/ttnn/operations/ccl/all_gather/device/kernels/unicast_common.hpp": "59953f62de8f19a24f431ce0f757d9f4e4cb9bf8477022d41256a978bf53942b"
+  },
+  "post_qualification_format_only": {
+    "tool": "pre-commit black",
+    "observation": "Black changed formatting only after the final hardware and profiler runs; no model, generator, CCL, or test semantics were intentionally changed.",
+    "files": {
+      "models/autoports/openai_gpt_oss_120b/tt/model.py": {
+        "profiled_sha256": "9e6c816b9c2c10730a4f836f93d7692f1981eafb4ee9707abe3d5d6243e79ef2",
+        "formatted_sha256": "25b18c6ff5d73a3cbce7e513e51b158379370e49d4384ebdc5f110b0b9d7a134"
+      },
+      "models/autoports/openai_gpt_oss_120b/tests/test_full_model.py": {
+        "profiled_sha256": "72998ba0e6c239231499cee9f5268b280bc94bdcd1d21d4fc061269ead25dbb0",
+        "formatted_sha256": "5ef3073f0f3f77f595b0fda53ef44a5a5fb3e8642c1e09552d3a8832589e1dcf"
+      }
+    }
+  },
+  "phases": {
+    "interleaved/prefill": {
+      "start_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_PREFILL",
+      "end_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_PREFILL_END",
+      "raw_ops_sha256": "b76610f9bfd001c68247f23b43cd1d0b7c2a2f32e47a29761a6b1091d5f25eb5",
+      "raw_ops_stored_path": "interleaved/prefill/raw_ops.csv.xz",
+      "raw_ops_stored_sha256": "337ec7450cfa78906f6575f7b5f89e488b0bc0b1438094ffe53338baf951afa1",
+      "tt_perf_report_csv_sha256": "51aecade7a37afdab3200f2caeb1a61d8626142672260ace1a9188e29583b26d",
+      "tt_perf_report_csv_stored_path": "interleaved/prefill/tt_perf_report.csv.gz",
+      "tt_perf_report_csv_stored_sha256": "90ab9b54064e98785fae08f762c8396d2e31630206fc28abacaef83982111cc6",
+      "tt_perf_report_txt_sha256": "e412fc869c802c61d07d323cf0afe9de853de8f39001f01fa4645622f65c0b58",
+      "phase_evidence_sha256": "b3809478381c81ab895ded3dd1cad8e696e00acf2fe1fe5ede6c2d354f54fcc9",
+      "profile_log_sha256": "04000c48c6e82fa3cac6d02ce6ebdc7e4f4b960f5951723f0c7ae497ff3a22e5",
+      "profile_log_stored_path": "interleaved/prefill/profile.log.gz",
+      "profile_log_stored_sha256": "cd7ba06103155bd96fe5e3c418b9407db8e22dd883d8cb10c190854c5be8980e",
+      "rows": 161,
+      "device_us": 27702.94325,
+      "op_to_op_gap_us": 1995.236,
+      "window_us": 29698.17925,
+      "result": "pass"
+    },
+    "interleaved/teacher_forcing_decode": {
+      "start_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_TEACHER_FORCING_DECODE",
+      "end_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_TEACHER_FORCING_DECODE_END",
+      "raw_ops_sha256": "756fdb018548ec40526680e30b4ae2798736883012579460cb8d1a9445721b4d",
+      "raw_ops_stored_path": "interleaved/teacher_forcing_decode/raw_ops.csv.xz",
+      "raw_ops_stored_sha256": "20a24f97c544eeb8fb10f24bbdcab17d94f82dd701749eee7b51e2dea93b9908",
+      "tt_perf_report_csv_sha256": "9187f639201fce860328cd83644199d6460fadcebe9f263036d4f057bc8e0fee",
+      "tt_perf_report_csv_stored_path": "interleaved/teacher_forcing_decode/tt_perf_report.csv.gz",
+      "tt_perf_report_csv_stored_sha256": "2a48268c45c2677c15f06f96a29bccd44e68e1acb30f226e612c2f49180ab4c9",
+      "tt_perf_report_txt_sha256": "9ed4f426d88bbe97cff5b2049f7e9141e694037ebd5cd341e1b663c3f43c213d",
+      "phase_evidence_sha256": "22a6e2a955f162842c4cfdd2b8c29c2514529da50b20efeea57f423ccbdf0044",
+      "profile_log_sha256": "37b34b208616d4463088662b7daafe3edf281a962f8ede0d1e10877ee0ca64ad",
+      "profile_log_stored_path": "interleaved/teacher_forcing_decode/profile.log.gz",
+      "profile_log_stored_sha256": "4552799cd5f107f812df79c77646a9c700b771d3a1aa14f52433b67011a50c64",
+      "rows": 182,
+      "device_us": 2061.59975,
+      "op_to_op_gap_us": 277.517,
+      "window_us": 2339.11675,
+      "result": "pass"
+    },
+    "interleaved/split_token_out_decode": {
+      "start_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_SPLIT_TOKEN_OUT_DECODE",
+      "end_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_SPLIT_TOKEN_OUT_DECODE_END",
+      "raw_ops_sha256": "67ef515fa18475072fa348b86131656a8d759820f2157e4b6a99b48587d92f02",
+      "raw_ops_stored_path": "interleaved/split_token_out_decode/raw_ops.csv.xz",
+      "raw_ops_stored_sha256": "c0afc41ad4fc20917178401d1a67d7e8a1f5c26d866850d36297d25bcfe35697",
+      "tt_perf_report_csv_sha256": "0a4acf64c22656bb9c86198e6a83e4018438b3345a8bfd7445abfd904f01da8f",
+      "tt_perf_report_csv_stored_path": "interleaved/split_token_out_decode/tt_perf_report.csv.gz",
+      "tt_perf_report_csv_stored_sha256": "a98a478f2455a5191e4216fc52b6ce3771281ab6edf623abdba2193af488d8d2",
+      "tt_perf_report_txt_sha256": "0fd35ec7b16ecd235579226f43cb24bd0454bd528e61a3d21b8cf32bd6fbf340",
+      "phase_evidence_sha256": "054ec5b4772856369ef2f127d41e742b7d7e484fd93b9f3b961d0458118da646",
+      "profile_log_sha256": "25097343681c6d277c2ee95c93b30a72461450944c1ce77fc44eff150d177f18",
+      "profile_log_stored_path": "interleaved/split_token_out_decode/profile.log.gz",
+      "profile_log_stored_sha256": "6a8fdc64d3ee794fedab718c7597cea9873f3f6bf92ed69776b018e291a3298f",
+      "rows": 182,
+      "device_us": 2065.598,
+      "op_to_op_gap_us": 270.318,
+      "window_us": 2335.916,
+      "result": "pass"
+    },
+    "dram_sharded/prefill": {
+      "start_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_PREFILL",
+      "end_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_PREFILL_END",
+      "raw_ops_sha256": "1a44c3ee5e94402e7a38253f3f6d37207e9acb2636978bd6e4759931b4dd31b6",
+      "raw_ops_stored_path": "dram_sharded/prefill/raw_ops.csv.xz",
+      "raw_ops_stored_sha256": "3a2569a4fa338e003674b04393b9c7952b6cecb4225e60f77f9ae822dcb06b3f",
+      "tt_perf_report_csv_sha256": "4d0e29dcd63b8daaaf51d3aa0b95afa9a76aacc119ad01cf64755beda168f59f",
+      "tt_perf_report_csv_stored_path": "dram_sharded/prefill/tt_perf_report.csv.gz",
+      "tt_perf_report_csv_stored_sha256": "cce182f4ea33e65291fdf702163b9e1ede4ee156f330c1fc64a501249c52e548",
+      "tt_perf_report_txt_sha256": "8906fea4138d90c30e78957205905b255f5ccbc29516bb9499aff07693cfecd3",
+      "phase_evidence_sha256": "e57daff2c8be0a7aec74576784bd5eb50b81e6aa0b7d10ba6c6e914f4be6bd40",
+      "profile_log_sha256": "c15999f74c9a44ca2b30454bb102bccd9bd02cfcd412cbe778b9716b99123aa9",
+      "profile_log_stored_path": "dram_sharded/prefill/profile.log.gz",
+      "profile_log_stored_sha256": "5adf5bbf57a2db495b8d5c7b1e64a521019bb33485dc9e5afbc9ac1ebbc24c9b",
+      "rows": 178,
+      "device_us": 27826.03725,
+      "op_to_op_gap_us": 2026.047,
+      "window_us": 29852.08425,
+      "result": "pass"
+    },
+    "dram_sharded/split_token_out_decode": {
+      "start_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_SPLIT_TOKEN_OUT_DECODE",
+      "end_signpost": "OPTIMIZED_FULL_MODEL_PROFILE_SPLIT_TOKEN_OUT_DECODE_END",
+      "raw_ops_sha256": "41fc9435a07b292e6a736245c37e2baf6fb5192bb22fca7e482ab7bd229b33f0",
+      "raw_ops_stored_path": "dram_sharded/split_token_out_decode/raw_ops.csv.xz",
+      "raw_ops_stored_sha256": "ddecdb9c7f98b70f834c01c9f58cd9c5a73ccca6bf14ea64ca18de5d6ebb9331",
+      "tt_perf_report_csv_sha256": "0adbf3418e29c3214131c7d66f49d00c0ea2302078abe9c5758b702df52084a9",
+      "tt_perf_report_csv_stored_path": "dram_sharded/split_token_out_decode/tt_perf_report.csv.gz",
+      "tt_perf_report_csv_stored_sha256": "556bf99823d8ce16b65cf845c779a7c69e9403b8256311ca5492887f02effdbb",
+      "tt_perf_report_txt_sha256": "fd328c17633136f7ceabd6da6af7094776c3d5e9cd80a21b2a4c6815a0c878d4",
+      "phase_evidence_sha256": "6a1fc72f7a3947d6638ccba44666fb19cd181d955e6fb26cc0f626b7c6dada88",
+      "profile_log_sha256": "61819ab1dea82f3095a9bd6ac95763ab4f75208999ee74608efd0aa38a72100e",
+      "profile_log_stored_path": "dram_sharded/split_token_out_decode/profile.log.gz",
+      "profile_log_stored_sha256": "6db7af437c49a27a1d1e31c20029cf8cd1d4777a97abf936e59865ba6c42522a",
+      "rows": 198,
+      "device_us": 2063.056,
+      "op_to_op_gap_us": 279.504,
+      "window_us": 2342.56,
+      "result": "pass"
+    }
+  },
+  "conclusion": "Retain the interleaved LM head. The DRAM-sharded candidate is 0.284% slower in split token-out and 0.518% slower in prefill, adds 191.25 MiB/device, and preserves exact sampled tokens. The complete selected sampler chain is 351.678 us (15.055% of the reduced split window), materially below the 707.269 us LM head and not dominant."
+}

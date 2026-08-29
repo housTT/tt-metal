@@ -1,0 +1,52 @@
+{
+  "phase": "split_token_out_decode",
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "layers": 2,
+  "prompt_length": 128,
+  "lm_head_policy": "dram_sharded",
+  "lm_head_candidate_manifest": {
+    "dtype": "BFP8_B",
+    "compute_fidelity": "HiFi2",
+    "local_padded_vocab": 65536,
+    "split_size": 8192,
+    "num_splits": 8,
+    "dram_banks": 8,
+    "input_shard_shape": [
+      32,
+      288
+    ],
+    "output_memory": "DRAM interleaved"
+  },
+  "first_token": 16453,
+  "final_token": 88378,
+  "trace_evidence": {
+    "decode_calls": 3,
+    "trace_replays": 3,
+    "full_input_refreshes": 1,
+    "page_table_only_refreshes": 0,
+    "page_table_reuses": 2,
+    "sampled_token_readbacks": 3,
+    "full_logits_readbacks": 0,
+    "forced_token_refreshes": 0,
+    "host_argmax_calls": 0,
+    "token_input_host_refreshes": 1,
+    "position_rope_host_refreshes": 1,
+    "page_table_host_refreshes": 1,
+    "steady_token_input_host_refreshes": 0,
+    "steady_position_rope_host_refreshes": 0,
+    "steady_page_table_host_refreshes": 0,
+    "caller_visible_token_synchronizations": 3,
+    "validation_full_logit_synchronizations": 0,
+    "device_token_out_submissions": 3,
+    "fixed_sampling_state_replays": 2,
+    "fixed_greedy_sampling_replays": 2,
+    "sampling_state_host_refreshes": 1,
+    "decode_output_collections": 2,
+    "asynchronous_decode_output_collections": 0,
+    "new_prefill_variants_compiled": 1,
+    "decode_trace_releases_for_prefill_compile": 0
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "date_utc": "2026-08-29",
+  "scope": "final-source real-weight reduced full path on P150x4: embedding, one sliding and one full-attention decoder layer, final norm, LM head, logits, split sampling, persistent decode state, and trace replay",
+  "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "comparison_method": "sum of Device Time and Op-to-Op Gap for each signpost-isolated window; individual LM-head and sampler components use Device Time from the four-device-merged tt-perf-report CSV tables",
+  "selected": {
+    "policy": "one 65536-column local DRAM-interleaved BFP8 LM-head matmul per rank",
+    "prefill_window_us": 29698.17925,
+    "prefill_lm_head_matmul_count": 1,
+    "prefill_lm_head_device_us": 527.122,
+    "split_token_out_window_us": 2335.916,
+    "split_token_out_lm_head_matmul_count": 1,
+    "split_token_out_lm_head_device_us": 707.269,
+    "split_token_out_lm_head_percent": 30.278015134105846,
+    "split_token_out_sampler_device_us": 351.678,
+    "split_token_out_sampler_percent": 15.055250274410552,
+    "sharded_to_interleaved_count": 0,
+    "additional_resident_bytes_per_device": 0
+  },
+  "candidate": {
+    "policy": "eight 8192-column DRAM-width-sharded BFP8 matmuls followed by eight sharded-to-interleaved conversions and concatenation",
+    "prefill_window_us": 29852.08425,
+    "prefill_lm_head_matmul_count": 8,
+    "prefill_lm_head_device_us": 676.357,
+    "split_token_out_window_us": 2342.56,
+    "split_token_out_lm_head_matmul_count": 8,
+    "split_token_out_lm_head_device_us": 674.74,
+    "split_token_out_lm_head_percent": 28.80353117956424,
+    "split_token_out_sampler_device_us": 351.686,
+    "split_token_out_sampler_percent": 15.012891878970015,
+    "sharded_to_interleaved_count": 8,
+    "additional_resident_bytes_per_device": 200540160,
+    "manifest": {
+      "split_size": 8192,
+      "num_splits": 8,
+      "weight_memory": "DRAM width-sharded",
+      "output_memory": "L1 width-sharded",
+      "math_fidelity": "HiFi2",
+      "weight_dtype": "BFP8",
+      "output_dtype": "BFP8"
+    }
+  },
+  "candidate_prefill_regression_percent": 0.5182304231664325,
+  "candidate_split_token_out_regression_percent": 0.2844280359396434,
+  "correctness": {
+    "prefill_exact_token": 16453,
+    "selected_split_first_token": 16453,
+    "selected_split_final_token": 88378,
+    "candidate_split_first_token": 16453,
+    "candidate_split_final_token": 88378
+  },
+  "sampler_conclusion": "The complete greedy vocabulary chain (TopkLargeIndicesDeviceOperation, both TopKDeviceOperation rows, and SamplingDeviceOperation) accounts for 351.678 us (15.055% of the selected reduced-path window). It does not dominate the 707.269 us LM head or the complete window. The measured production choice is the canonical generic sampler with force_argmax disabled; the separate sampler A/B artifact shows force-argmax is slower.",
+  "decision": "retain the interleaved LM head: the candidate is 0.284% slower for split token-out, 0.518% slower for prefill, adds 191.25 MiB/device while retaining the base weight, and does not change the sampled tokens",
+  "provenance": "artifacts/profiler/final_source/provenance.json"
+}

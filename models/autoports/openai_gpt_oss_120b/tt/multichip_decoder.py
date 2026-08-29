@@ -49,6 +49,7 @@ from models.tt_transformers.tt.rope import RotarySetup
 SUPPORTED_MESH_SHAPES = ((1, 1), (1, 2), (1, 4))
 _SUPPORTED_LAYER_TYPES = {"sliding_attention", "full_attention"}
 _DOWN_SUBBLOCK_WIDTH_BY_TP = {2: 1, 4: 3}
+DECODE_K_CHUNK_SIZE = GPTOSSAttentionProgramConfig().decode_k_chunk_size
 
 
 @dataclass(frozen=True)
@@ -1640,9 +1641,17 @@ class MultichipDecoder(LightweightModule):
             num_links=get_default_num_links(mesh_device),
             topology=policy.topology,
         )
+        program_config = GPTOSSAttentionProgramConfig()
+        physical_context_length = (
+            math.ceil(max_context_length / program_config.decode_k_chunk_size) * program_config.decode_k_chunk_size
+        )
         paged_attention_config = PagedAttentionConfig(
             block_size=page_size,
-            max_num_blocks=max_batch_size * math.ceil(max_context_length / page_size),
+            # SDPA reads whole K chunks.  A non-chunk-aligned logical
+            # context therefore needs enough physical pages for the padded
+            # final chunk even though positions beyond the logical limit are
+            # never accepted by the public generator.
+            max_num_blocks=max_batch_size * math.ceil(physical_context_length / page_size),
         )
         attention_config = AttentionConfig(
             hidden_size=hf_config.hidden_size,
@@ -1673,7 +1682,7 @@ class MultichipDecoder(LightweightModule):
             state_dict=attention_state,
             ccl_manager=ccl_manager,
             mesh_config=mesh_config,
-            program_config=GPTOSSAttentionProgramConfig(),
+            program_config=program_config,
             layer_idx=layer_idx,
             paged_attention_config=paged_attention_config,
             transformation_mats=rope_setup.get_both_trans_mats(),

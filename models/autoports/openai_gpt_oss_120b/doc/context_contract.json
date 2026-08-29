@@ -164,11 +164,13 @@
     "resident_production_target": "P150x4",
     "configured_context_length": 131072,
     "supported_context_length": 131072,
+    "physical_kv_context_length_at_full_context": 131072,
     "page_size": 64,
+    "decode_k_chunk_size": 128,
     "max_batch_size_at_full_context": 10,
     "largest_capacity_batch_checked": 32,
-    "batch_11_largest_capacity_context": 130880,
-    "batch_32_largest_capacity_context": 44992,
+    "batch_11_largest_capacity_context": 130816,
+    "batch_32_largest_capacity_context": 44928,
     "capacity_reduction": {
       "P150": "resident 36-layer weights, terminal tensors, batch-1 full-context KV/page state, and a 2 GiB trace/activation reserve require 74895259776 bytes/device (69.751646 GiB); fixed state already exceeds 32 GiB so the largest feasible context is 0",
       "P150x2": "resident 36-layer weights, terminal tensors, batch-1 full-context KV/page state, and a 2 GiB trace/activation reserve require 39272108928 bytes/device (36.575002 GiB); fixed state already exceeds 32 GiB so the largest feasible context is 0",
@@ -215,6 +217,7 @@
     "cache_and_state": {
       "kv_cache_dtype": "bfloat8_b",
       "paged_cache": true,
+      "physical_allocation_rule": "round each logical context up to a 128-token decode K chunk before allocating KV blocks and page-table entries",
       "global_kv_heads": 8,
       "local_kv_heads_tp4": 2,
       "explicit_low_level_cache_page_position_prompt_batch_state": true,
@@ -258,6 +261,104 @@
         "artifact_sha256": "588e98487aad4491d204dcac2ba12ab1dae4ec1068f2876606583ae30d79882d",
         "recovery_note": "an initial source-unchanged failure with stable HF-matching greedy tokens cleared after a bounded physical device reset; the unchanged exact gate then passed twice"
       }
+    }
+  },
+  "optimized_full_model": {
+    "status": "optimized_full_model_complete_stage_review_clean_pass",
+    "target_meshes": {
+      "P150": [1, 1],
+      "P150x2": [1, 2],
+      "P150x4": [1, 4]
+    },
+    "resident_production_target": "P150x4",
+    "configured_context_length": 131072,
+    "supported_context_length": 131072,
+    "capability_reduction": null,
+    "resident_capacity": {
+      "P150": {
+        "fits_32_gib": false,
+        "largest_feasible_context": 0,
+        "evidence": "fixed resident state already exceeds 32 GiB/device"
+      },
+      "P150x2": {
+        "fits_32_gib": false,
+        "largest_feasible_context": 0,
+        "evidence": "fixed resident state already exceeds 32 GiB/device"
+      },
+      "P150x4": {
+        "fits_32_gib": true,
+        "batch1_context": 131072,
+        "max_batch_at_full_context": 10,
+        "batch11_largest_context": 130816,
+        "batch32_largest_context": 44928
+      }
+    },
+    "parallel_contract": {
+      "parallelism": "1D tensor parallelism on mesh axis 1",
+      "resident_layers": 36,
+      "inter_layer_residual": "logical [1,1,batch,2880] BF16 replicated across ranks; decode L1-interleaved and prefill DRAM-interleaved",
+      "inter_layer_collective": null,
+      "embedding": "replicated BF16 lookup",
+      "final_norm": "selected decode width-sharded RMSNorm",
+      "lm_head": "one local 65536-column DRAM-interleaved BFP8 matmul per TP rank",
+      "decoder_policy": "unchanged optimized-multichip dtype, fidelity, KV-cache, activation, CCL, program-config, kernel, and rejection ledger"
+    },
+    "cache_and_request_state": {
+      "kv_cache_dtype": "bfloat8_b",
+      "paged_cache": true,
+      "page_size": 64,
+      "decode_k_chunk_size": 128,
+      "physical_allocation_rule": "round logical context to the 128-token decode K chunk and then allocate 64-token pages",
+      "explicit_state": ["cache", "page_table", "token_position", "rope_position", "prompt_length", "batch", "fixed_slots"],
+      "inactive_row_sentinel": -1,
+      "mixed_prompts_tested": true,
+      "fixed_slots_tested": true,
+      "inactive_rows_tested": true,
+      "changed_only_page_tables": true,
+      "public_non_aligned_prompts": true,
+      "non_aligned_prompt_lengths_tested": [5, 7, 214]
+    },
+    "sampling": {
+      "default": "canonical traced split sampling via models.common.sampling.SamplingGenerator",
+      "sampler_ready_logits": "TP vocabulary shards remain on device",
+      "token_feedback": "tt_out_tok aliases the persistent next-token input",
+      "greedy": "device top-k=1/top-p=0 semantic argmax",
+      "top_k_top_p_trace_tested": {
+        "temperature": 0.8,
+        "top_k": 20,
+        "top_p": 0.9
+      },
+      "force_argmax": false,
+      "full_vocab_all_gather": false,
+      "host_sampling_compatibility_only": true
+    },
+    "token_out_trace": {
+      "fully_traced_model_and_sampler": true,
+      "nonblocking_replay": true,
+      "persistent_token_position_rope_page_table_inputs": true,
+      "prompt128_output128_model_replays": 127,
+      "prompt128_output128_sampling_replays": 126,
+      "steady_token_host_refreshes": 0,
+      "steady_position_rope_host_refreshes": 0,
+      "steady_page_table_host_refreshes": 0,
+      "unchanged_page_table_reuses": 126,
+      "caller_visible_scalar_reads": 2,
+      "full_logits_readbacks": 0,
+      "host_argmax_calls": 0
+    },
+    "validation": {
+      "checkpoint_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+      "prefill_top1_top5_top100": [0.94, 1.0, 1.0],
+      "teacher_forcing_top1_top5_top100": [0.95, 1.0, 1.0],
+      "autoregressive_tokens": 100,
+      "qualitative_prompts": 6,
+      "degeneration_findings": 0,
+      "batch2_bitwise_replay_determinism": true,
+      "full_stack_sync_runs_exact": true,
+      "split_endpoint_lengths_exact": [7, 8, 122, 128],
+      "runtime_fallback_audit": "clean",
+      "watcher": "fully enabled, disabled features None, final reduced full path pass",
+      "artifact_root": "optimized_full_model/artifacts"
     }
   },
   "provenance": {

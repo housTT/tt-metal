@@ -327,6 +327,9 @@ class Model:
         # No-op; required by tt_transformers generator interface.
         return None
 
+    def _apply_lm_head(self, hidden_states):
+        return ttnn.matmul(hidden_states, self.lm_head_weight, dtype=ttnn.bfloat8_b)
+
     def _forward_layers_and_head(
         self,
         hidden_states,
@@ -415,7 +418,7 @@ class Model:
 
         # Final norm and lm_head
         hidden_states = self.norm(hidden_states)
-        logits = ttnn.matmul(hidden_states, self.lm_head_weight, dtype=ttnn.bfloat8_b)
+        logits = self._apply_lm_head(hidden_states)
         hidden_states.deallocate(True)
         self._prefill_sampling_active = False
         # TP all-gather is deferred to process_output_prefill / process_output_decode

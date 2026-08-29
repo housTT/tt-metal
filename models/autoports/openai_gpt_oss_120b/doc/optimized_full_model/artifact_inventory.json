@@ -1,0 +1,188 @@
+{
+  "stage": "optimized-full-model",
+  "generated_utc_date": "2026-08-29",
+  "status": "optimized_full_model_complete_stage_review_clean_pass",
+  "accepted_artifacts": [
+    {
+      "path": "artifacts/p150x4_prompt128_gen128_perf.json",
+      "sha256": "59a0e7721e952fcb0f8eb50b396023cdd6a860292ae07b24b4a6319614515b09",
+      "scope": "final resident P150x4 non-aligned prompt-214/output-100 and prompt-128/output-128 split token-out",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/p150x4_full_stack_split_isolation.json",
+      "sha256": "356857f31e9f8e5a6e7f7c6f85ae6457cfae848880112c7c2124e1a18eb2fab7",
+      "scope": "36-layer repeated synchronous, pre-unseen-prefill lifecycle, and split endpoints 7/8/122/128",
+      "verdict": "pass_exact"
+    },
+    {
+      "path": "artifacts/batch2_logit_reproducibility.json",
+      "sha256": "588e98487aad4491d204dcac2ba12ab1dae4ec1068f2876606583ae30d79882d",
+      "scope": "36-layer batch-2 prefill/decode full logits across rows and runs",
+      "verdict": "pass_bitwise_exact"
+    },
+    {
+      "path": "artifacts/mixed_prompt_fixed_slots_inactive_row.json",
+      "sha256": "6637a8000b06781c66afa722746d7757e5b7997071aaaf321c871e1eb8a94ca9",
+      "scope": "mixed prompt lengths, fixed slots, explicit page rows, inactive -1 row",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/top_k_top_p_trace_contract.json",
+      "sha256": "79ba7a2c611c343088bf3704e64e3e667a78b47fca1fff97bbc9db92862cc33a",
+      "scope": "full reduced path traced temperature/top-k/top-p sampling and tt_out_tok feedback",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/tp4_sampling_trace_isolation.json",
+      "sha256": "fdd495b7994a9dceafcbdec212d7d6c9306d7d2b48192fbd437e061369962e7d",
+      "scope": "eight 128-step sampler feedback/refresh/collection combinations",
+      "verdict": "pass_exact"
+    },
+    {
+      "path": "artifacts/split_token_out_length_isolation.json",
+      "sha256": "50d73b654284d389d0313fcba0687df9397c5662154fe58c424af8d35cb85e14",
+      "scope": "prompt-8/output-122 physical KV chunk boundary through logical position 129",
+      "verdict": "pass_exact"
+    },
+    {
+      "path": "artifacts/sampler_candidate_comparison.json",
+      "sha256": "e22dfd492a5e58675db86e5f98aa7cc36c6731a099c8d4de55fc157974dbe646",
+      "scope": "canonical split greedy versus force-argmax/full-vocabulary gather",
+      "verdict": "pass_retain_split_greedy"
+    },
+    {
+      "path": "artifacts/lm_head_candidate_comparison.json",
+      "sha256": "7831d462c27996f5373c28e0e9cf736f2d35daf941ef2f5cc3f652f7980f14ae",
+      "scope": "final-source interleaved versus eight-way DRAM-sharded LM head",
+      "verdict": "pass_retain_interleaved"
+    },
+    {
+      "path": "artifacts/full_path_lower_bound.json",
+      "sha256": "ef67c04d1f3a5d85a92f12965acd23639cdba8051cdfc2a99defa00b6c4d26d2",
+      "scope": "36-layer lower bound, complete sampler chain, measured closure",
+      "verdict": "pass_3.749_percent_residual"
+    },
+    {
+      "path": "artifacts/prefill_readiness.json",
+      "sha256": "c2cb66152b5d44eace0f5bbc6734169095d4a8ee3f06a4161bb243e1f74dbe4b",
+      "scope": "AIME24 chat-template prefill top-100",
+      "verdict": "pass_94_100_100"
+    },
+    {
+      "path": "artifacts/teacher_forcing_readiness.json",
+      "sha256": "66ba254811aca2cdad7a1d968aba910ea181bf6240dd1aa812cd1b32ff6ba837",
+      "scope": "AIME24 traced teacher forcing top-100 plus performance",
+      "verdict": "pass_95_100_100"
+    },
+    {
+      "path": "artifacts/autoregressive/autoregressive_meta.json",
+      "sha256": "f457341d30feed5c78b8fc1bb17cf9a87933fdbe7c206cfd4b79c15147c309fa",
+      "scope": "100-token AIME24 HF control and TT autoregressive output",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/autoregressive/degenerate_check.json",
+      "sha256": "b27d44a4c1ccc675b90a8a67f49328a1665f6e5b0d00d963d936ee906784cd56",
+      "scope": "autoregressive degeneration check",
+      "verdict": "pass_no_findings"
+    },
+    {
+      "path": "qualitative/qualitative_tt_chat.json",
+      "sha256": "5a53b1d8bc3424e411ca48f507255a88b46469627f26979f833030a155c53541",
+      "scope": "six shared chat-template qualitative prompts",
+      "verdict": "pass"
+    },
+    {
+      "path": "qualitative/qualitative_hf_tt_comparison.json",
+      "sha256": "f4421ad36976ed6649e9fcd3bf19e186c840a87575f6a5d07c4356a8ac28b0e7",
+      "scope": "pinned HF control comparison and identical prompt-token proof",
+      "verdict": "pass_prompt_identity_token_agreement_informational"
+    },
+    {
+      "path": "qualitative/degenerate_check.json",
+      "sha256": "f359ed7b9227c7b93c40b2a7e0f6ddae46e7577a3e985d74debf47eabe958464",
+      "scope": "six-prompt qualitative degeneration check",
+      "verdict": "pass_no_findings"
+    },
+    {
+      "path": "artifacts/profiler/final_source/provenance.json",
+      "sha256": "014c204afb9138306d7ba3dbaf0b443a4d668e1322a0d014467ecacd3f4f8540",
+      "scope": "five final-source profiler phases with per-phase raw/table/CSV/log hashes",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/watcher/final_source/provenance.json",
+      "sha256": "05c909911b021713dbc6cdd9b853e466746c65bd8267cbad617da2830e516ef7",
+      "scope": "watcher root cause, source hashes, isolated and final full-path proof",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/watcher/final_source/watcher_final_both_headers.log.gz",
+      "sha256": "7bf0ed5830fa58d970f4d781ff9d6aa4f7a1cf54b71682625a5c4422ccb4d1ac",
+      "scope": "fully enabled final reduced full-path watcher host log",
+      "verdict": "pass"
+    },
+    {
+      "path": "artifacts/watcher/final_source/device_watcher_final_both_headers.log.gz",
+      "sha256": "fa0927689a6caef6057b6f69c5da9d22b099027b7e5cc2d94c5e297a0d110f15",
+      "scope": "losslessly compressed final device watcher log; uncompressed hash is in watcher provenance",
+      "verdict": "pass_clean"
+    },
+    {
+      "path": "stage_review.md",
+      "sha256": "13484c6b8b79bf64201e5f13a1afc35f1e2b106c61e4bd04893e2e25d949b1c4",
+      "scope": "fresh xhigh independent review plus focused documentation rereview",
+      "verdict": "clean-pass"
+    }
+  ],
+  "accepted_command_logs": [
+    {
+      "path": "artifacts/final_full_stack_acceptance_prompt214_gen100.log.gz",
+      "sha256": "a05bee0191b4e48f751215bab71f3d4a44c2806723e22f26d3709b1f516ed7d1"
+    },
+    {
+      "path": "artifacts/batch2_all_layer_post_reset_exact.log.gz",
+      "sha256": "748db8248ca94e32c032b27d897631f1bca76122682a0a855f3fb394edcd595a"
+    },
+    {
+      "path": "artifacts/final_prefill_readiness.log.gz",
+      "sha256": "bd72a0bbc8956c805d74431d9793e26fbab555b34bd4680d22ff369fb1213829"
+    },
+    {
+      "path": "artifacts/final_teacher_forcing_readiness.log.gz",
+      "sha256": "c9ba518e0ab5bf0937579057788978e7a71faa91db13dcf60d7f053b8350413c"
+    },
+    {
+      "path": "artifacts/final_autoregressive.log.gz",
+      "sha256": "c2efbd6aceda1537e615c46ad2341af8d3a6473f6880184a85bad88e679d0107"
+    }
+  ],
+  "diagnostic_recovery_only": [
+    {
+      "path": "artifacts/batch2_all_layer.log.gz",
+      "reason": "initial source-unchanged stale-device-state failure; superseded by exact post-reset gate"
+    },
+    {
+      "path": "artifacts/batch2_all_layer_semantic.log.gz",
+      "reason": "failed diagnostic only; semantic relaxation was fully reverted"
+    },
+    {
+      "path": "artifacts/watcher/autofix/sampling_only_before.log.gz",
+      "reason": "before-fix watcher reproduction retained for root-cause provenance"
+    },
+    {
+      "path": "artifacts/watcher/ccl_uint32/eager_and_trace.log.gz",
+      "reason": "unrelated high-bandwidth fixture firmware-size pre-test failure; not the measured model path"
+    }
+  ],
+  "historical_baseline": [
+    "../full_model/artifacts/autoregressive/autoregressive_meta.json",
+    "../full_model/artifacts/teacher_forcing_readiness.json",
+    "../full_model/artifacts/prefill_readiness.json",
+    "../optimized_multichip_decoder/performance_summary.csv"
+  ],
+  "remaining": [
+    "stage-owned local commit SHA"
+  ]
+}

@@ -27,6 +27,7 @@ from transformers.integrations.mxfp4 import convert_moe_packed_tensors
 
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
+    DECODE_K_CHUNK_SIZE,
     DEFAULT_MULTICHIP_POLICY,
     MultichipDecoder,
     MultichipDecoderPolicy,
@@ -36,7 +37,7 @@ from models.autoports.openai_gpt_oss_120b.tt.optimized_decoder import _DecodeSha
 from models.demos.gpt_oss.config import MeshConfig, ModeConfig
 from models.demos.gpt_oss.tt.ccl import CCLManager
 from models.demos.gpt_oss.tt.model import Model as _GPTOSSModel
-from models.demos.gpt_oss.utils.general_utils import get_default_num_links
+from models.demos.gpt_oss.utils.general_utils import get_cache_file_name, get_default_num_links
 
 MODEL_ID = "openai/gpt-oss-120b"
 MODEL_REVISION = "b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
@@ -45,6 +46,8 @@ HF_CONTEXT_LENGTH = 131072
 PAGE_SIZE = 64
 DEVICE_DRAM_BYTES = 32 * 1024**3
 TRACE_ACTIVATION_RESERVE_BYTES = 2 * 1024**3
+INTERLEAVED_LM_HEAD = "interleaved"
+DRAM_SHARDED_LM_HEAD = "dram_sharded"
 _BFP8_TILE_BYTES = 1088
 _TILE_ELEMENTS = 32 * 32
 
@@ -94,7 +97,8 @@ def _bfp8_tensor_bytes(height: int, width: int) -> int:
 
 
 def _kv_cache_bytes(*, tp: int, num_layers: int, batch_size: int, context_length: int) -> int:
-    blocks = math.ceil(context_length / PAGE_SIZE)
+    physical_context = math.ceil(context_length / DECODE_K_CHUNK_SIZE) * DECODE_K_CHUNK_SIZE
+    blocks = math.ceil(physical_context / PAGE_SIZE)
     local_kv_heads = 8 // tp
     elements = 2 * num_layers * batch_size * blocks * local_kv_heads * PAGE_SIZE * 64
     return math.ceil(elements / _TILE_ELEMENTS) * _BFP8_TILE_BYTES
@@ -126,12 +130,14 @@ def capacity_evidence(
     lm_head = _bfp8_tensor_bytes(2880, per_device_vocab)
     rope = 2 * HF_CONTEXT_LENGTH * 64 * 2  # replicated BF16 cosine + sine
     fixed = decoder_weights + embedding + final_norm + lm_head + rope + reserve_bytes
-    page_table = max_batch_size * math.ceil(max_context_length / PAGE_SIZE) * 4
+    physical_context = math.ceil(max_context_length / DECODE_K_CHUNK_SIZE) * DECODE_K_CHUNK_SIZE
+    page_table = max_batch_size * math.ceil(physical_context / PAGE_SIZE) * 4
 
     def resident_bytes(context_length: int) -> int:
+        physical_context = math.ceil(context_length / DECODE_K_CHUNK_SIZE) * DECODE_K_CHUNK_SIZE
         return (
             fixed
-            + max_batch_size * math.ceil(context_length / PAGE_SIZE) * 4
+            + max_batch_size * math.ceil(physical_context / PAGE_SIZE) * 4
             + _kv_cache_bytes(
                 tp=tp,
                 num_layers=num_layers,
@@ -280,7 +286,11 @@ class FullModelArgs:
         self.max_local_batch_size = int(max_batch_size)
         self.max_seq_len = int(max_context_length)
         self.max_context_len = int(max_context_length)
-        self.max_prefill_chunk_size = int(max_context_length)
+        self.decode_k_chunk_size = DECODE_K_CHUNK_SIZE
+        self.physical_kv_context_len = (
+            math.ceil(max_context_length / self.decode_k_chunk_size) * self.decode_k_chunk_size
+        )
+        self.max_prefill_chunk_size = self.physical_kv_context_len
         self.disable_batched_prefill = True
         self.capped_warmup_seq_len = min(128, max_context_length)
         self.trace_prefill_supported_seq_lens = [128] if max_context_length >= 128 else []
@@ -375,6 +385,132 @@ class _LayerAdapter:
         )
 
 
+class _DramShardedLMHead:
+    """Opt-in BFP8/HiFi2 terminal candidate split over physical DRAM banks."""
+
+    def __init__(
+        self,
+        *,
+        mesh_device,
+        mesh_config,
+        torch_weight: torch.Tensor,
+        vocab_size: int,
+        hidden_size: int,
+        input_memory_config,
+        tensor_cache_path: Path,
+        split_size: int = 8192,
+    ):
+        tp = int(mesh_device.shape[1])
+        local_vocab_size = 1 << math.ceil(math.log2(math.ceil(vocab_size / tp)))
+        if local_vocab_size % split_size:
+            raise ValueError(f"local padded vocabulary {local_vocab_size} must divide split size {split_size}")
+        dram_grid_size = mesh_device.dram_grid_size()
+        dram_grid = ttnn.CoreRangeSet(
+            {
+                ttnn.CoreRange(
+                    ttnn.CoreCoord(0, 0),
+                    ttnn.CoreCoord(dram_grid_size.x - 1, dram_grid_size.y - 1),
+                )
+            }
+        )
+        dram_banks = dram_grid.num_cores()
+        if split_size % (dram_banks * ttnn.TILE_SIZE):
+            raise ValueError(
+                "LM-head split must divide evenly over tile-aligned DRAM banks: "
+                f"split={split_size}, banks={dram_banks}"
+            )
+        input_shard = input_memory_config.shard_spec.shape
+        if hidden_size % input_shard[1]:
+            raise ValueError(f"hidden size {hidden_size} is incompatible with input shard {input_shard}")
+
+        self.input_memory_config = input_memory_config
+        self.output_memory_config = ttnn.DRAM_MEMORY_CONFIG
+        self.program_config = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
+            in0_block_w=input_shard[1] // ttnn.TILE_SIZE,
+            per_core_M=1,
+            per_core_N=split_size // dram_banks // ttnn.TILE_SIZE,
+            fused_activation=None,
+        )
+        self.compute_kernel_config = ttnn.WormholeComputeKernelConfig(
+            math_fidelity=ttnn.MathFidelity.HiFi2,
+            math_approx_mode=False,
+            fp32_dest_acc_en=False,
+            packer_l1_acc=True,
+        )
+        self.weights = []
+        cache_root = Path(tensor_cache_path)
+        for split_index, offset in enumerate(range(0, local_vocab_size, split_size)):
+            rank_splits = []
+            for rank in range(tp):
+                global_start = rank * local_vocab_size + offset
+                global_end = global_start + split_size
+                rank_weight = torch.zeros(hidden_size, split_size, dtype=torch_weight.dtype)
+                valid_end = min(global_end, vocab_size)
+                if global_start < valid_end:
+                    valid_width = valid_end - global_start
+                    rank_weight[:, :valid_width] = torch_weight[global_start:valid_end].transpose(0, 1)
+                rank_splits.append(rank_weight)
+            combined_weight = torch.cat(rank_splits, dim=-1)
+            weight_memory_config = ttnn.MemoryConfig(
+                ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+                ttnn.BufferType.DRAM,
+                ttnn.ShardSpec(
+                    dram_grid,
+                    (hidden_size, split_size // dram_banks),
+                    ttnn.ShardOrientation.ROW_MAJOR,
+                ),
+            )
+            self.weights.append(
+                ttnn.as_tensor(
+                    combined_weight,
+                    device=mesh_device,
+                    layout=ttnn.TILE_LAYOUT,
+                    dtype=ttnn.bfloat8_b,
+                    cache_file_name=get_cache_file_name(
+                        cache_root,
+                        f"split_{split_index}_k{hidden_size}_n{split_size}_banks{dram_banks}",
+                    ),
+                    memory_config=weight_memory_config,
+                    mesh_mapper=mesh_config.column_parallel(mesh_device),
+                )
+            )
+            del combined_weight, rank_splits
+            gc.collect()
+
+        self.manifest = {
+            "dtype": "BFP8_B",
+            "compute_fidelity": "HiFi2",
+            "local_padded_vocab": local_vocab_size,
+            "split_size": split_size,
+            "num_splits": len(self.weights),
+            "dram_banks": dram_banks,
+            "input_shard_shape": list(input_shard),
+            "output_memory": "DRAM interleaved",
+        }
+
+    def __call__(self, hidden_states):
+        owns_input = hidden_states.memory_config() != self.input_memory_config
+        sharded_input = ttnn.to_memory_config(hidden_states, self.input_memory_config) if owns_input else hidden_states
+        outputs = []
+        for weight in self.weights:
+            sharded_output = ttnn.linear(
+                sharded_input,
+                weight,
+                compute_kernel_config=self.compute_kernel_config,
+                program_config=self.program_config,
+                memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
+                dtype=ttnn.bfloat8_b,
+            )
+            outputs.append(ttnn.sharded_to_interleaved(sharded_output, memory_config=self.output_memory_config))
+            sharded_output.deallocate(True)
+        logits = ttnn.concat(outputs, dim=-1, memory_config=self.output_memory_config)
+        for output in outputs:
+            output.deallocate(True)
+        if owns_input:
+            sharded_input.deallocate(True)
+        return logits
+
+
 class Model(_GPTOSSModel):
     """Full autoregressive model with 36 optimized TP decoder layers."""
 
@@ -399,6 +535,7 @@ class Model(_GPTOSSModel):
         max_context_length: int,
         num_layers: int,
         policy: MultichipDecoderPolicy = DEFAULT_MULTICHIP_POLICY,
+        lm_head_policy: str = INTERLEAVED_LM_HEAD,
     ):
         tp = int(mesh_device.shape[1])
         tensor_plan(mesh_device.shape, hf_config)
@@ -448,6 +585,11 @@ class Model(_GPTOSSModel):
             max_context_length=max_context_length,
             num_layers=num_layers,
         )
+        if lm_head_policy not in {INTERLEAVED_LM_HEAD, DRAM_SHARDED_LM_HEAD}:
+            raise ValueError(f"unknown LM-head policy {lm_head_policy!r}")
+        self.lm_head_policy = lm_head_policy
+        self._terminal_uses_single_tile = False
+        self.dram_sharded_lm_head = None
 
         # The final norm consumes the last decoder's L1 replicated residual.
         if getattr(self.norm, "tt_weight", None) is not None:
@@ -460,6 +602,16 @@ class Model(_GPTOSSModel):
             mesh_config=mesh_config,
             enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
         )
+        if lm_head_policy == DRAM_SHARDED_LM_HEAD:
+            self.dram_sharded_lm_head = _DramShardedLMHead(
+                mesh_device=mesh_device,
+                mesh_config=mesh_config,
+                torch_weight=terminal_state_dict["lm_head.weight"],
+                vocab_size=self.vocab_size,
+                hidden_size=int(hf_config.hidden_size),
+                input_memory_config=self.norm.decode_memory_config,
+                tensor_cache_path=cache_root / "terminal" / "lm_head_dram_sharded",
+            )
 
         self.layers = []
         for layer_idx in range(num_layers):
@@ -484,7 +636,13 @@ class Model(_GPTOSSModel):
 
     def _forward_layers_and_head(self, *args, is_decode=True, **kwargs):
         self.norm.decode_mode = is_decode
+        self._terminal_uses_single_tile = is_decode or int(kwargs.get("get_last_token", -1)) != -1
         return super()._forward_layers_and_head(*args, is_decode=is_decode, **kwargs)
+
+    def _apply_lm_head(self, hidden_states):
+        if self.dram_sharded_lm_head is not None and self._terminal_uses_single_tile:
+            return self.dram_sharded_lm_head(hidden_states)
+        return super()._apply_lm_head(hidden_states)
 
     @classmethod
     def from_checkpoint(
@@ -498,6 +656,7 @@ class Model(_GPTOSSModel):
         num_layers: int = MODEL_LAYERS,
         allow_reduced_model: bool = False,
         policy: MultichipDecoderPolicy = DEFAULT_MULTICHIP_POLICY,
+        lm_head_policy: str = INTERLEAVED_LM_HEAD,
     ):
         snapshot_path = Path(
             snapshot_path or os.environ.get("GPT_OSS_120B_SNAPSHOT", "") or os.environ.get("HF_MODEL", "")
@@ -555,6 +714,7 @@ class Model(_GPTOSSModel):
             max_context_length=max_context_length,
             num_layers=num_layers,
             policy=policy,
+            lm_head_policy=lm_head_policy,
         )
         del terminal
         gc.collect()
@@ -572,7 +732,9 @@ __all__ = [
     "CapacityEvidence",
     "FullModelArgs",
     "FullModelCapacityError",
+    "DRAM_SHARDED_LM_HEAD",
     "HF_CONTEXT_LENGTH",
+    "INTERLEAVED_LM_HEAD",
     "MODEL_ID",
     "MODEL_REVISION",
     "Model",

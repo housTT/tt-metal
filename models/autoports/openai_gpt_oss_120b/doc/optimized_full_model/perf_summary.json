@@ -1,0 +1,143 @@
+{
+  "stage": "optimized-full-model",
+  "status": "optimized_full_model_complete_stage_review_clean_pass",
+  "publishable": true,
+  "model": {
+    "id": "openai/gpt-oss-120b",
+    "revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+    "layers": 36
+  },
+  "hardware": {
+    "target_family": ["P150", "P150x2", "P150x4"],
+    "resident_measured_target": "P150x4",
+    "mesh_shape": [1, 4],
+    "observed_board_descriptor": "p300c"
+  },
+  "before_stage": {
+    "source": "../full_model/artifacts/autoregressive/autoregressive_meta.json and ../full_model/artifacts/teacher_forcing_readiness.json",
+    "workload": {
+      "profile": "aime24_chat_batch1",
+      "prompt_len": 214,
+      "gen_len": 100,
+      "batch": 1
+    },
+    "token_out": {
+      "ttft_ms": 3775.70115,
+      "decode_tokens_per_second_per_user": 51.6229,
+      "decode_ms_per_token_e2e": 19.37124484023434
+    },
+    "traced_teacher_forcing": {
+      "ttft_ms": 3751.5,
+      "decode_tokens_per_second_per_user": 52.1145,
+      "decode_ms_per_token_e2e": 19.18850705704939
+    },
+    "accuracy": {
+      "prefill_top1_top5_top100": [0.94, 1.0, 1.0],
+      "teacher_forcing_top1_top5_top100": [0.95, 1.0, 1.0]
+    }
+  },
+  "after_stage": {
+    "source": "artifacts/p150x4_prompt128_gen128_perf.json and artifacts/teacher_forcing_readiness.json",
+    "same_workload_token_out": {
+      "workload": {
+        "profile": "aime24_chat_batch1_split_greedy",
+        "prompt_len": 214,
+        "gen_len": 100,
+        "batch": 1
+      },
+      "ttft_ms": 3635.881142996368,
+      "decode_tokens_per_second_per_user": 62.766489315844346,
+      "decode_ms_per_token_e2e": 15.932077750608714,
+      "ttft_improvement_percent": 3.7031534395523757,
+      "decode_throughput_improvement_percent": 21.586523259724544,
+      "boundary": "fully traced split model/sampler replay; first and final scalar reads only"
+    },
+    "traced_teacher_forcing": {
+      "workload": {
+        "prompt_len": 214,
+        "gen_len": 100,
+        "batch": 1
+      },
+      "ttft_ms": 3747.0425040082773,
+      "decode_tokens_per_second_per_user": 52.306593024006794,
+      "decode_ms_per_token_e2e": 19.117992272680828,
+      "ttft_improvement_percent": 0.11881903216640621,
+      "decode_throughput_improvement_percent": 0.3685980370276898,
+      "boundary": "teacher-provided next token refresh each step; reported separately from token-out"
+    },
+    "warmed_prompt128_gen128_split_token_out": {
+      "ttft_ms": 484.7814480017405,
+      "decode_tokens_per_second_per_user": 62.87921373843022,
+      "decode_ms_per_token_e2e": 15.903506748030864,
+      "first_and_final_exact_against_sync": true
+    },
+    "accuracy": {
+      "prefill_top1_top5_top100": [0.94, 1.0, 1.0],
+      "teacher_forcing_top1_top5_top100": [0.95, 1.0, 1.0],
+      "gates_pass": true
+    }
+  },
+  "trace_boundary": {
+    "model_trace_replays": 127,
+    "device_token_out_submissions": 127,
+    "fixed_greedy_sampling_replays": 126,
+    "token_input_host_refreshes": 1,
+    "position_rope_host_refreshes": 1,
+    "page_table_host_refreshes": 1,
+    "steady_token_input_host_refreshes": 0,
+    "steady_position_rope_host_refreshes": 0,
+    "steady_page_table_host_refreshes": 0,
+    "page_table_reuses": 126,
+    "sampling_state_host_refreshes": 1,
+    "sampled_token_readbacks": 2,
+    "caller_visible_token_synchronizations": 2,
+    "full_logits_readbacks": 0,
+    "host_argmax_calls": 0
+  },
+  "lower_bound": {
+    "source": "artifacts/full_path_lower_bound.json",
+    "decoder_stack_ms": 14.2698105,
+    "lm_head_device_ms": 0.707269,
+    "complete_sampler_device_ms": 0.351678,
+    "stack_plus_named_terminal_ms": 15.3287575,
+    "measured_split_token_out_ms": 15.903506748030864,
+    "residual_ms": 0.574749248030864,
+    "residual_percent": 3.749483596637653,
+    "gate_percent": 15.0,
+    "gate_pass": true
+  },
+  "profiler": {
+    "source": "artifacts/profiler/final_source/provenance.json",
+    "selected_prefill_window_us": 29698.17925,
+    "selected_teacher_forcing_window_us": 2339.11675,
+    "selected_split_token_out_window_us": 2335.916,
+    "selected_lm_head_device_us": 707.269,
+    "selected_complete_sampler_device_us": 351.678,
+    "selected_lm_head_percent_of_split_window": 30.278015134105846,
+    "selected_sampler_percent_of_split_window": 15.055250274410552,
+    "candidate_prefill_window_us": 29852.08425,
+    "candidate_split_token_out_window_us": 2342.56,
+    "candidate_prefill_regression_percent": 0.5182304231664325,
+    "candidate_split_regression_percent": 0.2844280359396434,
+    "decision": "retain one local 65536-column DRAM-interleaved BFP8 matmul per rank"
+  },
+  "sampling_decision": {
+    "source": "artifacts/sampler_candidate_comparison.json",
+    "canonical_split_greedy_tokens_per_second_per_user": 154.28170910641884,
+    "generic_force_argmax_tokens_per_second_per_user": 139.14115891818565,
+    "force_argmax_decode_regression_percent": 9.813574321885232,
+    "exact_prediction_match": true,
+    "decision": "retain canonical split greedy"
+  },
+  "capacity": {
+    "advertised_batch1_context": 131072,
+    "P150": "no resident context: fixed state exceeds 32 GiB/device",
+    "P150x2": "no resident context: fixed state exceeds 32 GiB/device",
+    "P150x4": "131072 tokens at batch 1; batch 10 also fits full context"
+  },
+  "limitations": [
+    "P150 and P150x2 cannot host the fixed 120B resident state in 32 GiB/device; no runtime fallback is provided",
+    "fixed-length split token-out reads only first/final tokens and cannot stop early on EOS without an explicit caller boundary",
+    "the broad datatype Pareto frontier and vLLM integration belong to later stages"
+  ]
+}
