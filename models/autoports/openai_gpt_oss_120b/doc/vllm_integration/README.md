@@ -149,6 +149,8 @@ path rather than an avoidable adapter-side decode fallback.
   sampling/qualitative and clean benchmark server logs.
 - `readiness_vllm/runtime_cleanup_audit.md`: fallback, shutdown, process, and
   post-run device-health audit.
+- `readiness_vllm/final_origin_check.log`: final import-origin proof for
+  TTNN, official vLLM, standalone plugin, and the GPT-OSS 120B adapter.
 - `readiness_vllm/final_process_audit.txt` and
   `final_tt_smi_status.txt`: final no-leftover-process and device-health
   snapshots.
@@ -159,9 +161,11 @@ path rather than an avoidable adapter-side decode fallback.
   `black_check_plugin.log`, `git_diff_check_ttmetal.log`, and
   `git_diff_check_plugin.log`: host plugin, formatting, and whitespace checks.
 - `readiness_vllm/stage_09_check.log`: final multigoal stage check output.
-- `readiness_vllm/configure_only_build.log`: CI-image configure-only build
+- `readiness_vllm/configure_only_build.log.gz`: CI-image configure-only build
   evidence; the wrapper reported missing Garage credentials, so a full cold
   compile was not attempted.
+- `doc/vllm_integration/stage_review.md`: independent stage-review finding,
+  remediation, and clean-pass rereview record.
 
 ## Limitations
 
