@@ -84,13 +84,13 @@ then passed 73/73 runnable cases with one expected skip.
   configure-only directory was preserved at
   `/home/ttuser/dev/gpt-oss-20b/.runtime/preserved_build_dirs/build_Release_configure_only_20260831T2156Z`.
 - Primary benchmark, 1 x (128->128), concurrency 1, temperature 0:
-  TTFT P50/P99 `514.11/514.11 ms`; TPOT mean/P50/P99
-  `21.44/21.44/21.44 ms`; ITL P50/P99 `20.72/34.22 ms`; output throughput
-  `39.54 tok/s`; TPOT-derived decode `46.64 t/s/u`.
+  TTFT P50/P99 `510.30/510.30 ms`; TPOT mean/P50/P99
+  `21.69/21.69/21.69 ms`; ITL P50/P99 `21.24/35.64 ms`; output throughput
+  `39.20 tok/s`; TPOT-derived decode `46.10 t/s/u`.
 - CI burst, 32 x (100->100), unbounded admission, temperature 0:
-  32/32 complete; TTFT P50/P99 `15.269/15.270 s`; TPOT mean/P50/P99
-  `589.40/589.39/589.59 ms`; ITL P50/P99 `589.39/595.41 ms`; aggregate output
-  throughput `43.47 tok/s`. Its TPOT-derived value is secondary only.
+  32/32 complete; TTFT P50/P99 `15.297/15.299 s`; TPOT mean/P50/P99
+  `589.40/589.39/589.70 ms`; ITL P50/P99 `589.27/595.59 ms`; aggregate output
+  throughput `43.45 tok/s`. Its TPOT-derived value is secondary only.
 
 The exact server and runner commands are in `README.md`; the raw commands are
 also embedded in the benchmark JSON. The primary benchmark was measured first
@@ -123,6 +123,7 @@ the final max-seqs=32/B1+B32 sampling and benchmark evidence, rereview returned
 - tt-metal stage commit log update: `b8f601f8`
 - tt-metal final audit artifacts: `cea4033d`
 - tt-metal diagnostic/readiness evidence: `a418540b`
+- tt-metal closure SHA record: `8aab33e3`
 
-Nothing was pushed. The final doc-only SHA-record commit is reported in the
-handoff, because a commit cannot contain its own final hash.
+Nothing was pushed. The final metric-refresh and boundary-cleanup commit is
+reported in the handoff, because a commit cannot contain its own final hash.

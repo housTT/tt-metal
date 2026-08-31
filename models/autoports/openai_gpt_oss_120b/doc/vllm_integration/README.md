@@ -3,16 +3,16 @@
 ## Serving result
 
 **Primary P150x4 single-user serving, 1 request x (128 prompt -> 128 output),
-concurrency 1:** **514.11 ms TTFT P50/P99** and **46.64 decode t/s/u** from
-`21.44 ms` mean/P50/P99 TPOT. ITL P50/P99 is `20.72/34.22 ms`; output
-throughput is `39.54 tok/s`. The request completed 128/128 tokens. These are the
+concurrency 1:** **510.30 ms TTFT P50/P99** and **46.10 decode t/s/u** from
+`21.69 ms` mean/P50/P99 TPOT. ITL P50/P99 is `21.24/35.64 ms`; output
+throughput is `39.20 tok/s`. The request completed 128/128 tokens. These are the
 headline vLLM numbers and were measured first on a clean server.
 
 **Secondary CI serving burst, 32 requests x (100 prompt -> 100 output),
 unbounded client admission, server `max-num-seqs=32`:** 32/32 completed; TTFT
-P50/P99 `15.269/15.270 s`, TPOT mean/P50/P99
-`589.40/589.39/589.59 ms`, ITL P50/P99 `589.39/595.41 ms`, and aggregate
-output throughput **43.47 tok/s**. Its TPOT-derived `1.70 t/s/u` is not a
+P50/P99 `15.297/15.299 s`, TPOT mean/P50/P99
+`589.40/589.39/589.70 ms`, ITL P50/P99 `589.27/595.59 ms`, and aggregate
+output throughput **43.45 tok/s**. Its TPOT-derived `1.70 t/s/u` is not a
 headline decode result because burst admission and interleaved work affect
 TPOT.
 
