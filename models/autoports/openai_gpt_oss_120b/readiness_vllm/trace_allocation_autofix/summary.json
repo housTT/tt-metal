@@ -1,0 +1,55 @@
+{
+  "status": "pass",
+  "generated_at_utc": "2026-08-30T11:53:18.903329+00:00",
+  "model_layers": 2,
+  "server_max_num_seqs": 32,
+  "server_max_model_len": 131072,
+  "workload": [
+    {"name": "device_sampled_b1_before", "sampling": "device_sampled", "batch": 1, "output_tokens_per_request": 4},
+    {"name": "device_greedy_b1", "sampling": "device_greedy", "batch": 1, "output_tokens_per_request": 4},
+    {"name": "device_sampled_b1_after_greedy", "sampling": "device_sampled", "batch": 1, "output_tokens_per_request": 4},
+    {"name": "device_sampled_b32", "sampling": "device_sampled", "batch": 32, "output_tokens_per_request": 4},
+    {"name": "device_greedy_b32", "sampling": "device_greedy", "batch": 32, "output_tokens_per_request": 4},
+    {"name": "device_sampled_b32_after_greedy", "sampling": "device_sampled", "batch": 32, "output_tokens_per_request": 4},
+    {"name": "device_sampled_b1_after_b32", "sampling": "device_sampled", "batch": 1, "output_tokens_per_request": 4},
+    {"name": "host_min_p_b10", "sampling": "host_min_p", "batch": 10, "output_tokens_per_request": 10},
+    {"name": "device_greedy_b1_after_host", "sampling": "device_greedy", "batch": 1, "output_tokens_per_request": 4},
+    {"name": "device_sampled_b1_after_host_and_greedy", "sampling": "device_sampled", "batch": 1, "output_tokens_per_request": 4}
+  ],
+  "normal": {
+    "probe_artifact": "normal_probe.json",
+    "server_log": "normal_server.log",
+    "http_200": 112,
+    "expected_requests": 112,
+    "model_trace_captures": 6,
+    "active_trace_allocation_warnings": 0,
+    "http_500": 0,
+    "unsafe_allocation_exceptions": 0,
+    "fatal_or_engine_dead": 0
+  },
+  "tracking_and_tracebacks": {
+    "environment": {
+      "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+      "TT_METAL_TRACE_ALLOC_TRACEBACKS": "1"
+    },
+    "probe_artifact": "tracker_probe.json",
+    "server_log": "tracker_server.log",
+    "http_200": 112,
+    "expected_requests": 112,
+    "model_trace_captures": 6,
+    "active_trace_allocation_warnings": 0,
+    "tracked_survivor_markers": 0,
+    "http_500": 0,
+    "unsafe_allocation_exceptions": 0,
+    "fatal_or_engine_dead": 0
+  },
+  "root_cause": "After a live model trace was installed, the first missing sampler variant used the ordinary capture path even though its programs had already been compiled. Capture-owned scratch therefore triggered the active-trace allocation warning.",
+  "fix": "Only a missing sampler trace explicitly marked skip_precompile=true enters a narrow corruptible-allocation scope around capture_trace. Inline-precompile capture, model replay, decode, and sampler-state staging remain unscoped and auditable.",
+  "force_argmax_audit": "The selected ds00 policy requires full_logits_gather.mode=not_materialized and sets allow_force_argmax=false. Device sampled and device greedy requests therefore keep force_argmax=false, reuse the same B1 or B32 trace key, and update only persistent sampling parameters; a host regression test covers sampled-greedy-sampled at both buckets.",
+  "request_driver": "doc/vllm_integration/scripts/run_trace_allocation_probe.py",
+  "runtime_extension": "/home/ttuser/dev/gpt-oss-20b/tt-metal/ttnn/ttnn/_ttnn.so",
+  "runtime_library": "/home/ttuser/dev/gpt-oss-20b/tt-metal/build_Release/tt_metal/libtt_metal.so",
+  "runtime_library_sha256": "caef420eabcbfa67de9bd7e708170ab0a057d23d65acc2e5ef30ecdd3cc5435c",
+  "process_cleanup": "pass: no API server, EngineCore, or open Tenstorrent device holder remained after either run",
+  "device_health": "pass: tt-smi -s reported all four p300c boards with DRAM healthy and no process other than tt-smi itself"
+}

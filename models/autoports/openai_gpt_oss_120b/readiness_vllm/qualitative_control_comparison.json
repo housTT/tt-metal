@@ -1,0 +1,54 @@
+{
+  "model": "openai/gpt-oss-120b",
+  "model_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+  "prompt_file": "models/common/readiness_check/vllm_prompts.txt",
+  "prompt_file_sha256": "2ad452c15d8442d3fe641eb968bbd84e3bfe9acb01ddc540f451983c0da3cbbd",
+  "serving_artifact": "readiness_vllm/vllm_qualitative_outputs.json",
+  "prompt_format_artifact": "readiness_vllm/qualitative_prompt_format.json",
+  "controls": [
+    "doc/full_model/qualitative/qualitative_hf_chat.json",
+    "doc/full_model/qualitative/qualitative_tt_chat.json",
+    "doc/full_model/qualitative/qualitative_hf_tt_comparison.json"
+  ],
+  "comparison_method": "Manual semantic review of all six greedy and six sampled chat serving answers against prompt-correct HF and standalone TT controls. The common vLLM prompt file and full-model prompt file have identical SHA256 values. Controls validate prompt interpretation and early answer trajectory; final serving outputs are judged for coherence, topic, repetition, gibberish, wrong-language drift, and request contamination.",
+  "results": [
+    {
+      "id": 0,
+      "topic": "machine-learning haiku",
+      "greedy_vs_control": "pass: valid haiku with machine-learning imagery",
+      "sampled_vs_control": "pass: distinct prompt-correct haiku"
+    },
+    {
+      "id": 1,
+      "topic": "supervised versus unsupervised learning",
+      "greedy_vs_control": "pass: teacher/no-teacher distinction and examples match control",
+      "sampled_vs_control": "pass: same correct distinction with independent wording"
+    },
+    {
+      "id": 2,
+      "topic": "faraway-kingdom inventor story continuation",
+      "greedy_vs_control": "pass: coherent continuation of the supplied premise",
+      "sampled_vs_control": "pass: coherent continuation, length-capped but not repetitive or contaminated"
+    },
+    {
+      "id": 3,
+      "topic": "laws of thermodynamics",
+      "greedy_vs_control": "pass: explains the first, second, and third laws accurately",
+      "sampled_vs_control": "pass: same concepts, coherent through the cap"
+    },
+    {
+      "id": 4,
+      "topic": "French translation",
+      "greedy_vs_control": "pass: correct French informal translation",
+      "sampled_vs_control": "pass: correct French translation with no wrong-language drift"
+    },
+    {
+      "id": 5,
+      "topic": "Python Fibonacci function",
+      "greedy_vs_control": "pass: relevant Python implementation and explanation",
+      "sampled_vs_control": "pass: relevant implementation; length-capped late in examples"
+    }
+  ],
+  "aggregate_verdict": "pass: serving is not materially worse than the prompt-correct HF or standalone TT controls in coherence, topic adherence, repetition, gibberish, language, or cross-request isolation",
+  "generated_at_utc": "2026-08-31T21:48:27.575269+00:00"
+}
