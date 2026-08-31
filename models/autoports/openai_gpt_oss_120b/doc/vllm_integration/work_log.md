@@ -120,5 +120,9 @@ the final max-seqs=32/B1+B32 sampling and benchmark evidence, rereview returned
 
 - vLLM TT plugin implementation: `414b870`
 - tt-metal implementation/evidence: `6bdb38fb`
+- tt-metal stage commit log update: `b8f601f8`
+- tt-metal final audit artifacts: `cea4033d`
+- tt-metal diagnostic/readiness evidence: `a418540b`
 
-Nothing was pushed.
+Nothing was pushed. The final doc-only SHA-record commit is reported in the
+handoff, because a commit cannot contain its own final hash.
