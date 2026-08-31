@@ -1,0 +1,36 @@
+{
+  "model": "openai/gpt-oss-120b",
+  "artifacts_reviewed": [
+    "readiness_vllm/vllm_qualitative_outputs.json",
+    "readiness_vllm/final_qualitative_runner.log",
+    "readiness_vllm/qualitative_prompt_format.json",
+    "readiness_vllm/qualitative_control_comparison.json",
+    "models/autoports/openai_gpt_oss_120b/doc/full_model/qualitative/qualitative_hf_chat.json",
+    "models/autoports/openai_gpt_oss_120b/doc/full_model/qualitative/qualitative_tt_chat.json"
+  ],
+  "reviewed_at_utc": "2026-08-31T21:30:00Z",
+  "prompt_count": 6,
+  "profiles": [
+    "greedy",
+    "sampled_temperature_0.7_top_p_0.9"
+  ],
+  "responses_reviewed": 12,
+  "reasoning_effort": "low",
+  "max_completion_tokens": 256,
+  "verdict": "pass",
+  "dimensions": {
+    "coherence": "pass: all 12 responses are readable and internally consistent",
+    "topic_adherence": "pass: every response directly addresses its prompt",
+    "repetition": "pass: no looping or pathological repetition",
+    "gibberish": "pass: none observed",
+    "wrong_language_drift": "pass: none observed; the requested translation is idiomatic French",
+    "request_contamination": "pass: no response contains material from another request"
+  },
+  "notes": [
+    "Both greedy and sampled outputs were manually read for the haiku, supervised-vs-unsupervised explanation, story continuation, thermodynamics, French translation, and Python Fibonacci prompts.",
+    "The haiku and French responses are concise and complete; technical explanations are accurate; story continuations are coherent; both Python responses begin valid, relevant implementations.",
+    "Several long-form answers end at the explicit 256-token workload cap but remain coherent through the boundary. This is recorded as workload truncation, not a serving or generation failure.",
+    "GPT-OSS low reasoning effort is explicit so the fixed qualitative budget reaches user-visible final content; it does not change the TT on-device traced sampling path.",
+    "The prompt-format artifact records the workspace-local snapshot, the shared vLLM prompt file, and chat-template rendering. The control-comparison artifact records matching HF and standalone TT controls from the byte-identical full-model prompt file."
+  ]
+}

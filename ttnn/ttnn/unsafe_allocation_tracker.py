@@ -16,7 +16,8 @@ Controlled by environment variables:
 
 Set these before importing ttnn; they are read once at process startup.
 
-See also: ttnn.corruptible_allocation_scope, ttnn.execute_trace.
+See also: ttnn.corruptible_allocation_scope, ttnn.transient_allocation_scope,
+ttnn.execute_trace.
 """
 
 from __future__ import annotations

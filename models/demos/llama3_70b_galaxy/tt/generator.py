@@ -25,7 +25,6 @@ from models.tt_transformers.tt.common import (
     num_blocks_in_seq,
 )
 
-
 # Position of the page table within the decode input tuple produced by
 # LlamaModel.prepare_decode_inputs_host: (tokens, current_pos, rope_idxs, page_table).
 # Used to refresh only the page-table trace input when KV blocks are reallocated.
@@ -1228,7 +1227,9 @@ class Generator(WarmupForwardMixin):
         #   Buffer ... [op: program_cache: PagedFillCacheDeviceOperation ...]
         # Reordering warmup cannot avoid this -- capturing trace N always happens while
         # traces 1..N-1 exist -- so scope the capture window instead, which is what
-        # corruptible_allocation_scope is for. No-op unless TT_METAL_TRACE_ALLOC_TRACKING=1.
+        # corruptible_allocation_scope is for. In normal mode this suppresses the
+        # acknowledged warning; tracking mode additionally excludes the buffers
+        # from unsafe-survivor accounting.
         with ttnn.corruptible_allocation_scope(self.mesh_device):
             trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
             transformed_inputs = self.model.transform_prefill_inputs_device(*device_inputs)

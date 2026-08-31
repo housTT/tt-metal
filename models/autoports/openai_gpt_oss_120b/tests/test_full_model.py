@@ -18,6 +18,7 @@ import torch
 from tracy import signpost
 
 import ttnn
+from models.autoports.openai_gpt_oss_120b.tt import generator as generator_module
 from models.autoports.openai_gpt_oss_120b.tt import precision as precision_module
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, SAMPLER_DECISION, Generator, TraceEvidence
 from models.autoports.openai_gpt_oss_120b.tt.model import (
@@ -334,6 +335,57 @@ def test_generator_page_table_covers_padded_final_decode_chunk():
     assert page_table.tolist() == [[0, 1, 2, 3], [4, 5, 6, 7]]
 
 
+def test_vllm_cache_owner_has_no_private_page_table(monkeypatch, expect_error):
+    monkeypatch.setattr(generator_module, "_TTGenerator", lambda **kwargs: SimpleNamespace())
+    monkeypatch.setattr(
+        Generator,
+        "allocate_page_table",
+        lambda self: pytest.fail("vLLM ownership must not allocate a private page table"),
+    )
+    generator = Generator(
+        SimpleNamespace(mesh_device=object(), kv_cache=[]),
+        SimpleNamespace(tokenizer=object()),
+        cache_owner="vllm",
+    )
+
+    assert generator.page_table is None
+    with expect_error(RuntimeError, "scheduler-owned page table"):
+        generator._require_private_page_table()
+
+
+def test_prepared_decode_trace_uses_no_write_positions_for_live_kv():
+    generator = Generator.__new__(Generator)
+    generator.model = SimpleNamespace(n_layers=1)
+    live_kv = torch.arange(8, dtype=torch.int32)
+    original_kv = live_kv.clone()
+    captured = {}
+
+    def prepare_decode_trace(token_chunks, position_chunks, *, page_table, **kwargs):
+        positions = torch.cat(position_chunks)
+        captured.update(tokens=torch.cat(token_chunks), positions=positions, page_table=torch.cat(page_table))
+        # Mirror paged_update_cache's public -1 skip contract.  This fake
+        # deliberately mutates live KV for every active position so the test
+        # catches a regression back to the former synthetic position zero.
+        for position in positions.tolist():
+            if position >= 0:
+                live_kv[position] = -1
+        return {"on_device_sampling": kwargs["on_device_sampling"]}
+
+    generator._inner = SimpleNamespace(data_parallel=2, _prepare_decode_trace_text=prepare_decode_trace)
+
+    prepared = generator.prepare_model_decode_trace(
+        kv_cache=["layer-cache"],
+        max_batch_size=4,
+        num_blocks=3,
+    )
+
+    assert captured["tokens"].shape == (4, 1)
+    assert captured["positions"].tolist() == [-1, -1, -1, -1]
+    assert captured["page_table"].shape == (4, 3)
+    assert torch.equal(live_kv, original_kv)
+    assert prepared["on_device_sampling"] is True
+
+
 @pytest.mark.skipif(not SNAPSHOT.is_dir(), reason="pinned GPT-OSS checkpoint is not present")
 def test_streaming_checkpoint_covers_every_layer_and_terminal_tensor():
     checkpoint = StreamingCheckpoint(SNAPSHOT)
@@ -520,6 +572,7 @@ def test_reset_clears_resident_cache_before_reusing_fixed_slots():
     generator = Generator.__new__(Generator)
     cache_owner = CacheOwner()
     generator.model = cache_owner
+    generator.cache_owner = "model"
     generator._inner = SimpleNamespace(
         mode="decode",
         prev_page_table=torch.ones(1, 2),
@@ -573,7 +626,8 @@ def test_unseen_prefill_variant_releases_live_decode_and_sampling_traces(monkeyp
     generator = Generator.__new__(Generator)
     generator.mesh_device = "mesh"
     generator._inner = inner
-    generator._compiled_prefill_variants = {(1024, "device_sampling")}
+    warmed = generator._prefill_program_signature(128, "device_sampling")
+    generator._compiled_prefill_variants = {warmed}
     generator._lifetime_prefill_variant_compilations = 1
     generator._lifetime_decode_trace_releases_for_prefill_compile = 0
     generator._greedy_sampling_prepared = True
@@ -583,9 +637,10 @@ def test_unseen_prefill_variant_releases_live_decode_and_sampling_traces(monkeyp
     monkeypatch.setattr(ttnn, "synchronize_device", synchronized.append)
     monkeypatch.setattr(ttnn, "release_trace", lambda mesh, trace_id: released.append((mesh, trace_id)))
 
-    unseen = generator._prepare_prefill_variants([127, 128], path="device_sampling")
+    unseen = generator._prepare_prefill_variants([3, 128], path="device_sampling")
 
-    assert unseen == {(128, "device_sampling")}
+    short_prompt = generator._prefill_program_signature(3, "device_sampling")
+    assert unseen == {short_prompt}
     assert synchronized == ["mesh"]
     assert released == [("mesh", 41)]
     assert sampling.reset_calls == 1
@@ -600,7 +655,7 @@ def test_unseen_prefill_variant_releases_live_decode_and_sampling_traces(monkeyp
     assert generator.trace_evidence.decode_trace_releases_for_prefill_compile == 1
 
     generator._record_compiled_prefill_variants(unseen)
-    assert generator._prepare_prefill_variants([1, 128], path="device_sampling") == set()
+    assert generator._prepare_prefill_variants([3, 128], path="device_sampling") == set()
     assert synchronized == ["mesh"]
     assert released == [("mesh", 41)]
     assert generator._lifetime_prefill_variant_compilations == 2
@@ -623,6 +678,7 @@ def test_split_greedy_submission_has_one_explicit_collection_boundary():
         model = [inner_model]
         mode = "decode"
         trace_inputs_decode = {True: {0: ["persistent-token"]}}
+        decode_calls = []
 
         @staticmethod
         def _decode_token_feedback_buffer(model, trace_inputs):
@@ -630,6 +686,7 @@ def test_split_greedy_submission_has_one_explicit_collection_boundary():
             return trace_inputs[0]
 
         def decode_forward(self, **kwargs):
+            self.decode_calls.append(kwargs)
             if kwargs.get("defer_device_sampling"):
                 return ["device-logits"]
             return ["initialized-device-output"]
@@ -666,6 +723,7 @@ def test_split_greedy_submission_has_one_explicit_collection_boundary():
         kv_cache=generator._kv_cache,
         sampling_params=GREEDY,
         reset_batch=True,
+        slot_remap=torch.tensor([0], dtype=torch.int32),
         read_from_device=False,
     )
     assert device_output == ["initialized-device-output"]
@@ -708,8 +766,16 @@ def test_mixed_prefill_keeps_distinct_physical_rows_with_local_page_coordinate()
     generator.trace_evidence = TraceEvidence()
     captured = []
 
-    def fake_prefill_one(self, token_ids, page_table_row, layer_cache, *, return_all_logits):
-        del self, layer_cache, return_all_logits
+    def fake_prefill_one(
+        self,
+        token_ids,
+        page_table_row,
+        layer_cache,
+        *,
+        return_all_logits,
+        page_tables_per_layer=None,
+    ):
+        del self, layer_cache, return_all_logits, page_tables_per_layer
         captured.append((token_ids.clone(), page_table_row.clone()))
         return torch.zeros(1, 8)
 
@@ -2003,8 +2069,15 @@ def test_real_weight_36_layer_full_context_token_out_smoke(mesh_device, device_p
             "split_token_out_trace_evidence": evidence.to_dict(),
             "prefill_variant_lifecycle": {
                 "compiled": [
-                    {"padded_length": padded_length, "path": path}
-                    for padded_length, path in sorted(generator._compiled_prefill_variants)
+                    {
+                        "padded_length": padded_length,
+                        "page_rounded_length": page_rounded_length,
+                        "last_token_tile_start": last_token_tile_start,
+                        "path": path,
+                    }
+                    for padded_length, page_rounded_length, last_token_tile_start, path in sorted(
+                        generator._compiled_prefill_variants
+                    )
                 ],
                 "compile_count": generator._lifetime_prefill_variant_compilations,
                 "decode_trace_release_count": generator._lifetime_decode_trace_releases_for_prefill_compile,

@@ -123,6 +123,21 @@ with ttnn.corruptible_allocation_scope(device):
     trace_output = create_trace_output()
 ```
 
+This scope is active in both runtime modes. Without allocation tracking it
+suppresses the generic active-trace allocation warning for the acknowledged
+block. With tracking enabled it also excludes those allocations from survivor
+validation. Keep the block narrow and use it only when every allocation is
+provably overwritten before use or copied before another trace can overwrite
+it.
+
+`ttnn.transient_allocation_scope(device)` is different: it suppresses only the
+generic normal-runtime warning for a synchronous region whose allocations are
+known to be temporary. Trace-allocation tracking remains active for the whole
+region, so `TT_METAL_TRACE_ALLOC_TRACKING=1` still rejects any scoped buffer
+that survives until replay. Use this for a narrow eager operation that cannot
+replay a trace internally and has a tracker-clean lifetime boundary; do not use
+it to acknowledge trace-owned or intentionally corruptible buffers.
+
 Use `corruptible_allocation_scope` sparingly: every device allocation made inside it is excluded, including implicit allocations and program-cache allocations. Neither acknowledgment prevents corruption; it only tells the checker that the program is prepared for it. The program must still overwrite an acknowledged input before use and copy an acknowledged output to safe storage before another trace can overwrite it.
 
 The checker detects live allocations that could overlap addresses used by a captured trace. It does not validate other trace requirements, such as complete warmup, correct cache keys, stable shapes, or correct selection among multiple captured control-flow paths.

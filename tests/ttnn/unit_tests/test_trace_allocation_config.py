@@ -93,3 +93,31 @@ def test_disabled_tracking_uses_direct_execute_trace_binding():
         check=True,
     )
     assert result.stdout.strip().endswith("True")
+
+
+def test_corruptible_allocation_scope_is_active_without_tracking(monkeypatch):
+    import ttnn
+
+    calls = []
+    device = object()
+    monkeypatch.setattr(ttnn, "_push_corruptible_allocation_scope", lambda value: calls.append(("push", value)))
+    monkeypatch.setattr(ttnn, "_pop_corruptible_allocation_scope", lambda value: calls.append(("pop", value)))
+
+    with ttnn.corruptible_allocation_scope(device):
+        calls.append(("body", device))
+
+    assert calls == [("push", device), ("body", device), ("pop", device)]
+
+
+def test_transient_allocation_scope_is_active_without_disabling_tracking(monkeypatch):
+    import ttnn
+
+    calls = []
+    device = object()
+    monkeypatch.setattr(ttnn, "_push_transient_allocation_scope", lambda value: calls.append(("push", value)))
+    monkeypatch.setattr(ttnn, "_pop_transient_allocation_scope", lambda: calls.append(("pop", None)))
+
+    with ttnn.transient_allocation_scope(device):
+        calls.append(("body", device))
+
+    assert calls == [("push", "transient_allocation_scope"), ("body", device), ("pop", None)]

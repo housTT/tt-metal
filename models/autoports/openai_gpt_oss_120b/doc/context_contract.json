@@ -172,8 +172,8 @@
     "batch_11_largest_capacity_context": 130816,
     "batch_32_largest_capacity_context": 44928,
     "capacity_reduction": {
-      "P150": "resident 36-layer weights, terminal tensors, batch-1 full-context KV/page state, and a 2 GiB trace/activation reserve require 74895259776 bytes/device (69.751646 GiB); fixed state already exceeds 32 GiB so the largest feasible context is 0",
-      "P150x2": "resident 36-layer weights, terminal tensors, batch-1 full-context KV/page state, and a 2 GiB trace/activation reserve require 39272108928 bytes/device (36.575002 GiB); fixed state already exceeds 32 GiB so the largest feasible context is 0",
+      "P150": "resident 36-layer weights, terminal tensors, page state, and a 2 GiB trace/activation reserve require 69761431680 bytes/device (64.970396 GiB) before KV; batch-1 full-context KV adds 5133828096 bytes/device (4.781250 GiB) for a 74895259776-byte (69.751646-GiB) total, so the largest feasible context is 0",
+      "P150x2": "resident 36-layer weights, terminal tensors, page state, and a 2 GiB trace/activation reserve require 36705194880 bytes/device (34.184377 GiB) before KV; batch-1 full-context KV adds 2566914048 bytes/device (2.390625 GiB) for a 39272108928-byte (36.575002-GiB) total, so the largest feasible context is 0",
       "P150x4": null
     },
     "capacity_bytes_per_device_batch1": {
@@ -484,6 +484,83 @@
       "qualitative_prompts": 6,
       "qualitative_verdict": "pass"
     }
+  },
+  "vllm_integration": {
+    "status": "vllm_integration_complete",
+    "production_target": "P150x4",
+    "advertised_capability": {
+      "P150": 0,
+      "P150x2": 0,
+      "P150x4": 131072
+    },
+    "capacity_reduction": {
+      "P150": "fixed resident state plus reserve requires 64.970396 GiB/device before KV; batch-1 full-context KV raises the total to 69.751646 GiB/device, so no serving context fits",
+      "P150x2": "fixed resident state plus reserve requires 34.184377 GiB/device before KV; batch-1 full-context KV raises the total to 36.575002 GiB/device, so no serving context fits",
+      "P150x4": null
+    },
+    "serving": {
+      "resident_layers": 36,
+      "max_model_len": 131072,
+      "max_num_seqs": 32,
+      "page_size": 64,
+      "kv_cache_owner": "vllm",
+      "kv_cache_dtype": "bfloat8_b",
+      "hybrid_kv_cache_groups": true,
+      "async_decode": true,
+      "decode_trace": true,
+      "decode_trace_buckets": [1, 32],
+      "prefill_trace": false,
+      "sampling": "canonical full-model split model/sampler trace with tt_out_tok device feedback",
+      "host_sampling": "explicit optional compatibility path; releases device traces before eager logits and recaptures B1/B32 device traces before device sampling",
+      "prefix_caching": false,
+      "non_aligned_prompt_tokens_tested": 65
+    },
+    "validation": {
+      "sampling_profile": "full",
+      "sampling_tests_passed": 73,
+      "sampling_tests_skipped": 1,
+      "sampling_tests_failed": 0,
+      "qualitative_prompts": 6,
+      "qualitative_profiles": 2,
+      "qualitative_verdict": "pass",
+      "runtime_fallback_audit": "clean",
+      "process_cleanup_audit": "clean"
+    },
+    "performance": {
+      "primary_single_user": {
+        "prompt_tokens": 128,
+        "output_tokens": 128,
+        "requests": 1,
+        "concurrency": 1,
+        "ttft_p50_ms": 514.108193001448,
+        "ttft_p99_ms": 514.108193001448,
+        "tpot_mean_ms": 21.4399947716321,
+        "tpot_p50_ms": 21.4399947716321,
+        "tpot_p99_ms": 21.4399947716321,
+        "itl_p50_ms": 20.723288998851785,
+        "itl_p99_ms": 34.21632115976535,
+        "output_throughput_tokens_per_second": 39.53909853568236,
+        "tpot_derived_decode_tokens_per_second_per_user": 46.641802418866725
+      },
+      "ci_serving_burst": {
+        "prompt_tokens_per_request": 100,
+        "output_tokens_per_request": 100,
+        "requests": 32,
+        "client_concurrency": null,
+        "server_max_num_seqs": 32,
+        "completed_requests": 32,
+        "ttft_p50_ms": 15268.647971499377,
+        "ttft_p99_ms": 15270.059749638567,
+        "tpot_mean_ms": 589.3962710738642,
+        "tpot_p50_ms": 589.3874263232224,
+        "tpot_p99_ms": 589.5865986540409,
+        "itl_p50_ms": 589.3885295008658,
+        "itl_p99_ms": 595.4058422895469,
+        "output_throughput_tokens_per_second": 43.46644512120961,
+        "headline_decode_metric": false
+      }
+    },
+    "artifact_root": "readiness_vllm"
   },
   "provenance": {
     "hf_config": "models/demos/gpt_oss/configs/gpt-oss-120b/config.json",

@@ -23,14 +23,22 @@ class WarmupForwardMixin:
     - self.decode_forward(): method to perform decode forward pass
     """
 
-    def _create_sampling_params(self, can_sample_on_device, batch_size, greedy_only: bool = False):
+    def _create_sampling_params(
+        self,
+        can_sample_on_device,
+        batch_size,
+        greedy_only: bool = False,
+        include_host_sampling: bool = True,
+    ):
         """
         greedy_only: when True, warmup only covers greedy decoding on device (temperature=0.0,
         top_k=1, top_p=1.0). When False (the default), warmup also exercises non-greedy variants
         — temperature/top_k/top_p, presence/frequency/repetition penalties, and log_probs.
+        include_host_sampling: include the optional full-logits compatibility path. Trace-only
+        warmups may disable it after the eager graph has already been compiled.
         """
         if not can_sample_on_device:
-            return [None]
+            return [None] if include_host_sampling else []
 
         sampling_configs = []
 
@@ -84,7 +92,8 @@ class WarmupForwardMixin:
             )
         )
 
-        sampling_configs.append(None)
+        if include_host_sampling:
+            sampling_configs.append(None)
 
         return sampling_configs
 
@@ -103,12 +112,18 @@ class WarmupForwardMixin:
         can_sample_on_device,
         read_from_device=True,
         greedy_only: bool = False,
+        include_host_sampling: bool = True,
         skip_trace_precompile: bool = False,
     ):
         """
         This function is called by vLLM
         """
-        sampling_params = self._create_sampling_params(can_sample_on_device, max_batch_size, greedy_only=greedy_only)
+        sampling_params = self._create_sampling_params(
+            can_sample_on_device,
+            max_batch_size,
+            greedy_only=greedy_only,
+            include_host_sampling=include_host_sampling,
+        )
 
         tokens, start_pos, page_table = self._create_decode_warmup_inputs(max_batch_size, num_blocks)
 

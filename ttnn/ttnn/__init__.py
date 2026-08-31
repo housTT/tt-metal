@@ -153,6 +153,10 @@ from ttnn._ttnn.operations.trace import (
     begin_trace_capture,
     end_trace_capture,
     execute_trace as _ttnn_execute_trace,
+    pop_corruptible_allocation_scope as _pop_corruptible_allocation_scope,
+    pop_allocation_context as _pop_transient_allocation_scope,
+    push_corruptible_allocation_scope as _push_corruptible_allocation_scope,
+    push_allocation_context as _push_transient_allocation_scope,
     release_trace,
 )
 
@@ -162,27 +166,40 @@ from ttnn._ttnn.operations.debug import (
 
 from ttnn.trace_allocation_config import TRACE_ALLOC_TRACKING
 
-if TRACE_ALLOC_TRACKING:
-    from ttnn._ttnn.operations.trace import (
-        pop_corruptible_allocation_scope as _pop_corruptible_allocation_scope,
-        push_corruptible_allocation_scope as _push_corruptible_allocation_scope,
-    )
 
-    @contextlib.contextmanager
-    def corruptible_allocation_scope(mesh_device):
-        """Suppress accounting for intentionally corruptible allocations in this scope."""
-        _push_corruptible_allocation_scope(mesh_device)
-        try:
-            yield
-        finally:
-            _pop_corruptible_allocation_scope(mesh_device)
+@contextlib.contextmanager
+def corruptible_allocation_scope(mesh_device):
+    """Acknowledge intentionally corruptible allocations in this scope.
 
-else:
+    Normal runtime suppresses its active-trace allocation warning for the
+    scoped allocations. When tracking is enabled, the same scope also excludes
+    them from unsafe-survivor accounting.
+    """
 
-    @contextlib.contextmanager
-    def corruptible_allocation_scope(mesh_device):
-        """No-op when trace allocation tracking is disabled."""
+    _push_corruptible_allocation_scope(mesh_device)
+    try:
         yield
+    finally:
+        _pop_corruptible_allocation_scope(mesh_device)
+
+
+@contextlib.contextmanager
+def transient_allocation_scope(mesh_device):
+    """Suppress the generic live-trace warning for temporary allocations.
+
+    Unlike :func:`corruptible_allocation_scope`, allocation tracking remains
+    active. Every scoped buffer must be released before trace replay, where
+    ``TT_METAL_TRACE_ALLOC_TRACKING=1`` will still reject survivors.
+    """
+
+    # The fixed context name is checked only by the allocator's warning path;
+    # record_allocation_if_unsafe deliberately continues tracking allocations.
+    del mesh_device
+    _push_transient_allocation_scope("transient_allocation_scope")
+    try:
+        yield
+    finally:
+        _pop_transient_allocation_scope()
 
 
 if TRACE_ALLOC_TRACKING:

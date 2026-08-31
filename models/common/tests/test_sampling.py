@@ -58,6 +58,107 @@ def test_sampling_trace_bucket_isolation():
     assert len(sampling._trace_states) == 3
 
 
+def _sampling_trace_harness(monkeypatch, events):
+    sampling = SamplingGenerator.__new__(SamplingGenerator)
+    sampling.mesh_device = "mesh"
+    sampling.cq_id = 3
+    sampling._penalties_active = False
+    sampling._log_probs_active = False
+    sampling._active_trace_bucket = None
+    sampling.tt_sampling = SimpleNamespace(force_argmax_sampling=False)
+    sampling.seed_manager = SimpleNamespace(has_active_request_seed=lambda: False)
+    slot = sampling._new_trace_state()
+    sampling._trace_slot = lambda *_: ("key", slot)
+
+    def run_sampling(logits, *, penalties_on, tt_out_tok, count_tokens=True):
+        events.append(("run", logits, penalties_on, tt_out_tok, count_tokens))
+        return "sampled"
+
+    sampling._run_sampling = run_sampling
+    monkeypatch.setattr(
+        ttnn,
+        "begin_trace_capture",
+        lambda mesh, *, cq_id: events.append(("begin", mesh, cq_id)) or 17,
+    )
+    monkeypatch.setattr(
+        ttnn,
+        "end_trace_capture",
+        lambda mesh, trace_id, *, cq_id: events.append(("end", mesh, trace_id, cq_id)),
+    )
+    monkeypatch.setattr(
+        ttnn,
+        "synchronize_device",
+        lambda mesh: events.append(("sync", mesh)),
+    )
+    return sampling, slot
+
+
+def test_missing_sampling_trace_does_not_hide_inline_precompile_allocations(monkeypatch):
+    events = []
+    sampling, slot = _sampling_trace_harness(monkeypatch, events)
+    monkeypatch.setattr(
+        ttnn,
+        "corruptible_allocation_scope",
+        lambda _mesh: pytest.fail("missing-trace sample must expose inline precompile allocations"),
+        raising=False,
+    )
+
+    assert sampling.sample("logits", tt_out_tok="token", skip_precompile=False) == (
+        "token",
+        "sampled",
+    )
+    assert events == [
+        ("run", "logits", False, "token", False),
+        ("begin", "mesh", 3),
+        ("run", "logits", False, "token", True),
+        ("end", "mesh", 17, 3),
+        ("sync", "mesh"),
+    ]
+    assert slot["id"] == 17
+    assert slot["input"] == "logits"
+
+
+def test_missing_precompiled_sampling_trace_scopes_only_capture(monkeypatch):
+    events = []
+    scope_depth = 0
+    sampling, slot = _sampling_trace_harness(monkeypatch, events)
+
+    class Scope:
+        def __enter__(self):
+            nonlocal scope_depth
+            scope_depth += 1
+            events.append(("enter", scope_depth))
+
+        def __exit__(self, *_):
+            nonlocal scope_depth
+            events.append(("exit", scope_depth))
+            scope_depth -= 1
+
+    monkeypatch.setattr(
+        ttnn,
+        "corruptible_allocation_scope",
+        lambda mesh: events.append(("scope", mesh)) or Scope(),
+        raising=False,
+    )
+
+    assert sampling.sample("logits", tt_out_tok="token", skip_precompile=True) == (
+        "token",
+        "sampled",
+    )
+    assert events == [
+        ("scope", "mesh"),
+        ("enter", 1),
+        ("begin", "mesh", 3),
+        ("run", "logits", False, "token", True),
+        ("end", "mesh", 17, 3),
+        ("sync", "mesh"),
+        ("exit", 1),
+    ]
+    assert scope_depth == 0
+    assert slot["id"] == 17
+    assert slot["input"] == "logits"
+
+
 # ---------------------------------------------------------------------------
 # Helper: simulate per-device top-k gather (mirrors TTSampling behaviour)
 # ---------------------------------------------------------------------------
@@ -326,7 +427,12 @@ def test_format_sampling_params_uses_device_argmax_sentinel_for_greedy_rows():
 
 def test_scatter_sampling_params_to_slots_moves_params_to_their_slot_row():
     """A batched prefill samples slot row s with the params of the request there."""
-    params = SamplingParams(temperature=[0.1, 0.2, 0.3], top_k=[1, 2, 3], top_p=[0.5, 0.6, 0.7], seed=[7, 8, 9])
+    params = SamplingParams(
+        temperature=[0.1, 0.2, 0.3],
+        top_k=[1, 2, 3],
+        top_p=[0.5, 0.6, 0.7],
+        seed=[7, 8, 9],
+    )
 
     scattered = scatter_sampling_params_to_slots(params, [2, 0, 5], slot_len=8)
 
@@ -406,6 +512,8 @@ def test_log_probs_calculation(shape, mesh_device):
     torch.manual_seed(seed)
 
     log_probs_calculator = LogProbsCalculator(mesh_device)
+    if not log_probs_calculator._is_supported():
+        pytest.skip("old-path log-probs calculation requires an 8- or 32-device sharded mesh")
 
     torch_tensor = torch.randn(shape)
     # shuffle the tensor in last 2 dimensions
@@ -414,7 +522,10 @@ def test_log_probs_calculation(shape, mesh_device):
 
     argmax_tensor = torch.argmax(torch_tensor, dim=-1, keepdim=True)
     indices_tensor = argmax_tensor.reshape(
-        argmax_tensor.shape[0], argmax_tensor.shape[1], argmax_tensor.shape[-1], argmax_tensor.shape[-2]
+        argmax_tensor.shape[0],
+        argmax_tensor.shape[1],
+        argmax_tensor.shape[-1],
+        argmax_tensor.shape[-2],
     )
     # Push inputs to device
     logits_tensor = ttnn.from_torch(
@@ -504,7 +615,10 @@ def test_log_probs_calculation_shard_tensor_2d_mesh_1x8(mesh_device):
     for batch_idx, token_id in pinned_tokens:
         assert argmax_tensor[0, 0, batch_idx, 0].item() == token_id
     indices_tensor = argmax_tensor.reshape(
-        argmax_tensor.shape[0], argmax_tensor.shape[1], argmax_tensor.shape[-1], argmax_tensor.shape[-2]
+        argmax_tensor.shape[0],
+        argmax_tensor.shape[1],
+        argmax_tensor.shape[-1],
+        argmax_tensor.shape[-2],
     )
 
     logits_tensor = _shard_logits_2d_mesh(torch_tensor, mesh_device)
@@ -553,7 +667,10 @@ def test_log_probs_returns_none_when_disabled(shape, mesh_device):
     torch_tensor = torch.randn(shape)
     argmax_tensor = torch.argmax(torch_tensor, dim=-1, keepdim=True)
     indices_tensor = argmax_tensor.reshape(
-        argmax_tensor.shape[0], argmax_tensor.shape[1], argmax_tensor.shape[-1], argmax_tensor.shape[-2]
+        argmax_tensor.shape[0],
+        argmax_tensor.shape[1],
+        argmax_tensor.shape[-1],
+        argmax_tensor.shape[-2],
     )
 
     logits_tensor = ttnn.from_torch(
@@ -633,7 +750,10 @@ def test_log_probs_with_sub_core_grids_on_galaxy(shape, mesh_device):
 
     argmax_tensor = torch.argmax(torch_tensor, dim=-1, keepdim=True)
     indices_tensor = argmax_tensor.reshape(
-        argmax_tensor.shape[0], argmax_tensor.shape[1], argmax_tensor.shape[-1], argmax_tensor.shape[-2]
+        argmax_tensor.shape[0],
+        argmax_tensor.shape[1],
+        argmax_tensor.shape[-1],
+        argmax_tensor.shape[-2],
     )
 
     if mesh_device.get_num_devices() == 8:
@@ -934,7 +1054,10 @@ def test_top_k_logprobs_pcc_torch_vs_tt(shape, mesh_device):
         (151936, 4),  # Qwen3: four 37984-wide chunks
         (256000, 4),  # Gemma-2: four 64000-wide chunks
         (131072, 2),  # exactly 2x TOPK_MAX_WIDTH still splits in two
-        (131104, None),  # four 32776-wide chunks are not tile-aligned -> host-sampling fallback
+        (
+            131104,
+            None,
+        ),  # four 32776-wide chunks are not tile-aligned -> host-sampling fallback
     ],
 )
 def test_num_single_device_vocab_splits(padded_vocab_size, expected_splits):
@@ -945,7 +1068,10 @@ def test_num_single_device_vocab_splits(padded_vocab_size, expected_splits):
     "width, expected",
     [
         (32768, 1),
-        (131072, 1),  # exactly 2*TOPK_MAX_WIDTH: full-row untilize known good (Galaxy padded vocab)
+        (
+            131072,
+            1,
+        ),  # exactly 2*TOPK_MAX_WIDTH: full-row untilize known good (Galaxy padded vocab)
         (151936, 4),  # Qwen3
         (256000, 4),  # Gemma-2
         (262144, 4),  # 4*TOPK_MAX_WIDTH exactly
@@ -972,7 +1098,13 @@ def test_ttsampling_force_argmax_matches_row_max_on_wide_vocab(vocab_size, mesh_
     batch_size = 32
 
     args = _single_device_sampling_args(mesh_device, vocab_size)
-    args.model_config = {"SAMPLING_AG_CONFIG": {"allow_force_argmax": True, "num_links": 1, "topology": None}}
+    args.model_config = {
+        "SAMPLING_AG_CONFIG": {
+            "allow_force_argmax": True,
+            "num_links": 1,
+            "topology": None,
+        }
+    }
     sampler = TTSampling(
         args=args,
         mesh_device=mesh_device,
@@ -1115,7 +1247,12 @@ def test_ttsampling_duplicate_request_seeds_sample_diverse_tokens(mesh_device):
         row = torch.zeros(1, 1, 1, vocab_size)
         row[..., :32] = 5.0  # 32 equally-likely candidates, everything else improbable
         logits_host = row.expand(1, 1, batch_size, vocab_size).contiguous()
-        logits_tt = ttnn.from_torch(logits_host, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh_device)
+        logits_tt = ttnn.from_torch(
+            logits_host,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh_device,
+        )
         tokens_tt, _ = sampler(logits_tt)
         return ttnn.to_torch(tokens_tt).flatten()[:batch_size].long().tolist()
 
@@ -1156,7 +1293,10 @@ def test_topk_route_mirror_parity(mesh_device, shape, k, expected):
     from models.common.sampling._utils import topk_would_route_to_large_indices
 
     x = ttnn.from_torch(
-        torch.zeros(shape, dtype=torch.bfloat16), dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh_device
+        torch.zeros(shape, dtype=torch.bfloat16),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=mesh_device,
     )
     # Routing is Blackhole-only: off-BH the predicate short-circuits to False,
     # so every cell's expectation collapses to False there (still asserted --

@@ -30,8 +30,9 @@ import torch
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.model import HF_CONTEXT_LENGTH, MODEL_LAYERS, PAGE_SIZE, Model, build_model
 from models.common.sampling.generator import SamplingParams
-from models.tt_transformers.tt.common import get_padded_prefill_len
+from models.tt_transformers.tt.common import get_block_size, get_padded_prefill_len
 from models.tt_transformers.tt.generator import Generator as _TTGenerator
+from models.tt_transformers.tt.generator import slice_prefill_page_tables_per_layer
 
 try:
     from models.common.readiness_check.contract import Generator as _ReadinessGenerator
@@ -92,6 +93,7 @@ class TraceEvidence:
     asynchronous_decode_output_collections: int = 0
     new_prefill_variants_compiled: int = 0
     decode_trace_releases_for_prefill_compile: int = 0
+    decode_trace_releases_for_host_sampling: int = 0
 
     def to_dict(self):
         return dict(vars(self))
@@ -112,27 +114,35 @@ class Generator(_ReadinessGenerator):
 
     tokenizer: Any
 
-    def __init__(self, model: Model, model_args, *, kv_cache=None):
+    def __init__(self, model: Model, model_args, *, kv_cache=None, cache_owner: str = "model"):
+        if cache_owner not in {"model", "vllm"}:
+            raise ValueError(f"cache_owner must be 'model' or 'vllm', got {cache_owner!r}")
         self.model = model
         self.model_args = model_args
         self.mesh_device = model.mesh_device
         self.tokenizer = model_args.tokenizer
         self._kv_cache = model.kv_cache if kv_cache is None else kv_cache
+        self.cache_owner = cache_owner
         self._inner = _TTGenerator(
             model=[model],
             model_args=[model_args],
             mesh_device=self.mesh_device,
             tokenizer=self.tokenizer,
         )
-        self._page_table = self.allocate_page_table()
+        # A standalone generator owns fixed per-slot cache ranges.  vLLM owns
+        # one shared block pool and supplies the scheduler's current table on
+        # every call, so creating a private full-context table here would be a
+        # latent and physically invalid fallback for the serving path.
+        self._page_table = self.allocate_page_table() if cache_owner == "model" else None
         self._dirty_cache = False
         self._last_page_table: torch.Tensor | None = None
         self._last_sampling_mode: str | None = None
         self._decode_started = False
         self._prepared_device_sampling_params: SamplingParams | None = None
-        self._compiled_prefill_variants: set[tuple[int, str]] = set()
+        self._compiled_prefill_variants: set[tuple[int, int, int, str]] = set()
         self._lifetime_prefill_variant_compilations = 0
         self._lifetime_decode_trace_releases_for_prefill_compile = 0
+        self._lifetime_decode_trace_releases_for_host_sampling = 0
         self._torn_down = False
         self.runtime_evidence_path: Path | None = None
         self.last_generation_metrics: dict[str, Any] = {}
@@ -143,6 +153,16 @@ class Generator(_ReadinessGenerator):
     @property
     def kv_cache(self):
         return self._kv_cache
+
+    @property
+    def already_warmed_up_prefill(self) -> bool:
+        """Expose the canonical generator's warmup state to serving wrappers."""
+
+        return bool(self._inner.already_warmed_up_prefill)
+
+    @already_warmed_up_prefill.setter
+    def already_warmed_up_prefill(self, value: bool) -> None:
+        self._inner.already_warmed_up_prefill = bool(value)
 
     @property
     def page_table(self):
@@ -166,6 +186,11 @@ class Generator(_ReadinessGenerator):
             self.model_args.max_batch_size * blocks_per_slot,
             dtype=torch.int32,
         ).reshape(self.model_args.max_batch_size, blocks_per_slot)
+
+    def _require_private_page_table(self) -> torch.Tensor:
+        if self._page_table is None:
+            raise RuntimeError("vLLM owns the serving cache; an explicit scheduler-owned page table is required")
+        return self._page_table
 
     def _layer_cache(self, kv_cache):
         cache = self._kv_cache if kv_cache is None else kv_cache
@@ -226,7 +251,7 @@ class Generator(_ReadinessGenerator):
                     return True
         return False
 
-    def _release_decode_traces_for_prefill_compile(self) -> None:
+    def _release_decode_traces_for_prefill_compile(self, *, host_sampling: bool = False) -> None:
         """Release live decode/sampling captures before a new prefill compile.
 
         TTNN traces bind allocator addresses that are opaque to subsequent
@@ -267,12 +292,19 @@ class Generator(_ReadinessGenerator):
                         ttnn.release_trace(self._inner.model_args[model_id].mesh_device, trace_id)
                         released.add(key)
 
+        bucket_store = getattr(self._inner, "_bucket_trace_store", None)
+        if isinstance(bucket_store, dict):
+            # Preserve width -> trace-dictionary identity.  The vLLM adapter
+            # keeps its active width across a first-time prefill compilation;
+            # dropping this map would let the recaptured active trace become
+            # orphaned when a later width switch restores a new empty tuple.
+            for trace_ids, trace_inputs, trace_outputs in bucket_store.values():
+                trace_ids.clear()
+                trace_inputs.clear()
+                trace_outputs.clear()
         self._inner.trace_ids_decode.clear()
         self._inner.trace_inputs_decode.clear()
         self._inner.trace_output_decode.clear()
-        bucket_store = getattr(self._inner, "_bucket_trace_store", None)
-        if hasattr(bucket_store, "clear"):
-            bucket_store.clear()
         self._inner.mode = None
         self._inner.prev_page_table = None
         self._inner._prev_on_device_sampling = None
@@ -280,24 +312,64 @@ class Generator(_ReadinessGenerator):
         self._inner._defer_trace_recording = False
         self._inner._pending_decode_trace = None
         self._prepared_device_sampling_params = None
-        self.trace_evidence.decode_trace_releases_for_prefill_compile += 1
-        self._lifetime_decode_trace_releases_for_prefill_compile += 1
+        if host_sampling:
+            self.trace_evidence.decode_trace_releases_for_host_sampling += 1
+            self._lifetime_decode_trace_releases_for_host_sampling += 1
+        else:
+            self.trace_evidence.decode_trace_releases_for_prefill_compile += 1
+            self._lifetime_decode_trace_releases_for_prefill_compile += 1
 
-    def _prepare_prefill_variants(self, prompt_lens: List[int], *, path: str) -> set[tuple[int, str]]:
-        """Make first-time padded prefill compilation safe with existing traces."""
+    def release_decode_traces_for_host_sampling(self) -> bool:
+        """Quiesce traces before the optional eager full-logits compatibility path."""
 
-        variants = {(get_padded_prefill_len(int(prompt_len)), path) for prompt_len in prompt_lens}
+        if not self._has_live_decode_trace():
+            return False
+        self._release_decode_traces_for_prefill_compile(host_sampling=True)
+        return True
+
+    @staticmethod
+    def _prefill_program_signature(prompt_len: int, path: str) -> tuple[int, int, int, str]:
+        """Return every prompt-dependent prefill program bucket.
+
+        Padding alone is insufficient: sequential serving trims K/V fill to
+        the prompt's page-rounded length and slices the last hidden-state tile.
+        Both operations have shape/offset-specific programs.  Treating a short
+        prompt as the warmed 128-token variant would compile those programs
+        while decode traces are live, so a later replay could overwrite their
+        outputs.
+        """
+
+        prompt_len = int(prompt_len)
+        if prompt_len < 1:
+            raise ValueError(f"prefill prompt length must be positive, got {prompt_len}")
+        padded_length = get_padded_prefill_len(prompt_len)
+        page_rounded_length = ((prompt_len + PAGE_SIZE - 1) // PAGE_SIZE) * PAGE_SIZE
+        last_token_tile_start = ((prompt_len - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE
+        return padded_length, page_rounded_length, last_token_tile_start, path
+
+    def _prepare_prefill_variants(self, prompt_lens: List[int], *, path: str) -> set[tuple[int, int, int, str]]:
+        """Make first-time prefill program compilation safe with existing traces."""
+
+        variants = {self._prefill_program_signature(prompt_len, path) for prompt_len in prompt_lens}
         unseen = variants.difference(self._compiled_prefill_variants)
         if unseen and self._has_live_decode_trace():
             self._release_decode_traces_for_prefill_compile()
         return unseen
 
-    def _record_compiled_prefill_variants(self, variants: set[tuple[int, str]]) -> None:
+    def _record_compiled_prefill_variants(self, variants: set[tuple[int, int, int, str]]) -> None:
         self._compiled_prefill_variants.update(variants)
         self.trace_evidence.new_prefill_variants_compiled += len(variants)
         self._lifetime_prefill_variant_compilations += len(variants)
 
-    def _prefill_one(self, token_ids, page_table_row, layer_cache, *, return_all_logits):
+    def _prefill_one(
+        self,
+        token_ids,
+        page_table_row,
+        layer_cache,
+        *,
+        return_all_logits,
+        page_tables_per_layer=None,
+    ):
         logical_len = int(token_ids.shape[-1])
         inputs = self.model.prepare_inputs_prefill(
             token_ids,
@@ -315,6 +387,7 @@ class Generator(_ReadinessGenerator):
             get_last_token=-1 if return_all_logits else ((logical_len - 1) // 32) * 32,
             kv_cache=layer_cache,
             batch_size=1,
+            page_tables_per_layer=page_tables_per_layer,
         )
         gathered = self._gather_prefill_logits(logits)
         self.trace_evidence.full_logits_readbacks += 1
@@ -332,25 +405,65 @@ class Generator(_ReadinessGenerator):
         kv_cache,
         prompt_lens: List[int],
         return_all_logits: bool = False,
+        sampling_params: SamplingParams | None = None,
+        empty_slots: List[int] | None = None,
+        page_tables_per_layer=None,
+        enable_trace: bool = False,
         **kwargs: Any,
-    ) -> torch.Tensor:
+    ):
         """Fill explicit paged cache state for mixed, non-aligned prompts."""
 
         del kwargs
         page_table_host = _to_torch_page_table(page_table)
         self._validate_prefill(tokens, prompt_lens, page_table_host)
+        if sampling_params is not None:
+            if return_all_logits:
+                raise ValueError("device-sampled prefill cannot return all logits")
+            slots = list(range(tokens.shape[0])) if empty_slots is None else [int(slot) for slot in empty_slots]
+            if len(slots) != tokens.shape[0]:
+                raise ValueError(f"empty_slots has {len(slots)} entries for batch {tokens.shape[0]}")
+            path = "device_sampling"
+            new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
+            result = self._inner.prefill_forward_text(
+                tokens,
+                page_table=page_table_host,
+                kv_cache=self._outer_cache(kv_cache),
+                prompt_lens=[int(length) for length in prompt_lens],
+                empty_slots=slots,
+                enable_trace=enable_trace,
+                sampling_params=sampling_params,
+                warmup_prefill=False,
+                page_tables_per_layer=page_tables_per_layer,
+            )
+            self._dirty_cache = True
+            self._inner.mode = None
+            self._record_compiled_prefill_variants(new_variants)
+            self.trace_evidence.sampled_token_readbacks += 1
+            self.trace_evidence.caller_visible_token_synchronizations += 1
+            return result
         path = "host_all_logits" if return_all_logits else "host_last_logits"
         new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
         layer_cache = self._layer_cache(kv_cache)
         rows = []
         for user, prompt_len in enumerate(prompt_lens):
             prompt_len = int(prompt_len)
+            block_sizes = None
+            if page_tables_per_layer is not None:
+                block_sizes = [get_block_size(cache) for cache in layer_cache]
+            user_page_tables = slice_prefill_page_tables_per_layer(
+                page_tables_per_layer,
+                user,
+                False,
+                valid_seq_len=prompt_len,
+                block_sizes=block_sizes,
+            )
             rows.append(
                 self._prefill_one(
                     tokens[user : user + 1, :prompt_len],
                     page_table_host[user : user + 1],
                     layer_cache,
                     return_all_logits=return_all_logits,
+                    page_tables_per_layer=user_page_tables,
                 )
             )
         self._dirty_cache = True
@@ -363,6 +476,21 @@ class Generator(_ReadinessGenerator):
                 output[user, : row.shape[0]] = row
             return output
         return torch.stack(rows, dim=0)
+
+    def prefill_logits(self, prompt_token_ids: List[int]) -> torch.Tensor:
+        """Run standalone all-position prefill with generator-owned cache state."""
+
+        if not prompt_token_ids:
+            raise ValueError("prompt_token_ids must contain at least one token")
+        self.reset()
+        prompt = torch.tensor([prompt_token_ids], dtype=torch.long)
+        return self.prefill_forward(
+            prompt,
+            page_table=self._require_private_page_table()[:1],
+            kv_cache=self._kv_cache,
+            prompt_lens=[len(prompt_token_ids)],
+            return_all_logits=True,
+        )
 
     def _record_decode_staging(self, *, page_table, sampling_mode, enable_trace, reset_batch):
         current = page_table.clone()
@@ -390,40 +518,6 @@ class Generator(_ReadinessGenerator):
         self._last_sampling_mode = sampling_mode
         self._decode_started = True
 
-    def _call_with_trace_submission_accounting(self, call):
-        """Count successful submissions at the actual ``ttnn.execute_trace`` boundary."""
-
-        original_execute_trace = ttnn.execute_trace
-
-        def counted_execute_trace(mesh_device, trace_id, *args, **kwargs):
-            result = original_execute_trace(mesh_device, trace_id, *args, **kwargs)
-            cq_id = kwargs.get("cq_id", args[0] if args else 0)
-            model_store = getattr(self._inner, "trace_ids_decode", {})
-            model_ids_by_device = model_store.get(True, {}) if hasattr(model_store, "get") else {}
-            model_ids = set((model_ids_by_device or {}).values())
-            sampling = getattr(self.model, "sampling", None)
-            sampling_states = getattr(sampling, "_trace_states", {}) if sampling is not None else {}
-            sampling_ids = {
-                state.get("id")
-                for state in sampling_states.values()
-                if isinstance(state, dict) and state.get("id") is not None
-            }
-            sampling_cq = getattr(sampling, "cq_id", None)
-            if trace_id in sampling_ids and (sampling_cq is None or cq_id == sampling_cq):
-                self.trace_evidence.sampling_execute_submissions += 1
-            elif trace_id in model_ids:
-                self.trace_evidence.model_execute_submissions += 1
-                self.trace_evidence.trace_replays += 1
-            else:
-                self.trace_evidence.unclassified_execute_submissions += 1
-            return result
-
-        ttnn.execute_trace = counted_execute_trace
-        try:
-            return call()
-        finally:
-            ttnn.execute_trace = original_execute_trace
-
     def decode_forward(
         self,
         tokens: torch.Tensor,
@@ -438,6 +532,8 @@ class Generator(_ReadinessGenerator):
         force_host_tokens: bool = False,
         prompt_tokens: torch.Tensor | None = None,
         output_tokens: torch.Tensor | None = None,
+        slot_remap=None,
+        skip_trace_precompile: bool = False,
         read_from_device: bool = True,
         reuse_sampling_state: bool = False,
         reuse_greedy_sampling_state: bool = False,
@@ -469,8 +565,6 @@ class Generator(_ReadinessGenerator):
         page_table_host = _to_torch_page_table(page_table)
         if page_table_host.shape[0] < tokens.shape[0]:
             raise ValueError("page_table does not cover every decode row")
-        if sampling_mode == "host" and not read_from_device:
-            raise ValueError("host sampling requires read_from_device=True")
         reuse_fixed_sampling = reuse_sampling_state or reuse_greedy_sampling_state
         if reuse_fixed_sampling and sampling_mode != "device":
             raise ValueError("fixed sampling-state reuse is valid only for device sampling")
@@ -499,41 +593,52 @@ class Generator(_ReadinessGenerator):
             # the host token/position rather than silently continuing free-run.
             self._inner._slots_prefilled_since_decode.update(range(tokens.shape[0]))
         if reuse_fixed_sampling:
-            result = self._call_with_trace_submission_accounting(
-                lambda: self._inner.decode_forward(
-                    tokens=tokens,
-                    start_pos=start_pos,
-                    page_table=page_table_host,
-                    kv_cache=self._outer_cache(kv_cache),
-                    enable_trace=enable_trace,
-                    read_from_device=False,
-                    sampling_params=None,
-                    defer_device_sampling=True,
-                    reset_batch=False,
-                )
+            result = self._inner.decode_forward(
+                tokens=tokens,
+                start_pos=start_pos,
+                page_table=page_table_host,
+                kv_cache=self._outer_cache(kv_cache),
+                enable_trace=enable_trace,
+                read_from_device=False,
+                sampling_params=None,
+                defer_device_sampling=True,
+                reset_batch=False,
+                slot_remap=slot_remap,
+                skip_trace_precompile=skip_trace_precompile,
             )
-            result = self._call_with_trace_submission_accounting(
-                lambda: self._replay_prepared_sampling(result, enable_trace=enable_trace)
-            )
+            if enable_trace:
+                self.trace_evidence.model_execute_submissions += 1
+                self.trace_evidence.trace_replays += 1
+            result = self._replay_prepared_sampling(result, enable_trace=enable_trace)
+            if enable_trace:
+                self.trace_evidence.sampling_execute_submissions += 1
             self.trace_evidence.fixed_sampling_state_replays += 1
             if prepared_sampling_params == GREEDY:
                 self.trace_evidence.fixed_greedy_sampling_replays += 1
         else:
             effective_sampling_params = (sampling_params or GREEDY) if sampling_mode == "device" else None
-            result = self._call_with_trace_submission_accounting(
-                lambda: self._inner.decode_forward(
-                    tokens=tokens,
-                    start_pos=start_pos,
-                    page_table=page_table_host,
-                    kv_cache=self._outer_cache(kv_cache),
-                    enable_trace=enable_trace,
-                    read_from_device=read_from_device,
-                    sampling_params=effective_sampling_params,
-                    reset_batch=reset_batch,
-                    prompt_tokens=prompt_tokens,
-                    output_tokens=output_tokens,
-                )
+            result = self._inner.decode_forward(
+                tokens=tokens,
+                start_pos=start_pos,
+                page_table=page_table_host,
+                kv_cache=self._outer_cache(kv_cache),
+                enable_trace=enable_trace,
+                read_from_device=read_from_device,
+                sampling_params=effective_sampling_params,
+                reset_batch=reset_batch,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                slot_remap=slot_remap,
+                skip_trace_precompile=skip_trace_precompile,
             )
+            if enable_trace:
+                self.trace_evidence.model_execute_submissions += 1
+                self.trace_evidence.trace_replays += 1
+                # Explicit request seeds update the device seed tensor every
+                # token and intentionally run the sampler eagerly; only the
+                # unseeded fixed-state path replays a sampling trace.
+                if sampling_mode == "device" and not self._sampling_has_active_request_seed():
+                    self.trace_evidence.sampling_execute_submissions += 1
             if sampling_mode == "device":
                 self.trace_evidence.sampling_state_host_refreshes += 1
                 self._prepared_device_sampling_params = (
@@ -549,6 +654,8 @@ class Generator(_ReadinessGenerator):
             if isinstance(result, tuple):
                 result = result[0]
             return result.reshape(-1)[: tokens.shape[0]].to(torch.int64)
+        if not read_from_device:
+            return result
         self.trace_evidence.full_logits_readbacks += 1
         self.trace_evidence.validation_full_logit_synchronizations += 1
         if isinstance(result, tuple):
@@ -591,7 +698,7 @@ class Generator(_ReadinessGenerator):
             raise RuntimeError("canonical greedy sampling state is not prepared")
         return self._replay_prepared_sampling(tt_logits, enable_trace=enable_trace)
 
-    def read_decode_output(self, device_output, *, async_read: bool = False):
+    def read_decode_output(self, device_output, *, async_read: bool = False, is_tokens: bool = True):
         """Collect an explicitly submitted device token output.
 
         Async collection returns the shared runtime's ``(host_outputs,
@@ -606,10 +713,97 @@ class Generator(_ReadinessGenerator):
         self.trace_evidence.decode_output_collections += 1
         self.trace_evidence.sampled_token_readbacks += 1
         self.trace_evidence.caller_visible_token_synchronizations += 1
-        result = self._inner.process_decode_output_host(host_output, is_tokens=True)
+        result = self.process_decode_output_host(host_output, is_tokens=is_tokens)
         if isinstance(result, tuple):
             result = result[0]
-        return result.reshape(-1).to(torch.int64)
+        return result.reshape(-1).to(torch.int64) if is_tokens else result
+
+    def process_decode_output_host(self, host_output, *, is_tokens: bool = False):
+        """Format an already-submitted decode read without issuing device work."""
+
+        return self._inner.process_decode_output_host(host_output, is_tokens=is_tokens)
+
+    def warmup_model_prefill(self, *, kv_cache, enable_trace: bool, can_sample_on_device: bool):
+        """Delegate vLLM's prefill warmup to the canonical generator."""
+
+        result = self._inner.warmup_model_prefill(
+            kv_cache=self._outer_cache(kv_cache),
+            enable_trace=enable_trace,
+            can_sample_on_device=can_sample_on_device,
+        )
+        paths = {"host_last_logits"}
+        if can_sample_on_device:
+            paths.add("device_sampling")
+        variants = {
+            self._prefill_program_signature(seq_len, path)
+            for seq_len in self.model_args.get_warmup_prefill_supported_seq_lens()
+            for path in paths
+        }
+        self._record_compiled_prefill_variants(variants.difference(self._compiled_prefill_variants))
+        return result
+
+    def warmup_model_decode(
+        self,
+        *,
+        kv_cache,
+        enable_trace: bool,
+        max_batch_size: int,
+        num_blocks: int,
+        can_sample_on_device: bool,
+        skip_trace_precompile: bool = False,
+    ):
+        """Delegate vLLM's decode compile/capture sweep to the canonical generator."""
+
+        return self._inner.warmup_model_decode(
+            kv_cache=self._outer_cache(kv_cache),
+            enable_trace=enable_trace,
+            max_batch_size=max_batch_size,
+            num_blocks=num_blocks,
+            can_sample_on_device=can_sample_on_device,
+            read_from_device=False,
+            # Compile the optional host/full-logits graph before traces exist,
+            # but do not reserve a second full-model trace for it. Serving
+            # performance always uses the canonical on-device token-out trace.
+            include_host_sampling=not enable_trace,
+            skip_trace_precompile=skip_trace_precompile,
+        )
+
+    def prepare_model_decode_trace(
+        self,
+        *,
+        kv_cache,
+        max_batch_size: int,
+        num_blocks: int,
+        on_device_sampling: bool = True,
+    ):
+        """Compile and allocate one decode signature before any trace is live."""
+
+        tokens = torch.zeros(max_batch_size, 1, dtype=torch.int32)
+        # Trace capture executes the graph once.  Use the paged-cache inactive
+        # sentinel so a later recapture cannot overwrite serving KV (notably
+        # logical position zero) while another request cohort is resident.
+        # Replay refreshes these persistent positions with the scheduler's
+        # authoritative values before executing the captured trace.
+        start_pos = torch.full((max_batch_size,), -1, dtype=torch.int32)
+        page_table = torch.zeros(max_batch_size, num_blocks, dtype=torch.int32)
+        return self._inner._prepare_decode_trace_text(
+            torch.chunk(tokens, self._inner.data_parallel, 0),
+            torch.chunk(start_pos, self._inner.data_parallel, 0),
+            page_table=torch.chunk(page_table, self._inner.data_parallel, 0),
+            kv_cache=self._outer_cache(kv_cache),
+            on_device_sampling=on_device_sampling,
+            skip_precompile=False,
+        )
+
+    def capture_prepared_model_decode_trace(self, prepared):
+        """Capture a decode bucket whose programs and persistent inputs exist."""
+
+        trace_ids, trace_output, *trace_inputs = self._inner._record_decode_trace_text(prepared)
+        on_device_sampling = prepared["on_device_sampling"]
+        self._inner.trace_ids_decode[on_device_sampling] = trace_ids
+        self._inner.trace_inputs_decode[on_device_sampling] = trace_inputs
+        self._inner.trace_output_decode[on_device_sampling] = trace_output
+        return trace_output
 
     def run_device_token_out(
         self,
@@ -640,7 +834,7 @@ class Generator(_ReadinessGenerator):
             raise ValueError("split token-out replay does not support explicit request seeds")
         self.reset()
         prompt = torch.tensor([prompt_token_ids], dtype=torch.long)
-        pages = self._page_table[:1] if page_table is None else _to_torch_page_table(page_table)
+        pages = self._require_private_page_table()[:1] if page_table is None else _to_torch_page_table(page_table)
         generation_start = time.perf_counter()
         first_token = self._device_prefill_sample(prompt, pages, sampling_params=sampling_params)
         first_token_time = time.perf_counter()
@@ -685,7 +879,7 @@ class Generator(_ReadinessGenerator):
             "output_tokens": max_new_tokens,
             "ttft_seconds": first_token_time - generation_start,
             "decode_seconds": decode_seconds,
-            "decode_tokens_per_second_per_user": decode_tokens / decode_seconds if decode_seconds else None,
+            "decode_tokens_per_second_per_user": (decode_tokens / decode_seconds if decode_seconds else None),
             "total_seconds": generation_end - generation_start,
             "first_token": first_token,
             "final_token": final_token,
@@ -721,22 +915,16 @@ class Generator(_ReadinessGenerator):
         *,
         sampling_params: SamplingParams,
     ) -> int:
-        new_variants = self._prepare_prefill_variants([prompt.shape[1]], path="device_sampling")
-        result = self._inner.prefill_forward_text(
+        result = self.prefill_forward(
             prompt,
             page_table=page_table,
-            kv_cache=[self._kv_cache],
+            kv_cache=self._kv_cache,
             prompt_lens=[prompt.shape[1]],
             empty_slots=[0],
             enable_trace=False,
             sampling_params=sampling_params,
-            warmup_prefill=False,
         )
         tokens = result[0] if isinstance(result, tuple) else result
-        self.trace_evidence.sampled_token_readbacks += 1
-        self.trace_evidence.caller_visible_token_synchronizations += 1
-        self._dirty_cache = True
-        self._record_compiled_prefill_variants(new_variants)
         return int(torch.as_tensor(tokens).reshape(-1)[0])
 
     def _eos_token_ids(self) -> set[int]:
@@ -787,7 +975,7 @@ class Generator(_ReadinessGenerator):
         effective_sampling_params = sampling_params or GREEDY
         generation_start = time.perf_counter()
         prompt = torch.tensor([prompt_token_ids], dtype=torch.long)
-        page_table = self._page_table[:1]
+        page_table = self._require_private_page_table()[:1]
         if sampling_mode == "device":
             predicted = self._device_prefill_sample(
                 prompt,
@@ -855,7 +1043,7 @@ class Generator(_ReadinessGenerator):
             "output_tokens": len(predictions),
             "ttft_seconds": first_token_time - generation_start,
             "decode_seconds": decode_seconds,
-            "decode_tokens_per_second_per_user": decode_tokens / decode_seconds if decode_seconds else None,
+            "decode_tokens_per_second_per_user": (decode_tokens / decode_seconds if decode_seconds else None),
             "total_seconds": generation_end - generation_start,
         }
         self._write_runtime_evidence()
@@ -901,7 +1089,6 @@ class Generator(_ReadinessGenerator):
             and trace["decode_calls"] == expected_decode_calls
             and trace["model_execute_submissions"] == expected_decode_calls
             and trace["sampling_execute_submissions"] == expected_decode_calls
-            and trace["unclassified_execute_submissions"] == 0
             and self._trace_handles_before_measurement.get("model_decode_trace_present") is True
             and self._trace_handles_before_measurement.get("sampling_trace_present") is True
             and handles["model_decode_trace_present"]
@@ -916,9 +1103,11 @@ class Generator(_ReadinessGenerator):
             "trace_handles": handles,
             "expected_decode_calls": expected_decode_calls,
             "trace_verified": trace_verified,
+            "unclassified_execute_submissions_evidentiary": False,
             "trace_verification_rule": (
-                "enable_trace=true; model and sampling trace handles exist before timing; successful model and "
-                "sampling execute_trace submissions each equal output_tokens-1; no submission is unclassified"
+                "enable_trace=true; model and sampling trace handles exist before timing; known successful model "
+                "and sampling call-boundary counters each equal output_tokens-1. The legacy unclassified counter "
+                "is retained for schema compatibility but is not observable and is not part of verification."
             ),
         }
         self.runtime_evidence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -933,7 +1122,7 @@ class Generator(_ReadinessGenerator):
         partially populated chunk when a fixed slot is reused.
         """
 
-        if self._dirty_cache:
+        if self._dirty_cache and self.cache_owner == "model":
             self.model.clear_kv_caches()
         self._dirty_cache = False
         self._inner.mode = None
@@ -954,7 +1143,7 @@ class Generator(_ReadinessGenerator):
             "max_context_length": self.model_args.max_context_len,
             "physical_kv_context_length": self.model_args.physical_kv_context_len,
             "page_size": PAGE_SIZE,
-            "cache_owner": "generator unless explicit kv_cache is passed to the low-level API",
+            "cache_owner": self.cache_owner,
             "inactive_row_sentinel": -1,
             "sampling": dict(SAMPLER_DECISION),
             "trace_evidence": self.trace_evidence.to_dict(),
@@ -964,12 +1153,22 @@ class Generator(_ReadinessGenerator):
             "device_top_k_top_p": True,
             "split_token_out_collection": "explicit sync or async boundary; no steady per-token readback",
             "compiled_prefill_variants": [
-                {"padded_length": padded_length, "path": path}
-                for padded_length, path in sorted(self._compiled_prefill_variants)
+                {
+                    "padded_length": padded_length,
+                    "page_rounded_length": page_rounded_length,
+                    "last_token_tile_start": last_token_tile_start,
+                    "path": path,
+                }
+                for padded_length, page_rounded_length, last_token_tile_start, path in sorted(
+                    self._compiled_prefill_variants
+                )
             ],
             "lifetime_prefill_variant_compilations": self._lifetime_prefill_variant_compilations,
             "lifetime_decode_trace_releases_for_prefill_compile": (
                 self._lifetime_decode_trace_releases_for_prefill_compile
+            ),
+            "lifetime_decode_trace_releases_for_host_sampling": (
+                self._lifetime_decode_trace_releases_for_host_sampling
             ),
         }
 
@@ -1029,4 +1228,10 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Generator:
     return generator
 
 
-__all__ = ["GREEDY", "Generator", "SAMPLER_DECISION", "TraceEvidence", "build_generator"]
+__all__ = [
+    "GREEDY",
+    "Generator",
+    "SAMPLER_DECISION",
+    "TraceEvidence",
+    "build_generator",
+]

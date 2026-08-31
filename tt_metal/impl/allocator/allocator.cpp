@@ -116,7 +116,8 @@ void AllocatorImpl::init_one_bank_per_l1() {
 }
 
 void AllocatorImpl::verify_safe_allocation() const {
-    if (!allocations_unsafe_) {
+    if (!allocations_unsafe_ || this->in_corruptible_allocation_scope() ||
+        allocation_context_contains("transient_allocation_scope")) {
         return;
     }
 

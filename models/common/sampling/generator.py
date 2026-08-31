@@ -140,7 +140,8 @@ class SamplingGenerator:
     def set_trace_bucket(self, bucket: int | None):
         """Select the trace namespace for subsequent capture/replay. Callers that multiplex the
         decode-output logits tensor per batch width (decode bucketing) set this to the width, so a
-        sampling trace captured at width B is only ever replayed against width-B logits."""
+        sampling trace captured at width B is only ever replayed against width-B logits.
+        """
         self._active_trace_bucket = bucket
 
     def _trace_slot(self, penalties_on: bool, log_probs_on: bool, force_argmax: bool):
@@ -275,7 +276,10 @@ class SamplingGenerator:
         self._penalties_active = not (
             is_default_value(sampling_params.presence_penalty, self._DEFAULT_PENALTIES["presence"])
             and is_default_value(sampling_params.frequency_penalty, self._DEFAULT_PENALTIES["frequency"])
-            and is_default_value(sampling_params.repetition_penalty, self._DEFAULT_PENALTIES["repetition"])
+            and is_default_value(
+                sampling_params.repetition_penalty,
+                self._DEFAULT_PENALTIES["repetition"],
+            )
         )
         if (
             not self.tt_sampling.force_argmax_sampling
@@ -283,7 +287,9 @@ class SamplingGenerator:
             or self._penalties_active != old_penalties_active
         ):
             self.tt_penalties.reset_params(
-                sampling_params.presence_penalty, sampling_params.frequency_penalty, sampling_params.repetition_penalty
+                sampling_params.presence_penalty,
+                sampling_params.frequency_penalty,
+                sampling_params.repetition_penalty,
             )
         self._log_probs_active = self.tt_sampling.log_probs_calculator.enable_log_probs
 
@@ -457,10 +463,21 @@ class SamplingGenerator:
         else:
             key, slot = self._trace_slot(penalties_on, log_probs_on, force_argmax)
             if slot["id"] is None:
+                if skip_precompile:
+                    # This variant was eagerly compiled before another trace
+                    # became live. Acknowledge only its capture-owned scratch;
+                    # the generic inline-precompile path below remains visible
+                    # to allocation warnings and trace tracking.
+                    with ttnn.corruptible_allocation_scope(self.mesh_device):
+                        return self.capture_trace(
+                            logits,
+                            tt_out_tok=tt_out_tok,
+                            skip_precompile=True,
+                        )
                 return self.capture_trace(
                     logits,
                     tt_out_tok=tt_out_tok,
-                    skip_precompile=skip_precompile,
+                    skip_precompile=False,
                 )
 
             self._validate_trace_inputs(slot, logits, tt_out_tok)
@@ -822,7 +839,9 @@ class SeedManager:
         # Mesh mapper for sharding seeds across rows when sampling_dp > 1.
         if tt_sampling._sampling_dp > 1:
             self._seed_mapper = ttnn.ShardTensor2dMesh(
-                tt_sampling.mesh_device, dims=tt_sampling._param_dims, mesh_shape=tt_sampling.cluster_shape
+                tt_sampling.mesh_device,
+                dims=tt_sampling._param_dims,
+                mesh_shape=tt_sampling.cluster_shape,
             )
         else:
             self._seed_mapper = None
@@ -1112,7 +1131,6 @@ class SeedManager:
             empty_slots = [int(slot) for slot in empty_slots]
         empty_slot_set = set(empty_slots)
         self._active_request_seed = any(self.seeds[i] is not None for i in empty_slot_set)
-
         if not self._seed_active:
             self._active_request_seed = False
             if self._reseted:
@@ -1127,7 +1145,7 @@ class SeedManager:
                 return
         else:
             new_seeds = [
-                self._next_device_seed_for_slot(i) if i in empty_slot_set else MAX_UINT32
+                (self._next_device_seed_for_slot(i) if i in empty_slot_set else MAX_UINT32)
                 for i in range(self.max_batch_size)
             ]
             if replicate_seeds:

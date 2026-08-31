@@ -35,8 +35,10 @@ from models.autoports.openai_gpt_oss_120b.tt.precision import (
     math_fidelity_name,
 )
 from models.demos.gpt_oss.config import MeshConfig, ModeConfig
+from models.demos.gpt_oss.tt.attention.kv_cache import get_kv_memory_config
 from models.demos.gpt_oss.tt.ccl import CCLManager
 from models.demos.gpt_oss.tt.model import Model as _GPTOSSModel
+from models.demos.gpt_oss.tt.model import compute_per_device_vocab, create_rope_setup
 from models.demos.gpt_oss.utils.general_utils import get_cache_file_name, get_default_num_links
 
 MODEL_ID = "openai/gpt-oss-120b"
@@ -256,7 +258,14 @@ class StreamingCheckpoint:
             return handle.get_tensor(checkpoint_key)
 
     def terminal_state_dict(self) -> dict[str, torch.Tensor]:
-        return {key: self._read(key) for key in ("model.embed_tokens.weight", "model.norm.weight", "lm_head.weight")}
+        return {
+            key: self._read(key)
+            for key in (
+                "model.embed_tokens.weight",
+                "model.norm.weight",
+                "lm_head.weight",
+            )
+        }
 
     def layer_state_dict(self, layer_idx: int, *, dtype=torch.bfloat16) -> dict[str, torch.Tensor]:
         prefix = f"model.layers.{layer_idx}."
@@ -267,7 +276,7 @@ class StreamingCheckpoint:
             scales = raw.pop(f"{packed}_scales")
             raw[packed] = convert_moe_packed_tensors(blocks, scales, dtype=dtype)
         return {
-            key: tensor.to(dtype=dtype) if tensor.is_floating_point() and tensor.dtype != dtype else tensor
+            key: (tensor.to(dtype=dtype) if tensor.is_floating_point() and tensor.dtype != dtype else tensor)
             for key, tensor in raw.items()
         }
 
@@ -288,6 +297,7 @@ class FullModelArgs:
         max_context_length: int,
         num_layers: int,
         precision_config: PrecisionConfig,
+        salt_duplicate_seeds: bool = True,
     ):
         self.mesh_device = mesh_device
         self.hf_config = hf_config
@@ -299,6 +309,8 @@ class FullModelArgs:
         self.tensor_cache_path = Path(tensor_cache_path)
         self.model_name = "gpt-oss-120b"
         self.vocab_size = int(hf_config.vocab_size)
+        sampling_shards = int(mesh_device.shape[1])
+        self.padded_vocab_size = compute_per_device_vocab(self.vocab_size, sampling_shards) * sampling_shards
         self.n_layers = int(num_layers)
         self.dim = int(hf_config.hidden_size)
         self.head_dim = int(hf_config.head_dim)
@@ -327,6 +339,7 @@ class FullModelArgs:
         full_logits_gather = precision_config.terminal_dtypes()["full_logits_gather"]
         self.sampling_all_gather_axis = 1
         self.sampling_dp = 1
+        self.salt_duplicate_seeds = bool(salt_duplicate_seeds)
         self.use_topk_logprobs = True
         self.is_galaxy = False
         # The selected non-materialized full-logit-gather policy explicitly
@@ -574,6 +587,7 @@ class Model(_GPTOSSModel):
         num_layers: int,
         precision_config: PrecisionConfig,
         lm_head_policy: str = INTERLEAVED_LM_HEAD,
+        create_kv_cache: bool = True,
     ):
         tp = int(mesh_device.shape[1])
         tensor_plan(mesh_device.shape, hf_config)
@@ -594,6 +608,9 @@ class Model(_GPTOSSModel):
 
         # Reuse only the maintained terminal/runtime portion of the demo model.
         # A zero-layer config prevents construction of its decoder family.
+        # The base constructor also creates SamplingGenerator and consults
+        # ``self.args`` for the target's seed policy, so install it first.
+        self.args = args
         terminal_config = copy.deepcopy(hf_config)
         terminal_config.num_hidden_layers = 0
         terminal_config.layer_types = []
@@ -615,7 +632,6 @@ class Model(_GPTOSSModel):
             lm_head_output_dtype=terminal_dtypes["lm_head_output"],
         )
         self.hf_config = hf_config
-        self.args = args
         self.vocab_size = int(hf_config.vocab_size)
         self.n_layers = int(num_layers)
         self.dtype = ttnn.bfloat8_b
@@ -636,11 +652,16 @@ class Model(_GPTOSSModel):
         self.topk_values_gather_dtype = terminal_dtypes["topk_values_gather_dtype"]
         self.capacity = capacity_evidence(
             tp=tp,
-            max_batch_size=max_batch_size,
+            # A vLLM build allocates one scheduler-owned shared cache after
+            # model construction rather than a full-context cache per slot.
+            # Keep the conservative batch-1 full-context resident check here;
+            # the adapter records and validates the actual serving allocation.
+            max_batch_size=max_batch_size if create_kv_cache else 1,
             max_context_length=max_context_length,
             num_layers=num_layers,
             kv_cache_dtype=base_policy.kv_cache_dtype,
         )
+        self.kv_cache_owner = "model" if create_kv_cache else "vllm_pending"
         if lm_head_policy not in {INTERLEAVED_LM_HEAD, DRAM_SHARDED_LM_HEAD}:
             raise ValueError(f"unknown LM-head policy {lm_head_policy!r}")
         self.lm_head_policy = lm_head_policy
@@ -686,12 +707,72 @@ class Model(_GPTOSSModel):
                 tensor_cache_path=str(cache_root / f"layer_{layer_idx:02d}"),
                 calibrated_checkpoint_revision=MODEL_REVISION,
                 policy=layer_policy,
+                create_kv_cache=create_kv_cache,
             )
             self.layers.append(_LayerAdapter(decoder))
             del layer_state
             gc.collect()
         self.kv_cache = [layer.kv_cache for layer in self.layers]
+        self._decode_rope_setups = {max_batch_size: self.rope_setup}
+        self._decode_layer_transformation_mats = {
+            max_batch_size: [layer.self_attn.transformation_mats["decode"] for layer in self.layers]
+        }
+        self._decode_layer_kv_memory_configs = {max_batch_size: [layer.self_attn.kv_mem_cfg for layer in self.layers]}
+        if max_batch_size > 1:
+            # RotarySetup fixes its decode sharding and transformation matrix
+            # to the construction batch.  vLLM's singleton trace bucket needs
+            # a matching B1 setup; sharing this one immutable transform across
+            # every layer avoids constructing a second decoder stack.
+            singleton_rope = create_rope_setup(
+                mesh_device=mesh_device,
+                hf_config=hf_config,
+                max_local_batch_size=1,
+                users_row_sharded=False,
+                datatype=ttnn.bfloat16,
+                shard_batch_to_mesh_dim=0,
+            )
+            self._decode_rope_setups[1] = singleton_rope
+            singleton_transform = singleton_rope.get_both_trans_mats()["decode"]
+            self._decode_layer_transformation_mats[1] = [singleton_transform] * len(self.layers)
+            singleton_kv_memory_config = get_kv_memory_config(
+                mesh_device,
+                max_local_batch_size=1,
+                num_local_kv_heads=int(hf_config.num_key_value_heads) // tp,
+                head_dim=int(hf_config.head_dim),
+            )
+            self._decode_layer_kv_memory_configs[1] = [singleton_kv_memory_config] * len(self.layers)
+        self._active_decode_batch_size = max_batch_size
         self._validate_precision_runtime()
+
+    def activate_decode_batch_size(self, batch_size: int) -> None:
+        """Select all batch-dependent state whose shape matches a decode trace."""
+
+        batch_size = int(batch_size)
+        setup = self._decode_rope_setups.get(batch_size)
+        transforms = self._decode_layer_transformation_mats.get(batch_size)
+        kv_memory_configs = self._decode_layer_kv_memory_configs.get(batch_size)
+        if setup is None or transforms is None or kv_memory_configs is None:
+            raise ValueError(f"decode RoPE batch {batch_size} was not initialized")
+        self.rope_setup = setup
+        self.cos_matrix = setup.cos_matrix
+        self.sin_matrix = setup.sin_matrix
+        self.transformation_mats = setup.get_both_trans_mats()
+        enable_decode_sharding = batch_size < ttnn.TILE_SIZE
+        self.norm.enable_decode_sharding = enable_decode_sharding
+        for layer, transform, kv_memory_config in zip(self.layers, transforms, kv_memory_configs):
+            layer.self_attn.transformation_mats["decode"] = transform
+            layer.self_attn.kv_mem_cfg = kv_memory_config
+            layer.decoder.input_layernorm.enable_decode_sharding = enable_decode_sharding
+            layer.decoder.post_attention_layernorm.enable_decode_sharding = enable_decode_sharding
+        self._active_decode_batch_size = batch_size
+
+    def ttnn_decode_forward(self, tokens, current_pos, *args, **kwargs):
+        """Select the batch-shaped RoPE state for every eager or traced call."""
+
+        actual_batch = int(current_pos.shape[-1])
+        if actual_batch != self._active_decode_batch_size:
+            self.activate_decode_batch_size(actual_batch)
+        return super().ttnn_decode_forward(tokens, current_pos, *args, **kwargs)
 
     def _forward_layers_and_head(self, *args, is_decode=True, **kwargs):
         self.norm.decode_mode = is_decode
@@ -737,7 +818,11 @@ class Model(_GPTOSSModel):
             raise RuntimeError("TTSampling's top-k values gather must use bfloat16")
         if any(
             tensor.dtype != self.sampling_accumulator_dtype
-            for tensor in (sampling.p_tensor, sampling.temp_tensor, sampling._greedy_col)
+            for tensor in (
+                sampling.p_tensor,
+                sampling.temp_tensor,
+                sampling._greedy_col,
+            )
         ):
             raise RuntimeError("precision config sampling accumulator did not match TTSampling device buffers")
         for layer_idx, adapter in enumerate(self.layers):
@@ -749,7 +834,11 @@ class Model(_GPTOSSModel):
                 "decoder_policy": decoder.policy == policy,
                 "attention_qkv_weight": attention.weights.wqkv.dtype == policy.attention_weight_dtype,
                 "attention_output_weight": attention.weights.o_proj.dtype == policy.attention_weight_dtype,
-                "kv_cache": all(cache.dtype == policy.kv_cache_dtype for cache in decoder.kv_cache),
+                "kv_cache": (
+                    all(cache.dtype == policy.kv_cache_dtype for cache in decoder.kv_cache)
+                    if decoder.kv_cache is not None
+                    else attention.cache_dtype == policy.kv_cache_dtype
+                ),
                 "router_weight": mlp.router.weight.dtype == policy.router_weight_dtype,
                 "input_normalization_weight": decoder.input_layernorm.tt_weight.dtype
                 == policy.normalization_weight_dtype,
@@ -804,7 +893,7 @@ class Model(_GPTOSSModel):
                 dtype_name(mlp.router.weight.dtype),
                 dtype_name(decoder.input_layernorm.tt_weight.dtype),
                 dtype_name(decoder.post_attention_layernorm.tt_weight.dtype),
-                dtype_name(decoder.kv_cache[0].dtype),
+                dtype_name(decoder.kv_cache[0].dtype if decoder.kv_cache is not None else attention.cache_dtype),
                 dtype_name(attention.activation_ccl_dtype),
                 dtype_name(mlp.activation_ccl_dtype),
                 dtype_name(attention.residual_dtype),
@@ -883,6 +972,8 @@ class Model(_GPTOSSModel):
         allow_reduced_model: bool = False,
         precision_config: PrecisionConfig | str | Path | None = None,
         lm_head_policy: str = INTERLEAVED_LM_HEAD,
+        create_kv_cache: bool = True,
+        salt_duplicate_seeds: bool = True,
     ):
         snapshot_path = Path(
             snapshot_path or os.environ.get("GPT_OSS_120B_SNAPSHOT", "") or os.environ.get("HF_MODEL", "")
@@ -904,7 +995,7 @@ class Model(_GPTOSSModel):
         base_policy = precision_config.decoder_policy_for_layer(0)
         evidence = require_resident_capacity(
             tp=tp,
-            max_batch_size=max_batch_size,
+            max_batch_size=max_batch_size if create_kv_cache else 1,
             max_context_length=max_context_length,
             num_layers=num_layers,
             allow_reduced_model=allow_reduced_model,
@@ -921,7 +1012,10 @@ class Model(_GPTOSSModel):
         )
         cache_path = Path(
             tensor_cache_path
-            or os.environ.get("GPT_OSS_120B_FULL_MODEL_TENSOR_CACHE", "/tmp/gpt_oss_120b_full_model_tensor_cache")
+            or os.environ.get(
+                "GPT_OSS_120B_FULL_MODEL_TENSOR_CACHE",
+                str(Path(os.environ.get("TMPDIR", "/tmp")) / "gpt_oss_120b_full_model_tensor_cache"),
+            )
         ).expanduser()
         checkpoint = StreamingCheckpoint(snapshot_path)
         args = FullModelArgs(
@@ -935,6 +1029,7 @@ class Model(_GPTOSSModel):
             max_context_length=max_context_length,
             num_layers=num_layers,
             precision_config=precision_config,
+            salt_duplicate_seeds=salt_duplicate_seeds,
         )
         terminal = checkpoint.terminal_state_dict()
         model = cls(
@@ -949,6 +1044,7 @@ class Model(_GPTOSSModel):
             num_layers=num_layers,
             precision_config=precision_config,
             lm_head_policy=lm_head_policy,
+            create_kv_cache=create_kv_cache,
         )
         del terminal
         gc.collect()

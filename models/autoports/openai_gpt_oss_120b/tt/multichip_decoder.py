@@ -721,6 +721,27 @@ class _PhysicalHiddenCollectiveAttention(Attention):
         )
         xqkv_fused.deallocate(True)
 
+        # rotary_embedding_llama pairs user shards by physical core.  On
+        # Blackhole, head creation follows the native 11-wide worker grid,
+        # while RotarySetup deliberately uses its established 8x8 grid at
+        # B32.  Reshard Q/K to the transformation matrix grid before RoPE so
+        # logical user rows do not alias across the two physical orderings.
+        rope_grid = transformation_mat.memory_config().shard_spec.grid
+        rope_memory_config = ttnn.create_sharded_memory_config(
+            shape=(ttnn.TILE_SIZE, self.config.head_dim),
+            core_grid=rope_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        if tt_q.memory_config() != rope_memory_config:
+            split_q = tt_q
+            split_k = tt_k
+            tt_q = ttnn.to_memory_config(split_q, rope_memory_config)
+            tt_k = ttnn.to_memory_config(split_k, rope_memory_config)
+            split_q.deallocate(True)
+            split_k.deallocate(True)
+
         tt_q_orig = tt_q
         tt_k_orig = tt_k
         tt_q = apply_rope(tt_q, rope_mats, transformation_mat, is_decode_mode=True)
@@ -1701,6 +1722,7 @@ class MultichipDecoder(LightweightModule):
         calibrated_checkpoint_revision=None,
         policy: MultichipDecoderPolicy = DEFAULT_MULTICHIP_POLICY,
         optimized_policy: OptimizedDecoderPolicy | None = None,
+        create_kv_cache: bool = True,
     ):
         plan = tensor_plan(mesh_device.shape, hf_config)
         if not _is_supported_multichip_policy(policy):
@@ -1729,6 +1751,7 @@ class MultichipDecoder(LightweightModule):
                 tensor_cache_path=tensor_cache_path,
                 calibrated_checkpoint_revision=calibrated_checkpoint_revision,
                 policy=optimized_policy,
+                create_kv_cache=create_kv_cache,
             )
             return cls(backend=backend, tensor_plan=plan, policy=policy, single_chip_policy=backend.policy)
 
@@ -1803,6 +1826,7 @@ class MultichipDecoder(LightweightModule):
                 packer_l1_acc=True,
             ),
             tensor_cache_path=get_cache_file_name(cache_root, "self_attn"),
+            create_kv_cache=create_kv_cache,
         )
         attention.decode_wqkv = attention.weights.wqkv
         attention.decode_separate_qkv = policy.decode_separate_qkv

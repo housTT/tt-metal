@@ -136,7 +136,8 @@ class Model:
         # Decode: EP=rows for expert parallelism, SP=1
         # Prefill: EP=1, SP=rows for sequence parallelism (auto-defaults)
         self.mesh_config = mesh_config or MeshConfig(
-            mesh_device.shape, decode=ModeConfig(tp=mesh_device.shape[1], ep=mesh_device.shape[0], sp=1)
+            mesh_device.shape,
+            decode=ModeConfig(tp=mesh_device.shape[1], ep=mesh_device.shape[0], sp=1),
         )
 
         # Setup RoPE using tt-transformers RotarySetup (handles cos/sin matrices and transformation matrices)
@@ -215,7 +216,10 @@ class Model:
             lm_head_weight = substate(state_dict, "lm_head")["weight"].transpose(0, 1)  # [hidden, vocab]
             if lm_head_weight.shape[1] < padded_vocab_size:
                 lm_head_weight = torch.nn.functional.pad(
-                    lm_head_weight, (0, padded_vocab_size - lm_head_weight.shape[1]), "constant", 0
+                    lm_head_weight,
+                    (0, padded_vocab_size - lm_head_weight.shape[1]),
+                    "constant",
+                    0,
                 )
         else:
             lm_head_weight = None
@@ -237,7 +241,7 @@ class Model:
         if self._supports_on_device_sampling:
             # tt_ccl=None makes TTSampling fall back to ttnn.all_gather() which works on [4,8] meshes
             self.sampling = SamplingGenerator(
-                args=self.args if hasattr(self, "args") else self._make_sampling_args(hf_config, mesh_device),
+                args=(self.args if hasattr(self, "args") else self._make_sampling_args(hf_config, mesh_device)),
                 mesh_device=mesh_device,
                 tt_ccl=None,
             )
@@ -413,7 +417,9 @@ class Model:
                     t.deallocate(True)
             else:
                 logits_sliced = ttnn.slice(
-                    logits, (0, 0, get_last_token, 0), (1, 1, get_last_token + 32, logits.shape[-1])
+                    logits,
+                    (0, 0, get_last_token, 0),
+                    (1, 1, get_last_token + 32, logits.shape[-1]),
                 )
                 logits.deallocate(True)
                 logits = logits_sliced
@@ -502,6 +508,31 @@ class Model:
             )
             ttnn.copy_host_to_device_tensor(host_pt, persistent[i])
 
+    def _transient_prefill_page_tables_to_ttnn(self, page_tables_per_layer):
+        """Materialize scheduler-row slices for an untraced sequential prefill."""
+
+        converted_by_id = {}
+        converted = []
+        owned = []
+        for table in page_tables_per_layer:
+            if table is None or isinstance(table, ttnn.Tensor):
+                converted.append(table)
+                continue
+            key = id(table)
+            tt_table = converted_by_id.get(key)
+            if tt_table is None:
+                tt_table = ttnn.from_torch(
+                    table,
+                    device=self.mesh_device,
+                    dtype=ttnn.int32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                    mesh_mapper=self._page_table_mesh_mapper(table.shape[0]),
+                )
+                converted_by_id[key] = tt_table
+                owned.append(tt_table)
+            converted.append(tt_table)
+        return converted, owned
+
     def ttnn_decode_forward(
         self,
         tokens,
@@ -530,7 +561,10 @@ class Model:
         else:
             tokens_for_embed = tokens
         input_embeds = ttnn.embedding(
-            tokens_for_embed, self.embedding_weight, layout=ttnn.TILE_LAYOUT, dtype=ttnn.bfloat8_b
+            tokens_for_embed,
+            self.embedding_weight,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat8_b,
         )
         input_embeds = ttnn.unsqueeze(input_embeds, 0)
         # Get RoPE embeddings via on-device embedding lookup (matches tt-transformers)
@@ -555,7 +589,11 @@ class Model:
             # Pad logits batch to 32 (TTSampling requirement) before sampling
             batch_dim = out.shape[-2]
             if batch_dim < 32:
-                out = ttnn.pad(out, padding=[(0, 0), (0, 0), (0, 32 - batch_dim), (0, 0)], value=0.0)
+                out = ttnn.pad(
+                    out,
+                    padding=[(0, 0), (0, 0), (0, 32 - batch_dim), (0, 0)],
+                    value=0.0,
+                )
             self._increment_decode_positions_device(current_pos, rot_mat_idxs)
             return out
 
@@ -576,12 +614,19 @@ class Model:
         skip_lm_head=False,
         page_tables_per_layer=None,
     ):
-        if page_tables_per_layer is None:
+        explicit_page_tables = page_tables_per_layer is not None
+        if not explicit_page_tables:
             # See ttnn_decode_forward: the bridge stashes per-layer page tables
             # on the model when in vLLM hybrid mode, since Generator's prefill
             # path doesn't thread the kwarg.
             page_tables_per_layer = getattr(self, "_active_page_tables_per_layer", None)
-        page_tables_per_layer = self._page_tables_to_ttnn(page_tables_per_layer)
+        transient_page_tables = []
+        if explicit_page_tables:
+            page_tables_per_layer, transient_page_tables = self._transient_prefill_page_tables_to_ttnn(
+                page_tables_per_layer
+            )
+        else:
+            page_tables_per_layer = self._page_tables_to_ttnn(page_tables_per_layer)
         """Prefill forward pass - processes full sequences"""
         # Use provided rotation matrices or slice from rope_setup (matches tt-transformers)
         seq_len = x.shape[-2]
@@ -595,19 +640,23 @@ class Model:
             ]
 
         # Forward through layers and head (shared with decode)
-        logits = self._forward_layers_and_head(
-            hidden_states=x,
-            rope_mats=rope_mats,
-            current_pos=None,  # No current_pos for prefill
-            page_table=page_table,
-            kv_cache=kv_cache,
-            get_last_token=get_last_token,
-            is_decode=False,
-            user_id=user_id,
-            batch_size=batch_size,
-            skip_lm_head=skip_lm_head,
-            page_tables_per_layer=page_tables_per_layer,
-        )
+        try:
+            logits = self._forward_layers_and_head(
+                hidden_states=x,
+                rope_mats=rope_mats,
+                current_pos=None,  # No current_pos for prefill
+                page_table=page_table,
+                kv_cache=kv_cache,
+                get_last_token=get_last_token,
+                is_decode=False,
+                user_id=user_id,
+                batch_size=batch_size,
+                skip_lm_head=skip_lm_head,
+                page_tables_per_layer=page_tables_per_layer,
+            )
+        finally:
+            for table in transient_page_tables:
+                table.deallocate(True)
 
         return logits
 
@@ -627,7 +676,14 @@ class Model:
         return logits
 
     def prepare_row_sharded_prefill_iter(
-        self, tokens, page_table, prompt_lens, iter_idx, max_padded_len, max_num_blocks, users_per_row_per_iter=1
+        self,
+        tokens,
+        page_table,
+        prompt_lens,
+        iter_idx,
+        max_padded_len,
+        max_num_blocks,
+        users_per_row_per_iter=1,
     ):
         """Prepare one iteration of row-sharded batched prefill.
 
@@ -647,7 +703,11 @@ class Model:
         for uid in user_indices:
             plen = int(prompt_lens[uid])
             toks = torch.cat(
-                [tokens[uid : uid + 1, :plen], torch.zeros(1, max_padded_len - plen, dtype=tokens.dtype)], dim=-1
+                [
+                    tokens[uid : uid + 1, :plen],
+                    torch.zeros(1, max_padded_len - plen, dtype=tokens.dtype),
+                ],
+                dim=-1,
             )
             tokens_list.append(toks)
             pt_list.append(page_table[uid : uid + 1, :max_num_blocks])
@@ -658,7 +718,13 @@ class Model:
         return tokens_packed, pt_stacked, last_idxs, user_indices
 
     def run_row_sharded_prefill_forward(
-        self, tokens_iter, pt_iter, kv_cache, fixed_glt, skip_lm_head=False, batch_size=1
+        self,
+        tokens_iter,
+        pt_iter,
+        kv_cache,
+        fixed_glt,
+        skip_lm_head=False,
+        batch_size=1,
     ):
         """Run one non-traced row-sharded prefill iteration."""
         host_out = self.prepare_inputs_prefill(tokens_iter, page_table=pt_iter, batched_prefill=True)
@@ -675,7 +741,13 @@ class Model:
         )
 
     def extract_prefill_logits_to_host(
-        self, tt_logits, last_idxs, user_indices, fixed_glt, output_tensor, users_per_row_per_iter=1
+        self,
+        tt_logits,
+        last_idxs,
+        user_indices,
+        fixed_glt,
+        output_tensor,
+        users_per_row_per_iter=1,
     ):
         """Extract per-row TP-gathered logits to host output_tensor.
 
@@ -799,7 +871,10 @@ class Model:
         align = num_rows * upr
         if batch_size % align != 0:
             pad_count = align - (batch_size % align)
-            tokens = torch.cat([tokens, torch.zeros(pad_count, tokens.shape[1], dtype=tokens.dtype)], dim=0)
+            tokens = torch.cat(
+                [tokens, torch.zeros(pad_count, tokens.shape[1], dtype=tokens.dtype)],
+                dim=0,
+            )
             prompt_lens = list(prompt_lens) + [int(prompt_lens[0])] * pad_count
             prefill_seq_lens = list(prefill_seq_lens) + [prefill_seq_lens[0]] * pad_count
             if page_table is not None:
@@ -834,7 +909,13 @@ class Model:
             if tc_ids[trace_key] is None:
                 # Compile
                 t0, p0, l0, u0 = self.prepare_row_sharded_prefill_iter(
-                    tokens, page_table, prompt_lens, 0, max_padded_len, max_num_blocks, users_per_row_per_iter=upr
+                    tokens,
+                    page_table,
+                    prompt_lens,
+                    0,
+                    max_padded_len,
+                    max_num_blocks,
+                    users_per_row_per_iter=upr,
                 )
                 ho = self.prepare_inputs_prefill(t0, page_table=p0, trace_enabled=True, batched_prefill=True)
                 rot_g, rot_l = ho[1], ho[2]
@@ -854,7 +935,12 @@ class Model:
                 )
                 if not skip_lm:
                     self.extract_prefill_logits_to_host(
-                        tt_out, l0, u0, fixed_glt, output_tensor, users_per_row_per_iter=upr
+                        tt_out,
+                        l0,
+                        u0,
+                        fixed_glt,
+                        output_tensor,
+                        users_per_row_per_iter=upr,
                     )
                 ttnn.synchronize_device(mesh_device)
                 self.clear_kv_caches()
@@ -898,7 +984,12 @@ class Model:
                 ttnn.execute_trace(mesh_device, tc_ids[trace_key], cq_id=0, blocking=False)
                 if not skip_lm:
                     self.extract_prefill_logits_to_host(
-                        tc_outputs[trace_key], li, ui, fixed_glt, output_tensor, users_per_row_per_iter=upr
+                        tc_outputs[trace_key],
+                        li,
+                        ui,
+                        fixed_glt,
+                        output_tensor,
+                        users_per_row_per_iter=upr,
                     )
         else:
             for iter_idx in range(num_iters):
@@ -916,7 +1007,12 @@ class Model:
                 )
                 if not skip_lm:
                     self.extract_prefill_logits_to_host(
-                        tt_out, li, ui, fixed_glt, output_tensor, users_per_row_per_iter=upr
+                        tt_out,
+                        li,
+                        ui,
+                        fixed_glt,
+                        output_tensor,
+                        users_per_row_per_iter=upr,
                     )
 
         ttnn.synchronize_device(mesh_device)
@@ -977,7 +1073,10 @@ class Model:
             B = current_pos.shape[0]
             rot_current_pos = torch.maximum(current_pos, torch.tensor(0, dtype=torch.int64))
             rot_current_pos = rot_current_pos.reshape(1, B)  # [1, batch]
-            assert rot_current_pos.shape == (1, B), "rot_current_pos must be a [1, batch] tensor"
+            assert rot_current_pos.shape == (
+                1,
+                B,
+            ), "rot_current_pos must be a [1, batch] tensor"
             assert torch.min(rot_current_pos) >= 0, "rot_current_pos must be non-negative"
             # Add padding if needed
             pad_size = nearest_32(B) - B
@@ -1036,7 +1135,13 @@ class Model:
         return tokens, current_pos_tt, rope_idxs, page_table
 
     def prepare_prefill_inputs_trace(
-        self, tokens, start_pos=0, page_table=None, chunk_page_table=None, last_token_idx=None, **kwargs
+        self,
+        tokens,
+        start_pos=0,
+        page_table=None,
+        chunk_page_table=None,
+        last_token_idx=None,
+        **kwargs,
     ):
         """Prepare inputs on host so we later send them to device"""
         host_inputs = self.prepare_inputs_prefill(
@@ -1108,7 +1213,12 @@ class Model:
             tokens = ttnn.from_torch(tokens, device=device, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
 
         if not trace_enabled:
-            tokens_embd = ttnn.embedding(tokens, self.embedding_weight, layout=ttnn.TILE_LAYOUT, dtype=ttnn.bfloat8_b)
+            tokens_embd = ttnn.embedding(
+                tokens,
+                self.embedding_weight,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat8_b,
+            )
             tokens.deallocate(True)
 
             # Ensure proper 4D shape
@@ -1139,7 +1249,9 @@ class Model:
                     page_table,
                     device=device,
                     mesh_mapper=ttnn.ShardTensor2dMesh(
-                        self.mesh_device, dims=(0, None), mesh_shape=self.mesh_device.shape
+                        self.mesh_device,
+                        dims=(0, None),
+                        mesh_shape=self.mesh_device.shape,
                     ),
                     dtype=ttnn.int32,
                     layout=ttnn.ROW_MAJOR_LAYOUT,
@@ -1151,7 +1263,11 @@ class Model:
                     global_user_id is not None
                 ), "global_user_id is required for single-user row-sharded prefill to target the correct mesh row"
                 num_rows = self.mesh_device.shape[0]
-                users_per_row = getattr(self.args, "max_local_batch_size", self.args.max_batch_size // num_rows)
+                users_per_row = getattr(
+                    self.args,
+                    "max_local_batch_size",
+                    self.args.max_batch_size // num_rows,
+                )
                 target_row = global_user_id // users_per_row
 
                 # Create page table with -1 (invalid) for all rows except target
@@ -1162,7 +1278,9 @@ class Model:
                     full_page_table,
                     device=device,
                     mesh_mapper=ttnn.ShardTensor2dMesh(
-                        self.mesh_device, dims=(0, None), mesh_shape=self.mesh_device.shape
+                        self.mesh_device,
+                        dims=(0, None),
+                        mesh_shape=self.mesh_device.shape,
                     ),
                     dtype=ttnn.int32,
                     layout=ttnn.ROW_MAJOR_LAYOUT,
@@ -1179,7 +1297,10 @@ class Model:
 
         if chunk_page_table is not None:
             tt_chunk_page_table = ttnn.from_torch(
-                chunk_page_table, device=device, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+                chunk_page_table,
+                device=device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
             )
 
         if chunk_start_idx is not None:
@@ -1295,7 +1416,11 @@ class Model:
                     user_flat_idx = row * users_per_row + u
                     last_idx = last_token_idxs[user_flat_idx] if isinstance(last_token_idxs, list) else last_token_idxs
                     global_idx = u * seq_len_per_user + last_idx
-                    sl = ttnn.slice(dev_out, (0, 0, global_idx, 0), (1, 1, global_idx + 1, dev_out.shape[-1]))
+                    sl = ttnn.slice(
+                        dev_out,
+                        (0, 0, global_idx, 0),
+                        (1, 1, global_idx + 1, dev_out.shape[-1]),
+                    )
                     slices.append(sl)
                 batched = ttnn.concat(slices, dim=2)
                 for sl in slices:
@@ -1306,7 +1431,11 @@ class Model:
                     results.append(torch_out[..., u, : self.vocab_size])
             else:
                 last_idx = last_token_idxs[row] if isinstance(last_token_idxs, list) else last_token_idxs
-                token_logit = ttnn.slice(dev_out, (0, 0, last_idx, 0), (1, 1, last_idx + 1, dev_out.shape[-1]))
+                token_logit = ttnn.slice(
+                    dev_out,
+                    (0, 0, last_idx, 0),
+                    (1, 1, last_idx + 1, dev_out.shape[-1]),
+                )
                 result = ttnn.to_torch(token_logit)[..., : self.vocab_size]
                 token_logit.deallocate(True)
                 results.append(result)

@@ -758,6 +758,7 @@ class OptimizedDecoder(FusedDecoder):
         tensor_cache_path=None,
         calibrated_checkpoint_revision=None,
         policy: OptimizedDecoderPolicy | None = None,
+        create_kv_cache: bool = True,
     ):
         if tuple(mesh_device.shape) != (1, 1):
             raise ValueError(
@@ -836,6 +837,7 @@ class OptimizedDecoder(FusedDecoder):
             transformation_mats=rope_setup.get_both_trans_mats(),
             weight_dtype=policy.attention_weight_dtype,
             tensor_cache_path=get_cache_file_name(attention_cache_root, "self_attn"),
+            create_kv_cache=create_kv_cache,
         )
         attention.decode_projection_compute_kernel_config = ttnn.init_device_compute_kernel_config(
             mesh_device.arch(),
