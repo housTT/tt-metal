@@ -119,7 +119,6 @@ the final max-seqs=32/B1+B32 sampling and benchmark evidence, rereview returned
 `clean-pass` with no remaining blocker.
 
 - vLLM TT plugin implementation: `414b870`
-- tt-metal implementation/evidence: recorded by the following provenance-only
-  commit after this implementation commit is created.
+- tt-metal implementation/evidence: `6bdb38fb`
 
 Nothing was pushed.
