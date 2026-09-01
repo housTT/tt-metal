@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import pytest
 import torch
+import torch.nn.functional as F
 from loguru import logger
 
 import ttnn
@@ -146,6 +147,31 @@ def _run(
     )
 
 
+def _run_gated(
+    input_tt: ttnn.Tensor,
+    gate_tt: ttnn.Tensor,
+    weight_tt: ttnn.Tensor,
+    *,
+    gate_activation,
+    num_heads: int = _NUM_HEADS,
+    epsilon: float = _EPSILON,
+    memory_config: ttnn.MemoryConfig | None = None,
+    compute_kernel_config: ttnn.DeviceComputeKernelConfig | None = None,
+    output_dtype: ttnn.DataType = ttnn.float32,
+) -> ttnn.Tensor:
+    return ttnn.experimental.kda.gated_rms_norm(
+        input_tt,
+        gate_tt,
+        weight_tt,
+        num_heads,
+        gate_activation,
+        epsilon=epsilon,
+        memory_config=memory_config,
+        compute_kernel_config=compute_kernel_config,
+        output_dtype=output_dtype,
+    )
+
+
 def _production_compute_kernel_config(device: ttnn.Device) -> ttnn.DeviceComputeKernelConfig:
     return ttnn.init_device_compute_kernel_config(
         device.arch(),
@@ -175,6 +201,23 @@ def _reference(
         .reshape(batch, sequence, num_heads * value_dim)
         .to(_torch_dtype(output_dtype))
     )
+
+
+def _silu_reference(
+    host: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    *,
+    batch: int,
+    sequence: int,
+    num_heads: int,
+    value_dim: int,
+    output_dtype: ttnn.DataType,
+) -> torch.Tensor:
+    inputs, gate, weight = host
+    head_first = inputs.reshape(batch, num_heads, sequence, value_dim)
+    inverse_rms = torch.rsqrt(head_first.float().square().mean(dim=-1, keepdim=True) + _EPSILON)
+    normalized = head_first.float() * inverse_rms * weight.float()
+    gated = normalized.permute(0, 2, 1, 3) * F.silu(gate.float().reshape(batch, sequence, num_heads, value_dim))
+    return gated.reshape(batch, sequence, num_heads * value_dim).to(_torch_dtype(output_dtype))
 
 
 def _collect_accuracy_and_determinism_results(
@@ -292,6 +335,79 @@ def test_sigmoid_gated_rms_norm_is_accurate_and_deterministic(
     )
     _assert_inputs_unchanged(input_snapshots, device_inputs)
     ttnn.deallocate(output_tt)
+
+
+@pytest.mark.parametrize("output_dtype", [ttnn.float32, ttnn.bfloat16], ids=["fp32-output", "bf16-output"])
+def test_silu_gated_rms_norm_is_accurate_and_deterministic(
+    device: ttnn.Device, output_dtype: ttnn.DataType
+) -> None:
+    host, device_inputs = _device_inputs(device, input_dtype=ttnn.float32)
+    input_tt, gate_tt, weight_tt = device_inputs
+    expected = _silu_reference(
+        host,
+        batch=_BATCH,
+        sequence=_SEQUENCE,
+        num_heads=_NUM_HEADS,
+        value_dim=_VALUE_DIM,
+        output_dtype=output_dtype,
+    )
+
+    def run() -> ttnn.Tensor:
+        with ttnn.manage_config("throw_exception_on_fallback", True):
+            return _run_gated(
+                input_tt,
+                gate_tt,
+                weight_tt,
+                gate_activation=ttnn.experimental.kda.GatedRmsNormGateActivation.SILU,
+                output_dtype=output_dtype,
+            )
+
+    output_tt, output, mismatch_marker = _collect_accuracy_and_determinism_results(device, run)
+    _assert_output_contract(
+        output_tt,
+        output,
+        device_inputs,
+        batch=_BATCH,
+        sequence=_SEQUENCE,
+        num_heads=_NUM_HEADS,
+        value_dim=_VALUE_DIM,
+        output_dtype=output_dtype,
+    )
+    _assert_accurate_and_exact_value_deterministic(
+        expected, output, mismatch_marker, name=f"silu gated RMSNorm to {output_dtype}"
+    )
+    ttnn.deallocate(output_tt)
+
+
+def test_gated_rms_norm_program_key_includes_gate_activation(device: ttnn.Device) -> None:
+    _, (input_tt, gate_tt, weight_tt) = _device_inputs(
+        device, batch=1, sequence=32, num_heads=2, value_dim=64, seed=1322
+    )
+    exact_config = ttnn.init_device_compute_kernel_config(
+        device.arch(),
+        math_fidelity=ttnn.MathFidelity.HiFi4,
+        math_approx_mode=False,
+        fp32_dest_acc_en=True,
+        packer_l1_acc=False,
+    )
+    _run_gated(
+        input_tt,
+        gate_tt,
+        weight_tt,
+        num_heads=2,
+        gate_activation=ttnn.experimental.kda.GatedRmsNormGateActivation.SIGMOID,
+        compute_kernel_config=exact_config,
+    )
+    entries = device.num_program_cache_entries()
+    _run_gated(
+        input_tt,
+        gate_tt,
+        weight_tt,
+        num_heads=2,
+        gate_activation=ttnn.experimental.kda.GatedRmsNormGateActivation.SILU,
+        compute_kernel_config=exact_config,
+    )
+    assert device.num_program_cache_entries() == entries + 1
 
 
 @pytest.mark.parametrize("case", _PRODUCTION_CASES, ids=lambda case: case.case_id)

@@ -21,6 +21,7 @@ struct SigmoidGatedRmsNormParams {
     tt::tt_metal::MemoryConfig output_mem_config;
     tt::tt_metal::DataType output_dtype;
     DeviceComputeKernelConfig compute_kernel_config;
+    bool silu_gate;
 };
 
 struct SigmoidGatedRmsNormInputs {

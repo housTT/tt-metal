@@ -7,11 +7,12 @@
 
 namespace ttnn::experimental::kda {
 
-ttnn::Tensor sigmoid_gated_rms_norm(
+ttnn::Tensor gated_rms_norm(
     const ttnn::Tensor& input,
     const ttnn::Tensor& gate,
     const ttnn::Tensor& weight,
     uint32_t num_heads,
+    GatedRmsNormGateActivation gate_activation,
     float epsilon,
     const std::optional<ttnn::MemoryConfig>& memory_config,
     const std::optional<ttnn::DeviceComputeKernelConfig>& compute_kernel_config,
@@ -24,13 +25,42 @@ ttnn::Tensor sigmoid_gated_rms_norm(
         input.device()->arch(),
         compute_kernel_config,
         MathFidelity::HiFi4,
-        /*default_approx_mode=*/true,
+        /*default_approx_mode=*/gate_activation == GatedRmsNormGateActivation::SIGMOID,
         /*default_fp32_acc=*/true,
         /*default_l1_acc=*/false,
         /*default_dst_full_sync_en=*/false,
         ttnn::operations::compute_throttle_utils::ThrottleLevel::NO_THROTTLE);
     return ttnn::experimental::prim::sigmoid_gated_rms_norm(
-        input, gate, weight, num_heads, epsilon, output_memory_config, kernel_config, output_dtype);
+        input,
+        gate,
+        weight,
+        num_heads,
+        epsilon,
+        output_memory_config,
+        kernel_config,
+        output_dtype,
+        gate_activation == GatedRmsNormGateActivation::SILU);
+}
+
+ttnn::Tensor sigmoid_gated_rms_norm(
+    const ttnn::Tensor& input,
+    const ttnn::Tensor& gate,
+    const ttnn::Tensor& weight,
+    uint32_t num_heads,
+    float epsilon,
+    const std::optional<ttnn::MemoryConfig>& memory_config,
+    const std::optional<ttnn::DeviceComputeKernelConfig>& compute_kernel_config,
+    DataType output_dtype) {
+    return gated_rms_norm(
+        input,
+        gate,
+        weight,
+        num_heads,
+        GatedRmsNormGateActivation::SIGMOID,
+        epsilon,
+        memory_config,
+        compute_kernel_config,
+        output_dtype);
 }
 
 }  // namespace ttnn::experimental::kda

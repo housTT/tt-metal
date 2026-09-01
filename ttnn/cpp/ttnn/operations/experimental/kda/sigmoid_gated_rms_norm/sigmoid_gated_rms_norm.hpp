@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 
 #include "ttnn/tensor/tensor.hpp"
@@ -10,6 +11,22 @@
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 
 namespace ttnn::experimental::kda {
+
+enum class GatedRmsNormGateActivation : uint8_t {
+    SIGMOID = 0,
+    SILU = 1,
+};
+
+ttnn::Tensor gated_rms_norm(
+    const ttnn::Tensor& input,
+    const ttnn::Tensor& gate,
+    const ttnn::Tensor& weight,
+    uint32_t num_heads,
+    GatedRmsNormGateActivation gate_activation,
+    float epsilon = 1e-5f,
+    const std::optional<ttnn::MemoryConfig>& memory_config = std::nullopt,
+    const std::optional<ttnn::DeviceComputeKernelConfig>& compute_kernel_config = std::nullopt,
+    ttnn::DataType output_dtype = ttnn::DataType::FLOAT32);
 
 ttnn::Tensor sigmoid_gated_rms_norm(
     const ttnn::Tensor& input,

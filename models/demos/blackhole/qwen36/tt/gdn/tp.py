@@ -603,26 +603,32 @@ class TPGatedDeltaNet(LightweightModule):
                     src = ttnn.reshape(ttnn.slice(conv_new_state, (0, j, 0), (1, j + 1, D)), (1, B, D))
                     ttnn.copy(src, self.conv_states[j + 1])
             ttnn.deallocate(conv_new_state)
-        # Gated RMSNorm + SiLU(z); norm/flatten in L1, gated output in DRAM for out-proj
-        _L1 = ttnn.L1_MEMORY_CONFIG
+        # Fused per-head RMSNorm + SiLU(z) + head->token flatten. The chunk kernel already
+        # returns head-major [B*Nv,T,Dv], which is the native input layout of the KDA epilogue;
+        # its writer emits [B,T,Nv*Dv] directly for the output projection. This replaces the
+        # standalone rms_norm, nlp_concat_heads, silu, and multiply programs.
         if self._gdn_fuse_out:
-            # Fuse adapter relayout with per-head rms_norm + head-flatten.
-            # TILE-native head->token relayout (transpose + fold), dropping the
-            # TILE->ROW_MAJOR->TILE round-trip. o is head-major (1,Nv,T,Dv).
-            n = ttnn.rms_norm(o, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)
+            gated = ttnn.experimental.kda.gated_rms_norm(
+                o,
+                z,
+                tw["norm_w"],
+                Nv,
+                ttnn.experimental.kda.GatedRmsNormGateActivation.SILU,
+                epsilon=1e-6,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                output_dtype=ttnn.float32,
+            )
             ttnn.deallocate(o)
-            n = ttnn.reshape(n, (1, Nv, T, Dv))
-            # Fused head->token relayout: [1,Nv,T,Dv] -> [1,1,T,Nv*Dv].
-            n = ttnn.experimental.nlp_concat_heads(n, memory_config=_L1)
-            out_f = ttnn.reshape(n, (1, T, self.value_dim_tp))
+            ttnn.deallocate(z)
         else:
+            _L1 = ttnn.L1_MEMORY_CONFIG
             out_n = ttnn.rms_norm(o, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)
             ttnn.deallocate(o)
             out_f = ttnn.reshape(out_n, (1, T, self.value_dim_tp), memory_config=_L1)
             ttnn.deallocate(out_n)
-        gated = _silu_mul(out_f, z, ttnn.DRAM_MEMORY_CONFIG)
-        ttnn.deallocate(out_f)
-        ttnn.deallocate(z)
+            gated = _silu_mul(out_f, z, ttnn.DRAM_MEMORY_CONFIG)
+            ttnn.deallocate(out_f)
+            ttnn.deallocate(z)
         # Prefill: fused out-proj matmul + reduce-scatter (matmul_reduce_scatter_async), flag-gated.
         if self._fuse_out_mmrs_prefill:
             x_out = ttnn.reshape(gated, (1, 1, T, gated.shape[-1]))

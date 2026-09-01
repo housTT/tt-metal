@@ -649,6 +649,8 @@ from ttnn.operations.transformer import SDPAProgramConfig, PagedCacheGeometryOve
 transformer.SparseKVFormat = SparseKVFormat
 
 QkvCausalConv1dSiluProgramConfig = ttnn._ttnn.operations.experimental.kda.QkvCausalConv1dSiluProgramConfig
+GatedRmsNormGateActivation = ttnn._ttnn.operations.experimental.kda.GatedRmsNormGateActivation
+experimental.kda.GatedRmsNormGateActivation = GatedRmsNormGateActivation
 
 IndexerScoreProgramConfig = ttnn._ttnn.operations.experimental.IndexerScoreProgramConfig
 

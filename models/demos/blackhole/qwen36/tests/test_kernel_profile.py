@@ -8,6 +8,7 @@ signposts around exactly one production-path invocation.  They are skipped unles
 """
 
 import os
+import statistics
 import time
 
 import pytest
@@ -48,21 +49,35 @@ def test_gdn_prefill_profile(mesh_device, reset_seeds, ensure_gc):
     weights = load_gdn_weights_tp(mesh_device, load_gdn_layer(args.CKPT_DIR, layer_idx), args)
     gdn = TPGatedDeltaNet(mesh_device, args, weights, get_tt_ccl(mesh_device))
     x = torch.randn(1, 1, seq_len, args.dim, dtype=torch.bfloat16)
+    x_device = shard_to_device(mesh_device, x, dim=-1)
+    fused_epilogue = os.environ.get("QWEN36_GDN_FUSED_EPILOGUE", "1") != "0"
+    iterations = int(os.environ.get("QWEN36_KERNEL_PROFILE_ITERATIONS", "5"))
+    assert iterations > 0
+    gdn._gdn_fuse_out = fused_epilogue
 
     # Compile and populate the program cache outside the measured interval.
-    out = gdn.forward_prefill(shard_to_device(mesh_device, x, dim=-1), chunk_size=128, borrow_output=True)
+    out = gdn.forward_prefill(x_device, chunk_size=128, borrow_output=True)
     ttnn.synchronize_device(mesh_device)
     if gdn.rec_state is not None:
         ttnn.deallocate(gdn.rec_state)
         gdn.rec_state = None
 
-    signpost("start")
-    begin = time.perf_counter()
-    out = gdn.forward_prefill(shard_to_device(mesh_device, x, dim=-1), chunk_size=128, borrow_output=True)
-    ttnn.synchronize_device(mesh_device)
-    elapsed_ms = (time.perf_counter() - begin) * 1000.0
-    signpost("stop")
-    logger.info(f"GDN_PREFILL_PROFILE_RESULT layer={layer_idx} seq_len={seq_len} elapsed_ms={elapsed_ms:.3f}")
+    samples_ms = []
+    for _ in range(iterations):
+        signpost("start")
+        begin = time.perf_counter()
+        out = gdn.forward_prefill(x_device, chunk_size=128, borrow_output=True)
+        ttnn.synchronize_device(mesh_device)
+        samples_ms.append((time.perf_counter() - begin) * 1000.0)
+        signpost("stop")
+        if gdn.rec_state is not None:
+            ttnn.deallocate(gdn.rec_state)
+            gdn.rec_state = None
+    logger.info(
+        f"GDN_PREFILL_PROFILE_RESULT layer={layer_idx} seq_len={seq_len} fused_epilogue={fused_epilogue} "
+        f"iterations={iterations} median_ms={statistics.median(samples_ms):.3f} "
+        f"min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
+    )
     assert out.shape[-2] == seq_len
 
 
