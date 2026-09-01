@@ -185,7 +185,7 @@ class TPGatedDeltaNet(LightweightModule):
         self._gdn_fuse_out = True
         self._gdn_decode_fp32 = os.environ.get("QWEN36_GDN_DECODE_FP32") == "1"
         self._gdn_fused_decode = (
-            os.environ.get("QWEN36_GDN_FUSED_DECODE", os.environ.get("QWEN_GDN_FUSED_DECODE", "0")) == "1"
+            os.environ.get("QWEN36_GDN_FUSED_DECODE", os.environ.get("QWEN_GDN_FUSED_DECODE", "1")) == "1"
         )
         if self._gdn_fused_decode and self._gdn_decode_fp32:
             raise ValueError("QWEN36_GDN_FUSED_DECODE requires the production BF16 recurrent state")
