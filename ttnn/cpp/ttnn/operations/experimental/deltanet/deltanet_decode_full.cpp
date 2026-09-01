@@ -22,10 +22,16 @@ std::vector<Tensor> deltanet_decode_full(
     const std::optional<MemoryConfig>& memory_config,
     const std::optional<const Tensor>& decay_scale,
     const std::optional<const Tensor>& dt_bias,
+    const std::optional<const Tensor>& gate,
+    const std::optional<const Tensor>& norm_weight,
+    float norm_epsilon,
     bool packed_qkv) {
     TT_FATAL(
         decay_scale.has_value() == dt_bias.has_value(),
         "DeltaNet decode full: decay_scale and dt_bias must be provided together");
+    TT_FATAL(
+        gate.has_value() == norm_weight.has_value(),
+        "DeltaNet decode full: gate and norm_weight must be provided together");
     return ttnn::prim::deltanet_decode_full(
         q,
         k,
@@ -41,6 +47,9 @@ std::vector<Tensor> deltanet_decode_full(
         memory_config,
         decay_scale,
         dt_bias,
+        gate,
+        norm_weight,
+        norm_epsilon,
         packed_qkv);
 }
 

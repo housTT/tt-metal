@@ -5,6 +5,7 @@
 #include "deltanet_full_device_operation.hpp"
 
 #include <array>
+#include <cmath>
 
 #include "ttnn/tensor/tensor_utils.hpp"
 
@@ -33,6 +34,12 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
                 inputs.dt_bias.storage_type() == StorageType::DEVICE,
             "DeltaNet decode full: decay_scale and dt_bias must be on device");
     }
+    if (attrs.fused_epilogue) {
+        TT_FATAL(
+            inputs.gate.storage_type() == StorageType::DEVICE &&
+                inputs.norm_weight.storage_type() == StorageType::DEVICE,
+            "DeltaNet decode full: gate and norm_weight must be on device");
+    }
     TT_FATAL(inputs.q.layout() == Layout::TILE, "DeltaNet decode full: q must be TILE layout");
     TT_FATAL(inputs.k.layout() == Layout::TILE, "DeltaNet decode full: k must be TILE layout");
     TT_FATAL(inputs.v.layout() == Layout::TILE, "DeltaNet decode full: v must be TILE layout");
@@ -42,6 +49,11 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
         TT_FATAL(
             inputs.decay_scale.layout() == Layout::TILE && inputs.dt_bias.layout() == Layout::TILE,
             "DeltaNet decode full: decay_scale and dt_bias must be TILE layout");
+    }
+    if (attrs.fused_epilogue) {
+        TT_FATAL(
+            inputs.gate.layout() == Layout::TILE && inputs.norm_weight.layout() == Layout::TILE,
+            "DeltaNet decode full: gate and norm_weight must be TILE layout");
     }
     TT_FATAL(
         inputs.recurrent_state.layout() == Layout::TILE, "DeltaNet decode full: recurrent_state must be TILE layout");
@@ -54,6 +66,14 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
         TT_FATAL(
             inputs.decay_scale.dtype() == DataType::BFLOAT16 && inputs.dt_bias.dtype() == DataType::BFLOAT16,
             "DeltaNet decode full: decay_scale and dt_bias must be BFLOAT16");
+    }
+    if (attrs.fused_epilogue) {
+        TT_FATAL(
+            inputs.gate.dtype() == DataType::BFLOAT16 && inputs.norm_weight.dtype() == DataType::BFLOAT16,
+            "DeltaNet decode full: gate and norm_weight must be BFLOAT16");
+        TT_FATAL(
+            std::isfinite(attrs.norm_epsilon) && attrs.norm_epsilon > 0.0F,
+            "DeltaNet decode full: norm_epsilon must be finite and positive");
     }
     TT_FATAL(
         attrs.k_head_dim % 32 == 0 && attrs.v_head_dim % 32 == 0,
@@ -104,6 +124,16 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
                 inputs.decay_scale.logical_shape()[-1] == heads_per_batch &&
                 inputs.dt_bias.logical_shape() == inputs.decay_scale.logical_shape(),
             "DeltaNet decode full: decay_scale/dt_bias must have shape [1,1,heads_per_batch]");
+    }
+    if (attrs.fused_epilogue) {
+        TT_FATAL(
+            inputs.gate.logical_shape().rank() == 3 && inputs.gate.logical_shape()[0] == 1 &&
+                inputs.gate.logical_shape()[1] == batch_size &&
+                inputs.gate.logical_shape()[2] == heads_per_batch * attrs.v_head_dim,
+            "DeltaNet decode full: gate must have shape [1,B,heads_per_batch*v_head_dim]");
+        TT_FATAL(
+            inputs.norm_weight.logical_volume() == attrs.v_head_dim,
+            "DeltaNet decode full: norm_weight must contain v_head_dim elements");
     }
     TT_FATAL(
         inputs.recurrent_state.logical_shape().rank() == 4 &&
@@ -238,6 +268,9 @@ std::vector<Tensor> deltanet_decode_full(
     const std::optional<MemoryConfig>& output_memory_config,
     const std::optional<const Tensor>& decay_scale,
     const std::optional<const Tensor>& dt_bias,
+    const std::optional<const Tensor>& gate,
+    const std::optional<const Tensor>& norm_weight,
+    float norm_epsilon,
     bool packed_qkv) {
     using Op = ttnn::operations::experimental::deltanet::DeltaNetDecodeFullDeviceOperation;
 
@@ -246,6 +279,10 @@ std::vector<Tensor> deltanet_decode_full(
     TT_FATAL(
         preprocess_ab == dt_bias.has_value(),
         "DeltaNet decode full: decay_scale and dt_bias must be provided together");
+    const bool fused_epilogue = gate.has_value();
+    TT_FATAL(
+        fused_epilogue == norm_weight.has_value(),
+        "DeltaNet decode full: gate and norm_weight must be provided together");
 
     auto operation_attributes = Op::operation_attributes_t{
         .num_heads = num_heads,
@@ -254,7 +291,9 @@ std::vector<Tensor> deltanet_decode_full(
         .v_head_dim = v_head_dim,
         .head_expand_ratio = head_expand_ratio,
         .preprocess_ab = preprocess_ab,
+        .fused_epilogue = fused_epilogue,
         .packed_qkv = packed_qkv,
+        .norm_epsilon = norm_epsilon,
         .output_memory_config = mem_config,
     };
 
@@ -266,6 +305,8 @@ std::vector<Tensor> deltanet_decode_full(
         .decay = decay,
         .decay_scale = decay_scale.value_or(q),
         .dt_bias = dt_bias.value_or(q),
+        .gate = gate.value_or(q),
+        .norm_weight = norm_weight.value_or(q),
         .recurrent_state = recurrent_state,
     };
 

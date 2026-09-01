@@ -12,6 +12,11 @@
 #include "api/compute/matmul.h"
 #include "api/compute/tile_move_copy.h"
 #include "api/compute/bcast.h"
+#include "api/compute/eltwise_unary/eltwise_unary.h"
+#include "api/compute/eltwise_unary/rsqrt.h"
+#include "api/compute/reconfig_data_format.h"
+#include "api/dataflow/dataflow_buffer.h"
+#include "ttnn/cpp/ttnn/kernel_lib/reduce_helpers_compute.hpp"
 
 constexpr uint32_t cb_state_in = get_compile_time_arg_val(0);
 constexpr uint32_t cb_q = get_compile_time_arg_val(1);
@@ -29,6 +34,15 @@ constexpr uint32_t Dv_tiles = get_compile_time_arg_val(12);
 constexpr uint32_t cb_state_mid = get_compile_time_arg_val(13);
 constexpr uint32_t cb_k_T = get_compile_time_arg_val(14);
 constexpr uint32_t cb_raw_out = get_compile_time_arg_val(15);
+constexpr bool fused_epilogue = get_compile_time_arg_val(16) == 1;
+constexpr uint32_t cb_gate = get_compile_time_arg_val(17);
+constexpr uint32_t cb_norm_weight = get_compile_time_arg_val(18);
+constexpr uint32_t cb_norm_scaler = get_compile_time_arg_val(19);
+constexpr uint32_t cb_norm_epsilon = get_compile_time_arg_val(20);
+constexpr uint32_t cb_norm_tmp = get_compile_time_arg_val(21);
+constexpr uint32_t cb_norm_stats = get_compile_time_arg_val(22);
+constexpr uint32_t cb_norm_inv = get_compile_time_arg_val(23);
+constexpr uint32_t cb_norm = get_compile_time_arg_val(24);
 
 constexpr uint32_t state_tiles = Dk_tiles * Dv_tiles;
 
@@ -41,6 +55,104 @@ inline void matmul_reconfig_and_init(uint32_t in0_cb, uint32_t in1_cb, uint32_t 
 inline void binary_reconfig(uint32_t in0_cb, uint32_t in1_cb, uint32_t out_cb) {
     reconfig_data_format(in0_cb, in1_cb);
     pack_reconfig_data_format(out_cb);
+}
+
+inline void square_raw_output(DataflowBuffer& tmp) {
+    tmp.reserve_back(Dv_tiles);
+    pack_reconfig_data_format(cb_norm_tmp);
+    reconfig_data_format(cb_raw_out, cb_raw_out);
+    mul_init(cb_raw_out, cb_raw_out, false);
+    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+        tile_regs_acquire();
+        mul_tiles(cb_raw_out, cb_raw_out, tile, tile, 0);
+        tile_regs_commit();
+        tile_regs_wait();
+        pack_tile(0, cb_norm_tmp, tile);
+        tile_regs_release();
+    }
+    tmp.push_back(Dv_tiles);
+}
+
+inline void calculate_inverse_rms(DataflowBuffer& inv) {
+    inv.reserve_back(1);
+    pack_reconfig_data_format(cb_norm_inv);
+    reconfig_data_format(cb_norm_stats, cb_norm_epsilon);
+    add_init(cb_norm_stats, cb_norm_epsilon);
+    tile_regs_acquire();
+    add_tiles(cb_norm_stats, cb_norm_epsilon, 0, 0, 0);
+    rsqrt_tile_init();
+    rsqrt_tile(0);
+    tile_regs_commit();
+    tile_regs_wait();
+    pack_tile(0, cb_norm_inv, 0);
+    tile_regs_release();
+    inv.push_back(1);
+}
+
+inline void scale_by_inverse_rms(DataflowBuffer& norm) {
+    norm.reserve_back(Dv_tiles);
+    pack_reconfig_data_format(cb_norm);
+    reconfig_data_format(cb_raw_out, cb_norm_inv);
+    mul_bcast_cols_init(cb_raw_out, cb_norm_inv);
+    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+        tile_regs_acquire();
+        mul_tiles_bcast_cols(cb_raw_out, cb_norm_inv, tile, 0, 0);
+        tile_regs_commit();
+        tile_regs_wait();
+        pack_tile(0, cb_norm, tile);
+        tile_regs_release();
+    }
+    norm.push_back(Dv_tiles);
+}
+
+inline void apply_norm_weight(DataflowBuffer& tmp) {
+    tmp.reserve_back(Dv_tiles);
+    pack_reconfig_data_format(cb_norm_tmp);
+    reconfig_data_format(cb_norm, cb_norm_weight);
+    mul_bcast_rows_init(cb_norm, cb_norm_weight);
+    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+        tile_regs_acquire();
+        mul_tiles_bcast_rows(cb_norm, cb_norm_weight, tile, tile, 0);
+        tile_regs_commit();
+        tile_regs_wait();
+        pack_tile(0, cb_norm_tmp, tile);
+        tile_regs_release();
+    }
+    tmp.push_back(Dv_tiles);
+}
+
+inline void activate_silu_gate(DataflowBuffer& norm) {
+    norm.reserve_back(Dv_tiles);
+    pack_reconfig_data_format(cb_norm);
+    reconfig_data_format_srca(cb_gate);
+    copy_tile_to_dst_init_short(cb_gate);
+    silu_tile_init();
+    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+        tile_regs_acquire();
+        copy_tile(cb_gate, tile, 0);
+        silu_tile(0);
+        tile_regs_commit();
+        tile_regs_wait();
+        pack_tile(0, cb_norm, tile);
+        tile_regs_release();
+    }
+    norm.push_back(Dv_tiles);
+}
+
+inline void multiply_norm_and_gate(DataflowBuffer& output) {
+    output.reserve_back(Dv_tiles);
+    pack_reconfig_data_format(cb_output);
+    reconfig_data_format(cb_norm_tmp, cb_norm);
+    mul_init(cb_norm_tmp, cb_norm);
+    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+        tile_regs_acquire();
+        mul_tiles(cb_norm_tmp, cb_norm, tile, tile, 0);
+        tile_regs_commit();
+        tile_regs_wait();
+        pack_tile(0, cb_output, tile);
+        tile_regs_release();
+    }
+    output.push_back(Dv_tiles);
 }
 
 void kernel_main() {
@@ -190,11 +302,42 @@ void kernel_main() {
     cb_pop_front(cb_decay, 1);
     cb_pop_front(cb_beta, 1);
 
-    // Output the RAW pre-norm read (q @ S_new). This op's contract for the Qwen3.6 GDN port is
-    // raw-o (matching recurrent_gated_delta_rule_decode_ttnn): the caller does the gated-RMSNorm
-    // + silu(z) in ttnn. Folding norm/gate into this one-core-per-head kernel serializes the
-    // reduction, while the TTNN tail distributes it across the device.
-    {
+    if constexpr (fused_epilogue) {
+        cb_wait_front(cb_raw_out, Dv_tiles);
+        cb_wait_front(cb_gate, Dv_tiles);
+        cb_wait_front(cb_norm_weight, Dv_tiles);
+        cb_wait_front(cb_norm_scaler, 1);
+        cb_wait_front(cb_norm_epsilon, 1);
+
+        DataflowBuffer tmp(cb_norm_tmp);
+        DataflowBuffer stats(cb_norm_stats);
+        DataflowBuffer inv(cb_norm_inv);
+        DataflowBuffer norm(cb_norm);
+        DataflowBuffer output(cb_output);
+
+        square_raw_output(tmp);
+        compute_kernel_lib::
+            reduce<ckernel::PoolType::AVG, ckernel::ReduceDim::REDUCE_ROW, cb_norm_tmp, cb_norm_scaler, cb_norm_stats>(
+                compute_kernel_lib::ReduceInputBlockShape::of(1, Dv_tiles));
+        stats.wait_front(1);
+        calculate_inverse_rms(inv);
+        inv.wait_front(1);
+        scale_by_inverse_rms(norm);
+        norm.wait_front(Dv_tiles);
+        cb_pop_front(cb_raw_out, Dv_tiles);
+        inv.pop_front(1);
+        stats.pop_front(1);
+        apply_norm_weight(tmp);
+        tmp.wait_front(Dv_tiles);
+        norm.pop_front(Dv_tiles);
+        activate_silu_gate(norm);
+        norm.wait_front(Dv_tiles);
+        cb_pop_front(cb_gate, Dv_tiles);
+        multiply_norm_and_gate(output);
+        tmp.pop_front(Dv_tiles);
+        norm.pop_front(Dv_tiles);
+    } else {
+        // Preserve the raw-output contract when the optional epilogue tensors are absent.
         cb_wait_front(cb_raw_out, Dv_tiles);
         cb_reserve_back(cb_output, Dv_tiles);
         copy_tile_to_dst_init_short(cb_raw_out);

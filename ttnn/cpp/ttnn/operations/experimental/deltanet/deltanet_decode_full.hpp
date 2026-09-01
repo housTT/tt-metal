@@ -28,6 +28,9 @@ std::vector<Tensor> deltanet_decode_full(
     const std::optional<MemoryConfig>& memory_config = std::nullopt,
     const std::optional<const Tensor>& decay_scale = std::nullopt,
     const std::optional<const Tensor>& dt_bias = std::nullopt,
+    const std::optional<const Tensor>& gate = std::nullopt,
+    const std::optional<const Tensor>& norm_weight = std::nullopt,
+    float norm_epsilon = 1e-6F,
     bool packed_qkv = false);
 
 Tensor deltanet_conv1d_decode(

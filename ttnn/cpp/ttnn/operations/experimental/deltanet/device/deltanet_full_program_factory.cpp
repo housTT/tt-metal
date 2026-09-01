@@ -5,6 +5,7 @@
 #include "deltanet_full_program_factory.hpp"
 
 #include <algorithm>
+#include <bit>
 
 #include <tt-metalium/constants.hpp>
 #include <tt-metalium/host_api.hpp>
@@ -32,9 +33,17 @@ constexpr auto kCbDecay = tt::CBIndex::c_4;
 constexpr auto kCbBeta = tt::CBIndex::c_5;
 constexpr auto kCbOutput = tt::CBIndex::c_6;
 constexpr auto kCbStateOut = tt::CBIndex::c_7;
+constexpr auto kCbGate = tt::CBIndex::c_8;
+constexpr auto kCbNormWeight = tt::CBIndex::c_9;
+constexpr auto kCbNormScaler = tt::CBIndex::c_10;
+constexpr auto kCbNormEpsilon = tt::CBIndex::c_11;
 constexpr auto kCbStateMid = tt::CBIndex::c_16;
 constexpr auto kCbKT = tt::CBIndex::c_17;
+constexpr auto kCbNormTmp = tt::CBIndex::c_18;
+constexpr auto kCbNormStats = tt::CBIndex::c_19;
+constexpr auto kCbNormInv = tt::CBIndex::c_20;
 constexpr auto kCbRawOut = tt::CBIndex::c_21;
+constexpr auto kCbNorm = tt::CBIndex::c_22;
 constexpr auto kCbTmp0 = tt::CBIndex::c_24;
 constexpr auto kCbTmp1 = tt::CBIndex::c_25;
 constexpr auto kCbAcc = tt::CBIndex::c_26;
@@ -97,6 +106,16 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     ff::make_cb(program, all_cores, ff::kCbTmp0, data_format, v_head_dim_tiles);
     ff::make_cb(program, all_cores, ff::kCbTmp1, data_format, std::max(k_head_dim_tiles, v_head_dim_tiles));
     ff::make_cb(program, all_cores, ff::kCbAcc, data_format, v_head_dim_tiles);
+    if (attrs.fused_epilogue) {
+        ff::make_cb(program, all_cores, ff::kCbGate, data_format, v_head_dim_tiles);
+        ff::make_cb(program, all_cores, ff::kCbNormWeight, data_format, v_head_dim_tiles);
+        ff::make_cb(program, all_cores, ff::kCbNormScaler, tt::DataFormat::Float32, 1);
+        ff::make_cb(program, all_cores, ff::kCbNormEpsilon, data_format, 1);
+        ff::make_cb(program, all_cores, ff::kCbNormTmp, tt::DataFormat::Float32, v_head_dim_tiles);
+        ff::make_cb(program, all_cores, ff::kCbNormStats, tt::DataFormat::Float32, 1);
+        ff::make_cb(program, all_cores, ff::kCbNormInv, tt::DataFormat::Float32, 1);
+        ff::make_cb(program, all_cores, ff::kCbNorm, tt::DataFormat::Float32, v_head_dim_tiles);
+    }
 
     auto* state_buffer = inputs.recurrent_state.buffer();
     auto* q_buffer = inputs.q.buffer();
@@ -106,6 +125,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     auto* decay_buffer = inputs.decay.buffer();
     auto* decay_scale_buffer = inputs.decay_scale.buffer();
     auto* dt_bias_buffer = inputs.dt_bias.buffer();
+    auto* gate_buffer = inputs.gate.buffer();
+    auto* norm_weight_buffer = inputs.norm_weight.buffer();
 
     std::vector<uint32_t> reader_compile_args = {
         static_cast<uint32_t>(ff::kCbStateIn),
@@ -118,6 +139,12 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
         k_head_dim_tiles,
         v_head_dim_tiles,
         static_cast<uint32_t>(attrs.preprocess_ab),
+        static_cast<uint32_t>(attrs.fused_epilogue),
+        static_cast<uint32_t>(ff::kCbGate),
+        static_cast<uint32_t>(ff::kCbNormWeight),
+        static_cast<uint32_t>(ff::kCbNormScaler),
+        static_cast<uint32_t>(ff::kCbNormEpsilon),
+        std::bit_cast<uint32_t>(attrs.norm_epsilon),
     };
     TensorAccessorArgs(state_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(q_buffer).append_to(reader_compile_args);
@@ -127,6 +154,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     TensorAccessorArgs(decay_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(decay_scale_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(dt_bias_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(gate_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(norm_weight_buffer).append_to(reader_compile_args);
     const auto reader_kernel =
         CreateKernel(program, ff::kReaderPath, all_cores, ReaderDataMovementConfig(reader_compile_args));
 
@@ -147,6 +176,15 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
         static_cast<uint32_t>(ff::kCbStateMid),
         static_cast<uint32_t>(ff::kCbKT),
         static_cast<uint32_t>(ff::kCbRawOut),
+        static_cast<uint32_t>(attrs.fused_epilogue),
+        static_cast<uint32_t>(ff::kCbGate),
+        static_cast<uint32_t>(ff::kCbNormWeight),
+        static_cast<uint32_t>(ff::kCbNormScaler),
+        static_cast<uint32_t>(ff::kCbNormEpsilon),
+        static_cast<uint32_t>(ff::kCbNormTmp),
+        static_cast<uint32_t>(ff::kCbNormStats),
+        static_cast<uint32_t>(ff::kCbNormInv),
+        static_cast<uint32_t>(ff::kCbNorm),
     };
     const auto compute_kernel = CreateKernel(
         program,
@@ -213,6 +251,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
                 decay_buffer->address(),
                 decay_scale_buffer->address(),
                 dt_bias_buffer->address(),
+                gate_buffer->address(),
+                norm_weight_buffer->address(),
                 head * state_tiles,
                 scalar_tile,
                 batch % ff::kTileSize,
@@ -222,6 +262,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
                 v_tile,
                 key_row,
                 value_row,
+                (batch / ff::kTileSize) * heads_per_batch * v_head_dim_tiles + value_head * v_head_dim_tiles,
+                batch % ff::kTileSize,
             });
         SetRuntimeArgs(
             program,
@@ -269,6 +311,8 @@ void DeltaNetDecodeFullProgramFactory::override_runtime_arguments(
         reader_args[5] = inputs.decay.buffer()->address();
         reader_args[6] = inputs.decay_scale.buffer()->address();
         reader_args[7] = inputs.dt_bias.buffer()->address();
+        reader_args[8] = inputs.gate.buffer()->address();
+        reader_args[9] = inputs.norm_weight.buffer()->address();
 
         auto& writer_args = writer_runtime_args[core.x][core.y];
         writer_args[0] = outputs[1].buffer()->address();

@@ -1099,10 +1099,7 @@ class TPGatedDeltaNet(LightweightModule):
         # and applies the four MACs plus SiLU in one dispatch.
         st = self.conv_states
         use_fused_conv = (
-            self._gdn_fused_conv
-            and use_fused_decode
-            and self.K == 4
-            and self.qkv_dim_tp // 32 <= grid.x * grid.y
+            self._gdn_fused_conv and use_fused_decode and self.K == 4 and self.qkv_dim_tp // 32 <= grid.x * grid.y
         )
         packed_conv = None
         if use_fused_conv:
@@ -1152,6 +1149,13 @@ class TPGatedDeltaNet(LightweightModule):
             # core to each (batch, value-head), expands Q/K by index, normalizes both vectors,
             # scales Q, computes beta/decay from raw b/a, and fuses state read, delta update,
             # state write, and q @ S_new.
+            # At batch 1 the kernel's flat output is already in the exact token-major layout
+            # consumed by o_proj. Fuse per-head RMSNorm and SiLU(z) here to avoid the otherwise
+            # physical flat->heads->flat reshape around the standalone normalization tail.
+            fuse_decode_epilogue = B == 1
+            epilogue_kwargs = (
+                {"gate": z, "norm_weight": tw["norm_w"], "norm_epsilon": 1e-6} if fuse_decode_epilogue else {}
+            )
             if self._gdn_fused_ab:
                 o, new_rec = ttnn.experimental.deltanet_decode_full(
                     q,
@@ -1169,6 +1173,7 @@ class TPGatedDeltaNet(LightweightModule):
                     decay_scale=tw["neg_exp_A"],
                     dt_bias=tw["dt_bias"],
                     packed_qkv=packed_conv is not None,
+                    **epilogue_kwargs,
                 )
             else:
                 beta = ttnn.sigmoid(b, memory_config=_L1)
@@ -1188,12 +1193,14 @@ class TPGatedDeltaNet(LightweightModule):
                     head_expand_ratio=rf,
                     memory_config=_L1,
                     packed_qkv=packed_conv is not None,
+                    **epilogue_kwargs,
                 )
             ttnn.deallocate(a)
             ttnn.deallocate(b)
             if packed_conv is not None:
                 ttnn.deallocate(packed_conv)
         else:
+            fuse_decode_epilogue = False
             # Generic fallback for widths whose flattened heads exceed the core grid. The
             # recurrence function expands Q/K and runs the same math as a composition of TTNN ops.
             q = ttnn.repeat_interleave(q, rf, dim=1)
@@ -1230,14 +1237,18 @@ class TPGatedDeltaNet(LightweightModule):
         else:
             self.rec_state = new_rec
 
-        out_r = ttnn.reshape(o, (B, Nv, Dv))
-        out_n = ttnn.rms_norm(out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)  # gated norm (no +1)
-        ttnn.deallocate(out_r)
-        out_f = ttnn.reshape(out_n, (1, B, self.value_dim_tp))
-        ttnn.deallocate(out_n)
-        gated = _silu_mul(out_f, z, _L1)
-        ttnn.deallocate(out_f)
-        ttnn.deallocate(z)
+        if fuse_decode_epilogue:
+            gated = o
+            ttnn.deallocate(z)
+        else:
+            out_r = ttnn.reshape(o, (B, Nv, Dv))
+            out_n = ttnn.rms_norm(out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)  # gated norm (no +1)
+            ttnn.deallocate(out_r)
+            out_f = ttnn.reshape(out_n, (1, B, self.value_dim_tp))
+            ttnn.deallocate(out_n)
+            gated = _silu_mul(out_f, z, _L1)
+            ttnn.deallocate(out_f)
+            ttnn.deallocate(z)
 
         partial = self._row_proj(gated, tw["out"])
         ttnn.deallocate(gated)

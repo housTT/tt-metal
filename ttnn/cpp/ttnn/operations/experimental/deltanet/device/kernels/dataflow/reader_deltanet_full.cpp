@@ -9,6 +9,10 @@
 #include <cstdint>
 
 #include "api/dataflow/dataflow_api.h"
+#include "api/dataflow/dataflow_buffer.h"
+#include "llk_defs.h"
+#include "ttnn/cpp/ttnn/kernel/dataflow/generate_bcast_scalar_metal2.hpp"
+#include "ttnn/cpp/ttnn/kernel_lib/reduce_helpers_dataflow.hpp"
 
 FORCE_INLINE float bf16_to_f32(uint16_t value) {
     uint32_t bits = static_cast<uint32_t>(value) << 16;
@@ -95,7 +99,13 @@ void kernel_main() {
     constexpr uint32_t k_head_dim_tiles = get_compile_time_arg_val(7);
     constexpr uint32_t v_head_dim_tiles = get_compile_time_arg_val(8);
     constexpr bool preprocess_ab = get_compile_time_arg_val(9) == 1;
-    constexpr auto state_args = TensorAccessorArgs<10>();
+    constexpr bool fused_epilogue = get_compile_time_arg_val(10) == 1;
+    constexpr uint32_t cb_gate = get_compile_time_arg_val(11);
+    constexpr uint32_t cb_norm_weight = get_compile_time_arg_val(12);
+    constexpr uint32_t cb_norm_scaler = get_compile_time_arg_val(13);
+    constexpr uint32_t cb_norm_epsilon = get_compile_time_arg_val(14);
+    constexpr uint32_t norm_epsilon_bits = get_compile_time_arg_val(15);
+    constexpr auto state_args = TensorAccessorArgs<16>();
     constexpr auto q_args = TensorAccessorArgs<state_args.next_compile_time_args_offset()>();
     constexpr auto k_args = TensorAccessorArgs<q_args.next_compile_time_args_offset()>();
     constexpr auto v_args = TensorAccessorArgs<k_args.next_compile_time_args_offset()>();
@@ -103,6 +113,8 @@ void kernel_main() {
     constexpr auto decay_args = TensorAccessorArgs<beta_args.next_compile_time_args_offset()>();
     constexpr auto decay_scale_args = TensorAccessorArgs<decay_args.next_compile_time_args_offset()>();
     constexpr auto dt_bias_args = TensorAccessorArgs<decay_scale_args.next_compile_time_args_offset()>();
+    constexpr auto gate_args = TensorAccessorArgs<dt_bias_args.next_compile_time_args_offset()>();
+    constexpr auto norm_weight_args = TensorAccessorArgs<gate_args.next_compile_time_args_offset()>();
 
     const uint32_t state_addr = get_arg_val<uint32_t>(0);
     const uint32_t q_addr = get_arg_val<uint32_t>(1);
@@ -112,15 +124,19 @@ void kernel_main() {
     const uint32_t decay_addr = get_arg_val<uint32_t>(5);
     const uint32_t decay_scale_addr = get_arg_val<uint32_t>(6);
     const uint32_t dt_bias_addr = get_arg_val<uint32_t>(7);
-    const uint32_t state_start_tile = get_arg_val<uint32_t>(8);
-    const uint32_t scalar_tile = get_arg_val<uint32_t>(9);
-    const uint32_t scalar_row = get_arg_val<uint32_t>(10);
-    const uint32_t scalar_column = get_arg_val<uint32_t>(11);
-    const uint32_t q_start_tile = get_arg_val<uint32_t>(12);
-    const uint32_t k_start_tile = get_arg_val<uint32_t>(13);
-    const uint32_t v_start_tile = get_arg_val<uint32_t>(14);
-    const uint32_t key_head_row = get_arg_val<uint32_t>(15);
-    const uint32_t value_head_row = get_arg_val<uint32_t>(16);
+    const uint32_t gate_addr = get_arg_val<uint32_t>(8);
+    const uint32_t norm_weight_addr = get_arg_val<uint32_t>(9);
+    const uint32_t state_start_tile = get_arg_val<uint32_t>(10);
+    const uint32_t scalar_tile = get_arg_val<uint32_t>(11);
+    const uint32_t scalar_row = get_arg_val<uint32_t>(12);
+    const uint32_t scalar_column = get_arg_val<uint32_t>(13);
+    const uint32_t q_start_tile = get_arg_val<uint32_t>(14);
+    const uint32_t k_start_tile = get_arg_val<uint32_t>(15);
+    const uint32_t v_start_tile = get_arg_val<uint32_t>(16);
+    const uint32_t key_head_row = get_arg_val<uint32_t>(17);
+    const uint32_t value_head_row = get_arg_val<uint32_t>(18);
+    const uint32_t gate_start_tile = get_arg_val<uint32_t>(19);
+    const uint32_t gate_row = get_arg_val<uint32_t>(20);
 
     constexpr uint32_t state_tiles = k_head_dim_tiles * v_head_dim_tiles;
     const uint32_t tile_bytes = get_tile_size(cb_q);
@@ -132,6 +148,8 @@ void kernel_main() {
     const auto decay_accessor = TensorAccessor(decay_args, decay_addr, tile_bytes);
     const auto decay_scale_accessor = TensorAccessor(decay_scale_args, decay_scale_addr, tile_bytes);
     const auto dt_bias_accessor = TensorAccessor(dt_bias_args, dt_bias_addr, tile_bytes);
+    const auto gate_accessor = TensorAccessor(gate_args, gate_addr, tile_bytes);
+    const auto norm_weight_accessor = TensorAccessor(norm_weight_args, norm_weight_addr, tile_bytes);
 
     cb_reserve_back(cb_state, state_tiles);
     uint32_t state_l1 = get_write_ptr(cb_state);
@@ -230,4 +248,36 @@ void kernel_main() {
     }
     make_broadcast_scalar(decay_l1, decay);
     cb_push_back(cb_decay, 1);
+
+    if constexpr (fused_epilogue) {
+        cb_reserve_back(cb_gate, v_head_dim_tiles);
+        const uint32_t gate_l1_start = get_write_ptr(cb_gate);
+        uint32_t gate_l1 = gate_l1_start;
+        for (uint32_t tile = 0; tile < v_head_dim_tiles; ++tile) {
+            noc_async_read_tile(gate_start_tile + tile, gate_accessor, gate_l1);
+            gate_l1 += tile_bytes;
+        }
+        noc_async_read_barrier();
+        for (uint32_t tile = 0; tile < v_head_dim_tiles; ++tile) {
+            select_tile_row(gate_l1_start + tile * tile_bytes, gate_row);
+        }
+        cb_push_back(cb_gate, v_head_dim_tiles);
+
+        cb_reserve_back(cb_norm_weight, v_head_dim_tiles);
+        uint32_t weight_l1 = get_write_ptr(cb_norm_weight);
+        for (uint32_t tile = 0; tile < v_head_dim_tiles; ++tile) {
+            noc_async_read_tile(tile, norm_weight_accessor, weight_l1);
+            weight_l1 += tile_bytes;
+        }
+        noc_async_read_barrier();
+        cb_push_back(cb_norm_weight, v_head_dim_tiles);
+
+        dataflow_kernel_lib::calculate_and_prepare_reduce_scaler<
+            cb_norm_scaler,
+            ckernel::PoolType::AVG,
+            ckernel::ReduceDim::REDUCE_ROW,
+            v_head_dim_tiles * 32>();
+        DataflowBuffer epsilon(cb_norm_epsilon);
+        generate_bcast_col_scalar(epsilon, norm_epsilon_bits);
+    }
 }

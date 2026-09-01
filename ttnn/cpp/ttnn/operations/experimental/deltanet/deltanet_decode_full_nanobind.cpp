@@ -21,9 +21,9 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         R"doc(
         Fused DeltaNet single-token recurrence on device.
 
-        Updates the recurrent state and returns the raw q @ S_new output. The
-        caller applies gated RMSNorm and silu(z), which is faster as a parallel
-        TTNN tail than serializing those operations on one core per head.
+        Updates the recurrent state and returns q @ S_new. When gate and
+        norm_weight are supplied, per-head RMSNorm and SiLU gating are fused
+        and the returned activation is ready for the output projection.
 
         Args:
             q (ttnn.Tensor): [B,Hk,Dk] raw Q. Normalization and scaling are fused.
@@ -46,6 +46,10 @@ void bind_deltanet_decode_full(nb::module_& mod) {
                 Supplying this and dt_bias fuses sigmoid(b) and
                 exp(decay_scale * softplus(a + dt_bias)).
             dt_bias (ttnn.Tensor, optional): [1,1,H] decay bias.
+            gate (ttnn.Tensor, optional): [1,B,H*Dv] SiLU gate. Supplying this
+                and norm_weight fuses the decode epilogue.
+            norm_weight (ttnn.Tensor, optional): [1,1,Dv] RMSNorm weight.
+            norm_epsilon (float): RMSNorm epsilon.
             packed_qkv (bool): Interpret q as packed [1,B,Q|K|V] and ignore
                 k/v. This removes decode head-split and reshape operations.
 
@@ -72,6 +76,9 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         nb::arg("memory_config") = nb::none(),
         nb::arg("decay_scale") = nb::none(),
         nb::arg("dt_bias") = nb::none(),
+        nb::arg("gate") = nb::none(),
+        nb::arg("norm_weight") = nb::none(),
+        nb::arg("norm_epsilon") = 1e-6F,
         nb::arg("packed_qkv") = false);
 
     const auto* conv_doc =
