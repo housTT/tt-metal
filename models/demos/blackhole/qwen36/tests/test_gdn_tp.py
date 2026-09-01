@@ -126,11 +126,12 @@ def test_gdn_tp_decode_recurrence_state(mesh_device, high_precision, reset_seeds
     exact T=1 function ``forward_decode`` dispatches to — for several steps from a
     NONZERO initial state, checking both the step output and the carried state, so a
     broken decay (or an ignored fused activation) collapses the PCC immediately.
-    fp32 mirrors the TP default (``high_precision=True``); bf16 covers the
-    ``QWEN35_GDN_DECODE_BF16=1`` fallback.
+    bf16 mirrors the TP production default; fp32 covers the
+    ``QWEN36_GDN_DECODE_FP32=1`` diagnostic override.
     """
     B, H, K, V = 2, 8, 128, 128
-    steps = 4
+    steps = int(os.environ.get("QWEN36_GDN_RECURRENCE_STEPS", "4"))
+    assert steps > 0
     # One threshold per node via pcc_thresholds.json; fp32/bf16 defaults differ (bf16
     # accumulates state quantization error over the 4 steps).
     thr = get_pcc_threshold(request, default=0.9999 if high_precision else 0.99)

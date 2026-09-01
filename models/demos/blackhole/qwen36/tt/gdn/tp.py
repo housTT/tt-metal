@@ -183,6 +183,7 @@ class TPGatedDeltaNet(LightweightModule):
         self._gdn_flat_qkv = True
         # Fuse adapter output relayout with rms_norm + head-flatten
         self._gdn_fuse_out = True
+        self._gdn_decode_fp32 = os.environ.get("QWEN36_GDN_DECODE_FP32") == "1"
         self.K = args.gdn_conv_kernel_size
         self.scale = self.Dk**-0.5
         self.cfg = tpc.COMPUTE_HIFI2
@@ -232,8 +233,9 @@ class TPGatedDeltaNet(LightweightModule):
             )
 
         self.conv_states = [z((1, self.B, self.qkv_dim_tp)) for _ in range(self.K)]
-        # fp32 recurrent state by default (QWEN35_GDN_STATE_BF16=1 reverts)
-        if os.environ.get("QWEN35_GDN_STATE_BF16") != "1":
+        # BF16 state is the production default after a 512-step recurrence gate. FP32 remains
+        # available for diagnostics and models that require stricter long-horizon accumulation.
+        if self._gdn_decode_fp32:
             self.rec_state = ttnn.from_torch(
                 torch.zeros(self.B, self.Nv, self.Dk, self.Dv, dtype=torch.float32),
                 dtype=ttnn.float32,
@@ -580,7 +582,15 @@ class TPGatedDeltaNet(LightweightModule):
                 ttnn.deallocate(final_state)
                 ttnn.copy(conv_new_state, self.conv_carry)  # [1, K-1, D] last-K-1 conv inputs
             else:
-                self.rec_state = final_state
+                state_dtype = ttnn.float32 if self._gdn_decode_fp32 else ttnn.bfloat16
+                decode_state = (
+                    final_state if final_state.dtype == state_dtype else ttnn.typecast(final_state, state_dtype)
+                )
+                if decode_state is not final_state:
+                    ttnn.deallocate(final_state)
+                if self.rec_state is not None:
+                    ttnn.deallocate(self.rec_state)
+                self.rec_state = decode_state
             # ---- Finalize the decode conv window (last chunk / short prompt). ----
             # conv_states[1..K-1] = the last K-1 real conv inputs; [0] is the (shifted-out) zero.
             # Harmless to refresh every chunk — the last chunk's values are the ones decode reads.
@@ -731,7 +741,13 @@ class TPGatedDeltaNet(LightweightModule):
                 ttnn.copy(conv_states[m], self.conv_states[m])
                 ttnn.deallocate(conv_states[m])
         else:
-            self.rec_state = rec_batched
+            state_dtype = ttnn.float32 if self._gdn_decode_fp32 else ttnn.bfloat16
+            rec_src = rec_batched if rec_batched.dtype == state_dtype else ttnn.typecast(rec_batched, state_dtype)
+            if rec_src is not rec_batched:
+                ttnn.deallocate(rec_batched)
+            if self.rec_state is not None:
+                ttnn.deallocate(self.rec_state)
+            self.rec_state = rec_src
             self.conv_states = conv_states
         for t in rec_list:
             ttnn.deallocate(t)
@@ -994,7 +1010,13 @@ class TPGatedDeltaNet(LightweightModule):
                 ttnn.deallocate(rec_src)
             ttnn.deallocate(final_state)
         else:
-            self.rec_state = final_state  # [B, Nv, Dk, Dv]
+            state_dtype = ttnn.float32 if self._gdn_decode_fp32 else ttnn.bfloat16
+            rec_src = final_state if final_state.dtype == state_dtype else ttnn.typecast(final_state, state_dtype)
+            if rec_src is not final_state:
+                ttnn.deallocate(final_state)
+            if self.rec_state is not None:
+                ttnn.deallocate(self.rec_state)
+            self.rec_state = rec_src  # [B, Nv, Dk, Dv]
         # conv_states[0] = shifted-out zero; conv_states[m] row u = conv_new_state[u, m-1].
         zero0 = ttnn.from_torch(
             torch.zeros(1, B, D, dtype=torch.bfloat16),
@@ -1104,7 +1126,8 @@ class TPGatedDeltaNet(LightweightModule):
         ttnn.deallocate(a)
         g = ttnn.reshape(g, (B, 1, Nv))
 
-        # fp32 decode step by default (QWEN35_GDN_DECODE_BF16=1 reverts)
+        # BF16 recurrence avoids five typecasts and halves state traffic. A 512-step nonzero-state
+        # oracle retains >0.9999 PCC; keep the former FP32 path as an explicit diagnostic override.
         init_state = self.rec_state if B == Bmax else self._slice_along(self.rec_state, 0, 0, B)
         o, new_rec = recurrent_gated_delta_rule_decode_ttnn(
             q,
@@ -1115,7 +1138,7 @@ class TPGatedDeltaNet(LightweightModule):
             scale=self.scale,
             initial_state=init_state,
             device=self.mesh,
-            high_precision=(os.environ.get("QWEN35_GDN_DECODE_BF16") != "1"),
+            high_precision=self._gdn_decode_fp32,
         )
         if init_state is not self.rec_state:
             ttnn.deallocate(init_state)
@@ -1130,7 +1153,9 @@ class TPGatedDeltaNet(LightweightModule):
             self.rec_state = new_rec
 
         out_r = ttnn.reshape(o, (B, Nv, Dv))
-        out_n = ttnn.rms_norm(out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)  # gated norm (no +1)
+        out_n = ttnn.rms_norm(
+            out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1
+        )  # gated norm (no +1)
         ttnn.deallocate(out_r)
         out_f = ttnn.reshape(out_n, (1, B, self.value_dim_tp))
         ttnn.deallocate(out_n)

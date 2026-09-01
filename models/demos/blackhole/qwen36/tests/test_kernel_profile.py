@@ -4,7 +4,7 @@
 
 These tests load one real checkpoint layer, compile once, then place ``start`` / ``stop``
 signposts around each measured production-path invocation.  They are skipped unless
-``QWEN36_KERNEL_PROFILE`` selects ``gdn_prefill`` or ``attention_prefill``.
+``QWEN36_KERNEL_PROFILE`` selects ``gdn_prefill``, ``attention_prefill``, or ``gdn_decode``.
 """
 
 import os
@@ -23,6 +23,7 @@ from models.demos.blackhole.qwen36.tests.test_factory import (
     load_gdn_layer,
     model_path,
     parametrize_mesh_tp,
+    replicate_to_device,
     shard_to_device,
 )
 from models.demos.blackhole.qwen36.tt.attention.rope_tp import rot_mats_prefill
@@ -177,3 +178,38 @@ def test_attention_prefill_profile(mesh_device, reset_seeds, ensure_gc):
         f"min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
     )
     assert out.shape[-2] == seq_len
+
+
+@torch.no_grad()
+@parametrize_mesh_tp()
+def test_gdn_decode_profile(mesh_device, reset_seeds, ensure_gc):
+    _selected("gdn_decode")
+    os.environ.setdefault("HF_MODEL", model_path())
+    batch = int(os.environ.get("QWEN36_KERNEL_PROFILE_BATCH", "32"))
+    iterations = int(os.environ.get("QWEN36_KERNEL_PROFILE_ITERATIONS", "5"))
+    assert batch in (1, 8, 32) and iterations > 0
+
+    args = Qwen36ModelArgs(mesh_device, max_batch_size=batch, max_seq_len=256)
+    layer_idx = next(i for i, kind in enumerate(args.attention_type_list) if kind == "linear_attention")
+    weights = load_gdn_weights_tp(mesh_device, load_gdn_layer(args.CKPT_DIR, layer_idx), args)
+    gdn = TPGatedDeltaNet(mesh_device, args, weights, get_tt_ccl(mesh_device))
+    x = torch.randn(1, 1, batch, args.dim, dtype=torch.bfloat16)
+    x_device = replicate_to_device(mesh_device, x)
+
+    # Compile, allocate persistent state, and populate the program cache outside the measured interval.
+    out = gdn.forward_decode(x_device)
+    ttnn.synchronize_device(mesh_device)
+
+    samples_ms = []
+    for _ in range(iterations):
+        signpost("start")
+        begin = time.perf_counter()
+        out = gdn.forward_decode(x_device)
+        ttnn.synchronize_device(mesh_device)
+        samples_ms.append((time.perf_counter() - begin) * 1000.0)
+        signpost("stop")
+    logger.info(
+        f"GDN_DECODE_PROFILE_RESULT layer={layer_idx} batch={batch} iterations={iterations} "
+        f"median_ms={statistics.median(samples_ms):.3f} min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
+    )
+    assert out.shape[-2] == batch
