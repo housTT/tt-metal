@@ -5,7 +5,7 @@
 These tests load one real checkpoint layer, compile once, then place ``start`` / ``stop``
 signposts around each measured production-path invocation.  They are skipped unless
 ``QWEN36_KERNEL_PROFILE`` selects ``gdn_prefill``, ``attention_prefill``, ``gdn_decode``,
-``attention_decode``, or ``mlp_decode``.
+``attention_decode``, ``mlp_decode``, or ``sampling_decode``.
 """
 
 import os
@@ -19,6 +19,7 @@ from tracy import signpost
 
 import ttnn
 from models.common.modules.tt_ccl import get_tt_ccl
+from models.common.sampling.generator import SamplingGenerator, SamplingParams, format_sampling_params
 from models.demos.blackhole.qwen36.tests.test_factory import (
     load_attn_layer,
     load_gdn_layer,
@@ -324,3 +325,63 @@ def test_mlp_decode_profile(mesh_device, reset_seeds, ensure_gc):
         f"min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
     )
     assert out.shape[-2] == batch
+
+
+@torch.no_grad()
+@parametrize_mesh_tp()
+def test_sampling_decode_profile(mesh_device, reset_seeds, ensure_gc):
+    """Profile the production TP-sharded greedy sampler without loading model weights."""
+    _selected("sampling_decode")
+    os.environ.setdefault("HF_MODEL", model_path())
+    force_argmax = os.environ.get("QWEN36_SAMPLING_FORCE_ARGMAX", "1") != "0"
+    enable_trace = os.environ.get("QWEN36_SAMPLING_TRACE", "1") != "0"
+    reset_params = os.environ.get("QWEN36_SAMPLING_RESET_PARAMS", "1") != "0"
+    iterations = int(os.environ.get("QWEN36_KERNEL_PROFILE_ITERATIONS", "20"))
+    assert iterations > 0
+
+    args = Qwen36ModelArgs(mesh_device, max_batch_size=1, max_seq_len=128)
+    args.model_config["SAMPLING_AG_CONFIG"]["allow_force_argmax"] = force_argmax
+    sampling = SamplingGenerator(args=args, mesh_device=mesh_device, tt_ccl=get_tt_ccl(mesh_device))
+    sampling_batch = sampling.tt_sampling.max_batch_size
+    greedy_params = format_sampling_params(
+        SamplingParams(temperature=0.0, top_k=1, top_p=1.0), sampling_batch
+    )
+    logits = torch.randn(1, 1, sampling_batch, args.padded_vocab_size, dtype=torch.bfloat16)
+    logits[..., args.vocab_size :] = -float("inf")
+    tt_logits = ttnn.from_torch(
+        logits,
+        device=mesh_device,
+        mesh_mapper=ttnn.ShardTensor2dMesh(mesh_device, dims=(None, 3), mesh_shape=args.cluster_shape),
+        dtype=ttnn.bfloat16,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        layout=ttnn.TILE_LAYOUT,
+    )
+
+    # Compile outside the timed interval. Explicit per-request seeds make serving run sampling eagerly;
+    # QWEN36_SAMPLING_TRACE=0 measures that path, while the default measures internal trace replay.
+    if reset_params:
+        sampling.reset_sampling_params(greedy_params)
+    sampling.sample(tt_logits, enable_trace=False)
+    tt_tokens, _ = sampling.sample(tt_logits, enable_trace=enable_trace)
+    ttnn.synchronize_device(mesh_device)
+    samples_ms = []
+    for _ in range(iterations):
+        signpost("start")
+        begin = time.perf_counter()
+        if reset_params:
+            sampling.reset_sampling_params(greedy_params)
+        tt_tokens, _ = sampling.sample(tt_logits, enable_trace=enable_trace)
+        ttnn.synchronize_device(mesh_device)
+        samples_ms.append((time.perf_counter() - begin) * 1000.0)
+        signpost("stop")
+
+    token = int(ttnn.to_torch(ttnn.get_device_tensors(tt_tokens)[0]).reshape(-1)[0])
+    expected_token = int(logits[0, 0, 0, : args.vocab_size].float().argmax())
+    logger.info(
+        f"SAMPLING_DECODE_PROFILE_RESULT force_argmax={force_argmax} enable_trace={enable_trace} "
+        f"reset_params={reset_params} iterations={iterations} "
+        f"median_ms={statistics.median(samples_ms):.3f} min_ms={min(samples_ms):.3f} "
+        f"max_ms={max(samples_ms):.3f} token={token} expected_token={expected_token}"
+    )
+    sampling.reset_trace()
+    assert token == expected_token

@@ -443,9 +443,11 @@ class SamplingGenerator:
         penalties_on = self._penalties_active
         log_probs_on = getattr(self, "_log_probs_active", False)
         force_argmax = self.tt_sampling.force_argmax_sampling
-        # Explicit request seeds update a persistent seed tensor every token;
-        # run them directly so trace replay cannot observe stale seed state.
-        use_internal_trace = enable_trace and not self.seed_manager.has_active_request_seed()
+        # Explicit request seeds update a persistent seed tensor every token, so stochastic sampling
+        # must run directly. A fully greedy batch is seed-independent and may safely reuse its trace.
+        use_internal_trace = enable_trace and (
+            self.tt_sampling.all_greedy_sampling or not self.seed_manager.has_active_request_seed()
+        )
 
         if not use_internal_trace:
             tt_out = self._run_sampling(

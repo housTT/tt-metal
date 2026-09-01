@@ -39,7 +39,10 @@ class Qwen36ModelArgs(ModelArgs):
             os.environ["HF_MODEL"] = snapshot_download(hf_model, local_files_only=offline)
         super().__init__(mesh_device, max_batch_size=max_batch_size, max_seq_len=max_seq_len, **kwargs)
         if mesh_device is not None:
-            self.model_config["SAMPLING_AG_CONFIG"]["allow_force_argmax"] = True
+            # TP4 Qwen shards the 248K vocabulary below TopK's 64K/device limit.  Reducing each
+            # shard locally and gathering only candidates is substantially faster than force-argmax,
+            # which gathers the full vocabulary before reducing (0.57 ms vs 3.17 ms traced on P150x4).
+            self.model_config["SAMPLING_AG_CONFIG"]["allow_force_argmax"] = False
 
         # Mirror CKPT_DIR -> checkpoint_dir for weight_cache_path / load_state_dict.
         self.checkpoint_dir = self.CKPT_DIR

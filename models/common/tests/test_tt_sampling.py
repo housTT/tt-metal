@@ -1910,9 +1910,8 @@ class TestSingleGreedyLaneInStochasticBatch:
 # signature default. Every other test in this file runs enable_trace=False, so
 # _trace_slot / capture_trace / _execute_trace / _validate_trace_inputs are otherwise
 # never executed. Two things constrain what a traced test can look like:
-#   * sample() computes `use_internal_trace = enable_trace and not
-#     seed_manager.has_active_request_seed()`, so a test with explicit request seeds
-#     silently falls back to the eager path and proves nothing. These use unseeded runs.
+#   * Explicit request seeds bypass the trace for stochastic sampling. Greedy sampling is
+#     seed-independent and may still replay its trace; these use unseeded runs for simplicity.
 #   * trace replay binds the captured input address, so the same logits tensor object must
 #     be reused on every step (run_sampling_generator does this when enable_trace=True) and
 #     penalties -- which rewrite that tensor in place -- cannot be combined with it.

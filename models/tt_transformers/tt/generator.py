@@ -1978,27 +1978,54 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
         )
 
         for i in range(self.data_parallel):
-            refresh_trace_inputs = reset_inputs or getattr(
-                self.model[i], "_tt_vllm_always_refresh_decode_trace_inputs", False
-            )
+            model_i = self.model[i]
+            always_refresh = getattr(model_i, "_tt_vllm_always_refresh_decode_trace_inputs", False)
+            refresh_prefix = int(getattr(model_i, "_tt_vllm_decode_trace_input_refresh_prefix", 0))
             user_page_table = page_table[i] if page_table is not None else None
 
-            if refresh_trace_inputs:
+            if reset_inputs or always_refresh:
                 # Full resets are required when host token/position inputs are
                 # authoritative again, or for models that explicitly opt out of
                 # partial decode trace input refreshes.
-                host_inputs_i = self.model[i].prepare_decode_inputs_host(tokens[i], current_pos[i], user_page_table)
+                host_inputs_i = model_i.prepare_decode_inputs_host(tokens[i], current_pos[i], user_page_table)
                 copy_host_to_device(
                     host_tensors=host_inputs_i,
                     device_tensors=self.trace_inputs_decode[on_device_sampling][i],
                 )
+            elif refresh_prefix:
+                # Some models recompute a fixed prefix of their trace inputs on the host every
+                # token (Qwen3.6: token, position, packed RoPE) while the trailing page table is
+                # stable for an entire KV block.  Build/copy only that prefix on steady steps;
+                # refresh the page table independently when vLLM allocates a new block.
+                host_inputs_i = model_i.prepare_decode_inputs_host(tokens[i], current_pos[i], page_table=None)
+                prefix_error = (
+                    f"decode trace refresh prefix {refresh_prefix} exceeds host/device input counts "
+                    f"({len(host_inputs_i)}/{len(self.trace_inputs_decode[on_device_sampling][i])})"
+                )
+                if refresh_prefix > len(host_inputs_i) or refresh_prefix > len(
+                    self.trace_inputs_decode[on_device_sampling][i]
+                ):
+                    raise ValueError(prefix_error)
+                copy_host_to_device(
+                    host_tensors=host_inputs_i[:refresh_prefix],
+                    device_tensors=self.trace_inputs_decode[on_device_sampling][i][:refresh_prefix],
+                )
+                if page_table_changed:
+                    host_page_table = model_i.prepare_decode_inputs_host(
+                        tokens[i], current_pos[i], user_page_table
+                    )[DECODE_PAGE_TABLE_INPUT_IDX]
+                    device_page_table = self.trace_inputs_decode[on_device_sampling][i][
+                        DECODE_PAGE_TABLE_INPUT_IDX
+                    ]
+                    if host_page_table is not None:
+                        ttnn.copy_host_to_device_tensor(host_page_table, device_page_table)
             elif page_table_changed:
                 # With async device sampling, token/position inputs may
                 # intentionally be stale on host: the previous decode updates
                 # them on device. Page tables still need refreshing when new KV
                 # blocks are allocated, so copy only that trace input and
                 # preserve device-produced tokens.
-                host_inputs_i = self.model[i].prepare_decode_inputs_host(tokens[i], current_pos[i], user_page_table)
+                host_inputs_i = model_i.prepare_decode_inputs_host(tokens[i], current_pos[i], user_page_table)
                 host_page_table = host_inputs_i[DECODE_PAGE_TABLE_INPUT_IDX]
                 device_page_table = self.trace_inputs_decode[on_device_sampling][i][DECODE_PAGE_TABLE_INPUT_IDX]
                 if host_page_table is not None:
@@ -2160,7 +2187,9 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
         requires a rank-4 preallocated output). Returning None makes sampling
         allocate its own output instead of writing into ``device_inputs[0]``.
         """
-        if getattr(model, "_tt_vllm_always_refresh_decode_trace_inputs", False):
+        if getattr(model, "_tt_vllm_always_refresh_decode_trace_inputs", False) or getattr(
+            model, "_tt_vllm_decode_trace_input_refresh_prefix", 0
+        ):
             return None
         return device_inputs[0]
 

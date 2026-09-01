@@ -133,9 +133,13 @@ class TTSampling(LightweightModule):
         Changing this state between decode steps invalidates captured traces, so
         SamplingGenerator maintains separate trace slots keyed by force_argmax.
         """
+        return self._allow_force_argmax_sampling and self._is_all_greedy_sampling(k, p, temp)
+
+    @staticmethod
+    def _is_all_greedy_sampling(k, p, temp):
+        """Whether every lane is deterministic top-1, independent of the selected device path."""
         return (
-            self._allow_force_argmax_sampling
-            and is_default_value(k, 1)
+            is_default_value(k, 1)
             and (is_default_value(p, 1.0) or is_default_value(p, 0.0))
             and is_default_value(temp, 1.0)
         )
@@ -143,6 +147,10 @@ class TTSampling(LightweightModule):
     @property
     def force_argmax_sampling(self) -> bool:
         return self._force_argmax_sampling
+
+    @property
+    def all_greedy_sampling(self) -> bool:
+        return self._all_greedy_sampling
 
     def __init__(
         self,
@@ -275,7 +283,8 @@ class TTSampling(LightweightModule):
         if temp is None:
             temp = torch.ones(total_param_size)
 
-        self._force_argmax_sampling = self._is_force_argmax_sampling(k, p, temp)
+        self._all_greedy_sampling = self._is_all_greedy_sampling(k, p, temp)
+        self._force_argmax_sampling = self._allow_force_argmax_sampling and self._all_greedy_sampling
 
         # Create sampling parameter tensors on device
         # When _sampling_dp > 1, dims=(0, None) shards the [128] tensor across 4 rows → [32] per row
@@ -300,6 +309,10 @@ class TTSampling(LightweightModule):
             layout=ttnn.ROW_MAJOR_LAYOUT,
             mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, dims=self._param_dims, mesh_shape=self.cluster_shape),
         )
+        # vLLM presents the same padded sampling vectors on every decode step. Keep the values
+        # currently resident in k/p/temp so reset_params can avoid rebuilding and retransferring
+        # four host tensors (including _greedy_col) when nothing changed.
+        self._sampling_params_cache = self._canonical_sampling_params(k, p, temp)
         # The tie-break sentinel has to outrank every real global index. Vocabularies this large are
         # far beyond anything shipped, but exceeding it would corrupt the greedy token silently rather
         # than fail, so check it at construction. Raise rather than assert: this guards a correctness
@@ -600,8 +613,10 @@ class TTSampling(LightweightModule):
         empty_slots: list[int] | None = None,
     ):
         """Update sampling parameters (k, p, temperature, logprobs) dynamically."""
-        self._force_argmax_sampling = self._is_force_argmax_sampling(k, p, temp)
-        if not self._force_argmax_sampling:
+        self._all_greedy_sampling = self._is_all_greedy_sampling(k, p, temp)
+        self._force_argmax_sampling = self._allow_force_argmax_sampling and self._all_greedy_sampling
+        sampling_params = self._canonical_sampling_params(k, p, temp)
+        if not self._force_argmax_sampling and sampling_params != self._sampling_params_cache:
             # When _sampling_dp > 1, create multi-device host tensors so
             # copy_host_to_device_tensor writes per-row shards correctly.
             if self._sampling_dp > 1:
@@ -650,10 +665,24 @@ class TTSampling(LightweightModule):
                 ),
             )
             ttnn.copy_host_to_device_tensor(self._greedy_col_new, self._greedy_col)
+            self._sampling_params_cache = sampling_params
 
         self.log_probs_calculator.set_log_probs_mode(
             enable_log_probs, num_logprobs=num_logprobs, empty_slots=empty_slots
         )
+
+    @staticmethod
+    def _canonical_sampling_params(k, p, temp):
+        """Return hashable host values matching the contents of the persistent parameter tensors."""
+
+        def values(value):
+            if isinstance(value, torch.Tensor):
+                return tuple(value.detach().cpu().reshape(-1).tolist())
+            if isinstance(value, (list, tuple)):
+                return tuple(value)
+            return (value,)
+
+        return values(k), values(p), values(temp)
 
     def _greedy_col_dims(self):
         """Map the 1-D k_tensor shard dims (self._param_dims, batch on dim0) to the [1,1,N,1] greedy

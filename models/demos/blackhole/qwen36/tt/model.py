@@ -40,8 +40,10 @@ class Qwen36Model(LightweightModule):
             self.tt_ccl = None
         self.configuration = args  # Generator reads model.configuration.max_seq_len
         self.sampling_dp = 1
-        # RoPE is host-recomputed each step, so refresh all decode trace inputs.
-        self._tt_vllm_always_refresh_decode_trace_inputs = True
+        # RoPE is host-recomputed each step, so refresh token, position, and packed RoPE.  The
+        # paged-attention table is stable between block allocations and is refreshed separately
+        # only when it changes; copying its full long-context row every token is pure H2D overhead.
+        self._tt_vllm_decode_trace_input_refresh_prefix = 3
         # On-device sampling: allowlist 1x4/1x8 TP only — vocab/TP must fit Top-K's 64K shard limit (TP=2 does not).
         mesh_shape = tuple(int(dim) for dim in mesh_device.shape)
         self._supports_on_device_sampling = (
@@ -54,11 +56,10 @@ class Qwen36Model(LightweightModule):
 
             # vocab/num_devices isn't a power of 2; the multi-device TopK kernel needs it padded.
             args.pad_logits_to_power_of_2 = True
-            # force_argmax (the cheap 1-all-gather greedy path) is enabled on the base
-            # SAMPLING_AG_CONFIG in model_config.py and runs IN-TRACE (faster than eager). Decode
-            # bucketing is made compatible with the in-trace sampler by namespacing the sampling
-            # trace per bucket width (SamplingGenerator.set_trace_bucket, driven from
-            # qwen36_vllm.decode_forward) — see generator._validate_trace_inputs.
+            # Qwen keeps force_argmax disabled: local TopK followed by candidate gathers is faster
+            # than gathering the full 248K vocabulary on TP4. Decode bucketing is compatible with
+            # the in-trace sampler by namespacing the sampling trace per bucket width
+            # (SamplingGenerator.set_trace_bucket, driven from qwen36_vllm.decode_forward).
             self.sampling = SamplingGenerator(args=args, mesh_device=mesh_device, tt_ccl=self.tt_ccl)
         else:
             self.sampling = None
