@@ -94,12 +94,15 @@ void kernel_main() {
     constexpr uint32_t cb_k_transposed = get_compile_time_arg_val(6);
     constexpr uint32_t k_head_dim_tiles = get_compile_time_arg_val(7);
     constexpr uint32_t v_head_dim_tiles = get_compile_time_arg_val(8);
-    constexpr auto state_args = TensorAccessorArgs<9>();
+    constexpr bool preprocess_ab = get_compile_time_arg_val(9) == 1;
+    constexpr auto state_args = TensorAccessorArgs<10>();
     constexpr auto q_args = TensorAccessorArgs<state_args.next_compile_time_args_offset()>();
     constexpr auto k_args = TensorAccessorArgs<q_args.next_compile_time_args_offset()>();
     constexpr auto v_args = TensorAccessorArgs<k_args.next_compile_time_args_offset()>();
     constexpr auto beta_args = TensorAccessorArgs<v_args.next_compile_time_args_offset()>();
     constexpr auto decay_args = TensorAccessorArgs<beta_args.next_compile_time_args_offset()>();
+    constexpr auto decay_scale_args = TensorAccessorArgs<decay_args.next_compile_time_args_offset()>();
+    constexpr auto dt_bias_args = TensorAccessorArgs<decay_scale_args.next_compile_time_args_offset()>();
 
     const uint32_t state_addr = get_arg_val<uint32_t>(0);
     const uint32_t q_addr = get_arg_val<uint32_t>(1);
@@ -107,15 +110,17 @@ void kernel_main() {
     const uint32_t v_addr = get_arg_val<uint32_t>(3);
     const uint32_t beta_addr = get_arg_val<uint32_t>(4);
     const uint32_t decay_addr = get_arg_val<uint32_t>(5);
-    const uint32_t state_start_tile = get_arg_val<uint32_t>(6);
-    const uint32_t scalar_tile = get_arg_val<uint32_t>(7);
-    const uint32_t scalar_row = get_arg_val<uint32_t>(8);
-    const uint32_t scalar_column = get_arg_val<uint32_t>(9);
-    const uint32_t q_start_tile = get_arg_val<uint32_t>(10);
-    const uint32_t k_start_tile = get_arg_val<uint32_t>(11);
-    const uint32_t v_start_tile = get_arg_val<uint32_t>(12);
-    const uint32_t key_head_row = get_arg_val<uint32_t>(13);
-    const uint32_t value_head_row = get_arg_val<uint32_t>(14);
+    const uint32_t decay_scale_addr = get_arg_val<uint32_t>(6);
+    const uint32_t dt_bias_addr = get_arg_val<uint32_t>(7);
+    const uint32_t state_start_tile = get_arg_val<uint32_t>(8);
+    const uint32_t scalar_tile = get_arg_val<uint32_t>(9);
+    const uint32_t scalar_row = get_arg_val<uint32_t>(10);
+    const uint32_t scalar_column = get_arg_val<uint32_t>(11);
+    const uint32_t q_start_tile = get_arg_val<uint32_t>(12);
+    const uint32_t k_start_tile = get_arg_val<uint32_t>(13);
+    const uint32_t v_start_tile = get_arg_val<uint32_t>(14);
+    const uint32_t key_head_row = get_arg_val<uint32_t>(15);
+    const uint32_t value_head_row = get_arg_val<uint32_t>(16);
 
     constexpr uint32_t state_tiles = k_head_dim_tiles * v_head_dim_tiles;
     const uint32_t tile_bytes = get_tile_size(cb_q);
@@ -125,6 +130,8 @@ void kernel_main() {
     const auto v_accessor = TensorAccessor(v_args, v_addr, tile_bytes);
     const auto beta_accessor = TensorAccessor(beta_args, beta_addr, tile_bytes);
     const auto decay_accessor = TensorAccessor(decay_args, decay_addr, tile_bytes);
+    const auto decay_scale_accessor = TensorAccessor(decay_scale_args, decay_scale_addr, tile_bytes);
+    const auto dt_bias_accessor = TensorAccessor(dt_bias_args, dt_bias_addr, tile_bytes);
 
     cb_reserve_back(cb_state, state_tiles);
     uint32_t state_l1 = get_write_ptr(cb_state);
@@ -198,7 +205,10 @@ void kernel_main() {
     uint32_t beta_l1 = get_write_ptr(cb_beta);
     noc_async_read_tile(scalar_tile, beta_accessor, beta_l1);
     noc_async_read_barrier();
-    const float beta = extract_tile_element(beta_l1, scalar_row, scalar_column);
+    float beta = extract_tile_element(beta_l1, scalar_row, scalar_column);
+    if constexpr (preprocess_ab) {
+        beta = 1.0f / (1.0f + expf(-beta));
+    }
     make_broadcast_scalar(beta_l1, beta);
     cb_push_back(cb_beta, 1);
 
@@ -206,7 +216,18 @@ void kernel_main() {
     uint32_t decay_l1 = get_write_ptr(cb_decay);
     noc_async_read_tile(scalar_tile, decay_accessor, decay_l1);
     noc_async_read_barrier();
-    const float decay = extract_tile_element(decay_l1, scalar_row, scalar_column);
+    float decay = extract_tile_element(decay_l1, scalar_row, scalar_column);
+    if constexpr (preprocess_ab) {
+        const uint32_t constant_tile = value_head_row / 32;
+        noc_async_read_tile(constant_tile, decay_scale_accessor, decay_l1);
+        noc_async_read_barrier();
+        const float decay_scale = extract_tile_element(decay_l1, 0, scalar_column);
+        noc_async_read_tile(constant_tile, dt_bias_accessor, decay_l1);
+        noc_async_read_barrier();
+        const float biased_a = decay + extract_tile_element(decay_l1, 0, scalar_column);
+        const float softplus = biased_a > 20.0f ? biased_a : log1pf(expf(biased_a));
+        decay = expf(decay_scale * softplus);
+    }
     make_broadcast_scalar(decay_l1, decay);
     cb_push_back(cb_decay, 1);
 }

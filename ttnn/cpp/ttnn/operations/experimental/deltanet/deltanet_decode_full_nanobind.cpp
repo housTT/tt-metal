@@ -29,8 +29,10 @@ void bind_deltanet_decode_full(nb::module_& mod) {
             q (ttnn.Tensor): [B,Hk,Dk] raw Q. Normalization and scaling are fused.
             k (ttnn.Tensor): [B,Hk,Dk] raw K. Normalization is fused.
             v (ttnn.Tensor): [B,H,Dv] value vectors.
-            beta (ttnn.Tensor): [1,B,H] update coefficient.
-            decay (ttnn.Tensor): [1,B,H] recurrent-state decay.
+            beta (ttnn.Tensor): [1,B,H] update coefficient, or raw b when
+                decay_scale and dt_bias are supplied.
+            decay (ttnn.Tensor): [1,B,H] recurrent-state decay, or raw a when
+                decay_scale and dt_bias are supplied.
             recurrent_state (ttnn.Tensor): [B,H,Dk,Dv] recurrent state
 
         Keyword Args:
@@ -40,6 +42,10 @@ void bind_deltanet_decode_full(nb::module_& mod) {
             v_head_dim (int): Value head dimension.
             head_expand_ratio (int): num_heads / num_k_heads.
             memory_config (ttnn.MemoryConfig, optional): output memory config.
+            decay_scale (ttnn.Tensor, optional): [1,1,H] negative exp(A).
+                Supplying this and dt_bias fuses sigmoid(b) and
+                exp(decay_scale * softplus(a + dt_bias)).
+            dt_bias (ttnn.Tensor, optional): [1,1,H] decay bias.
 
         Returns:
             list[ttnn.Tensor]: [raw_output, new_recurrent_state]
@@ -61,7 +67,9 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         nb::arg("k_head_dim"),
         nb::arg("v_head_dim"),
         nb::arg("head_expand_ratio"),
-        nb::arg("memory_config") = nb::none());
+        nb::arg("memory_config") = nb::none(),
+        nb::arg("decay_scale") = nb::none(),
+        nb::arg("dt_bias") = nb::none());
 }
 
 }  // namespace ttnn::operations::experimental::deltanet::detail

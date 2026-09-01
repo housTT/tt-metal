@@ -54,6 +54,8 @@ std::vector<Tensor> deltanet_decode_full(
     uint32_t k_head_dim,
     uint32_t v_head_dim,
     uint32_t head_expand_ratio,
-    const std::optional<tt::tt_metal::MemoryConfig>& output_memory_config = std::nullopt);
+    const std::optional<tt::tt_metal::MemoryConfig>& output_memory_config = std::nullopt,
+    const std::optional<const Tensor>& decay_scale = std::nullopt,
+    const std::optional<const Tensor>& dt_bias = std::nullopt);
 
 }  // namespace ttnn::prim

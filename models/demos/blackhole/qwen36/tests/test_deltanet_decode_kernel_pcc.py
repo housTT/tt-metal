@@ -71,6 +71,69 @@ def test_deltanet_decode_kernel_matches_torch(mesh_device, ensure_gc):
 
 
 @parametrize_mesh_tp()
+def test_deltanet_decode_kernel_fuses_ab_preprocessing(mesh_device, ensure_gc):
+    """Validate reader-side sigmoid(b) and decay(A, a, dt_bias) preprocessing."""
+    num_k_heads, num_heads = 4, 12
+    k_head_dim = v_head_dim = 128
+    head_expand_ratio = num_heads // num_k_heads
+    torch.manual_seed(11)
+
+    q = torch.randn(num_k_heads, k_head_dim).to(torch.bfloat16).float()
+    k = torch.randn(num_k_heads, k_head_dim).to(torch.bfloat16).float()
+    v = (torch.randn(num_heads, v_head_dim) * 0.3).to(torch.bfloat16).float()
+    raw_b = torch.randn(num_heads).to(torch.bfloat16).float()
+    raw_a = torch.randn(num_heads).to(torch.bfloat16).float()
+    decay_scale = (-torch.exp(torch.randn(num_heads) * 0.1)).to(torch.bfloat16).float()
+    dt_bias = torch.randn(num_heads).to(torch.bfloat16).float()
+    state = (torch.randn(num_heads, k_head_dim, v_head_dim) * 0.1).to(torch.bfloat16).float()
+
+    beta = torch.sigmoid(raw_b).to(torch.bfloat16).float()
+    decay = torch.exp(decay_scale * torch.nn.functional.softplus(raw_a + dt_bias)).to(torch.bfloat16).float()
+    q_expanded = torch.nn.functional.normalize(q, dim=-1).repeat_interleave(head_expand_ratio, dim=0)
+    q_expanded *= k_head_dim**-0.5
+    k_expanded = torch.nn.functional.normalize(k, dim=-1).repeat_interleave(head_expand_ratio, dim=0)
+    expected_state = state * decay[:, None, None]
+    residual = v - torch.einsum("hk,hkv->hv", k_expanded, expected_state)
+    expected_state += beta[:, None, None] * torch.einsum("hk,hv->hkv", k_expanded, residual)
+    expected_output = torch.einsum("hk,hkv->hv", q_expanded, expected_state)
+
+    replicate = ttnn.ReplicateTensorToMesh(mesh_device)
+
+    def to_device(tensor, memory_config=ttnn.L1_MEMORY_CONFIG):
+        return ttnn.from_torch(
+            tensor,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh_device,
+            mesh_mapper=replicate,
+            memory_config=memory_config,
+        )
+
+    outputs = ttnn.experimental.deltanet_decode_full(
+        to_device(q.unsqueeze(0)),
+        to_device(k.unsqueeze(0)),
+        to_device(v.unsqueeze(0)),
+        to_device(raw_b.reshape(1, 1, num_heads)),
+        to_device(raw_a.reshape(1, 1, num_heads)),
+        to_device(state.unsqueeze(0), memory_config=ttnn.DRAM_MEMORY_CONFIG),
+        num_heads=num_heads,
+        num_k_heads=num_k_heads,
+        k_head_dim=k_head_dim,
+        v_head_dim=v_head_dim,
+        head_expand_ratio=head_expand_ratio,
+        decay_scale=to_device(decay_scale.reshape(1, 1, num_heads)),
+        dt_bias=to_device(dt_bias.reshape(1, 1, num_heads)),
+    )
+
+    compose = ttnn.ConcatMeshToTensor(mesh_device, dim=0)
+    actual_output = ttnn.to_torch(outputs[0], mesh_composer=compose)[0].reshape(num_heads, v_head_dim)
+    actual_state = ttnn.to_torch(outputs[1], mesh_composer=compose)[0].reshape(num_heads, k_head_dim, v_head_dim)
+
+    assert _pcc(actual_output, expected_output) > 0.999
+    assert _pcc(actual_state, expected_state) > 0.999
+
+
+@parametrize_mesh_tp()
 def test_deltanet_decode_kernel_512_step_continuity(mesh_device, ensure_gc):
     """Gate accumulated BF16-state drift over changing inputs for a serving-length decode."""
     steps = 512

@@ -25,11 +25,22 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
     TT_FATAL(inputs.v.storage_type() == StorageType::DEVICE, "DeltaNet decode full: v must be on device");
     TT_FATAL(inputs.beta.storage_type() == StorageType::DEVICE, "DeltaNet decode full: beta must be on device");
     TT_FATAL(inputs.decay.storage_type() == StorageType::DEVICE, "DeltaNet decode full: decay must be on device");
+    if (attrs.preprocess_ab) {
+        TT_FATAL(
+            inputs.decay_scale.storage_type() == StorageType::DEVICE &&
+                inputs.dt_bias.storage_type() == StorageType::DEVICE,
+            "DeltaNet decode full: decay_scale and dt_bias must be on device");
+    }
     TT_FATAL(inputs.q.layout() == Layout::TILE, "DeltaNet decode full: q must be TILE layout");
     TT_FATAL(inputs.k.layout() == Layout::TILE, "DeltaNet decode full: k must be TILE layout");
     TT_FATAL(inputs.v.layout() == Layout::TILE, "DeltaNet decode full: v must be TILE layout");
     TT_FATAL(inputs.beta.layout() == Layout::TILE, "DeltaNet decode full: beta must be TILE layout");
     TT_FATAL(inputs.decay.layout() == Layout::TILE, "DeltaNet decode full: decay must be TILE layout");
+    if (attrs.preprocess_ab) {
+        TT_FATAL(
+            inputs.decay_scale.layout() == Layout::TILE && inputs.dt_bias.layout() == Layout::TILE,
+            "DeltaNet decode full: decay_scale and dt_bias must be TILE layout");
+    }
     TT_FATAL(
         inputs.recurrent_state.layout() == Layout::TILE, "DeltaNet decode full: recurrent_state must be TILE layout");
     TT_FATAL(
@@ -37,6 +48,11 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
             inputs.v.dtype() == DataType::BFLOAT16 && inputs.beta.dtype() == DataType::BFLOAT16 &&
             inputs.decay.dtype() == DataType::BFLOAT16 && inputs.recurrent_state.dtype() == DataType::BFLOAT16,
         "DeltaNet decode full currently requires BFLOAT16 inputs");
+    if (attrs.preprocess_ab) {
+        TT_FATAL(
+            inputs.decay_scale.dtype() == DataType::BFLOAT16 && inputs.dt_bias.dtype() == DataType::BFLOAT16,
+            "DeltaNet decode full: decay_scale and dt_bias must be BFLOAT16");
+    }
     TT_FATAL(
         attrs.k_head_dim % 32 == 0 && attrs.v_head_dim % 32 == 0,
         "DeltaNet decode full: head dims must be multiples of 32");
@@ -70,6 +86,13 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
     TT_FATAL(
         inputs.decay.logical_shape() == inputs.beta.logical_shape(),
         "DeltaNet decode full: decay shape must match beta");
+    if (attrs.preprocess_ab) {
+        TT_FATAL(
+            inputs.decay_scale.logical_shape().rank() == 3 && inputs.decay_scale.logical_shape()[-2] == 1 &&
+                inputs.decay_scale.logical_shape()[-1] == heads_per_batch &&
+                inputs.dt_bias.logical_shape() == inputs.decay_scale.logical_shape(),
+            "DeltaNet decode full: decay_scale/dt_bias must have shape [1,1,heads_per_batch]");
+    }
     TT_FATAL(
         inputs.recurrent_state.logical_shape().rank() == 4 &&
             inputs.recurrent_state.logical_shape()[-4] == batch_size &&
@@ -125,10 +148,16 @@ std::vector<Tensor> deltanet_decode_full(
     uint32_t k_head_dim,
     uint32_t v_head_dim,
     uint32_t head_expand_ratio,
-    const std::optional<MemoryConfig>& output_memory_config) {
+    const std::optional<MemoryConfig>& output_memory_config,
+    const std::optional<const Tensor>& decay_scale,
+    const std::optional<const Tensor>& dt_bias) {
     using Op = ttnn::operations::experimental::deltanet::DeltaNetDecodeFullDeviceOperation;
 
     auto mem_config = output_memory_config.value_or(q.memory_config());
+    const bool preprocess_ab = decay_scale.has_value();
+    TT_FATAL(
+        preprocess_ab == dt_bias.has_value(),
+        "DeltaNet decode full: decay_scale and dt_bias must be provided together");
 
     auto operation_attributes = Op::operation_attributes_t{
         .num_heads = num_heads,
@@ -136,6 +165,7 @@ std::vector<Tensor> deltanet_decode_full(
         .k_head_dim = k_head_dim,
         .v_head_dim = v_head_dim,
         .head_expand_ratio = head_expand_ratio,
+        .preprocess_ab = preprocess_ab,
         .output_memory_config = mem_config,
     };
 
@@ -145,6 +175,8 @@ std::vector<Tensor> deltanet_decode_full(
         .v = v,
         .beta = beta,
         .decay = decay,
+        .decay_scale = decay_scale.value_or(q),
+        .dt_bias = dt_bias.value_or(q),
         .recurrent_state = recurrent_state,
     };
 

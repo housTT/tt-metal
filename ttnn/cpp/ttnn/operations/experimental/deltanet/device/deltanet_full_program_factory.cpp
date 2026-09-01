@@ -104,6 +104,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     auto* v_buffer = inputs.v.buffer();
     auto* beta_buffer = inputs.beta.buffer();
     auto* decay_buffer = inputs.decay.buffer();
+    auto* decay_scale_buffer = inputs.decay_scale.buffer();
+    auto* dt_bias_buffer = inputs.dt_bias.buffer();
 
     std::vector<uint32_t> reader_compile_args = {
         static_cast<uint32_t>(ff::kCbStateIn),
@@ -115,6 +117,7 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
         static_cast<uint32_t>(ff::kCbKT),
         k_head_dim_tiles,
         v_head_dim_tiles,
+        static_cast<uint32_t>(attrs.preprocess_ab),
     };
     TensorAccessorArgs(state_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(q_buffer).append_to(reader_compile_args);
@@ -122,6 +125,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     TensorAccessorArgs(v_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(beta_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(decay_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(decay_scale_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(dt_bias_buffer).append_to(reader_compile_args);
     const auto reader_kernel =
         CreateKernel(program, ff::kReaderPath, all_cores, ReaderDataMovementConfig(reader_compile_args));
 
@@ -191,6 +196,8 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
                 v_buffer->address(),
                 beta_buffer->address(),
                 decay_buffer->address(),
+                decay_scale_buffer->address(),
+                dt_bias_buffer->address(),
                 head * state_tiles,
                 scalar_tile,
                 batch % ff::kTileSize,
@@ -245,6 +252,8 @@ void DeltaNetDecodeFullProgramFactory::override_runtime_arguments(
         reader_args[3] = inputs.v.buffer()->address();
         reader_args[4] = inputs.beta.buffer()->address();
         reader_args[5] = inputs.decay.buffer()->address();
+        reader_args[6] = inputs.decay_scale.buffer()->address();
+        reader_args[7] = inputs.dt_bias.buffer()->address();
 
         auto& writer_args = writer_runtime_args[core.x][core.y];
         writer_args[0] = outputs[1].buffer()->address();

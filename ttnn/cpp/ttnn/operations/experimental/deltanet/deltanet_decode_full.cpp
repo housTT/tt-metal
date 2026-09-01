@@ -19,7 +19,12 @@ std::vector<Tensor> deltanet_decode_full(
     uint32_t k_head_dim,
     uint32_t v_head_dim,
     uint32_t head_expand_ratio,
-    const std::optional<MemoryConfig>& memory_config) {
+    const std::optional<MemoryConfig>& memory_config,
+    const std::optional<const Tensor>& decay_scale,
+    const std::optional<const Tensor>& dt_bias) {
+    TT_FATAL(
+        decay_scale.has_value() == dt_bias.has_value(),
+        "DeltaNet decode full: decay_scale and dt_bias must be provided together");
     return ttnn::prim::deltanet_decode_full(
         q,
         k,
@@ -32,7 +37,9 @@ std::vector<Tensor> deltanet_decode_full(
         k_head_dim,
         v_head_dim,
         head_expand_ratio,
-        memory_config);
+        memory_config,
+        decay_scale,
+        dt_bias);
 }
 
 }  // namespace ttnn::experimental
