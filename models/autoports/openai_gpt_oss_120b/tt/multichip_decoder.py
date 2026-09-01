@@ -1003,7 +1003,7 @@ class _ReplicatedL1Router(TopKRouter):
             router_input,
             self.weight,
             bias=self.bias,
-            memory_config=ttnn.L1_MEMORY_CONFIG,
+            memory_config=(ttnn.L1_MEMORY_CONFIG if actual_tokens <= 128 else ttnn.DRAM_MEMORY_CONFIG),
             program_config=self.prefill_program_config,
             compute_kernel_config=self.compute_config,
         )

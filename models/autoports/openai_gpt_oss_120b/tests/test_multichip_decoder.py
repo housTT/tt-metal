@@ -21,6 +21,7 @@ import statistics
 import time
 import uuid
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -30,6 +31,7 @@ from transformers import AutoConfig
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tests import test_functional_decoder as accepted
 from models.autoports.openai_gpt_oss_120b.tests.real_weight_utils import load_real_layer_state_dict
+from models.autoports.openai_gpt_oss_120b.tt import multichip_decoder as multichip_decoder_module
 from models.autoports.openai_gpt_oss_120b.tt.fused_decoder import _FULL_LOCAL_CHECKPOINT_REVISION
 from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
     _DOWN_SUBBLOCK_WIDTH_BY_TP,
@@ -80,6 +82,7 @@ from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
     _ActiveExpertTPMLP,
     _allreduce_physical_hidden,
     _PhysicalHiddenCollectiveAttention,
+    _ReplicatedL1Router,
     tensor_plan,
 )
 from models.autoports.openai_gpt_oss_120b.tt.optimized_decoder import OptimizedDecoder
@@ -492,6 +495,65 @@ def test_context_contract_covers_every_mesh_without_reducing_decoder_context():
     assert contract["supported_decoder_layer_context_length"] == 131072
     assert contract["capability_reduction"] is None
     assert contract["kv_cache"]["local_kv_heads"] == {"1": 8, "2": 4, "4": 2}
+
+
+@pytest.mark.parametrize(
+    "actual_tokens,expected_memory_config",
+    [
+        (32, None),
+        (128, ttnn.L1_MEMORY_CONFIG),
+        (129, ttnn.DRAM_MEMORY_CONFIG),
+        (131072, ttnn.DRAM_MEMORY_CONFIG),
+    ],
+)
+def test_replicated_l1_router_prefill_memory_policy(monkeypatch, actual_tokens, expected_memory_config):
+    hidden_states = Mock()
+    hidden_states.volume.return_value = actual_tokens * 2880
+    router_input = Mock()
+    router_logits = Mock()
+    expert_indices = object()
+    expert_weights = object()
+
+    router = object.__new__(_ReplicatedL1Router)
+    router.hidden_dim = 2880
+    router.weight = object()
+    router.bias = object()
+    router.top_k = 4
+    router.prefill_input_l1 = True
+    router.prefill_program_config = object()
+    router.compute_config = object()
+    router.softmax_compute_config = object()
+
+    base_call = Mock(return_value=(expert_indices, expert_weights))
+    reshape = Mock(return_value=hidden_states)
+    to_memory_config = Mock(return_value=router_input)
+    linear = Mock(return_value=router_logits)
+    topk_router = Mock(return_value=(expert_indices, expert_weights))
+    monkeypatch.setattr(_ReplicatedL1Router.__mro__[1], "__call__", base_call)
+    monkeypatch.setattr(ttnn, "reshape", reshape)
+    monkeypatch.setattr(ttnn, "to_memory_config", to_memory_config)
+    monkeypatch.setattr(ttnn, "linear", linear)
+    monkeypatch.setattr(multichip_decoder_module, "topk_router", topk_router)
+
+    use_throughput_experts = actual_tokens == 32
+    assert router(hidden_states, use_throughput_experts) == (expert_indices, expert_weights)
+    if expected_memory_config is None:
+        base_call.assert_called_once_with(hidden_states, use_throughput_experts)
+        linear.assert_not_called()
+        return
+
+    linear.assert_called_once_with(
+        router_input,
+        router.weight,
+        bias=router.bias,
+        memory_config=expected_memory_config,
+        program_config=router.prefill_program_config,
+        compute_kernel_config=router.compute_config,
+    )
+    to_memory_config.assert_called_once_with(hidden_states, ttnn.L1_MEMORY_CONFIG)
+    topk_router.assert_called_once_with(router_logits, 4, False, router.softmax_compute_config)
+    router_input.deallocate.assert_called_once_with(True)
+    router_logits.deallocate.assert_called_once_with(True)
 
 
 def test_runtime_fallback_and_active_expert_audit():
