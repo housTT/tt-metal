@@ -40,6 +40,7 @@ from models.autoports.openai_gpt_oss_120b.tt.precision import (
 )
 from models.common.sampling.generator import SamplingGenerator, SamplingParams, format_sampling_params
 from models.demos.utils.trace_region_sizes import TRACE_MODEL_KEY_PARAM
+from models.tt_transformers.tt.generator import Generator as SharedTTGenerator
 
 SNAPSHOT = Path(
     "/home/ttuser/.cache/huggingface/hub/models--openai--gpt-oss-120b/"
@@ -660,6 +661,32 @@ def test_unseen_prefill_variant_releases_live_decode_and_sampling_traces(monkeyp
     assert released == [("mesh", 41)]
     assert generator._lifetime_prefill_variant_compilations == 2
     assert generator._lifetime_decode_trace_releases_for_prefill_compile == 1
+
+
+def test_shared_host_decode_processing_preserves_singleton_full_vocab_width():
+    vocab_size = 201_088
+    padded_vocab_size = 262_144
+
+    class FakeModel:
+        @staticmethod
+        def process_output_decode(output, batch, S=1, is_tokens=False, **_):
+            assert not is_tokens
+            return output.view(batch, S, -1)[..., :vocab_size]
+
+    generator = SimpleNamespace(
+        data_parallel=1,
+        model=[FakeModel()],
+        model_args=[SimpleNamespace(max_batch_size=32)],
+    )
+    raw_b1_logits = torch.zeros(1, 1, 1, padded_vocab_size)
+
+    logits, _ = SharedTTGenerator.process_decode_output_host(
+        generator,
+        [(raw_b1_logits, None)],
+        batch_size_per_model=[1],
+    )
+
+    assert logits.shape == (1, 1, vocab_size)
 
 
 def test_split_greedy_submission_has_one_explicit_collection_boundary():

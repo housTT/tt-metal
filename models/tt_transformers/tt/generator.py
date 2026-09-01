@@ -2634,7 +2634,7 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
         return host_outputs, read_events
 
     # Note: This function is called by vLLM
-    def process_decode_output_host(self, tt_out, is_tokens=False):
+    def process_decode_output_host(self, tt_out, is_tokens=False, batch_size_per_model=None):
         """
         Converts the input ttnn host tensors to torch tensors.
         The input can be logits (if is_tokens=False) or tokens (if is_tokens=True).
@@ -2651,14 +2651,29 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
         """
         from models.common.sampling.tt_log_probs import LogProbsResult
 
-        max_batch_size_per_model = self.model_args[0].max_batch_size
+        if batch_size_per_model is None:
+            batch_size_per_model = [self.model_args[0].max_batch_size] * self.data_parallel
+        elif len(batch_size_per_model) != self.data_parallel:
+            raise ValueError(
+                "batch_size_per_model must have one entry per data-parallel model: "
+                f"{len(batch_size_per_model)} != {self.data_parallel}"
+            )
 
         logits = []
         log_probs = []
         for i in range(self.data_parallel):
+            max_batch_size_per_model = self.model_args[i].max_batch_size
+            submitted_batch_size = int(batch_size_per_model[i])
+            if not 0 <= submitted_batch_size <= max_batch_size_per_model:
+                raise ValueError(
+                    f"decode batch {submitted_batch_size} is outside " f"[0, {max_batch_size_per_model}] for model {i}"
+                )
+            # An inactive DP rank still carries its fixed-width output segment;
+            # preserve the legacy width because no rows from it will be sampled.
+            output_batch_size = submitted_batch_size or max_batch_size_per_model
             if isinstance(tt_out[i], tuple):
                 logits_i = self.model[i].process_output_decode(
-                    tt_out[i][0], max_batch_size_per_model, S=1, is_tokens=is_tokens
+                    tt_out[i][0], output_batch_size, S=1, is_tokens=is_tokens
                 )
                 lp = tt_out[i][1]
                 if isinstance(lp, LogProbsResult):
@@ -2714,7 +2729,7 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                     # Old path: single logprob tensor
                     log_probs_i = self.model[i].process_output_decode(
                         lp,
-                        max_batch_size_per_model,
+                        output_batch_size,
                         S=1,
                         is_tokens=is_tokens,
                         is_log_probs=True,
@@ -2725,9 +2740,7 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                     logits.append(logits_i)
                     log_probs.append(torch.ones(logits_i.shape))
             elif isinstance(tt_out[i], ttnn.Tensor):
-                logits_i = self.model[i].process_output_decode(
-                    tt_out[i], max_batch_size_per_model, S=1, is_tokens=is_tokens
-                )
+                logits_i = self.model[i].process_output_decode(tt_out[i], output_batch_size, S=1, is_tokens=is_tokens)
                 logits.append(logits_i)
                 log_probs.append(torch.ones(logits_i.shape))
             else:

@@ -778,14 +778,26 @@ class Generator(_ReadinessGenerator):
             result = result[0]
         return result.reshape(-1).to(torch.int64) if is_tokens else result
 
-    def process_decode_output_host(self, host_output, *, is_tokens: bool = False):
+    def process_decode_output_host(
+        self,
+        host_output,
+        *,
+        is_tokens: bool = False,
+        batch_size_per_model=None,
+    ):
         """Format an already-submitted decode read without issuing device work."""
 
         if isinstance(host_output, _MinimalTokenHostOutput):
             if not is_tokens:
                 raise RuntimeError("minimal sampled-token output cannot be processed as logits")
             return torch.cat([ttnn.to_torch(shard).reshape(-1) for shard in host_output.shards], dim=0).to(torch.int64)
-        return self._inner.process_decode_output_host(host_output, is_tokens=is_tokens)
+        if batch_size_per_model is None:
+            return self._inner.process_decode_output_host(host_output, is_tokens=is_tokens)
+        return self._inner.process_decode_output_host(
+            host_output,
+            is_tokens=is_tokens,
+            batch_size_per_model=batch_size_per_model,
+        )
 
     def warmup_model_prefill(self, *, kv_cache, enable_trace: bool, can_sample_on_device: bool):
         """Delegate vLLM's prefill warmup to the canonical generator."""

@@ -694,6 +694,15 @@ class TTGptOssForCausalLM:
     def process_decode_output_host(self, host_output, is_tokens=False):
         return self._require_generator().process_decode_output_host(host_output, is_tokens=is_tokens)
 
+    def process_decode_output_host_for_batch(self, host_output, *, batch_size_per_model, is_tokens=False):
+        """Format one submission with its immutable per-DP decode widths."""
+
+        return self._require_generator().process_decode_output_host(
+            host_output,
+            is_tokens=is_tokens,
+            batch_size_per_model=batch_size_per_model,
+        )
+
     def release_persistent_capture(self):
         """Persist final serving evidence and release traces before mesh close."""
 
