@@ -45,6 +45,7 @@ constexpr uint32_t cb_norm_inv = get_compile_time_arg_val(23);
 constexpr uint32_t cb_norm = get_compile_time_arg_val(24);
 
 constexpr uint32_t state_tiles = Dk_tiles * Dv_tiles;
+constexpr uint32_t dst_capacity = 4;  // fp32_dest_acc_en on Blackhole exposes four full tiles.
 
 inline void matmul_reconfig_and_init(uint32_t in0_cb, uint32_t in1_cb, uint32_t out_cb) {
     reconfig_data_format<SrcOrder::Reverse>(in0_cb, in1_cb);
@@ -62,12 +63,17 @@ inline void square_raw_output(DataflowBuffer& tmp) {
     pack_reconfig_data_format(cb_norm_tmp);
     reconfig_data_format(cb_raw_out, cb_raw_out);
     mul_init(cb_raw_out, cb_raw_out, false);
-    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+    for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+        const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
         tile_regs_acquire();
-        mul_tiles(cb_raw_out, cb_raw_out, tile, tile, 0);
+        for (uint32_t local = 0; local < count; ++local) {
+            mul_tiles(cb_raw_out, cb_raw_out, start + local, start + local, local);
+        }
         tile_regs_commit();
         tile_regs_wait();
-        pack_tile(0, cb_norm_tmp, tile);
+        for (uint32_t local = 0; local < count; ++local) {
+            pack_tile(local, cb_norm_tmp, start + local);
+        }
         tile_regs_release();
     }
     tmp.push_back(Dv_tiles);
@@ -94,62 +100,66 @@ inline void scale_by_inverse_rms(DataflowBuffer& norm) {
     pack_reconfig_data_format(cb_norm);
     reconfig_data_format(cb_raw_out, cb_norm_inv);
     mul_bcast_cols_init(cb_raw_out, cb_norm_inv);
-    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+    for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+        const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
         tile_regs_acquire();
-        mul_tiles_bcast_cols(cb_raw_out, cb_norm_inv, tile, 0, 0);
+        for (uint32_t local = 0; local < count; ++local) {
+            mul_tiles_bcast_cols(cb_raw_out, cb_norm_inv, start + local, 0, local);
+        }
         tile_regs_commit();
         tile_regs_wait();
-        pack_tile(0, cb_norm, tile);
+        for (uint32_t local = 0; local < count; ++local) {
+            pack_tile(local, cb_norm, start + local);
+        }
         tile_regs_release();
     }
     norm.push_back(Dv_tiles);
 }
 
-inline void apply_norm_weight(DataflowBuffer& tmp) {
+inline void activate_silu_gate(DataflowBuffer& tmp) {
     tmp.reserve_back(Dv_tiles);
     pack_reconfig_data_format(cb_norm_tmp);
-    reconfig_data_format(cb_norm, cb_norm_weight);
-    mul_bcast_rows_init(cb_norm, cb_norm_weight);
-    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+    reconfig_data_format_srca(cb_gate);
+    copy_tile_to_dst_init_short(cb_gate);
+    silu_tile_init();
+    for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+        const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
         tile_regs_acquire();
-        mul_tiles_bcast_rows(cb_norm, cb_norm_weight, tile, tile, 0);
+        for (uint32_t local = 0; local < count; ++local) {
+            copy_tile(cb_gate, start + local, local);
+            silu_tile(local);
+        }
         tile_regs_commit();
         tile_regs_wait();
-        pack_tile(0, cb_norm_tmp, tile);
+        for (uint32_t local = 0; local < count; ++local) {
+            pack_tile(local, cb_norm_tmp, start + local);
+        }
         tile_regs_release();
     }
     tmp.push_back(Dv_tiles);
 }
 
-inline void activate_silu_gate(DataflowBuffer& norm) {
-    norm.reserve_back(Dv_tiles);
-    pack_reconfig_data_format(cb_norm);
-    reconfig_data_format_srca(cb_gate);
-    copy_tile_to_dst_init_short(cb_gate);
-    silu_tile_init();
-    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
-        tile_regs_acquire();
-        copy_tile(cb_gate, tile, 0);
-        silu_tile(0);
-        tile_regs_commit();
-        tile_regs_wait();
-        pack_tile(0, cb_norm, tile);
-        tile_regs_release();
-    }
-    norm.push_back(Dv_tiles);
-}
-
-inline void multiply_norm_and_gate(DataflowBuffer& output) {
+inline void apply_norm_weight_and_gate(DataflowBuffer& output) {
     output.reserve_back(Dv_tiles);
     pack_reconfig_data_format(cb_output);
-    reconfig_data_format(cb_norm_tmp, cb_norm);
-    mul_init(cb_norm_tmp, cb_norm);
-    for (uint32_t tile = 0; tile < Dv_tiles; ++tile) {
+    for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+        const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
+        reconfig_data_format(cb_norm, cb_norm_weight);
+        mul_bcast_rows_init(cb_norm, cb_norm_weight);
         tile_regs_acquire();
-        mul_tiles(cb_norm_tmp, cb_norm, tile, tile, 0);
+        for (uint32_t local = 0; local < count; ++local) {
+            mul_tiles_bcast_rows(cb_norm, cb_norm_weight, start + local, start + local, local);
+        }
+        reconfig_data_format_srca(cb_norm_tmp);
+        mul_reuse_dest_init<EltwiseBinaryReuseDestType::DEST_TO_SRCB>(cb_norm_tmp);
+        for (uint32_t local = 0; local < count; ++local) {
+            mul_reuse_dest_tiles<EltwiseBinaryReuseDestType::DEST_TO_SRCB>(cb_norm_tmp, start + local, local);
+        }
         tile_regs_commit();
         tile_regs_wait();
-        pack_tile(0, cb_output, tile);
+        for (uint32_t local = 0; local < count; ++local) {
+            pack_tile(local, cb_output, start + local);
+        }
         tile_regs_release();
     }
     output.push_back(Dv_tiles);
@@ -166,12 +176,17 @@ void kernel_main() {
         cb_wait_front(cb_state_in, state_tiles);
         cb_wait_front(cb_decay, 1);
         cb_reserve_back(cb_state_mid, state_tiles);
-        for (uint32_t t = 0; t < state_tiles; t++) {
+        for (uint32_t start = 0; start < state_tiles; start += dst_capacity) {
+            const uint32_t count = state_tiles - start < dst_capacity ? state_tiles - start : dst_capacity;
             tile_regs_acquire();
-            mul_tiles_bcast_scalar(cb_state_in, cb_decay, t, 0, 0);
+            for (uint32_t local = 0; local < count; ++local) {
+                mul_tiles_bcast_scalar(cb_state_in, cb_decay, start + local, 0, local);
+            }
             tile_regs_commit();
             tile_regs_wait();
-            pack_tile(0, cb_state_mid);
+            for (uint32_t local = 0; local < count; ++local) {
+                pack_tile(local, cb_state_mid);
+            }
             tile_regs_release();
         }
         cb_push_back(cb_state_mid, state_tiles);
@@ -184,14 +199,20 @@ void kernel_main() {
         cb_wait_front(cb_state_mid, state_tiles);
         cb_wait_front(cb_k, Dk_tiles);
         cb_reserve_back(cb_tmp0, Dv_tiles);
-        for (uint32_t j = 0; j < Dv_tiles; j++) {
+        for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+            const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
             tile_regs_acquire();
-            for (uint32_t i = 0; i < Dk_tiles; i++) {
-                matmul_tiles(cb_k, cb_state_mid, i, i * Dv_tiles + j, 0);
+            for (uint32_t local = 0; local < count; ++local) {
+                const uint32_t j = start + local;
+                for (uint32_t i = 0; i < Dk_tiles; ++i) {
+                    matmul_tiles(cb_k, cb_state_mid, i, i * Dv_tiles + j, local);
+                }
             }
             tile_regs_commit();
             tile_regs_wait();
-            pack_tile(0, cb_tmp0);
+            for (uint32_t local = 0; local < count; ++local) {
+                pack_tile(local, cb_tmp0);
+            }
             tile_regs_release();
         }
         cb_push_back(cb_tmp0, Dv_tiles);
@@ -205,12 +226,17 @@ void kernel_main() {
         cb_wait_front(cb_v, Dv_tiles);
         cb_wait_front(cb_tmp0, Dv_tiles);
         cb_reserve_back(cb_tmp1, Dv_tiles);
-        for (uint32_t j = 0; j < Dv_tiles; j++) {
+        for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+            const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
             tile_regs_acquire();
-            sub_tiles(cb_v, cb_tmp0, j, j, 0);
+            for (uint32_t local = 0; local < count; ++local) {
+                sub_tiles(cb_v, cb_tmp0, start + local, start + local, local);
+            }
             tile_regs_commit();
             tile_regs_wait();
-            pack_tile(0, cb_tmp1);
+            for (uint32_t local = 0; local < count; ++local) {
+                pack_tile(local, cb_tmp1);
+            }
             tile_regs_release();
         }
         cb_push_back(cb_tmp1, Dv_tiles);
@@ -222,12 +248,17 @@ void kernel_main() {
         cb_wait_front(cb_tmp1, Dv_tiles);
         cb_wait_front(cb_beta, 1);
         cb_reserve_back(cb_acc, Dv_tiles);
-        for (uint32_t j = 0; j < Dv_tiles; j++) {
+        for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+            const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
             tile_regs_acquire();
-            mul_tiles_bcast_scalar(cb_tmp1, cb_beta, j, 0, 0);
+            for (uint32_t local = 0; local < count; ++local) {
+                mul_tiles_bcast_scalar(cb_tmp1, cb_beta, start + local, 0, local);
+            }
             tile_regs_commit();
             tile_regs_wait();
-            pack_tile(0, cb_acc);
+            for (uint32_t local = 0; local < count; ++local) {
+                pack_tile(local, cb_acc);
+            }
             tile_regs_release();
         }
         cb_push_back(cb_acc, Dv_tiles);
@@ -242,31 +273,25 @@ void kernel_main() {
         cb_reserve_back(cb_state_out, state_tiles);
 
         for (uint32_t i = 0; i < Dk_tiles; i++) {
-            for (uint32_t j = 0; j < Dv_tiles; j++) {
-                uint32_t state_tile_idx = i * Dv_tiles + j;
-
-                // outer product: k_T @ delta → cb_tmp1 (one tile)
-                cb_reserve_back(cb_tmp1, 1);
-                matmul_reconfig_and_init(cb_k_T, cb_acc, cb_tmp1);
+            for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+                const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
+                matmul_reconfig_and_init(cb_k_T, cb_acc, cb_state_out);
                 tile_regs_acquire();
-                matmul_tiles(cb_k_T, cb_acc, i, j, 0);
+                for (uint32_t local = 0; local < count; ++local) {
+                    matmul_tiles(cb_k_T, cb_acc, i, start + local, local);
+                }
+                reconfig_data_format_srca(cb_state_mid);
+                add_reuse_dest_init<EltwiseBinaryReuseDestType::DEST_TO_SRCB>(cb_state_mid);
+                for (uint32_t local = 0; local < count; ++local) {
+                    const uint32_t state_tile_idx = i * Dv_tiles + start + local;
+                    add_reuse_dest_tiles<EltwiseBinaryReuseDestType::DEST_TO_SRCB>(cb_state_mid, state_tile_idx, local);
+                }
                 tile_regs_commit();
                 tile_regs_wait();
-                pack_tile(0, cb_tmp1);
+                for (uint32_t local = 0; local < count; ++local) {
+                    pack_tile(local, cb_state_out);
+                }
                 tile_regs_release();
-                cb_push_back(cb_tmp1, 1);
-
-                // S_mid + outer_tile → S_out
-                cb_wait_front(cb_tmp1, 1);
-                binary_reconfig(cb_state_mid, cb_tmp1, cb_state_out);
-                add_init(cb_state_mid, cb_tmp1);
-                tile_regs_acquire();
-                add_tiles(cb_state_mid, cb_tmp1, state_tile_idx, 0, 0);
-                tile_regs_commit();
-                tile_regs_wait();
-                pack_tile(0, cb_state_out);
-                tile_regs_release();
-                cb_pop_front(cb_tmp1, 1);
             }
         }
 
@@ -282,14 +307,20 @@ void kernel_main() {
         cb_wait_front(cb_state_out, state_tiles);
         cb_wait_front(cb_q, Dk_tiles);
         cb_reserve_back(cb_raw_out, Dv_tiles);
-        for (uint32_t j = 0; j < Dv_tiles; j++) {
+        for (uint32_t start = 0; start < Dv_tiles; start += dst_capacity) {
+            const uint32_t count = Dv_tiles - start < dst_capacity ? Dv_tiles - start : dst_capacity;
             tile_regs_acquire();
-            for (uint32_t i = 0; i < Dk_tiles; i++) {
-                matmul_tiles(cb_q, cb_state_out, i, i * Dv_tiles + j, 0);
+            for (uint32_t local = 0; local < count; ++local) {
+                const uint32_t j = start + local;
+                for (uint32_t i = 0; i < Dk_tiles; ++i) {
+                    matmul_tiles(cb_q, cb_state_out, i, i * Dv_tiles + j, local);
+                }
             }
             tile_regs_commit();
             tile_regs_wait();
-            pack_tile(0, cb_raw_out);
+            for (uint32_t local = 0; local < count; ++local) {
+                pack_tile(local, cb_raw_out);
+            }
             tile_regs_release();
         }
         cb_push_back(cb_raw_out, Dv_tiles);
@@ -327,15 +358,13 @@ void kernel_main() {
         cb_pop_front(cb_raw_out, Dv_tiles);
         inv.pop_front(1);
         stats.pop_front(1);
-        apply_norm_weight(tmp);
+        activate_silu_gate(tmp);
         tmp.wait_front(Dv_tiles);
-        norm.pop_front(Dv_tiles);
-        activate_silu_gate(norm);
-        norm.wait_front(Dv_tiles);
         cb_pop_front(cb_gate, Dv_tiles);
-        multiply_norm_and_gate(output);
-        tmp.pop_front(Dv_tiles);
+        apply_norm_weight_and_gate(output);
         norm.pop_front(Dv_tiles);
+        tmp.pop_front(Dv_tiles);
+        cb_pop_front(cb_norm_weight, Dv_tiles);
     } else {
         // Preserve the raw-output contract when the optional epilogue tensors are absent.
         cb_wait_front(cb_raw_out, Dv_tiles);

@@ -111,13 +111,29 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
     TT_FATAL(
         heads_per_batch <= 32 && k_heads_per_batch <= 32,
         "DeltaNet decode full currently supports at most 32 value and key heads per batch item");
-    TT_FATAL(
-        inputs.beta.logical_shape().rank() == 3 && inputs.beta.logical_shape()[-2] == batch_size &&
-            inputs.beta.logical_shape()[-1] == heads_per_batch,
-        "DeltaNet decode full: beta shape does not match batch and value heads");
-    TT_FATAL(
-        inputs.decay.logical_shape() == inputs.beta.logical_shape(),
-        "DeltaNet decode full: decay shape must match beta");
+    if (attrs.packed_projection) {
+        const uint32_t packed_projection_width =
+            2 * k_heads_per_batch * attrs.k_head_dim + 2 * heads_per_batch * attrs.v_head_dim +
+            2 * heads_per_batch;
+        TT_FATAL(
+            attrs.packed_qkv && attrs.preprocess_ab && attrs.fused_epilogue && batch_size == 1,
+            "DeltaNet decode full: packed projection currently requires packed QKV, fused A/B + epilogue, and B=1");
+        TT_FATAL(
+            inputs.beta.logical_shape().rank() == 3 && inputs.beta.logical_shape()[0] == 1 &&
+                inputs.beta.logical_shape()[-2] == batch_size &&
+                inputs.beta.logical_shape()[-1] == packed_projection_width &&
+                inputs.decay.logical_shape() == inputs.beta.logical_shape() &&
+                inputs.gate.logical_shape() == inputs.beta.logical_shape(),
+            "DeltaNet decode full: packed beta/decay/gate must have shape [1,B,Q|K|V|Z|A|B]");
+    } else {
+        TT_FATAL(
+            inputs.beta.logical_shape().rank() == 3 && inputs.beta.logical_shape()[-2] == batch_size &&
+                inputs.beta.logical_shape()[-1] == heads_per_batch,
+            "DeltaNet decode full: beta shape does not match batch and value heads");
+        TT_FATAL(
+            inputs.decay.logical_shape() == inputs.beta.logical_shape(),
+            "DeltaNet decode full: decay shape must match beta");
+    }
     if (attrs.preprocess_ab) {
         TT_FATAL(
             inputs.decay_scale.logical_shape().rank() == 3 && inputs.decay_scale.logical_shape()[-2] == 1 &&
@@ -125,12 +141,14 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
                 inputs.dt_bias.logical_shape() == inputs.decay_scale.logical_shape(),
             "DeltaNet decode full: decay_scale/dt_bias must have shape [1,1,heads_per_batch]");
     }
-    if (attrs.fused_epilogue) {
+    if (attrs.fused_epilogue && !attrs.packed_projection) {
         TT_FATAL(
             inputs.gate.logical_shape().rank() == 3 && inputs.gate.logical_shape()[0] == 1 &&
                 inputs.gate.logical_shape()[1] == batch_size &&
                 inputs.gate.logical_shape()[2] == heads_per_batch * attrs.v_head_dim,
             "DeltaNet decode full: gate must have shape [1,B,heads_per_batch*v_head_dim]");
+    }
+    if (attrs.fused_epilogue) {
         TT_FATAL(
             inputs.norm_weight.logical_volume() == attrs.v_head_dim,
             "DeltaNet decode full: norm_weight must contain v_head_dim elements");
@@ -271,7 +289,8 @@ std::vector<Tensor> deltanet_decode_full(
     const std::optional<const Tensor>& gate,
     const std::optional<const Tensor>& norm_weight,
     float norm_epsilon,
-    bool packed_qkv) {
+    bool packed_qkv,
+    bool packed_projection) {
     using Op = ttnn::operations::experimental::deltanet::DeltaNetDecodeFullDeviceOperation;
 
     auto mem_config = output_memory_config.value_or(q.memory_config());
@@ -293,6 +312,7 @@ std::vector<Tensor> deltanet_decode_full(
         .preprocess_ab = preprocess_ab,
         .fused_epilogue = fused_epilogue,
         .packed_qkv = packed_qkv,
+        .packed_projection = packed_projection,
         .norm_epsilon = norm_epsilon,
         .output_memory_config = mem_config,
     };

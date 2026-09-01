@@ -57,21 +57,39 @@ FORCE_INLINE void select_tile_row(uint32_t tile_l1_addr, uint32_t row) {
     }
 }
 
-FORCE_INLINE void normalize_vector(uint32_t vector_l1, uint32_t num_tiles, uint32_t tile_bytes, float scale) {
+FORCE_INLINE void normalize_selected_row(
+    uint32_t vector_l1,
+    uint32_t num_tiles,
+    uint32_t tile_bytes,
+    uint32_t row,
+    float scale,
+    uint32_t transposed_l1 = 0) {
     float sum_squares = 0.0f;
     for (uint32_t tile = 0; tile < num_tiles; ++tile) {
         const uint32_t tile_l1 = vector_l1 + tile * tile_bytes;
         for (uint32_t element = 0; element < 32; ++element) {
-            const float value = extract_vector_element(tile_l1, element);
+            const float value = extract_tile_element(tile_l1, row, element);
             sum_squares += value * value;
         }
     }
     const float multiplier = scale / sqrtf(sum_squares + 1.0e-6f);
     for (uint32_t tile = 0; tile < num_tiles; ++tile) {
         const uint32_t tile_l1 = vector_l1 + tile * tile_bytes;
+        volatile tt_l1_ptr uint16_t* transposed = nullptr;
+        if (transposed_l1 != 0) {
+            transposed = reinterpret_cast<volatile tt_l1_ptr uint16_t*>(transposed_l1 + tile * tile_bytes);
+            for (uint32_t index = 0; index < 1024; ++index) {
+                transposed[index] = 0;
+            }
+        }
         for (uint32_t element = 0; element < 32; ++element) {
-            const float value = extract_vector_element(tile_l1, element);
-            write_vector_element(tile_l1, element, f32_to_bf16(value * multiplier));
+            const uint16_t normalized = f32_to_bf16(extract_tile_element(tile_l1, row, element) * multiplier);
+            write_vector_element(tile_l1, element, normalized);
+            if (transposed != nullptr) {
+                const uint32_t transposed_position =
+                    element < 16 ? element * 16 : 512 + (element - 16) * 16;
+                transposed[transposed_position] = normalized;
+            }
         }
     }
 }
@@ -105,7 +123,8 @@ void kernel_main() {
     constexpr uint32_t cb_norm_scaler = get_compile_time_arg_val(13);
     constexpr uint32_t cb_norm_epsilon = get_compile_time_arg_val(14);
     constexpr uint32_t norm_epsilon_bits = get_compile_time_arg_val(15);
-    constexpr auto state_args = TensorAccessorArgs<16>();
+    constexpr bool packed_projection = get_compile_time_arg_val(16) == 1;
+    constexpr auto state_args = TensorAccessorArgs<17>();
     constexpr auto q_args = TensorAccessorArgs<state_args.next_compile_time_args_offset()>();
     constexpr auto k_args = TensorAccessorArgs<q_args.next_compile_time_args_offset()>();
     constexpr auto v_args = TensorAccessorArgs<k_args.next_compile_time_args_offset()>();
@@ -129,14 +148,15 @@ void kernel_main() {
     const uint32_t state_start_tile = get_arg_val<uint32_t>(10);
     const uint32_t scalar_tile = get_arg_val<uint32_t>(11);
     const uint32_t scalar_row = get_arg_val<uint32_t>(12);
-    const uint32_t scalar_column = get_arg_val<uint32_t>(13);
-    const uint32_t q_start_tile = get_arg_val<uint32_t>(14);
-    const uint32_t k_start_tile = get_arg_val<uint32_t>(15);
-    const uint32_t v_start_tile = get_arg_val<uint32_t>(16);
-    const uint32_t key_head_row = get_arg_val<uint32_t>(17);
-    const uint32_t value_head_row = get_arg_val<uint32_t>(18);
-    const uint32_t gate_start_tile = get_arg_val<uint32_t>(19);
-    const uint32_t gate_row = get_arg_val<uint32_t>(20);
+    const uint32_t beta_column = get_arg_val<uint32_t>(13);
+    const uint32_t decay_column = get_arg_val<uint32_t>(14);
+    const uint32_t q_start_tile = get_arg_val<uint32_t>(15);
+    const uint32_t k_start_tile = get_arg_val<uint32_t>(16);
+    const uint32_t v_start_tile = get_arg_val<uint32_t>(17);
+    const uint32_t key_head_row = get_arg_val<uint32_t>(18);
+    const uint32_t value_head_row = get_arg_val<uint32_t>(19);
+    const uint32_t gate_start_tile = get_arg_val<uint32_t>(20);
+    const uint32_t gate_row = get_arg_val<uint32_t>(21);
 
     constexpr uint32_t state_tiles = k_head_dim_tiles * v_head_dim_tiles;
     const uint32_t tile_bytes = get_tile_size(cb_q);
@@ -168,25 +188,27 @@ void kernel_main() {
         q_l1 += tile_bytes;
     }
     noc_async_read_barrier();
-    for (uint32_t tile = 0; tile < k_head_dim_tiles; ++tile) {
-        select_tile_row(q_l1_start + tile * tile_bytes, key_head_row);
-    }
-    normalize_vector(q_l1_start, k_head_dim_tiles, tile_bytes, 1.0f / sqrtf(static_cast<float>(k_head_dim_tiles * 32)));
+    normalize_selected_row(
+        q_l1_start,
+        k_head_dim_tiles,
+        tile_bytes,
+        key_head_row,
+        1.0f / sqrtf(static_cast<float>(k_head_dim_tiles * 32)));
     cb_push_back(cb_q, k_head_dim_tiles);
 
     cb_reserve_back(cb_k, k_head_dim_tiles);
+    cb_reserve_back(cb_k_transposed, k_head_dim_tiles);
     const uint32_t k_l1_start = get_write_ptr(cb_k);
+    const uint32_t k_transposed_l1_start = get_write_ptr(cb_k_transposed);
     uint32_t k_l1 = k_l1_start;
     for (uint32_t tile = 0; tile < k_head_dim_tiles; ++tile) {
         noc_async_read_tile(k_start_tile + tile, k_accessor, k_l1);
         k_l1 += tile_bytes;
     }
     noc_async_read_barrier();
-    for (uint32_t tile = 0; tile < k_head_dim_tiles; ++tile) {
-        select_tile_row(k_l1_start + tile * tile_bytes, key_head_row);
-    }
-    normalize_vector(k_l1_start, k_head_dim_tiles, tile_bytes, 1.0f);
+    normalize_selected_row(k_l1_start, k_head_dim_tiles, tile_bytes, key_head_row, 1.0f, k_transposed_l1_start);
     cb_push_back(cb_k, k_head_dim_tiles);
+    cb_push_back(cb_k_transposed, k_head_dim_tiles);
 
     cb_reserve_back(cb_v, v_head_dim_tiles);
     const uint32_t v_l1_start = get_write_ptr(cb_v);
@@ -201,29 +223,11 @@ void kernel_main() {
     }
     cb_push_back(cb_v, v_head_dim_tiles);
 
-    cb_reserve_back(cb_k_transposed, k_head_dim_tiles);
-    uint32_t k_source = get_read_ptr(cb_k);
-    uint32_t k_transposed = get_write_ptr(cb_k_transposed);
-    for (uint32_t tile_index = 0; tile_index < k_head_dim_tiles; ++tile_index) {
-        volatile tt_l1_ptr uint16_t* source = reinterpret_cast<volatile tt_l1_ptr uint16_t*>(k_source);
-        volatile tt_l1_ptr uint16_t* destination = reinterpret_cast<volatile tt_l1_ptr uint16_t*>(k_transposed);
-        for (uint32_t index = 0; index < 1024; ++index) {
-            destination[index] = 0;
-        }
-        for (uint32_t index = 0; index < 16; ++index) {
-            destination[index * 16] = source[index];
-            destination[512 + index * 16] = source[256 + index];
-        }
-        k_source += tile_bytes;
-        k_transposed += tile_bytes;
-    }
-    cb_push_back(cb_k_transposed, k_head_dim_tiles);
-
     cb_reserve_back(cb_beta, 1);
     uint32_t beta_l1 = get_write_ptr(cb_beta);
     noc_async_read_tile(scalar_tile, beta_accessor, beta_l1);
     noc_async_read_barrier();
-    float beta = extract_tile_element(beta_l1, scalar_row, scalar_column);
+    float beta = extract_tile_element(beta_l1, scalar_row, beta_column);
     if constexpr (preprocess_ab) {
         beta = 1.0f / (1.0f + expf(-beta));
     }
@@ -234,15 +238,15 @@ void kernel_main() {
     uint32_t decay_l1 = get_write_ptr(cb_decay);
     noc_async_read_tile(scalar_tile, decay_accessor, decay_l1);
     noc_async_read_barrier();
-    float decay = extract_tile_element(decay_l1, scalar_row, scalar_column);
+    float decay = extract_tile_element(decay_l1, scalar_row, decay_column);
     if constexpr (preprocess_ab) {
         const uint32_t constant_tile = value_head_row / 32;
         noc_async_read_tile(constant_tile, decay_scale_accessor, decay_l1);
         noc_async_read_barrier();
-        const float decay_scale = extract_tile_element(decay_l1, 0, scalar_column);
+        const float decay_scale = extract_tile_element(decay_l1, 0, decay_column);
         noc_async_read_tile(constant_tile, dt_bias_accessor, decay_l1);
         noc_async_read_barrier();
-        const float biased_a = decay + extract_tile_element(decay_l1, 0, scalar_column);
+        const float biased_a = decay + extract_tile_element(decay_l1, 0, decay_column);
         const float softplus = biased_a > 20.0f ? biased_a : log1pf(expf(biased_a));
         decay = expf(decay_scale * softplus);
     }

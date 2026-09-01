@@ -19,6 +19,7 @@ struct DeltaNetDecodeFullParams {
     bool preprocess_ab;
     bool fused_epilogue;
     bool packed_qkv;
+    bool packed_projection;
     float norm_epsilon;
     tt::tt_metal::MemoryConfig output_memory_config;
 };

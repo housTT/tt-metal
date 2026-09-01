@@ -85,7 +85,8 @@ std::vector<Tensor> deltanet_decode_full(
     const std::optional<const Tensor>& gate = std::nullopt,
     const std::optional<const Tensor>& norm_weight = std::nullopt,
     float norm_epsilon = 1e-6F,
-    bool packed_qkv = false);
+    bool packed_qkv = false,
+    bool packed_projection = false);
 
 std::vector<Tensor> deltanet_conv1d_decode(
     const Tensor& input,

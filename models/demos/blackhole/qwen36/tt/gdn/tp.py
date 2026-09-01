@@ -416,7 +416,7 @@ class TPGatedDeltaNet(LightweightModule):
             self.args.gdn_value_dim_tp,
         )
 
-    def _project_qkvzab(self, x, S, out_mc=None):
+    def _project_qkvzab(self, x, S, out_mc=None, keep_packed=False):
         """Project x → (qkv, z, a, b). Fused path: one [qkv|z|a|b] matmul then slice.
         out_mc: placement of the qkvzab matmul + slices. None → DRAM; prefill+decode now pass L1 to
         keep qkvzab + q/k/v/z/a/b resident (was DRAM to spare NoC traffic — re-measure if reverting)."""
@@ -445,6 +445,8 @@ class TPGatedDeltaNet(LightweightModule):
                 )
             else:
                 qkvzab = self._col_proj(x, self.tw["qkvz"], self.args.gdn_qkvzab_progcfg, out_memory_config=_proj_mc)
+            if keep_packed:
+                return qkvzab
             qkv = ttnn.slice(qkvzab, (0, 0, 0), (1, S, qz), memory_config=out_mc)
             # z (output gate) lives across the chunk kernel (gated = out_f * silu(z)); L1 z (6MB@S=2048)
             # clashes with the scan kernel CBs -> keep DRAM in chunk-prefill; decode (small S) keeps out_mc.
@@ -1087,12 +1089,18 @@ class TPGatedDeltaNet(LightweightModule):
         # works at any width. The B==Bmax path is byte-identical to before.
         B = x.shape[-2]
 
-        qkv, z, a, b = self._project_qkvzab(x, B, out_mc=_L1)
-
         rf = Nv // Nk
         num_fused_heads = B * Nv
         grid = self.mesh.compute_with_storage_grid_size()
         use_fused_decode = self._gdn_fused_decode and num_fused_heads <= grid.x * grid.y
+        use_packed_projection = use_fused_decode and self._gdn_fused_ab and B == 1
+        if use_packed_projection:
+            packed_projection = self._project_qkvzab(x, B, out_mc=_L1, keep_packed=True)
+            qkv = ttnn.slice(packed_projection, (0, 0, 0), (1, B, self.qkv_dim_tp), memory_config=_L1)
+            z = a = b = packed_projection
+        else:
+            packed_projection = None
+            qkv, z, a, b = self._project_qkvzab(x, B, out_mc=_L1)
 
         # Keep Q/K/V packed through the four-tap convolution when the fused recurrence can consume
         # that layout. One core owns each channel tile, shifts all persistent convolution states,
@@ -1173,6 +1181,7 @@ class TPGatedDeltaNet(LightweightModule):
                     decay_scale=tw["neg_exp_A"],
                     dt_bias=tw["dt_bias"],
                     packed_qkv=packed_conv is not None,
+                    packed_projection=use_packed_projection,
                     **epilogue_kwargs,
                 )
             else:
@@ -1195,8 +1204,11 @@ class TPGatedDeltaNet(LightweightModule):
                     packed_qkv=packed_conv is not None,
                     **epilogue_kwargs,
                 )
-            ttnn.deallocate(a)
-            ttnn.deallocate(b)
+            if use_packed_projection:
+                ttnn.deallocate(packed_projection)
+            else:
+                ttnn.deallocate(a)
+                ttnn.deallocate(b)
             if packed_conv is not None:
                 ttnn.deallocate(packed_conv)
         else:
@@ -1239,7 +1251,8 @@ class TPGatedDeltaNet(LightweightModule):
 
         if fuse_decode_epilogue:
             gated = o
-            ttnn.deallocate(z)
+            if not use_packed_projection:
+                ttnn.deallocate(z)
         else:
             out_r = ttnn.reshape(o, (B, Nv, Dv))
             out_n = ttnn.rms_norm(out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)  # gated norm (no +1)

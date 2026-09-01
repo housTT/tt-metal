@@ -52,6 +52,8 @@ void bind_deltanet_decode_full(nb::module_& mod) {
             norm_epsilon (float): RMSNorm epsilon.
             packed_qkv (bool): Interpret q as packed [1,B,Q|K|V] and ignore
                 k/v. This removes decode head-split and reshape operations.
+            packed_projection (bool): Interpret beta, decay, and gate as the shared
+                packed [Q|K|V|Z|A|B] projection. This removes their decode slices.
 
         Returns:
             list[ttnn.Tensor]: [raw_output, new_recurrent_state]
@@ -79,7 +81,8 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         nb::arg("gate") = nb::none(),
         nb::arg("norm_weight") = nb::none(),
         nb::arg("norm_epsilon") = 1e-6F,
-        nb::arg("packed_qkv") = false);
+        nb::arg("packed_qkv") = false,
+        nb::arg("packed_projection") = false);
 
     const auto* conv_doc =
         R"doc(

@@ -145,6 +145,7 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
         static_cast<uint32_t>(ff::kCbNormScaler),
         static_cast<uint32_t>(ff::kCbNormEpsilon),
         std::bit_cast<uint32_t>(attrs.norm_epsilon),
+        static_cast<uint32_t>(attrs.packed_projection),
     };
     TensorAccessorArgs(state_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(q_buffer).append_to(reader_compile_args);
@@ -216,6 +217,11 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     const uint32_t k_heads_per_batch = attrs.num_k_heads / batch_size;
     const uint32_t packed_width_tiles =
         2 * k_heads_per_batch * k_head_dim_tiles + heads_per_batch * v_head_dim_tiles;
+    const uint32_t qkv_width = 2 * k_heads_per_batch * attrs.k_head_dim + heads_per_batch * attrs.v_head_dim;
+    const uint32_t z_width = heads_per_batch * attrs.v_head_dim;
+    const uint32_t packed_projection_width = qkv_width + z_width + 2 * heads_per_batch;
+    const uint32_t packed_projection_width_tiles =
+        (packed_projection_width + ff::kTileSize - 1) / ff::kTileSize;
     for (uint32_t head = 0; head < num_heads; ++head) {
         const CoreCoord core = {head % grid.x, head / grid.x};
         const uint32_t batch = head / heads_per_batch;
@@ -235,8 +241,20 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
                                     : batch * v_head_dim_tiles;
         const uint32_t key_row = attrs.packed_qkv ? batch % ff::kTileSize : key_head;
         const uint32_t value_row = attrs.packed_qkv ? batch % ff::kTileSize : value_head;
-        const uint32_t scalar_tile = (batch / ff::kTileSize) * ((heads_per_batch + ff::kTileSize - 1) / ff::kTileSize) +
-                                     value_head / ff::kTileSize;
+        const uint32_t scalar_tile = attrs.packed_projection
+                                         ? (batch / ff::kTileSize) * packed_projection_width_tiles +
+                                               (qkv_width + z_width) / ff::kTileSize
+                                         : (batch / ff::kTileSize) *
+                                                   ((heads_per_batch + ff::kTileSize - 1) / ff::kTileSize) +
+                                               value_head / ff::kTileSize;
+        const uint32_t beta_column =
+            attrs.packed_projection ? heads_per_batch + value_head : value_head % ff::kTileSize;
+        const uint32_t decay_column = attrs.packed_projection ? value_head : value_head % ff::kTileSize;
+        const uint32_t gate_start_tile = attrs.packed_projection
+                                             ? (batch / ff::kTileSize) * packed_projection_width_tiles +
+                                                   qkv_width / ff::kTileSize + value_head * v_head_dim_tiles
+                                             : (batch / ff::kTileSize) * heads_per_batch * v_head_dim_tiles +
+                                                   value_head * v_head_dim_tiles;
 
         SetRuntimeArgs(
             program,
@@ -256,13 +274,14 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
                 head * state_tiles,
                 scalar_tile,
                 batch % ff::kTileSize,
-                value_head % ff::kTileSize,
+                beta_column,
+                decay_column,
                 q_tile,
                 k_tile,
                 v_tile,
                 key_row,
                 value_row,
-                (batch / ff::kTileSize) * heads_per_batch * v_head_dim_tiles + value_head * v_head_dim_tiles,
+                gate_start_tile,
                 batch % ff::kTileSize,
             });
         SetRuntimeArgs(
