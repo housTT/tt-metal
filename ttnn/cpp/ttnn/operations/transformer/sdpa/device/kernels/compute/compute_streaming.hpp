@@ -1919,7 +1919,9 @@ template <
     bool is_causal_sdpa = false,
     bool use_attention_sink = false,
     uint32_t cb_attention_sink = INVALID_CB,
-    bool use_provided_mask = false>
+    bool use_provided_mask = false,
+    bool use_gqa_pair_major = false,
+    uint32_t q_heads_per_k = 1>
 void sdpa_standard_v2(
     const uint32_t q_chunks_per_core,
     const uint32_t k_num_chunks,
@@ -1995,7 +1997,11 @@ void sdpa_standard_v2(
             // masks and output positions desync. The mod is a no-op when the input is per-head
             // ([0, q_num_chunks)) and extracts the per-head q_chunk when it's a flat global index
             // (global Q scheduling iterates across batches and heads).
-            q_chunk_local = remap_q_index(q_chunk_local, q_num_chunks, use_zigzag_balancing) % q_num_chunks;
+            if constexpr (use_gqa_pair_major) {
+                q_chunk_local = gqa_pair_major_q_chunk(q_chunk_local, q_num_chunks, q_heads_per_k);
+            } else {
+                q_chunk_local = remap_q_index(q_chunk_local, q_num_chunks, use_zigzag_balancing) % q_num_chunks;
+            }
             // q_chunk_global is the absolute Q chunk index (used for the diagonal);
             // chunked-prefill shifts this via chunked_q_chunk_offset.
             const uint32_t q_chunk_global = q_chunk_local + chunked_q_chunk_offset;

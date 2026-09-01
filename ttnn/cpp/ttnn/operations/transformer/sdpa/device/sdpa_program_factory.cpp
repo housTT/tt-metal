@@ -29,6 +29,7 @@ namespace ttnn::prim {
 struct CoreHeadWork {
     uint32_t batch = 0;
     uint32_t head = 0;
+    uint32_t chain_group = 0;
     uint32_t q_chunk_start = 0;
     uint32_t q_chunk_count = 0;
 };
@@ -52,6 +53,7 @@ struct CoreChainInfo {
     bool is_sink = false;
     uint32_t batch = 0;
     uint32_t head = 0;
+    uint32_t chain_group = 0;
     uint32_t q_chunk_start = 0;
     uint32_t q_chunk_count = 0;
     CoreCoord prev_physical = CoreCoord{0, 0};
@@ -419,6 +421,13 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
     const bool use_streaming_compute = can_use_streaming_compute(fp32_dest_acc_en);
 
     const bool has_sliding_window = sliding_window_size.value_or(0) != 0;
+    // Reuse K/V across Q-chunk workers. Causal GQA uses one zigzag Q pair per worker and chains
+    // the Q heads that share both that pair and a KV head. Matching K-loop bounds keep every
+    // chain member's circular-buffer pointers synchronized, allowing the complete K/V range to forward.
+    const bool use_gqa_pair_major = is_causal && is_chunked && NQH > NKH && (q_num_chunks % 2 == 0) &&
+                                    (B * NQH * (q_num_chunks / 2) <= num_cores);
+    const bool enable_kv_forwarding =
+        (!is_causal && !is_chunked && !has_sliding_window) || use_gqa_pair_major;
     // A user-provided dense mask on the streaming path takes its own per-chunk apply
     // (apply_provided_mask_streaming) and must win over the structured lightweight palette: forcing
     // lightweight_mask false (via !use_provided_mask below) routes cb_mask_in sizing/dtype to the
@@ -565,6 +574,7 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
     reader_compile_time_args.push_back(0);  // valid_semaphore_id placeholder
     reader_compile_time_args.push_back(0);  // mcast_enabled placeholder
     reader_compile_time_args.push_back(static_cast<uint32_t>(use_zigzag_balancing));  // arg 33
+    reader_compile_time_args.push_back(static_cast<uint32_t>(enable_kv_forwarding));  // arg 34
 
     TensorAccessorArgs(input_tensor_q.buffer()).append_to(reader_compile_time_args);
     TensorAccessorArgs(input_tensor_k.buffer()).append_to(reader_compile_time_args);
@@ -576,14 +586,14 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
     TensorAccessorArgs(flexible_chunked ? tensor_args.chunk_start_idx_tensor.value().buffer() : nullptr)
         .append_to(reader_compile_time_args);
 
-    // Set up semaphore IDs for KV chain forwarding (non-causal only).
+    // Set up semaphore IDs for KV chain forwarding.
     // In the descriptor pattern, semaphore IDs are explicit sequential integers
     // matching the order they are pushed into desc.semaphores below.
     uint32_t sender_semaphore_id = 0;
     uint32_t receiver_semaphore_id = 0;
     uint32_t valid_semaphore_id = 0;
 
-    if (!is_causal) {
+    if (enable_kv_forwarding) {
         sender_semaphore_id = 0;
         receiver_semaphore_id = 1;
         valid_semaphore_id = 2;
@@ -832,9 +842,9 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
         compute_compile_time_args.end(), compute_cb_compile_time_args.begin(), compute_cb_compile_time_args.end());
     TensorAccessorArgs(output_tensor.buffer()).append_to(compute_compile_time_args);
 
-    // Semaphores for KV chain forwarding (non-causal only).
+    // Semaphores for KV chain forwarding.
     // IDs match the order they were assigned above: sender=0, receiver=1, valid=2.
-    if (!is_causal) {
+    if (enable_kv_forwarding) {
         desc.semaphores.push_back(SemaphoreDescriptor{
             .id = sender_semaphore_id,
             .core_type = tt::CoreType::WORKER,
@@ -865,18 +875,18 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
     // the layout — assert early so the failure is loud rather than a slot reinterpretation.
     TT_FATAL(num_phases == 1, "Single-chip SDPA assumes num_phases == 1 under global Q scheduling");
 
-    // Build chain topology for KV forwarding (non-causal only)
+    // Build chain topology for KV forwarding.
     std::vector<CoreWork> core_work(num_cores);
     std::vector<CoreChainInfo> core_chain_info(num_cores);
-    const uint32_t total_heads = B * NQH;
+    const uint32_t total_chain_groups = use_gqa_pair_major ? B * NKH * (q_num_chunks / 2) : B * NQH;
     std::vector<std::vector<HeadSegmentRef>> head_segments;
     uint32_t mcast_chains = 0;
 
-    if (!is_causal && !is_chunked && !has_sliding_window) {
-        head_segments.resize(total_heads);
+    if (enable_kv_forwarding) {
+        head_segments.resize(total_chain_groups);
 
         log_debug(tt::LogOp, "=== Building KV chain forwarding topology ===");
-        log_debug(tt::LogOp, "Total heads (B * NQH): {}", total_heads);
+        log_debug(tt::LogOp, "Total forwarding groups: {}", total_chain_groups);
         log_debug(tt::LogOp, "Q chunks per head: {}", q_num_chunks);
         log_debug(tt::LogOp, "Grid size: {}x{} = {} cores", grid_size.x, grid_size.y, num_cores);
 
@@ -888,26 +898,27 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
             work.logical_core = core;
             work.physical_core = device->worker_core_from_logical_core(core);
 
-            auto push_head_work = [&](uint32_t nb, uint32_t nh, uint32_t q_start, uint32_t q_count) {
+            auto push_head_work =
+                [&](uint32_t nb, uint32_t nh, uint32_t chain_group, uint32_t q_start, uint32_t q_count) {
                 if (q_count == 0) {
                     return;
                 }
                 work.head_work.push_back(CoreHeadWork{
                     .batch = nb,
                     .head = nh,
+                    .chain_group = chain_group,
                     .q_chunk_start = q_start,
                     .q_chunk_count = q_count,
                 });
-                const uint32_t head_id = (nb * NQH) + nh;
-                if (head_id < head_segments.size()) {
-                    head_segments[head_id].push_back(HeadSegmentRef{
+                if (chain_group < head_segments.size()) {
+                    head_segments[chain_group].push_back(HeadSegmentRef{
                         .core_idx = i, .head_work_index = static_cast<uint32_t>(work.head_work.size() - 1)});
                 }
             };
 
             // Walk the core's [g_start, g_start + g_count) linear range and split into
-            // contiguous (nb, nq, q_chunk_range) segments. Non-causal here (chain section is
-            // !is_causal), so the zigzag remap is off and the decompose is identity.
+            // contiguous (nb, nq, q_chunk_range) segments. Causal zigzag remapping stays within
+            // a head, so the linear range still provides the correct head and iteration counts.
             uint32_t g_start = i * global_q_base_chunks_per_core +
                                std::min(i, global_q_cores_doing_extra) * global_q_extra_chunks_per_core;
             uint32_t g_count = global_q_base_chunks_per_core +
@@ -921,17 +932,32 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
             work.global_q_start = g_start;
             work.global_q_count = g_count;
 
-            uint32_t cursor = g_start;
-            const uint32_t g_end = g_start + g_count;
-            while (cursor < g_end) {
-                const uint32_t nb = cursor / (NQH * q_num_chunks);
-                const uint32_t nq = (cursor / q_num_chunks) % NQH;
-                const uint32_t q_in_head = cursor % q_num_chunks;
-                const uint32_t remaining_in_head = q_num_chunks - q_in_head;
-                const uint32_t remaining_in_range = g_end - cursor;
-                const uint32_t span = std::min(remaining_in_head, remaining_in_range);
-                push_head_work(nb, nq, q_in_head, span);
-                cursor += span;
+            if (use_gqa_pair_major && g_count > 0) {
+                TT_FATAL(g_count == 2 && g_start % 2 == 0, "Pair-major GQA scheduling requires whole Q pairs");
+                const uint32_t q_heads_per_k = NQH / NKH;
+                const uint32_t q_pairs = q_num_chunks / 2;
+                const uint32_t slot = g_start / 2;
+                const uint32_t q_head_within_k = slot % q_heads_per_k;
+                const uint32_t group = slot / q_heads_per_k;
+                const uint32_t q_pair = group % q_pairs;
+                const uint32_t kv_head = (group / q_pairs) % NKH;
+                const uint32_t nb = group / (q_pairs * NKH);
+                const uint32_t nq = kv_head * q_heads_per_k + q_head_within_k;
+                const uint32_t chain_group = (nb * NKH + kv_head) * q_pairs + q_pair;
+                push_head_work(nb, nq, chain_group, q_pair, 2);
+            } else {
+                uint32_t cursor = g_start;
+                const uint32_t g_end = g_start + g_count;
+                while (cursor < g_end) {
+                    const uint32_t nb = cursor / (NQH * q_num_chunks);
+                    const uint32_t nq = (cursor / q_num_chunks) % NQH;
+                    const uint32_t q_in_head = cursor % q_num_chunks;
+                    const uint32_t remaining_in_head = q_num_chunks - q_in_head;
+                    const uint32_t remaining_in_range = g_end - cursor;
+                    const uint32_t span = std::min(remaining_in_head, remaining_in_range);
+                    push_head_work(nb, nq, (nb * NQH) + nq, q_in_head, span);
+                    cursor += span;
+                }
             }
 
             if (!work.head_work.empty()) {
@@ -1065,8 +1091,9 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
 
             const auto& inj_seg = segments[chain_order[0]];
             injector_phys_x.push_back(core_work[inj_seg.core_idx].physical_core.x);
-            uint32_t batch = core_work[inj_seg.core_idx].head_work[inj_seg.head_work_index].batch;
-            uint32_t head = head_id % NQH;
+            const auto& injector_work = core_work[inj_seg.core_idx].head_work[inj_seg.head_work_index];
+            uint32_t batch = injector_work.batch;
+            uint32_t head = injector_work.head;
 
             log_debug(
                 tt::LogOp,
@@ -1088,6 +1115,7 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
                 chain.participates = true;
                 chain.batch = hw.batch;
                 chain.head = hw.head;
+                chain.chain_group = hw.chain_group;
                 chain.q_chunk_start = hw.q_chunk_start;
                 chain.q_chunk_count = hw.q_chunk_count;
 
@@ -1161,8 +1189,7 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
             chain_core_indices.reserve(segments.size());
             for (const auto& seg : segments) {
                 if (seg.core_idx < core_chain_info.size() && core_chain_info[seg.core_idx].participates &&
-                    core_chain_info[seg.core_idx].batch == (head_id / NQH) &&
-                    core_chain_info[seg.core_idx].head == (head_id % NQH)) {
+                    core_chain_info[seg.core_idx].chain_group == head_id) {
                     chain_core_indices.push_back(seg.core_idx);
                 }
             }
@@ -1416,8 +1443,8 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
         reader_args.push_back(chunked_q_chunk_offset);
         reader_args.push_back(read_offset);  // read_offset
 
-        // Add chain metadata for non-causal case
-        if (!is_causal) {
+        // Add chain metadata when forwarding is compiled into the reader.
+        if (enable_kv_forwarding) {
             reader_args.push_back(static_cast<uint32_t>(chain.participates));
             reader_args.push_back(static_cast<uint32_t>(chain.is_injector));
             reader_args.push_back(static_cast<uint32_t>(chain.is_sink));
@@ -1434,7 +1461,7 @@ ProgramDescriptor SDPAOperation::SDPAProgramFactory::create_descriptor(
             reader_args.push_back(chain.mcast_sender_wait);
         }
 
-        // Global-Q tail (read by kernel after chain block when non-causal, immediately when causal).
+        // Global-Q tail follows the optional chain metadata.
         reader_args.push_back(global_q_start);
         reader_args.push_back(global_q_count);
 

@@ -42,6 +42,8 @@ def run_test_chunked_sdpa(
     flexible=False,
     grid_size=None,
     trace=False,
+    exp_approx_mode=True,
+    compute_kernel_config_override=None,
 ):
     """Run chunked SDPA over paged K/V and compare to PyTorch SDPA.
 
@@ -56,10 +58,12 @@ def run_test_chunked_sdpa(
         compute_with_storage_grid_size=grid_size or device.compute_with_storage_grid_size(),
         q_chunk_size=q_chunk_size,
         k_chunk_size=k_chunk_size,
-        exp_approx_mode=True,
+        exp_approx_mode=exp_approx_mode,
     )
 
-    if use_high_precision_compute:
+    if compute_kernel_config_override is not None:
+        compute_kernel_config = compute_kernel_config_override
+    elif use_high_precision_compute:
         compute_kernel_config = ttnn.WormholeComputeKernelConfig(
             math_fidelity=ttnn.MathFidelity.HiFi4,
             math_approx_mode=False,
@@ -309,6 +313,42 @@ def test_sdpa_chunked(
         device.num_program_cache_entries() == expected_entries
     ), "Program cache should have {} entry/entries but has {}".format(
         expected_entries, device.num_program_cache_entries()
+    )
+
+
+@pytest.mark.skipif(is_watcher_enabled(), reason="Kernel OOM with watcher enabled")
+@pytest.mark.parametrize(
+    "trace,device_params",
+    [(False, {}), (True, {"trace_region_size": 256 * 1024})],
+    indirect=["device_params"],
+    ids=["eager", "trace"],
+)
+def test_qwen_chunked_sdpa_forwarded_prefix(device, trace):
+    """Qwen 6Q/1KV geometry: paged-prefix forwarding is accurate in eager and trace replay."""
+    compute_kernel_config = ttnn.WormholeComputeKernelConfig(
+        math_fidelity=ttnn.MathFidelity.HiFi2,
+        math_approx_mode=True,
+        fp32_dest_acc_en=True,
+        packer_l1_acc=True,
+    )
+    run_test_chunked_sdpa(
+        device,
+        b=1,
+        nh=6,
+        nkv=1,
+        s=4096,
+        d=256,
+        q_chunk_size=64,
+        k_chunk_size=128,
+        prefill_chunk_size=2048,
+        page_block_size=64,
+        q_dtype=ttnn.bfloat16,
+        k_dtype=ttnn.bfloat8_b,
+        use_high_precision_compute=False,
+        flexible=True,
+        trace=trace,
+        exp_approx_mode=False,
+        compute_kernel_config_override=compute_kernel_config,
     )
 
 

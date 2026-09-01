@@ -148,12 +148,24 @@ class TPAttention(LightweightModule):
         # explicitly overridden; the winning settings are promoted after Tracy + PCC validation.
         self._sdpa_decode_max_cores = int(os.environ.get("QWEN36_SDPA_DECODE_MAX_CORES", "32"))
         self._sdpa_decode_k_chunk = int(os.environ.get("QWEN36_SDPA_DECODE_K_CHUNK", "0"))
+        # Prefill sweep controls. Zero preserves the shape-derived production choice below; explicit
+        # values let the synchronized kernel harness tune Q/K independently before a winner is promoted.
+        self._sdpa_prefill_q_chunk = int(os.environ.get("QWEN36_SDPA_PREFILL_Q_CHUNK", "0"))
+        self._sdpa_prefill_k_chunk = int(os.environ.get("QWEN36_SDPA_PREFILL_K_CHUNK", "0"))
+        prefill_grid = os.environ.get("QWEN36_SDPA_PREFILL_GRID", "")
+        self._sdpa_prefill_grid = tuple(map(int, prefill_grid.lower().split("x"))) if prefill_grid else None
+        if self._sdpa_prefill_grid is not None:
+            assert len(self._sdpa_prefill_grid) == 2 and all(axis > 0 for axis in self._sdpa_prefill_grid)
         assert 1 <= self._sdpa_decode_max_cores <= 64
         assert self._sdpa_decode_k_chunk == 0 or (
             self._sdpa_decode_k_chunk >= 32
             and self._sdpa_decode_k_chunk % 32 == 0
             and self._sdpa_decode_k_chunk & (self._sdpa_decode_k_chunk - 1) == 0
         )
+        for chunk_size in (self._sdpa_prefill_q_chunk, self._sdpa_prefill_k_chunk):
+            assert chunk_size == 0 or (
+                chunk_size >= 32 and chunk_size % 32 == 0 and chunk_size & (chunk_size - 1) == 0
+            )
         # Must match load_attention_weights_tp gates
         self._dram_sharded = getattr(args, "attn_qg_weight_memcfg", None) is not None
         self._wo_sharded = getattr(args, "attn_wo_weight_memcfg", None) is not None
@@ -815,12 +827,16 @@ class TPAttention(LightweightModule):
         else:
             cap = 128 if S >= 2048 else 64  # 128 beats 256
             qk_chunk = cap if not chunk_start_idx else min(cap, chunk_start_idx & -chunk_start_idx)
+        # With causal paged-prefix forwarding, a 2K chunk split into 64-token Q chunks fills 96 BH
+        # workers without rereading K/V. K=128 stays neutral on chunk zero and is ~39% faster at 128K.
+        q_chunk = self._sdpa_prefill_q_chunk or (64 if S == 2048 else qk_chunk)
+        k_chunk = self._sdpa_prefill_k_chunk or qk_chunk
         # Full BH grid for SDPA perf (bit-identical to 8×8; see test_tp_chunked_prefill_pcc_sweep)
         sdpa_cfg = ttnn.SDPAProgramConfig(
-            compute_with_storage_grid_size=self.mesh.compute_with_storage_grid_size(),
+            compute_with_storage_grid_size=self._sdpa_prefill_grid or self.mesh.compute_with_storage_grid_size(),
             exp_approx_mode=False,
-            q_chunk_size=qk_chunk,
-            k_chunk_size=qk_chunk,
+            q_chunk_size=q_chunk,
+            k_chunk_size=k_chunk,
         )
 
         # Pad page table to cover Q+offset and satisfy stick-size % 32 (extra blocks masked by causality)

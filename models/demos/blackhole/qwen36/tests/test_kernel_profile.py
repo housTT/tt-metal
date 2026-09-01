@@ -3,7 +3,7 @@
 """Opt-in Tracy harnesses for the Qwen3.6 kernels targeted by issue #50475.
 
 These tests load one real checkpoint layer, compile once, then place ``start`` / ``stop``
-signposts around exactly one production-path invocation.  They are skipped unless
+signposts around each measured production-path invocation.  They are skipped unless
 ``QWEN36_KERNEL_PROFILE`` selects ``gdn_prefill`` or ``attention_prefill``.
 """
 
@@ -127,31 +127,53 @@ def test_attention_prefill_profile(mesh_device, reset_seeds, ensure_gc):
         device=mesh_device,
     )
     x = torch.randn(1, 1, seq_len, args.dim, dtype=torch.bfloat16)
+    x_device = shard_to_device(mesh_device, x, dim=-1)
     cos, sin = rot_mats_prefill(mesh_device, args.rope_head_dim, seq_len, args.rope_theta)
+    iterations = int(os.environ.get("QWEN36_KERNEL_PROFILE_ITERATIONS", "5"))
+    flexible_offset = os.environ.get("QWEN36_KERNEL_PROFILE_FLEXIBLE_OFFSET", "0") == "1"
+    assert iterations > 0
+    chunk_start_tensor = (
+        ttnn.from_torch(
+            torch.tensor([chunk_start], dtype=torch.int32),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=mesh_device,
+        )
+        if flexible_offset
+        else None
+    )
 
     def run_once():
         return attention.forward_prefill_paged(
-            shard_to_device(mesh_device, x, dim=-1),
+            x_device,
             cos,
             sin,
             full_page_table,
             chunk_page_table=chunk_page_table,
             chunk_start_idx=chunk_start,
+            chunk_start_idx_tensor=chunk_start_tensor,
             borrow_output=True,
         )
 
     out = run_once()
     ttnn.synchronize_device(mesh_device)
 
-    signpost("start")
-    begin = time.perf_counter()
-    out = run_once()
-    ttnn.synchronize_device(mesh_device)
-    elapsed_ms = (time.perf_counter() - begin) * 1000.0
-    signpost("stop")
+    samples_ms = []
+    for _ in range(iterations):
+        signpost("start")
+        begin = time.perf_counter()
+        out = run_once()
+        ttnn.synchronize_device(mesh_device)
+        samples_ms.append((time.perf_counter() - begin) * 1000.0)
+        signpost("stop")
     logger.info(
         f"ATTENTION_PREFILL_PROFILE_RESULT layer={layer_idx} seq_len={seq_len} "
         f"chunk_start={chunk_start} k_cache_dtype={k_cache_dtype} v_cache_dtype={v_cache_dtype} "
-        f"elapsed_ms={elapsed_ms:.3f}"
+        f"flexible_offset={flexible_offset} "
+        f"q_chunk={attention._sdpa_prefill_q_chunk or 'auto'} "
+        f"k_chunk={attention._sdpa_prefill_k_chunk or 'auto'} "
+        f"grid={attention._sdpa_prefill_grid or 'auto'} "
+        f"iterations={iterations} median_ms={statistics.median(samples_ms):.3f} "
+        f"min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
     )
     assert out.shape[-2] == seq_len

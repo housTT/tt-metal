@@ -40,6 +40,8 @@ void kernel_main() {
     constexpr uint32_t out_subblock_h = get_compile_time_arg_val(22);
     constexpr uint32_t k_partial_col = get_compile_time_arg_val(23);
     constexpr bool use_zigzag_balancing = get_compile_time_arg_val(24) == 1;
+    constexpr bool use_gqa_pair_major = is_causal && is_chunked && NQH > NKH && (q_num_chunks % 2 == 0) &&
+                                        (B * NQH * (q_num_chunks / 2) <= num_cores);
     // Windowed (block-diagonal) mask generation flags. Fixed scalar slots BEFORE the tensor-accessor
     // block so the accessor offset chain stays intact for all configs.
     constexpr bool use_windowed_mask = get_compile_time_arg_val(25) == 1;
@@ -147,8 +149,14 @@ void kernel_main() {
             write_offset = write_offset_phase_2;
         }
         for (uint32_t global_q_iter = 0; global_q_iter < global_q_count; ++global_q_iter) {
-            const auto decoded =
-                decompose_global_q_index(global_q_start + global_q_iter, q_num_chunks, NQH, use_zigzag_balancing);
+            const auto decoded = use_gqa_pair_major
+                                     ? decompose_gqa_pair_major_index(
+                                           global_q_start + global_q_iter, q_num_chunks, NQH, NKH)
+                                     : decompose_global_q_index(
+                                           global_q_start + global_q_iter,
+                                           q_num_chunks,
+                                           NQH,
+                                           use_zigzag_balancing);
             const uint32_t nb = decoded.nb;
             const uint32_t nq = decoded.nq;
             const uint32_t q_chunk = decoded.q_chunk;

@@ -51,6 +51,9 @@ void kernel_main() {
     constexpr uint32_t k_partial_col = get_compile_time_arg_val(32);
     // Zigzag remap flag drives the external remap_q_index call on the flat B*NQH*q_num_chunks range.
     constexpr bool use_zigzag_balancing = get_compile_time_arg_val(33) == 1;
+    constexpr bool use_gqa_pair_major = is_causal && is_chunked && NQH > NKH && (q_num_chunks % 2 == 0) &&
+                                        (B * NQH * (q_num_chunks / 2) <= num_cores);
+    constexpr uint32_t q_heads_per_k = NQH / NKH;
 
     const uint32_t core_id = get_arg_val<uint32_t>(0);
     const uint32_t num_phases = get_arg_val<uint32_t>(1);
@@ -179,7 +182,9 @@ void kernel_main() {
             is_causal,
             use_attention_sink,
             cb_attention_sink,
-            use_provided_mask>(
+            use_provided_mask,
+            use_gqa_pair_major,
+            q_heads_per_k>(
             global_q_count,
             k_num_chunks,
             cb_out_im_A,
@@ -231,7 +236,9 @@ void kernel_main() {
                 is_chunked,
                 scale_fp32,
                 sliding_window_size,
-                use_lightweight_causal_mask>(
+                use_lightweight_causal_mask,
+                use_gqa_pair_major,
+                q_heads_per_k>(
                 Skt,
                 qk_in0_block_w,
                 qk_subblock_w,

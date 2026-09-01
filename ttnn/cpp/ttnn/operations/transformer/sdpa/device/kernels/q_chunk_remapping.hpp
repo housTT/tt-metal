@@ -86,3 +86,38 @@ FORCE_INLINE GlobalQIndex decompose_global_q_index(uint32_t idx, uint32_t num_q_
         /*q_chunk=*/remapped % num_q_chunks,
     };
 }
+
+/**
+ * Decompose the causal GQA schedule in pair-major order.
+ *
+ * Consecutive pairs of global indices still map to a light/heavy zigzag pair,
+ * but pairs are distributed across all Q heads that share a KV head before
+ * advancing to the next Q-chunk pair.  This lets those Q-head workers form a
+ * K/V forwarding chain: every core in the chain processes identical Q chunks,
+ * so their K/V circular-buffer pointers remain synchronized.
+ */
+FORCE_INLINE GlobalQIndex decompose_gqa_pair_major_index(
+    uint32_t idx, uint32_t num_q_chunks, uint32_t NQH, uint32_t NKH) {
+    const uint32_t q_heads_per_k = NQH / NKH;
+    const uint32_t q_pairs = num_q_chunks / 2;
+    const uint32_t slot = idx / 2;
+    const uint32_t pair_member = idx % 2;
+    const uint32_t q_head_within_k = slot % q_heads_per_k;
+    const uint32_t group = slot / q_heads_per_k;
+    const uint32_t q_pair = group % q_pairs;
+    const uint32_t kv_head = (group / q_pairs) % NKH;
+    const uint32_t nb = group / (q_pairs * NKH);
+
+    return {
+        /*nb=*/nb,
+        /*nq=*/kv_head * q_heads_per_k + q_head_within_k,
+        /*q_chunk=*/pair_member == 0 ? q_pair : num_q_chunks - 1 - q_pair,
+    };
+}
+
+FORCE_INLINE uint32_t gqa_pair_major_q_chunk(uint32_t idx, uint32_t num_q_chunks, uint32_t q_heads_per_k) {
+    const uint32_t slot = idx / 2;
+    const uint32_t pair_member = idx % 2;
+    const uint32_t q_pair = (slot / q_heads_per_k) % (num_q_chunks / 2);
+    return pair_member == 0 ? q_pair : num_q_chunks - 1 - q_pair;
+}

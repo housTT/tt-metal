@@ -1539,7 +1539,9 @@ template <
     bool lightweight_mask_enabled = false,
     bool chunked_enabled = false,
     uint32_t chunked_q_local_padded_Nt = 0,
-    uint32_t chunked_chunk_size_t = 0>
+    uint32_t chunked_chunk_size_t = 0,
+    bool use_gqa_pair_major = false,
+    uint32_t q_heads_per_k = 1>
 void sdpa_inner_loop(
     const uint32_t Skt,
     const uint32_t qk_in0_block_w,
@@ -1623,7 +1625,9 @@ void sdpa_inner_loop(
             const uint32_t linear_q_chunk = local_q_start + (q_iter - iter_q_start);
             // Mod is a no-op when the input is per-head ([0, q_num_chunks)) and extracts the
             // per-head q_chunk when it's a flat global index (global Q scheduling spans heads).
-            uint32_t q_chunk = remap_q_index(linear_q_chunk, q_num_chunks, use_zigzag_balancing) % q_num_chunks;
+            uint32_t q_chunk = use_gqa_pair_major
+                                   ? gqa_pair_major_q_chunk(linear_q_chunk, q_num_chunks, q_heads_per_k)
+                                   : remap_q_index(linear_q_chunk, q_num_chunks, use_zigzag_balancing) % q_num_chunks;
             // Get Q chunk
             if constexpr (is_chunked) {
                 q_chunk = chunked_q_chunk_offset + q_chunk;
@@ -2098,7 +2102,9 @@ template <
     bool is_chunked,
     uint32_t scale_fp32,
     uint32_t sliding_window_size,
-    bool lightweight_mask_enabled = false>
+    bool lightweight_mask_enabled = false,
+    bool use_gqa_pair_major = false,
+    uint32_t q_heads_per_k = 1>
 void sdpa_standard(
     const uint32_t Skt,
     const uint32_t qk_in0_block_w,
@@ -2157,7 +2163,12 @@ void sdpa_standard(
         is_chunked,
         scale_fp32,
         sliding_window_size,
-        lightweight_mask_enabled>(
+        lightweight_mask_enabled,
+        false,
+        0,
+        0,
+        use_gqa_pair_major,
+        q_heads_per_k>(
         Skt,
         qk_in0_block_w,
         qk_subblock_w,
