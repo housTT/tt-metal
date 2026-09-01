@@ -163,6 +163,11 @@ def test_capacity_contract_requires_p150x4_and_full_context(expect_error):
         )
 
 
+def test_device_sampling_capability_declares_exact_top_k_limit():
+    assert TTGptOssForCausalLM.model_capabilities["supports_sample_on_device"]
+    assert TTGptOssForCausalLM.model_capabilities["max_device_sampling_top_k"] == 32
+
+
 def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_construction(monkeypatch):
     captured = {}
 

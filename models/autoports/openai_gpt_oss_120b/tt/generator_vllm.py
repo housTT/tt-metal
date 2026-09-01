@@ -102,6 +102,7 @@ class TTGptOssForCausalLM:
         "supports_prefix_caching": False,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
+        "max_device_sampling_top_k": 32,
         "supports_batched_prefill": True,
     }
 
