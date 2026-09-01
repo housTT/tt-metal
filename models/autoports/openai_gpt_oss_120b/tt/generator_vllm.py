@@ -98,6 +98,10 @@ class TTGptOssForCausalLM:
     """vLLM's TT model surface backed by the completed full-model generator."""
 
     _HYBRID_KV_CACHE_GROUPS_ENABLED = True
+    # Both widths are prepared during warmup. Advertising them lets the shared
+    # runner keep singleton host-sampling requests at B1 instead of padding an
+    # exact full-vocabulary fallback to the serving-width B32 eager graph.
+    tt_supported_decode_batch_sizes = (1, MAX_CONCURRENT_SEQS)
     model_capabilities = {
         "supports_prefix_caching": False,
         "supports_async_decode": True,

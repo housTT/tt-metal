@@ -168,6 +168,10 @@ def test_device_sampling_capability_declares_exact_top_k_limit():
     assert TTGptOssForCausalLM.model_capabilities["max_device_sampling_top_k"] == 32
 
 
+def test_adapter_exposes_the_decode_buckets_it_prepares():
+    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 32)
+
+
 def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_construction(monkeypatch):
     captured = {}
 
