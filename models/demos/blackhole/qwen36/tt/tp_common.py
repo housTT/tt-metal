@@ -521,6 +521,20 @@ def _mmrs_prefill_shared_bufs(tt_ccl, M, N, nd, dtype):
     return cache[key]
 
 
+def prepare_mmrs_prefill_shared_bufs(tt_ccl, sequence_lengths, N, nd, dtypes):
+    """Allocate every persistent prefill MMRS buffer before device work is enqueued.
+
+    ``ttnn.from_torch`` performs a blocking mesh write. Calling it lazily from an otherwise
+    asynchronous model forward can wait behind outstanding reads from that same forward and
+    deadlock the mesh command queue. Warmup knows its fixed bucket set, so allocate and finish
+    these buffers up front instead.
+    """
+    for M in sorted(set(sequence_lengths)):
+        for dtype in dtypes:
+            _mmrs_prefill_shared_bufs(tt_ccl, M, N, nd, dtype)
+    ttnn.synchronize_device(tt_ccl.mesh_device)
+
+
 def matmul_reduce_scatter_prefill(
     x,
     weight,

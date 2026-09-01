@@ -494,7 +494,8 @@ def test_gdn_tp_prefill(mesh_device, reset_seeds, ensure_gc, request):
 
 @torch.no_grad()
 @parametrize_mesh_tp()
-def test_gdn_tp_fused_chunk_prefill(mesh_device, monkeypatch, reset_seeds, ensure_gc, request):
+@pytest.mark.parametrize("T", [256, 512], ids=["single_launch", "tiled_launch"])
+def test_gdn_tp_fused_chunk_prefill(mesh_device, monkeypatch, reset_seeds, ensure_gc, request, T):
     """Isolate main's fused chunk_gated_delta_rule kernel (the DEFAULT prefill path).
 
     forward_prefill routes single-user prefill through ttnn.transformer.chunk_gated_delta_rule
@@ -506,8 +507,8 @@ def test_gdn_tp_fused_chunk_prefill(mesh_device, monkeypatch, reset_seeds, ensur
     grounding (both agree AND are correct). Multi-chunk (T > chunk_size) exercises the recurrence.
     """
     os.environ.setdefault("HF_MODEL", model_path())
-    T, chunk = 256, 128  # T > chunk => multiple internal chunks (cross-chunk recurrence exercised)
-    args = Qwen36ModelArgs(mesh_device, max_batch_size=1, max_seq_len=512)
+    chunk = 128  # T > chunk => multiple internal chunks (cross-chunk recurrence exercised)
+    args = Qwen36ModelArgs(mesh_device, max_batch_size=1, max_seq_len=max(512, T))
     nd = mesh_device.get_num_devices()
     li = next(i for i, t in enumerate(args.attention_type_list) if t == "linear_attention")
     logger.info(f"devices={nd} gdn layer={li} T={T} chunk={chunk}")
@@ -544,6 +545,11 @@ def test_gdn_tp_fused_chunk_prefill(mesh_device, monkeypatch, reset_seeds, ensur
     passing_fs, pcc_fs = comp_pcc(seq, fused, thr)
     logger.info(f"GDN fused-chunk vs seq-adapter prefill PCC (T={T}) = {pcc_fs}")
     assert passing_fs, f"fused chunk kernel disagrees with seq adapter: PCC {pcc_fs} < {thr}"
+
+    # The single-launch case retains the independent step-decode grounding; the tiled case above
+    # specifically validates state carry across fused invocations against the trusted seq adapter.
+    if T > fc._MAX_FUSED_TOKENS:
+        return
 
     # ---- Absolute grounding: fused prefill must also match step-by-step decode ----
     monkeypatch.undo()  # restore fused-on (decode path is unaffected, but keep state clean)

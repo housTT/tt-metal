@@ -33,6 +33,9 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops i
 
 # The chunk size the fused op runs at (same math as 128, different internal tiling).
 _FUSED_CHUNK_SIZE = 32
+# The phased kernel's chunk-parallel grid is validated through eight internal chunks. Larger
+# prefills are tiled at this boundary and carry the recurrent state between fused invocations.
+_MAX_FUSED_TOKENS = 8 * _FUSED_CHUNK_SIZE
 
 
 def fused_chunk_enabled():
@@ -166,6 +169,53 @@ def chunk_gated_delta_rule_fused_adapter(
         v = ttnn.multiply(v, _mq, memory_config=_dram)
         ttnn.deallocate(_m)
         ttnn.deallocate(_mq)
+
+    if T > _MAX_FUSED_TOKENS:
+        assert T % _MAX_FUSED_TOKENS == 0, f"Fused GDN prefill length {T} must tile by {_MAX_FUSED_TOKENS}"
+
+        def _token_slice(tensor, start, end):
+            shape = tuple(tensor.shape)
+            begin = (0, start) + (0,) * (len(shape) - 2)
+            finish = (shape[0], end) + shape[2:]
+            return ttnn.slice(tensor, begin, finish, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+
+        outputs = []
+        state = initial_state
+        state_is_owned = False
+        for start in range(0, T, _MAX_FUSED_TOKENS):
+            end = start + _MAX_FUSED_TOKENS
+            q_part = _token_slice(q, start, end)
+            k_part = _token_slice(k, start, end)
+            v_part = _token_slice(v, start, end)
+            beta_part = _token_slice(beta, start, end)
+            g_part = _token_slice(g, start, end)
+            out_part, next_state = chunk_gated_delta_rule_fused_adapter(
+                q_part,
+                k_part,
+                v_part,
+                beta_part,
+                g_part,
+                chunk_size=chunk_size,
+                scale=scale,
+                initial_state=state,
+                device=device,
+                valid_len=None,
+                qkv_head_dims=qkv_head_dims,
+                return_o_bh=return_o_bh,
+                const_tiles=const_tiles,
+            )
+            if state_is_owned:
+                ttnn.deallocate(state)
+            state = next_state
+            state_is_owned = True
+            outputs.append(out_part)
+            for part in (q_part, k_part, v_part, beta_part, g_part):
+                ttnn.deallocate(part)
+
+        output = ttnn.concat(outputs, dim=1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        for part in outputs:
+            ttnn.deallocate(part)
+        return output, state
 
     s0 = None
     if initial_state is not None:

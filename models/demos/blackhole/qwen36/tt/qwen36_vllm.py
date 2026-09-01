@@ -364,17 +364,28 @@ class Qwen36ForCausalLM(Generator, SupportsMultiModal):
 
     def warmup_model_prefill(self, kv_cache, enable_trace, *args, **kwargs):
         # Capture the chunk-prefill trace + warm the masked-bucket set so requests only replay
-        # pre-compiled programs (compile-clobbers-trace fix). Guard name must match the plugin's reset.
-        if not enable_trace:
+        # pre-compiled programs (compile-clobbers-trace fix). The plugin invokes this twice: phase
+        # one must compile with no trace parked, then phase two optionally captures using those same
+        # persistent buffers. Guard name must match the plugin's reset between the phases.
+        if enable_trace:
+            if getattr(self, "already_warmed_up_prefill", False):
+                return
+            self.already_warmed_up_prefill = True
+        elif getattr(self, "_qwen_prefill_programs_warmed", False):
             return
-        if getattr(self, "already_warmed_up_prefill", False):
-            return
-        self.already_warmed_up_prefill = True
-        # Size the chunk-trace page table to the full KV cache (not a hardcoded 4096) so served ISL
-        # isn't capped; still captures one chunk — just a bigger page-table tensor.
+        # Build the compile-warmup page table for one full prefill chunk. Real eager requests slice
+        # their larger block tables to the known prefix below; trace capture reuses these buffers.
         if kv_cache:
-            # Round to a multiple of 32: paged/chunked SDPA needs the page-table stick % 32 == 0.
-            num_blocks = math.ceil(int(kv_cache[0][0].shape[0]) / 32) * 32
+            # Compile the first-chunk prefill capacity, not the entire vLLM KV reservation. Eager
+            # prefill specializes SDPA to the known host prefix and slices the request page table;
+            # compiling against all reserved blocks makes a 2K warmup behave like 128K attention.
+            cache_block_size = int(kv_cache[0][0].shape[-2])
+            if cache_block_size != _BLOCK_SIZE:
+                raise ValueError(
+                    f"Qwen3.6 requires vLLM --block-size {_BLOCK_SIZE}; received {cache_block_size}. "
+                    "Other block sizes can deadlock chunked paged attention."
+                )
+            num_blocks = math.ceil((_PREFILL_WARMUP_CHUNK / cache_block_size) / 32) * 32
         else:
             num_blocks = math.ceil(_PREFILL_WARMUP_BUCKET / _BLOCK_SIZE)
         page_table = torch.arange(num_blocks, dtype=torch.int32).reshape(1, num_blocks)
@@ -391,9 +402,16 @@ class Qwen36ForCausalLM(Generator, SupportsMultiModal):
         )
         prev = model._bind_gdn_prefill_scratch() if batched else None
         try:
-            model.capture_prefill_trace_chunked(
-                self.mesh_device, page_table, chunk_size=_PREFILL_WARMUP_CHUNK, capture_chunk_trace=True
-            )
+            if enable_trace and getattr(self, "_qwen_prefill_programs_warmed", False):
+                model.capture_prepared_prefill_trace_chunked(self.mesh_device)
+            else:
+                model.capture_prefill_trace_chunked(
+                    self.mesh_device,
+                    page_table,
+                    chunk_size=_PREFILL_WARMUP_CHUNK,
+                    capture_chunk_trace=enable_trace,
+                )
+                self._qwen_prefill_programs_warmed = True
         finally:
             if prev is not None:
                 model._unbind_gdn_prefill_scratch(prev)

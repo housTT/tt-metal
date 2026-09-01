@@ -165,6 +165,7 @@ class Qwen36Model(LightweightModule):
         self._chunk_full_page_table_buf = None
         self._chunk_cos_buf = None
         self._chunk_sin_buf = None
+        self._prefill_warmup_sync_layers = False
         # Traced batched short-prompt (bucket) prefill: one B=1 full-bucket trace replayed
         # once per user (see capture_prefill_trace_bucket / prefill_traced_bucket_batched).
         self._bucket_trace_id = None
@@ -985,6 +986,8 @@ class Qwen36Model(LightweightModule):
                 x_new = layer.forward(x, mode="prefill", chunk_size=layer.attention.long_prefill_chunk_size)
             ttnn.deallocate(x)
             x = x_new
+            if self._prefill_warmup_sync_layers:
+                ttnn.synchronize_device(self.device)
         return x
 
     def _rope_tp_cos_sin_torch(self, start, length):
@@ -1031,6 +1034,8 @@ class Qwen36Model(LightweightModule):
                 x_new = layer.forward(x, mode="prefill", chunk_size=self.args.gdn_chunk_size, valid_len=None)
             ttnn.deallocate(x)
             x = x_new
+            if self._prefill_warmup_sync_layers:
+                ttnn.synchronize_device(self.device)
         return x
 
     def capture_prefill_trace_chunked(
@@ -1135,6 +1140,12 @@ class Qwen36Model(LightweightModule):
         if warmup_masked_buckets:
             self.warmup_prefill_masked_buckets(page_table)
 
+        if not capture_chunk_trace:
+            self._chunked_trace_id = None
+            self._reset_dn_state_inplace()
+            logger.info("Masked-bucket prefill programs warmed; chunk trace skipped.")
+            return
+
         # Capture trace.
         self._reset_dn_state_inplace()
         self._chunked_trace_id = ttnn.begin_trace_capture(device, cq_id=0)
@@ -1206,22 +1217,43 @@ class Qwen36Model(LightweightModule):
             sin_t, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, mesh_mapper=rep
         )
 
-        # Warmup outside trace: compile per-chunk programs.
-        self._reset_gdn_state_for_new_sequence()
-        warmup_out = self._forward_prefill_chunk_tp(
-            self._chunk_token_buf,
-            self._chunk_cos_buf,
-            self._chunk_sin_buf,
-            self._chunk_start_idx_tensor,
-            self._chunk_full_page_table_buf,
-            self._chunk_page_table_buf,
-        )
-        ttnn.deallocate(warmup_out)
-        ttnn.synchronize_device(device)
+        # MMRS persistent outputs are otherwise allocated lazily inside a model forward. A blocking
+        # mesh write in the middle of asynchronous prefill can deadlock behind outstanding reads, so
+        # prepare every warmup shape before the first forward is enqueued.
+        from models.demos.blackhole.qwen36.tt import tp_common as tpc
 
-        # Warmup masked-bucket/tail programs outside trace (same GDN mode; avoids trace clobber).
-        if warmup_masked_buckets:
-            self.warmup_prefill_masked_buckets(page_table)
+        warmup_lengths = set(self._PREFILL_MASK_BUCKETS)
+        warmup_lengths.add(chunk_size)
+        tpc.prepare_mmrs_prefill_shared_bufs(
+            self.tt_ccl,
+            warmup_lengths,
+            self.args.dim,
+            self.num_devices,
+            (ttnn.bfloat16, ttnn.float32),
+        )
+
+        # Warmup outside trace: compile per-chunk programs. Synchronize between layers during this
+        # one-time compile pass so the host cannot saturate the fast-dispatch fetch queue while
+        # kernels and program binaries are still being generated. Trace capture/replay stays async.
+        self._prefill_warmup_sync_layers = True
+        try:
+            self._reset_gdn_state_for_new_sequence()
+            warmup_out = self._forward_prefill_chunk_tp(
+                self._chunk_token_buf,
+                self._chunk_cos_buf,
+                self._chunk_sin_buf,
+                self._chunk_start_idx_tensor,
+                self._chunk_full_page_table_buf,
+                self._chunk_page_table_buf,
+            )
+            ttnn.deallocate(warmup_out)
+            ttnn.synchronize_device(device)
+
+            # Warmup masked-bucket/tail programs outside trace (same GDN mode; avoids trace clobber).
+            if warmup_masked_buckets:
+                self.warmup_prefill_masked_buckets(page_table)
+        finally:
+            self._prefill_warmup_sync_layers = False
 
         if not capture_chunk_trace:
             # Batched (B>1) vLLM path: masked-bucket programs are warmed above; skip parking the
@@ -1245,6 +1277,44 @@ class Qwen36Model(LightweightModule):
         )
         ttnn.end_trace_capture(device, self._chunked_trace_id, cq_id=0)
         logger.info("Chunked prefill trace (TP) captured successfully!")
+
+    def capture_prepared_prefill_trace_chunked(self, device):
+        """Capture the chunk-prefill trace using buffers prepared by compile-only warmup.
+
+        vLLM warms TT models in two phases: first with tracing disabled so every program is
+        compiled, then with tracing enabled. Reusing the phase-one buffers in phase two avoids
+        allocating or recompiling anything after another trace has already been parked.
+        """
+        required_buffers = (
+            self._chunk_token_buf,
+            self._chunk_cos_buf,
+            self._chunk_sin_buf,
+            self._chunk_start_idx_tensor,
+            self._chunk_full_page_table_buf,
+            self._chunk_page_table_buf,
+        )
+        assert all(buffer is not None for buffer in required_buffers), "Run compile-only prefill warmup first"
+        if self._chunked_trace_id is not None:
+            ttnn.release_trace(device, self._chunked_trace_id)
+
+        if self.num_devices > 1:
+            self._reset_gdn_state_for_new_sequence()
+            forward = self._forward_prefill_chunk_tp
+        else:
+            self._reset_dn_state_inplace()
+            forward = self._forward_prefill_chunk
+
+        self._chunked_trace_id = ttnn.begin_trace_capture(device, cq_id=0)
+        self._chunked_trace_output = forward(
+            self._chunk_token_buf,
+            self._chunk_cos_buf,
+            self._chunk_sin_buf,
+            self._chunk_start_idx_tensor,
+            self._chunk_full_page_table_buf,
+            self._chunk_page_table_buf,
+        )
+        ttnn.end_trace_capture(device, self._chunked_trace_id, cq_id=0)
+        logger.info("Chunked prefill trace captured from prepared buffers successfully!")
 
     # ----------------------------------------------------------------------- #
     # Traced batched SHORT-prompt prefill (B=32 / ISL<=128)
@@ -1949,6 +2019,8 @@ class Qwen36Model(LightweightModule):
                 x_new = layer.forward(x, mode="prefill", chunk_size=layer.attention.long_prefill_chunk_size)
             ttnn.deallocate(x)
             x = x_new
+            if self._prefill_warmup_sync_layers:
+                ttnn.synchronize_device(self.device)
         return x
 
     # Fixed buckets for masked tail/short prefill. Lengths round up here -> bounded compile set.
@@ -2092,6 +2164,8 @@ class Qwen36Model(LightweightModule):
                 x_new = layer.forward(x, mode="prefill", chunk_size=self.args.gdn_chunk_size, valid_len=valid_len)
             ttnn.deallocate(x)
             x = x_new
+            if self._prefill_warmup_sync_layers:
+                ttnn.synchronize_device(self.device)
         # Deallocate per-chunk inputs; only hidden survives (avoids OOM in eager 64k loop).
         ttnn.deallocate(cos)
         ttnn.deallocate(sin)

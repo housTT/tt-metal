@@ -203,7 +203,7 @@ class Qwen36DecoderLayer(LightweightModule):
                             sin,
                             page_table,
                             chunk_page_table=chunk_page_table,
-                            chunk_start_idx=chunk_start_idx if chunk_start_idx is not None else 0,
+                            chunk_start_idx=chunk_start_idx,
                             chunk_start_idx_tensor=chunk_start_idx_tensor,
                             borrow_output=True,
                         )

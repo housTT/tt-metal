@@ -750,6 +750,7 @@ class TPAttention(LightweightModule):
         """
         assert self.use_paged and self.paged_k is not None, "forward_prefill_paged requires a bound paged KV cache"
         tw, NH, NKV, HD = self.tw, self.NH, self.NKV, self.HD
+        dynamic_chunk_start = chunk_start_idx is None and chunk_start_idx_tensor is not None
         if chunk_start_idx is None:
             chunk_start_idx = 0
         S = x.shape[-2]
@@ -842,7 +843,7 @@ class TPAttention(LightweightModule):
         # Pad page table to cover Q+offset and satisfy stick-size % 32 (extra blocks masked by causality)
         sdpa_page_table = page_table
         needed_blocks = (S + chunk_start_idx + block_size - 1) // block_size
-        target_blocks = max(needed_blocks, page_table.shape[-1])
+        target_blocks = page_table.shape[-1] if dynamic_chunk_start else needed_blocks
         target_blocks = ((target_blocks + 31) // 32) * 32
         if page_table.shape[-1] < target_blocks:
             zeros_pad = ttnn.zeros(
@@ -854,6 +855,13 @@ class TPAttention(LightweightModule):
             )
             sdpa_page_table = ttnn.concat([page_table, zeros_pad], dim=-1)
             ttnn.deallocate(zeros_pad)
+        elif page_table.shape[-1] > target_blocks:
+            sdpa_page_table = ttnn.slice(
+                page_table,
+                (0, 0),
+                (page_table.shape[0], target_blocks),
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
 
         if chunk_start_idx_tensor is not None:
             attn = ttnn.transformer.chunked_scaled_dot_product_attention(
