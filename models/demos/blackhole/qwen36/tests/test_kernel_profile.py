@@ -4,7 +4,8 @@
 
 These tests load one real checkpoint layer, compile once, then place ``start`` / ``stop``
 signposts around each measured production-path invocation.  They are skipped unless
-``QWEN36_KERNEL_PROFILE`` selects ``gdn_prefill``, ``attention_prefill``, or ``gdn_decode``.
+``QWEN36_KERNEL_PROFILE`` selects ``gdn_prefill``, ``attention_prefill``, ``gdn_decode``,
+or ``attention_decode``.
 """
 
 import os
@@ -26,7 +27,7 @@ from models.demos.blackhole.qwen36.tests.test_factory import (
     replicate_to_device,
     shard_to_device,
 )
-from models.demos.blackhole.qwen36.tt.attention.rope_tp import rot_mats_prefill
+from models.demos.blackhole.qwen36.tt.attention.rope_tp import rot_mats_decode, rot_mats_prefill
 from models.demos.blackhole.qwen36.tt.attention.tp import TPAttention, load_attention_weights_tp
 from models.demos.blackhole.qwen36.tt.gdn.tp import TPGatedDeltaNet, load_gdn_weights_tp
 from models.demos.blackhole.qwen36.tt.model_config import Qwen36ModelArgs
@@ -211,5 +212,75 @@ def test_gdn_decode_profile(mesh_device, reset_seeds, ensure_gc):
     logger.info(
         f"GDN_DECODE_PROFILE_RESULT layer={layer_idx} batch={batch} iterations={iterations} "
         f"median_ms={statistics.median(samples_ms):.3f} min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
+    )
+    assert out.shape[-2] == batch
+
+
+@torch.no_grad()
+@parametrize_mesh_tp()
+def test_attention_decode_profile(mesh_device, reset_seeds, ensure_gc):
+    _selected("attention_decode")
+    os.environ.setdefault("HF_MODEL", model_path())
+    batch = int(os.environ.get("QWEN36_KERNEL_PROFILE_BATCH", "1"))
+    context = int(os.environ.get("QWEN36_KERNEL_PROFILE_CONTEXT", "131072"))
+    iterations = int(os.environ.get("QWEN36_KERNEL_PROFILE_ITERATIONS", "5"))
+    block_size = 64
+    assert batch in (1, 8, 32) and context > 0 and context % block_size == 0 and iterations > 0
+
+    args = Qwen36ModelArgs(mesh_device, max_batch_size=batch, max_seq_len=context + 512)
+    layer_idx = next(i for i, kind in enumerate(args.attention_type_list) if kind == "full_attention")
+    weights = load_attention_weights_tp(mesh_device, load_attn_layer(args.CKPT_DIR, layer_idx), args)
+    attention = TPAttention(mesh_device, args, weights, get_tt_ccl(mesh_device))
+    blocks_per_user = (context + 512 + block_size - 1) // block_size
+    total_blocks = batch * blocks_per_user
+
+    def make_cache():
+        return ttnn.from_torch(
+            torch.zeros(total_blocks, args.n_local_kv_heads, block_size, args.head_dim, dtype=torch.bfloat16),
+            dtype=ttnn.bfloat8_b,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh_device,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
+    attention.set_paged_kv_cache(make_cache(), make_cache())
+    page_table = ttnn.from_torch(
+        torch.stack(
+            [torch.arange(u * blocks_per_user, (u + 1) * blocks_per_user, dtype=torch.int32) for u in range(batch)]
+        ),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=mesh_device,
+    )
+    positions = torch.full((batch,), context - 1, dtype=torch.int32)
+    positions_device = ttnn.from_torch(
+        positions,
+        dtype=ttnn.int32,
+        device=mesh_device,
+        mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+    )
+    cos, sin = rot_mats_decode(mesh_device, args.rope_head_dim, args.max_seq_len, args.rope_theta, positions)
+    x_device = replicate_to_device(
+        mesh_device, torch.randn(1, 1, batch, args.dim, dtype=torch.bfloat16)
+    )
+
+    def run_once():
+        return attention.forward_decode(x_device, positions_device, cos, sin, page_table=page_table)
+
+    out = run_once()
+    ttnn.synchronize_device(mesh_device)
+    samples_ms = []
+    for _ in range(iterations):
+        signpost("start")
+        begin = time.perf_counter()
+        out = run_once()
+        ttnn.synchronize_device(mesh_device)
+        samples_ms.append((time.perf_counter() - begin) * 1000.0)
+        signpost("stop")
+    logger.info(
+        f"ATTENTION_DECODE_PROFILE_RESULT layer={layer_idx} batch={batch} context={context} "
+        f"iterations={iterations} median_ms={statistics.median(samples_ms):.3f} "
+        f"min_ms={min(samples_ms):.3f} max_ms={max(samples_ms):.3f}"
     )
     assert out.shape[-2] == batch
