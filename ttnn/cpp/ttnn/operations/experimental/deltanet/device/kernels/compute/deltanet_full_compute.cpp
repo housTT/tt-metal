@@ -2,10 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-// Compute kernel for fully fused DeltaNet decode.
-// All CBs are bf16 (uniform format). State precision maintained via
-// f32 DRAM storage with reader/writer format conversion.
-// fp32_dest_acc_en=true gives f32 precision for intermediate DST operations.
+// Compute kernel for one DeltaNet decode recurrence. Inputs and persisted
+// state are bf16; fp32_dest_acc_en keeps intermediate DST math in fp32.
 
 #include <cstdint>
 
@@ -14,15 +12,12 @@
 #include "api/compute/matmul.h"
 #include "api/compute/tile_move_copy.h"
 #include "api/compute/bcast.h"
-#include "api/compute/eltwise_unary/eltwise_unary.h"
-#include "api/compute/reduce.h"
-#include "api/compute/eltwise_unary/rsqrt.h"
 
 constexpr uint32_t cb_state_in = get_compile_time_arg_val(0);
 constexpr uint32_t cb_q = get_compile_time_arg_val(1);
 constexpr uint32_t cb_k = get_compile_time_arg_val(2);
 constexpr uint32_t cb_v = get_compile_time_arg_val(3);
-constexpr uint32_t cb_g = get_compile_time_arg_val(4);
+constexpr uint32_t cb_decay = get_compile_time_arg_val(4);
 constexpr uint32_t cb_beta = get_compile_time_arg_val(5);
 constexpr uint32_t cb_output = get_compile_time_arg_val(6);
 constexpr uint32_t cb_state_out = get_compile_time_arg_val(7);
@@ -33,11 +28,7 @@ constexpr uint32_t Dk_tiles = get_compile_time_arg_val(11);
 constexpr uint32_t Dv_tiles = get_compile_time_arg_val(12);
 constexpr uint32_t cb_state_mid = get_compile_time_arg_val(13);
 constexpr uint32_t cb_k_T = get_compile_time_arg_val(14);
-constexpr uint32_t cb_z = get_compile_time_arg_val(15);
-constexpr uint32_t cb_norm_w = get_compile_time_arg_val(16);
-constexpr uint32_t cb_scaler = get_compile_time_arg_val(17);
-constexpr uint32_t cb_raw_out = get_compile_time_arg_val(18);
-constexpr uint32_t cb_eps = get_compile_time_arg_val(19);
+constexpr uint32_t cb_raw_out = get_compile_time_arg_val(15);
 
 constexpr uint32_t state_tiles = Dk_tiles * Dv_tiles;
 
@@ -55,17 +46,17 @@ inline void binary_reconfig(uint32_t in0_cb, uint32_t in1_cb, uint32_t out_cb) {
 void kernel_main() {
     // Configure the compute engines once; per-op init below only switches the
     // source ordering and output pack format as the fused pipeline advances.
-    compute_kernel_hw_startup(cb_state_in, cb_g, cb_state_mid);
+    compute_kernel_hw_startup(cb_state_in, cb_decay, cb_state_mid);
 
     // Step 1: S_mid = S * decay (broadcast scalar multiply)
     {
-        mul_bcast_scalar_init(cb_state_in, cb_g);
+        mul_bcast_scalar_init(cb_state_in, cb_decay);
         cb_wait_front(cb_state_in, state_tiles);
-        cb_wait_front(cb_g, 1);
+        cb_wait_front(cb_decay, 1);
         cb_reserve_back(cb_state_mid, state_tiles);
         for (uint32_t t = 0; t < state_tiles; t++) {
             tile_regs_acquire();
-            mul_tiles_bcast_scalar(cb_state_in, cb_g, t, 0, 0);
+            mul_tiles_bcast_scalar(cb_state_in, cb_decay, t, 0, 0);
             tile_regs_commit();
             tile_regs_wait();
             pack_tile(0, cb_state_mid);
@@ -196,16 +187,13 @@ void kernel_main() {
     cb_pop_front(cb_q, Dk_tiles);
     cb_pop_front(cb_k, Dk_tiles);
     cb_pop_front(cb_v, Dv_tiles);
-    cb_pop_front(cb_g, 1);
+    cb_pop_front(cb_decay, 1);
     cb_pop_front(cb_beta, 1);
 
     // Output the RAW pre-norm read (q @ S_new). This op's contract for the Qwen3.6 GDN port is
     // raw-o (matching recurrent_gated_delta_rule_decode_ttnn): the caller does the gated-RMSNorm
-    // + silu(z) in ttnn. Folding norm/gate into this kernel is a NET LOSS on Blackhole — the op is
-    // one-core-per-head, so the RMSNorm reduce/rsqrt serializes per head (+8.4ms/step at B=8),
-    // whereas the ttnn tail runs the elementwise norm/gate parallel across many cores. z_proj /
-    // norm_weight / a_log / dt_bias are accepted but unused here; we consume their CBs to keep the
-    // reader/compute pipeline balanced.
+    // + silu(z) in ttnn. Folding norm/gate into this one-core-per-head kernel serializes the
+    // reduction, while the TTNN tail distributes it across the device.
     {
         cb_wait_front(cb_raw_out, Dv_tiles);
         cb_reserve_back(cb_output, Dv_tiles);
@@ -220,13 +208,5 @@ void kernel_main() {
         }
         cb_push_back(cb_output, Dv_tiles);
         cb_pop_front(cb_raw_out, Dv_tiles);
-        cb_wait_front(cb_z, Dv_tiles);
-        cb_pop_front(cb_z, Dv_tiles);
-        cb_wait_front(cb_norm_w, Dv_tiles);
-        cb_pop_front(cb_norm_w, Dv_tiles);
-        cb_wait_front(cb_scaler, 1);
-        cb_pop_front(cb_scaler, 1);
-        cb_wait_front(cb_eps, 1);
-        cb_pop_front(cb_eps, 1);
     }
 }

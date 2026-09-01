@@ -21,18 +21,39 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_miss(
         inputs.recurrent_state.storage_type() == StorageType::DEVICE,
         "DeltaNet decode full: recurrent_state must be on device");
     TT_FATAL(inputs.qkv_proj.storage_type() == StorageType::DEVICE, "DeltaNet decode full: qkv_proj must be on device");
-    TT_FATAL(inputs.z_proj.storage_type() == StorageType::DEVICE, "DeltaNet decode full: z_proj must be on device");
-    TT_FATAL(
-        inputs.conv_state.storage_type() == StorageType::DEVICE, "DeltaNet decode full: conv_state must be on device");
-    TT_FATAL(
-        inputs.conv1d_weight.storage_type() == StorageType::DEVICE,
-        "DeltaNet decode full: conv1d_weight must be on device");
-    TT_FATAL(inputs.conv_state.layout() == Layout::TILE, "DeltaNet decode full: conv_state must be TILE layout");
+    TT_FATAL(inputs.beta.storage_type() == StorageType::DEVICE, "DeltaNet decode full: beta must be on device");
+    TT_FATAL(inputs.decay.storage_type() == StorageType::DEVICE, "DeltaNet decode full: decay must be on device");
+    TT_FATAL(inputs.qkv_proj.layout() == Layout::TILE, "DeltaNet decode full: qkv_proj must be TILE layout");
+    TT_FATAL(inputs.beta.layout() == Layout::TILE, "DeltaNet decode full: beta must be TILE layout");
+    TT_FATAL(inputs.decay.layout() == Layout::TILE, "DeltaNet decode full: decay must be TILE layout");
     TT_FATAL(
         inputs.recurrent_state.layout() == Layout::TILE, "DeltaNet decode full: recurrent_state must be TILE layout");
     TT_FATAL(
+        inputs.qkv_proj.dtype() == DataType::BFLOAT16 && inputs.beta.dtype() == DataType::BFLOAT16 &&
+            inputs.decay.dtype() == DataType::BFLOAT16 && inputs.recurrent_state.dtype() == DataType::BFLOAT16,
+        "DeltaNet decode full currently requires BFLOAT16 inputs");
+    TT_FATAL(
         attrs.k_head_dim % 32 == 0 && attrs.v_head_dim % 32 == 0,
         "DeltaNet decode full: head dims must be multiples of 32");
+    TT_FATAL(
+        attrs.num_heads == attrs.num_k_heads * attrs.head_expand_ratio,
+        "DeltaNet decode full: num_heads must equal num_k_heads * head_expand_ratio");
+    TT_FATAL(
+        inputs.qkv_proj.logical_shape()[-1] ==
+            2 * attrs.num_k_heads * attrs.k_head_dim + attrs.num_heads * attrs.v_head_dim,
+        "DeltaNet decode full: qkv_proj width does not match the supplied head dimensions");
+    TT_FATAL(
+        inputs.beta.logical_shape()[-1] == attrs.num_heads,
+        "DeltaNet decode full: beta width does not match num_heads");
+    TT_FATAL(
+        inputs.decay.logical_shape()[-1] == attrs.num_heads,
+        "DeltaNet decode full: decay width does not match num_heads");
+    TT_FATAL(
+        inputs.recurrent_state.logical_shape().rank() == 4 &&
+            inputs.recurrent_state.logical_shape()[-3] == attrs.num_heads &&
+            inputs.recurrent_state.logical_shape()[-2] == attrs.k_head_dim &&
+            inputs.recurrent_state.logical_shape()[-1] == attrs.v_head_dim,
+        "DeltaNet decode full: recurrent_state shape does not match the supplied head dimensions");
 }
 
 void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_hit(
@@ -42,21 +63,17 @@ void DeltaNetDecodeFullDeviceOperation::validate_on_program_cache_hit(
 
 DeltaNetDecodeFullDeviceOperation::spec_return_value_t DeltaNetDecodeFullDeviceOperation::compute_output_specs(
     const operation_attributes_t& attrs, const tensor_args_t& inputs) {
-    auto mem_config = attrs.output_memory_config;
-
-    auto dtype = inputs.qkv_proj.dtype();
-
     // output: [1, 1, 1, num_heads * v_dim] — flat raw q @ S_new output
     auto output_shape = Shape({1, 1, 1, attrs.num_heads * attrs.v_head_dim});
-    auto output_spec = TensorSpec(output_shape, TensorLayout(dtype, Layout::TILE, mem_config));
+    auto output_spec =
+        TensorSpec(output_shape, TensorLayout(inputs.qkv_proj.dtype(), Layout::TILE, attrs.output_memory_config));
 
-    // new_state: same shape as recurrent_state [1, H, Dk, Dv], bf16 (same as compute)
-    auto state_spec = TensorSpec(inputs.recurrent_state.logical_shape(), TensorLayout(dtype, Layout::TILE, mem_config));
+    // Keep the large persistent state where the caller placed it; raw output can stay in L1.
+    auto state_spec = TensorSpec(
+        inputs.recurrent_state.logical_shape(),
+        TensorLayout(inputs.recurrent_state.dtype(), Layout::TILE, inputs.recurrent_state.memory_config()));
 
-    // new_conv_state: same shape as input conv_state [1, 1, conv_dim, 32]
-    auto conv_state_spec = TensorSpec(inputs.conv_state.logical_shape(), TensorLayout(dtype, Layout::TILE, mem_config));
-
-    return {output_spec, state_spec, conv_state_spec};
+    return {output_spec, state_spec};
 }
 
 DeltaNetDecodeFullDeviceOperation::tensor_return_value_t DeltaNetDecodeFullDeviceOperation::create_output_tensors(
@@ -66,7 +83,6 @@ DeltaNetDecodeFullDeviceOperation::tensor_return_value_t DeltaNetDecodeFullDevic
     return {
         create_device_tensor(output_specs[0], device),
         create_device_tensor(output_specs[1], device),
-        create_device_tensor(output_specs[2], device),
     };
 }
 
@@ -76,49 +92,33 @@ namespace ttnn::prim {
 
 std::vector<Tensor> deltanet_decode_full(
     const Tensor& qkv_proj,
-    const Tensor& z_proj,
-    const Tensor& b_proj,
-    const Tensor& a_proj,
-    const Tensor& conv_state,
+    const Tensor& beta,
+    const Tensor& decay,
     const Tensor& recurrent_state,
-    const Tensor& conv1d_weight,
-    const Tensor& a_log,
-    const Tensor& dt_bias,
-    const Tensor& norm_weight,
     uint32_t num_heads,
     uint32_t num_k_heads,
     uint32_t k_head_dim,
     uint32_t v_head_dim,
-    uint32_t conv_dim,
-    uint32_t conv_kernel_size,
     uint32_t head_expand_ratio,
     const std::optional<MemoryConfig>& output_memory_config) {
     using Op = ttnn::operations::experimental::deltanet::DeltaNetDecodeFullDeviceOperation;
 
-    auto mem_config = output_memory_config.value_or(recurrent_state.memory_config());
+    auto mem_config = output_memory_config.value_or(qkv_proj.memory_config());
 
     auto operation_attributes = Op::operation_attributes_t{
         .num_heads = num_heads,
         .num_k_heads = num_k_heads,
         .k_head_dim = k_head_dim,
         .v_head_dim = v_head_dim,
-        .conv_dim = conv_dim,
-        .conv_kernel_size = conv_kernel_size,
         .head_expand_ratio = head_expand_ratio,
         .output_memory_config = mem_config,
     };
 
     auto tensor_args = Op::tensor_args_t{
         .qkv_proj = qkv_proj,
-        .z_proj = z_proj,
-        .b_proj = b_proj,
-        .a_proj = a_proj,
-        .conv_state = conv_state,
+        .beta = beta,
+        .decay = decay,
         .recurrent_state = recurrent_state,
-        .conv1d_weight = conv1d_weight,
-        .a_log = a_log,
-        .dt_bias = dt_bias,
-        .norm_weight = norm_weight,
     };
 
     return ttnn::device_operation::launch<Op>(operation_attributes, tensor_args);

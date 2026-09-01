@@ -14,6 +14,7 @@ import ttnn
 from models.common.lightweightmodule import LightweightModule
 from models.demos.blackhole.qwen36.tt import tp_common as tpc
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import (
+    l2_norm_ttnn,
     recurrent_gated_delta_rule_decode_ttnn,
 )
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import (
@@ -184,6 +185,11 @@ class TPGatedDeltaNet(LightweightModule):
         # Fuse adapter output relayout with rms_norm + head-flatten
         self._gdn_fuse_out = True
         self._gdn_decode_fp32 = os.environ.get("QWEN36_GDN_DECODE_FP32") == "1"
+        self._gdn_fused_decode = (
+            os.environ.get("QWEN36_GDN_FUSED_DECODE", os.environ.get("QWEN_GDN_FUSED_DECODE", "0")) == "1"
+        )
+        if self._gdn_fused_decode and self._gdn_decode_fp32:
+            raise ValueError("QWEN36_GDN_FUSED_DECODE requires the production BF16 recurrent state")
         self.K = args.gdn_conv_kernel_size
         self.scale = self.Dk**-0.5
         self.cfg = tpc.COMPUTE_HIFI2
@@ -1109,37 +1115,72 @@ class TPGatedDeltaNet(LightweightModule):
         v = ttnn.reshape(ttnn.slice(conv, (0, 0, 2 * kd), (1, B, self.qkv_dim_tp)), (B, Nv, Dv))
         ttnn.deallocate(conv)
 
-        # GQA expand Q/K Nk→Nv; recurrence L2-norms + scales internally
         rf = Nv // Nk
-        q = ttnn.repeat_interleave(q, rf, dim=1)
-        k = ttnn.repeat_interleave(k, rf, dim=1)
-        # Decode: hand q/k/v to the recurrent kernel in L1. The kernel typecasts + does a LOCAL
-        # l2-norm (no cross-device gather), so placement is output-neutral here (unlike SDPA-q,
-        # which hard-requires DRAM, and unlike the residual→DistributedNorm all-gather).
-        q = ttnn.reshape(q, (B, 1, Nv, Dk), memory_config=_L1)
-        k = ttnn.reshape(k, (B, 1, Nv, Dk), memory_config=_L1)
-        v = ttnn.reshape(v, (B, 1, Nv, Dv), memory_config=_L1)
-
-        beta = ttnn.reshape(ttnn.sigmoid(b, memory_config=_L1), (B, 1, Nv))
-        ttnn.deallocate(b)
-        g = ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"]), memory_config=_L1)
-        ttnn.deallocate(a)
-        g = ttnn.reshape(g, (B, 1, Nv))
-
-        # BF16 recurrence avoids five typecasts and halves state traffic. A 512-step nonzero-state
-        # oracle retains >0.9999 PCC; keep the former FP32 path as an explicit diagnostic override.
+        num_fused_heads = B * Nv
+        grid = self.mesh.compute_with_storage_grid_size()
+        use_fused_decode = self._gdn_fused_decode and num_fused_heads <= grid.x * grid.y
         init_state = self.rec_state if B == Bmax else self._slice_along(self.rec_state, 0, 0, B)
-        o, new_rec = recurrent_gated_delta_rule_decode_ttnn(
-            q,
-            k,
-            v,
-            beta,
-            g,
-            scale=self.scale,
-            initial_state=init_state,
-            device=self.mesh,
-            high_precision=self._gdn_decode_fp32,
-        )
+
+        if use_fused_decode:
+            # Normalize the unexpanded key heads, then flatten batch into the head axis. The
+            # custom op assigns one core to each (batch, value-head), expands Q/K by index, and
+            # fuses decay, state read, delta update, state write, and q @ S_new.
+            q_norm = l2_norm_ttnn(q, dim=-1)
+            q_scaled = ttnn.multiply(q_norm, self.scale, memory_config=_L1)
+            k_norm = l2_norm_ttnn(k, dim=-1)
+            q_flat = ttnn.reshape(q_scaled, (1, 1, B * Nk * Dk), memory_config=_L1)
+            k_flat = ttnn.reshape(k_norm, (1, 1, B * Nk * Dk), memory_config=_L1)
+            v_flat = ttnn.reshape(v, (1, 1, B * Nv * Dv), memory_config=_L1)
+            qkv = ttnn.reshape(
+                ttnn.concat([q_flat, k_flat, v_flat], dim=-1, memory_config=_L1),
+                (1, 1, 1, B * self.qkv_dim_tp),
+                memory_config=_L1,
+            )
+
+            beta = ttnn.reshape(ttnn.sigmoid(b, memory_config=_L1), (1, 1, 1, num_fused_heads))
+            ttnn.deallocate(b)
+            log_decay = ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"]), memory_config=_L1)
+            ttnn.deallocate(a)
+            decay = ttnn.reshape(ttnn.exp(log_decay, memory_config=_L1), (1, 1, 1, num_fused_heads))
+            state_flat = ttnn.reshape(init_state, (1, num_fused_heads, Dk, Dv))
+            o, new_rec = ttnn.experimental.deltanet_decode_full(
+                qkv,
+                beta,
+                decay,
+                state_flat,
+                num_heads=num_fused_heads,
+                num_k_heads=B * Nk,
+                k_head_dim=Dk,
+                v_head_dim=Dv,
+                head_expand_ratio=rf,
+                memory_config=_L1,
+            )
+            new_rec = ttnn.reshape(new_rec, (B, Nv, Dk, Dv))
+        else:
+            # Generic fallback for widths whose flattened heads exceed the core grid. The
+            # recurrence function expands Q/K and runs the same math as a composition of TTNN ops.
+            q = ttnn.repeat_interleave(q, rf, dim=1)
+            k = ttnn.repeat_interleave(k, rf, dim=1)
+            q = ttnn.reshape(q, (B, 1, Nv, Dk), memory_config=_L1)
+            k = ttnn.reshape(k, (B, 1, Nv, Dk), memory_config=_L1)
+            v = ttnn.reshape(v, (B, 1, Nv, Dv), memory_config=_L1)
+            beta = ttnn.reshape(ttnn.sigmoid(b, memory_config=_L1), (B, 1, Nv))
+            ttnn.deallocate(b)
+            g = ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"]), memory_config=_L1)
+            ttnn.deallocate(a)
+            g = ttnn.reshape(g, (B, 1, Nv))
+            o, new_rec = recurrent_gated_delta_rule_decode_ttnn(
+                q,
+                k,
+                v,
+                beta,
+                g,
+                scale=self.scale,
+                initial_state=init_state,
+                device=self.mesh,
+                high_precision=self._gdn_decode_fp32,
+            )
+
         if init_state is not self.rec_state:
             ttnn.deallocate(init_state)
         if self._stable_state:
@@ -1153,9 +1194,7 @@ class TPGatedDeltaNet(LightweightModule):
             self.rec_state = new_rec
 
         out_r = ttnn.reshape(o, (B, Nv, Dv))
-        out_n = ttnn.rms_norm(
-            out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1
-        )  # gated norm (no +1)
+        out_n = ttnn.rms_norm(out_r, weight=tw["norm_w"], epsilon=1e-6, memory_config=_L1)  # gated norm (no +1)
         ttnn.deallocate(out_r)
         out_f = ttnn.reshape(out_n, (1, B, self.value_dim_tp))
         ttnn.deallocate(out_n)
