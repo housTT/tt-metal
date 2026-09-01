@@ -563,3 +563,54 @@ def test_gdn_tp_fused_chunk_prefill(mesh_device, monkeypatch, reset_seeds, ensur
     passing_fd, pcc_fd = comp_pcc(dec, fused, thr)
     logger.info(f"GDN fused-chunk prefill vs step-decode PCC (T={T}) = {pcc_fd}")
     assert passing_fd, f"fused chunk prefill disagrees with step-by-step decode: PCC {pcc_fd} < {thr}"
+
+
+@torch.no_grad()
+@parametrize_mesh_tp()
+def test_gdn_tp_fused_chunk_prefill_2k_single_launch(
+    mesh_device, monkeypatch, reset_seeds, ensure_gc, request
+):
+    """A single 2K phased invocation must match the former eight-launch path.
+
+    Compare every prefill output token and then one decode step.  The decode comparison covers
+    both recurrent-state carry and the convolution window produced by prefill.
+    """
+    os.environ.setdefault("HF_MODEL", model_path())
+    import models.demos.blackhole.qwen36.tt.gdn.fused_chunk as fc
+
+    T = 2048
+    args = Qwen36ModelArgs(mesh_device, max_batch_size=1, max_seq_len=T + 1)
+    nd = mesh_device.get_num_devices()
+    li = next(i for i, kind in enumerate(args.attention_type_list) if kind == "linear_attention")
+    sd = load_gdn_layer(args.CKPT_DIR, li)
+    from models.tt_transformers.tt.ccl import TT_CCL
+
+    tt_ccl = TT_CCL(mesh_device) if nd > 1 else None
+    tw = load_gdn_weights_tp(mesh_device, sd, args)
+    composer = tp_composer(mesh_device)
+    x = torch.randn(1, 1, T, args.dim, dtype=torch.bfloat16)
+    x_tt = shard_to_device(mesh_device, x, dim=-1)
+    x_decode = replicate_to_device(mesh_device, torch.randn(1, 1, 1, args.dim, dtype=torch.bfloat16))
+
+    monkeypatch.setattr(fc, "_MAX_FUSED_TOKENS", 8 * fc._FUSED_CHUNK_SIZE)
+    tiled = TPGatedDeltaNet(mesh_device, args, tw, tt_ccl)
+    tiled.reset_state()
+    tiled_out = ttnn.to_torch(
+        tiled.forward_prefill(x_tt, chunk_size=128, capture_state=True), mesh_composer=composer
+    ).float()
+    tiled_decode = ttnn.to_torch(tiled.forward_decode(x_decode), mesh_composer=composer).float()
+
+    monkeypatch.setattr(fc, "_MAX_FUSED_TOKENS", 64 * fc._FUSED_CHUNK_SIZE)
+    single = TPGatedDeltaNet(mesh_device, args, tw, tt_ccl)
+    single.reset_state()
+    single_out = ttnn.to_torch(
+        single.forward_prefill(x_tt, chunk_size=128, capture_state=True), mesh_composer=composer
+    ).float()
+    single_decode = ttnn.to_torch(single.forward_decode(x_decode), mesh_composer=composer).float()
+
+    threshold = get_pcc_threshold(request, default=0.99)
+    prefill_pcc = compute_pcc(tiled_out, single_out)
+    decode_pcc = compute_pcc(tiled_decode, single_decode)
+    logger.info(f"GDN 2K single-vs-tiled prefill PCC={prefill_pcc:.6f}, next-decode PCC={decode_pcc:.6f}")
+    assert prefill_pcc >= threshold, f"2K single-launch prefill PCC {prefill_pcc:.6f} < {threshold}"
+    assert decode_pcc >= threshold, f"2K single-launch decode continuation PCC {decode_pcc:.6f} < {threshold}"

@@ -33,9 +33,12 @@ from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops i
 
 # The chunk size the fused op runs at (same math as 128, different internal tiling).
 _FUSED_CHUNK_SIZE = 32
-# The phased kernel's chunk-parallel grid is validated through eight internal chunks. Larger
-# prefills are tiled at this boundary and carry the recurrent state between fused invocations.
-_MAX_FUSED_TOKENS = 8 * _FUSED_CHUNK_SIZE
+# A production prefill invocation contains one 2K outer chunk.  Keep all 64 internal chunks in
+# one phased invocation so prep can fan out over the full grid and scan can retain its recurrent
+# state across the entire outer chunk.  Splitting this into eight 256-token calls forces seven
+# state round-trips plus five input slices per call and an output concat without changing the
+# recurrence math.
+_MAX_FUSED_TOKENS = 64 * _FUSED_CHUNK_SIZE
 
 
 def fused_chunk_enabled():
