@@ -258,5 +258,13 @@ reuses that path and changed only its redundant host-read boundary.
 
 ## Review and commits
 
-Independent stage review and the final local stage commit are recorded here
-after review closure. Nothing is pushed.
+The first independent review returned `more-work-needed` for full-depth trace
+allocation safety, stale cleanup evidence, an overstated qualitative
+comparison, and raw-log whitespace. After AutoFix remediation and exact-path
+reruns, a fresh xhigh independent rereview returned `clean-pass` with no
+required work. `stage_review.md` records both review phases.
+
+Local implementation, tests, measurements, artifacts, and review evidence are
+committed as `bcb3f87dd50d4813bb2c917701dedf3f06b13545` (`Optimize GPT-OSS 120B vLLM
+serving`). The follow-up documentation-only closure commit records that SHA.
+Nothing was pushed.
