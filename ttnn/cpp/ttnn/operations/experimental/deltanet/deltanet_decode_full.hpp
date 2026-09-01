@@ -27,6 +27,22 @@ std::vector<Tensor> deltanet_decode_full(
     uint32_t head_expand_ratio,
     const std::optional<MemoryConfig>& memory_config = std::nullopt,
     const std::optional<const Tensor>& decay_scale = std::nullopt,
-    const std::optional<const Tensor>& dt_bias = std::nullopt);
+    const std::optional<const Tensor>& dt_bias = std::nullopt,
+    bool packed_qkv = false);
+
+Tensor deltanet_conv1d_decode(
+    const Tensor& input,
+    const Tensor& state0,
+    const Tensor& state1,
+    const Tensor& state2,
+    const Tensor& state3,
+    const Tensor& tap0,
+    const Tensor& tap1,
+    const Tensor& tap2,
+    const Tensor& tap3,
+    uint32_t q_width,
+    uint32_t k_width,
+    uint32_t v_width,
+    const std::optional<MemoryConfig>& memory_config = std::nullopt);
 
 }  // namespace ttnn::experimental

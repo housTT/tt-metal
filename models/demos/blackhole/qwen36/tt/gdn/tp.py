@@ -188,6 +188,7 @@ class TPGatedDeltaNet(LightweightModule):
             os.environ.get("QWEN36_GDN_FUSED_DECODE", os.environ.get("QWEN_GDN_FUSED_DECODE", "1")) == "1"
         )
         self._gdn_fused_ab = os.environ.get("QWEN36_GDN_FUSED_AB", "1") != "0"
+        self._gdn_fused_conv = os.environ.get("QWEN36_GDN_FUSED_CONV", "1") != "0"
         if self._gdn_fused_decode and self._gdn_decode_fp32:
             raise ValueError("QWEN36_GDN_FUSED_DECODE requires the production BF16 recurrent state")
         self.K = args.gdn_conv_kernel_size
@@ -1088,37 +1089,62 @@ class TPGatedDeltaNet(LightweightModule):
 
         qkv, z, a, b = self._project_qkvzab(x, B, out_mc=_L1)
 
-        # Conv1d shift-register + weighted sum + SiLU
-        st = self.conv_states
-        if B < Bmax:
-            # Bucketed decode: active requests occupy a contiguous prefix [0:B]; idle rows [B:Bmax]
-            # hold no live request (a slot is re-initialized by prefill/write_slot when reused), so
-            # they are don't-care. Pad the width-B new input up to Bmax and run the SAME full-width
-            # shift-register as below -- the conv sum's active rows [0:B] are exact and the downstream
-            # q/k/v slices take [0:B]. This keeps the op COUNT identical to the baseline path (just a
-            # single pad), vs a per-row slice/concat that added ~4*K ops/layer and erased the width win.
-            qkv_p = ttnn.pad(qkv, [(0, 0), (0, Bmax - B), (0, 0)], value=0.0, memory_config=_L1)
-            ttnn.deallocate(qkv)
-            qkv = qkv_p
-        for j in range(self.K - 1):
-            ttnn.copy(st[j + 1], st[j])
-        ttnn.copy(qkv, st[self.K - 1])
-        ttnn.deallocate(qkv)
-        conv = ttnn.multiply(st[0], tw["conv_taps"][0], memory_config=_L1)
-        for j in range(1, self.K):
-            conv = ttnn.mac(st[j], tw["conv_taps"][j], conv)
-        conv = ttnn.silu(conv, memory_config=_L1)
-
-        kd = self.key_dim_tp
-        q = ttnn.reshape(ttnn.slice(conv, (0, 0, 0), (1, B, kd)), (B, Nk, Dk))
-        k = ttnn.reshape(ttnn.slice(conv, (0, 0, kd), (1, B, 2 * kd)), (B, Nk, Dk))
-        v = ttnn.reshape(ttnn.slice(conv, (0, 0, 2 * kd), (1, B, self.qkv_dim_tp)), (B, Nv, Dv))
-        ttnn.deallocate(conv)
-
         rf = Nv // Nk
         num_fused_heads = B * Nv
         grid = self.mesh.compute_with_storage_grid_size()
         use_fused_decode = self._gdn_fused_decode and num_fused_heads <= grid.x * grid.y
+
+        # Keep Q/K/V packed through the four-tap convolution when the fused recurrence can consume
+        # that layout. One core owns each channel tile, shifts all persistent convolution states,
+        # and applies the four MACs plus SiLU in one dispatch.
+        st = self.conv_states
+        use_fused_conv = (
+            self._gdn_fused_conv
+            and use_fused_decode
+            and self.K == 4
+            and self.qkv_dim_tp // 32 <= grid.x * grid.y
+        )
+        packed_conv = None
+        if use_fused_conv:
+            packed_conv = ttnn.experimental.deltanet_conv1d_decode(
+                qkv,
+                st[0],
+                st[1],
+                st[2],
+                st[3],
+                tw["conv_taps"][0],
+                tw["conv_taps"][1],
+                tw["conv_taps"][2],
+                tw["conv_taps"][3],
+                q_width=self.key_dim_tp,
+                k_width=self.key_dim_tp,
+                v_width=self.value_dim_tp,
+                memory_config=_L1,
+            )
+            ttnn.deallocate(qkv)
+            q = k = v = packed_conv
+        else:
+            if B < Bmax:
+                # Bucketed decode: inactive state rows are don't-care and reset when their request
+                # slots are reused, so padding avoids a per-row slice/concat state-update chain.
+                qkv_p = ttnn.pad(qkv, [(0, 0), (0, Bmax - B), (0, 0)], value=0.0, memory_config=_L1)
+                ttnn.deallocate(qkv)
+                qkv = qkv_p
+            for j in range(self.K - 1):
+                ttnn.copy(st[j + 1], st[j])
+            ttnn.copy(qkv, st[self.K - 1])
+            ttnn.deallocate(qkv)
+            conv = ttnn.multiply(st[0], tw["conv_taps"][0], memory_config=_L1)
+            for j in range(1, self.K):
+                conv = ttnn.mac(st[j], tw["conv_taps"][j], conv)
+            conv = ttnn.silu(conv, memory_config=_L1)
+
+            kd = self.key_dim_tp
+            q = ttnn.reshape(ttnn.slice(conv, (0, 0, 0), (1, B, kd)), (B, Nk, Dk))
+            k = ttnn.reshape(ttnn.slice(conv, (0, 0, kd), (1, B, 2 * kd)), (B, Nk, Dk))
+            v = ttnn.reshape(ttnn.slice(conv, (0, 0, 2 * kd), (1, B, self.qkv_dim_tp)), (B, Nv, Dv))
+            ttnn.deallocate(conv)
+
         init_state = self.rec_state if B == Bmax else self._slice_along(self.rec_state, 0, 0, B)
 
         if use_fused_decode:
@@ -1142,6 +1168,7 @@ class TPGatedDeltaNet(LightweightModule):
                     memory_config=_L1,
                     decay_scale=tw["neg_exp_A"],
                     dt_bias=tw["dt_bias"],
+                    packed_qkv=packed_conv is not None,
                 )
             else:
                 beta = ttnn.sigmoid(b, memory_config=_L1)
@@ -1160,9 +1187,12 @@ class TPGatedDeltaNet(LightweightModule):
                     v_head_dim=Dv,
                     head_expand_ratio=rf,
                     memory_config=_L1,
+                    packed_qkv=packed_conv is not None,
                 )
             ttnn.deallocate(a)
             ttnn.deallocate(b)
+            if packed_conv is not None:
+                ttnn.deallocate(packed_conv)
         else:
             # Generic fallback for widths whose flattened heads exceed the core grid. The
             # recurrence function expands Q/K and runs the same math as a composition of TTNN ops.

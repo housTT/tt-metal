@@ -96,6 +96,7 @@ def test_deltanet_decode_kernel_fuses_ab_preprocessing(mesh_device, ensure_gc):
     residual = v - torch.einsum("hk,hkv->hv", k_expanded, expected_state)
     expected_state += beta[:, None, None] * torch.einsum("hk,hv->hkv", k_expanded, residual)
     expected_output = torch.einsum("hk,hkv->hv", q_expanded, expected_state)
+    packed_qkv = torch.cat([q.reshape(-1), k.reshape(-1), v.reshape(-1)]).reshape(1, 1, -1)
 
     replicate = ttnn.ReplicateTensorToMesh(mesh_device)
 
@@ -109,10 +110,11 @@ def test_deltanet_decode_kernel_fuses_ab_preprocessing(mesh_device, ensure_gc):
             memory_config=memory_config,
         )
 
+    tt_packed_qkv = to_device(packed_qkv)
     outputs = ttnn.experimental.deltanet_decode_full(
-        to_device(q.unsqueeze(0)),
-        to_device(k.unsqueeze(0)),
-        to_device(v.unsqueeze(0)),
+        tt_packed_qkv,
+        tt_packed_qkv,
+        tt_packed_qkv,
         to_device(raw_b.reshape(1, 1, num_heads)),
         to_device(raw_a.reshape(1, 1, num_heads)),
         to_device(state.unsqueeze(0), memory_config=ttnn.DRAM_MEMORY_CONFIG),
@@ -123,6 +125,7 @@ def test_deltanet_decode_kernel_fuses_ab_preprocessing(mesh_device, ensure_gc):
         head_expand_ratio=head_expand_ratio,
         decay_scale=to_device(decay_scale.reshape(1, 1, num_heads)),
         dt_bias=to_device(dt_bias.reshape(1, 1, num_heads)),
+        packed_qkv=True,
     )
 
     compose = ttnn.ConcatMeshToTensor(mesh_device, dim=0)
@@ -131,6 +134,62 @@ def test_deltanet_decode_kernel_fuses_ab_preprocessing(mesh_device, ensure_gc):
 
     assert _pcc(actual_output, expected_output) > 0.999
     assert _pcc(actual_state, expected_state) > 0.999
+
+
+@parametrize_mesh_tp()
+def test_deltanet_decode_kernel_fuses_causal_conv_state_update(mesh_device, ensure_gc):
+    """Validate packed four-tap convolution, SiLU, and in-place state rollover."""
+    batch = 8
+    q_width, k_width, v_width = 512, 512, 1536
+    channels = q_width + k_width + v_width
+    torch.manual_seed(19)
+
+    def bf16(tensor):
+        return tensor.to(torch.bfloat16).float()
+
+    x = bf16(torch.randn(1, batch, channels) * 0.2)
+    states = [bf16(torch.randn(1, batch, channels) * 0.2) for _ in range(4)]
+    taps = [bf16(torch.randn(1, 1, channels) * 0.1) for _ in range(4)]
+
+    expected = bf16(states[1] * taps[0])
+    expected = bf16(expected + states[2] * taps[1])
+    expected = bf16(expected + states[3] * taps[2])
+    expected = torch.nn.functional.silu(expected + x * taps[3])
+
+    replicate = ttnn.ReplicateTensorToMesh(mesh_device)
+
+    def to_device(tensor, memory_config=ttnn.DRAM_MEMORY_CONFIG):
+        return ttnn.from_torch(
+            tensor,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=mesh_device,
+            mesh_mapper=replicate,
+            memory_config=memory_config,
+        )
+
+    tt_x = to_device(x, memory_config=ttnn.L1_MEMORY_CONFIG)
+    tt_states = [to_device(state) for state in states]
+    tt_taps = [to_device(tap) for tap in taps]
+    actual = ttnn.experimental.deltanet_conv1d_decode(
+        tt_x,
+        *tt_states,
+        *tt_taps,
+        q_width=q_width,
+        k_width=k_width,
+        v_width=v_width,
+        memory_config=ttnn.L1_MEMORY_CONFIG,
+    )
+
+    compose = ttnn.ConcatMeshToTensor(mesh_device, dim=0)
+    actual = ttnn.to_torch(actual, mesh_composer=compose)[0]
+    actual_states = [ttnn.to_torch(state, mesh_composer=compose)[0] for state in tt_states]
+
+    assert _pcc(actual, expected) > 0.999
+    assert torch.equal(actual_states[0], states[1][0].to(torch.bfloat16))
+    assert torch.equal(actual_states[1], states[2][0].to(torch.bfloat16))
+    assert torch.equal(actual_states[2], states[3][0].to(torch.bfloat16))
+    assert torch.equal(actual_states[3], x[0].to(torch.bfloat16))
 
 
 @parametrize_mesh_tp()

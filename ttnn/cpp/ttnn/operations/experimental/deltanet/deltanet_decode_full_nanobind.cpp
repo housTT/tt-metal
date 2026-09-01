@@ -46,6 +46,8 @@ void bind_deltanet_decode_full(nb::module_& mod) {
                 Supplying this and dt_bias fuses sigmoid(b) and
                 exp(decay_scale * softplus(a + dt_bias)).
             dt_bias (ttnn.Tensor, optional): [1,1,H] decay bias.
+            packed_qkv (bool): Interpret q as packed [1,B,Q|K|V] and ignore
+                k/v. This removes decode head-split and reshape operations.
 
         Returns:
             list[ttnn.Tensor]: [raw_output, new_recurrent_state]
@@ -69,7 +71,37 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         nb::arg("head_expand_ratio"),
         nb::arg("memory_config") = nb::none(),
         nb::arg("decay_scale") = nb::none(),
-        nb::arg("dt_bias") = nb::none());
+        nb::arg("dt_bias") = nb::none(),
+        nb::arg("packed_qkv") = false);
+
+    const auto* conv_doc =
+        R"doc(
+        Fused four-tap causal convolution and persistent decode-state update.
+
+        Computes silu(state1*tap0 + state2*tap1 + state3*tap2 + input*tap3)
+        while shifting state1->state0, state2->state1, state3->state2, and
+        input->state3 in the same device operation. The returned tensor keeps
+        the packed [Q|K|V] layout.
+        )doc";
+
+    ttnn::bind_function<"deltanet_conv1d_decode", "ttnn.experimental.">(
+        mod,
+        conv_doc,
+        &ttnn::experimental::deltanet_conv1d_decode,
+        nb::arg("input"),
+        nb::arg("state0"),
+        nb::arg("state1"),
+        nb::arg("state2"),
+        nb::arg("state3"),
+        nb::arg("tap0"),
+        nb::arg("tap1"),
+        nb::arg("tap2"),
+        nb::arg("tap3"),
+        nb::kw_only(),
+        nb::arg("q_width"),
+        nb::arg("k_width"),
+        nb::arg("v_width"),
+        nb::arg("memory_config") = nb::none());
 }
 
 }  // namespace ttnn::operations::experimental::deltanet::detail

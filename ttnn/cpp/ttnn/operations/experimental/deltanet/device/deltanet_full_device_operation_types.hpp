@@ -17,6 +17,7 @@ struct DeltaNetDecodeFullParams {
     uint32_t v_head_dim;
     uint32_t head_expand_ratio;
     bool preprocess_ab;
+    bool packed_qkv;
     tt::tt_metal::MemoryConfig output_memory_config;
 };
 
@@ -29,6 +30,25 @@ struct DeltaNetDecodeFullInputs {
     const Tensor& decay_scale;      // [1,1,H], used when preprocess_ab
     const Tensor& dt_bias;          // [1,1,H], used when preprocess_ab
     const Tensor& recurrent_state;  // [B,H,Dk,Dv]
+};
+
+struct DeltaNetConv1dDecodeParams {
+    uint32_t q_width;
+    uint32_t k_width;
+    uint32_t v_width;
+    tt::tt_metal::MemoryConfig output_memory_config;
+};
+
+struct DeltaNetConv1dDecodeInputs {
+    const Tensor& input;   // [1,B,Q+K+V]
+    const Tensor& state0;  // [1,Bmax,Q+K+V], oldest state (updated in place)
+    const Tensor& state1;
+    const Tensor& state2;
+    const Tensor& state3;  // newest state (updated in place with input)
+    const Tensor& tap0;    // [1,1,Q+K+V]
+    const Tensor& tap1;
+    const Tensor& tap2;
+    const Tensor& tap3;
 };
 
 }  // namespace ttnn::operations::experimental::deltanet
