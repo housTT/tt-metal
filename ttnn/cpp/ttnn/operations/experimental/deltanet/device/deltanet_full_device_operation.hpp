@@ -43,7 +43,9 @@ struct DeltaNetDecodeFullDeviceOperation {
 namespace ttnn::prim {
 
 std::vector<Tensor> deltanet_decode_full(
-    const Tensor& qkv_proj,
+    const Tensor& q,
+    const Tensor& k,
+    const Tensor& v,
     const Tensor& beta,
     const Tensor& decay,
     const Tensor& recurrent_state,

@@ -65,7 +65,7 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
 
     auto* device = inputs.recurrent_state.device();
     Program program{};
-    const auto data_format = datatype_to_dataformat_converter(inputs.qkv_proj.dtype());
+    const auto data_format = datatype_to_dataformat_converter(inputs.q.dtype());
     const auto grid = device->compute_with_storage_grid_size();
     TT_FATAL(
         num_heads <= grid.x * grid.y,
@@ -99,7 +99,9 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     ff::make_cb(program, all_cores, ff::kCbAcc, data_format, v_head_dim_tiles);
 
     auto* state_buffer = inputs.recurrent_state.buffer();
-    auto* qkv_buffer = inputs.qkv_proj.buffer();
+    auto* q_buffer = inputs.q.buffer();
+    auto* k_buffer = inputs.k.buffer();
+    auto* v_buffer = inputs.v.buffer();
     auto* beta_buffer = inputs.beta.buffer();
     auto* decay_buffer = inputs.decay.buffer();
 
@@ -115,7 +117,9 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
         v_head_dim_tiles,
     };
     TensorAccessorArgs(state_buffer).append_to(reader_compile_args);
-    TensorAccessorArgs(qkv_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(q_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(k_buffer).append_to(reader_compile_args);
+    TensorAccessorArgs(v_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(beta_buffer).append_to(reader_compile_args);
     TensorAccessorArgs(decay_buffer).append_to(reader_compile_args);
     const auto reader_kernel =
@@ -163,13 +167,18 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
     const auto writer_kernel =
         CreateKernel(program, ff::kWriterPath, all_cores, WriterDataMovementConfig(writer_compile_args));
 
-    const uint32_t key_dim_tiles = attrs.num_k_heads * k_head_dim_tiles;
+    const uint32_t batch_size = inputs.q.logical_shape()[-3];
+    const uint32_t heads_per_batch = attrs.num_heads / batch_size;
     for (uint32_t head = 0; head < num_heads; ++head) {
         const CoreCoord core = {head % grid.x, head / grid.x};
-        const uint32_t key_head = head / attrs.head_expand_ratio;
-        const uint32_t q_tile = key_head * k_head_dim_tiles;
-        const uint32_t k_tile = key_dim_tiles + key_head * k_head_dim_tiles;
-        const uint32_t v_tile = 2 * key_dim_tiles + head * v_head_dim_tiles;
+        const uint32_t batch = head / heads_per_batch;
+        const uint32_t value_head = head % heads_per_batch;
+        const uint32_t key_head = value_head / attrs.head_expand_ratio;
+        const uint32_t q_tile = batch * k_head_dim_tiles;
+        const uint32_t k_tile = batch * k_head_dim_tiles;
+        const uint32_t v_tile = batch * v_head_dim_tiles;
+        const uint32_t scalar_tile = (batch / ff::kTileSize) * ((heads_per_batch + ff::kTileSize - 1) / ff::kTileSize) +
+                                     value_head / ff::kTileSize;
 
         SetRuntimeArgs(
             program,
@@ -177,14 +186,20 @@ DeltaNetDecodeFullProgramFactory::cached_program_t DeltaNetDecodeFullProgramFact
             core,
             {
                 state_buffer->address(),
-                qkv_buffer->address(),
+                q_buffer->address(),
+                k_buffer->address(),
+                v_buffer->address(),
                 beta_buffer->address(),
                 decay_buffer->address(),
                 head * state_tiles,
-                head,
+                scalar_tile,
+                batch % ff::kTileSize,
+                value_head % ff::kTileSize,
                 q_tile,
                 k_tile,
                 v_tile,
+                key_head,
+                value_head,
             });
         SetRuntimeArgs(
             program,
@@ -225,9 +240,11 @@ void DeltaNetDecodeFullProgramFactory::override_runtime_arguments(
         const CoreCoord core = {head % grid.x, head / grid.x};
         auto& reader_args = reader_runtime_args[core.x][core.y];
         reader_args[0] = inputs.recurrent_state.buffer()->address();
-        reader_args[1] = inputs.qkv_proj.buffer()->address();
-        reader_args[2] = inputs.beta.buffer()->address();
-        reader_args[3] = inputs.decay.buffer()->address();
+        reader_args[1] = inputs.q.buffer()->address();
+        reader_args[2] = inputs.k.buffer()->address();
+        reader_args[3] = inputs.v.buffer()->address();
+        reader_args[4] = inputs.beta.buffer()->address();
+        reader_args[5] = inputs.decay.buffer()->address();
 
         auto& writer_args = writer_runtime_args[core.x][core.y];
         writer_args[0] = outputs[1].buffer()->address();

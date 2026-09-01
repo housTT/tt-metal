@@ -20,10 +20,12 @@ struct DeltaNetDecodeFullParams {
 };
 
 struct DeltaNetDecodeFullInputs {
-    const Tensor& qkv_proj;         // [1,1,1, 2*Hk*Dk + H*Dv], normalized q/k and v
-    const Tensor& beta;             // [1,1,1,H]
-    const Tensor& decay;            // [1,1,1,H]
-    const Tensor& recurrent_state;  // [1,H,Dk,Dv]
+    const Tensor& q;                // [B,Hk,Dk], raw q
+    const Tensor& k;                // [B,Hk,Dk], raw k
+    const Tensor& v;                // [B,H,Dv]
+    const Tensor& beta;             // [1,B,H]
+    const Tensor& decay;            // [1,B,H]
+    const Tensor& recurrent_state;  // [B,H,Dk,Dv]
 };
 
 }  // namespace ttnn::operations::experimental::deltanet

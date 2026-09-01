@@ -8,7 +8,9 @@
 namespace ttnn::experimental {
 
 std::vector<Tensor> deltanet_decode_full(
-    const Tensor& qkv_proj,
+    const Tensor& q,
+    const Tensor& k,
+    const Tensor& v,
     const Tensor& beta,
     const Tensor& decay,
     const Tensor& recurrent_state,
@@ -19,7 +21,9 @@ std::vector<Tensor> deltanet_decode_full(
     uint32_t head_expand_ratio,
     const std::optional<MemoryConfig>& memory_config) {
     return ttnn::prim::deltanet_decode_full(
-        qkv_proj,
+        q,
+        k,
+        v,
         beta,
         decay,
         recurrent_state,

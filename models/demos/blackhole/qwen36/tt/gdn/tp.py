@@ -14,7 +14,6 @@ import ttnn
 from models.common.lightweightmodule import LightweightModule
 from models.demos.blackhole.qwen36.tt import tp_common as tpc
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import (
-    l2_norm_ttnn,
     recurrent_gated_delta_rule_decode_ttnn,
 )
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import (
@@ -1122,32 +1121,21 @@ class TPGatedDeltaNet(LightweightModule):
         init_state = self.rec_state if B == Bmax else self._slice_along(self.rec_state, 0, 0, B)
 
         if use_fused_decode:
-            # Normalize the unexpanded key heads, then flatten batch into the head axis. The
-            # custom op assigns one core to each (batch, value-head), expands Q/K by index, and
-            # fuses decay, state read, delta update, state write, and q @ S_new.
-            q_norm = l2_norm_ttnn(q, dim=-1)
-            q_scaled = ttnn.multiply(q_norm, self.scale, memory_config=_L1)
-            k_norm = l2_norm_ttnn(k, dim=-1)
-            q_flat = ttnn.reshape(q_scaled, (1, 1, B * Nk * Dk), memory_config=_L1)
-            k_flat = ttnn.reshape(k_norm, (1, 1, B * Nk * Dk), memory_config=_L1)
-            v_flat = ttnn.reshape(v, (1, 1, B * Nv * Dv), memory_config=_L1)
-            qkv = ttnn.reshape(
-                ttnn.concat([q_flat, k_flat, v_flat], dim=-1, memory_config=_L1),
-                (1, 1, 1, B * self.qkv_dim_tp),
-                memory_config=_L1,
-            )
-
-            beta = ttnn.reshape(ttnn.sigmoid(b, memory_config=_L1), (1, 1, 1, num_fused_heads))
+            # Flatten batch into the head axis without expanding Q/K. The custom op assigns one
+            # core to each (batch, value-head), expands Q/K by index, normalizes both vectors,
+            # scales Q, and fuses decay, state read, delta update, state write, and q @ S_new.
+            beta = ttnn.sigmoid(b, memory_config=_L1)
             ttnn.deallocate(b)
             log_decay = ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"]), memory_config=_L1)
             ttnn.deallocate(a)
-            decay = ttnn.reshape(ttnn.exp(log_decay, memory_config=_L1), (1, 1, 1, num_fused_heads))
-            state_flat = ttnn.reshape(init_state, (1, num_fused_heads, Dk, Dv))
+            decay = ttnn.exp(log_decay, memory_config=_L1)
             o, new_rec = ttnn.experimental.deltanet_decode_full(
-                qkv,
+                q,
+                k,
+                v,
                 beta,
                 decay,
-                state_flat,
+                init_state,
                 num_heads=num_fused_heads,
                 num_k_heads=B * Nk,
                 k_head_dim=Dk,
@@ -1155,7 +1143,6 @@ class TPGatedDeltaNet(LightweightModule):
                 head_expand_ratio=rf,
                 memory_config=_L1,
             )
-            new_rec = ttnn.reshape(new_rec, (B, Nv, Dk, Dv))
         else:
             # Generic fallback for widths whose flattened heads exceed the core grid. The
             # recurrence function expands Q/K and runs the same math as a composition of TTNN ops.

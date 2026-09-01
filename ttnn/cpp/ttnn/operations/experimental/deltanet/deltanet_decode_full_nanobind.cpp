@@ -26,10 +26,12 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         TTNN tail than serializing those operations on one core per head.
 
         Args:
-            qkv_proj (ttnn.Tensor): [1,1,1,2*Hk*Dk+H*Dv] normalized Q/K and V.
-            beta (ttnn.Tensor): [1,1,1,H] update coefficient.
-            decay (ttnn.Tensor): [1,1,1,H] recurrent-state decay.
-            recurrent_state (ttnn.Tensor): [1,H,Dk,Dv] recurrent state
+            q (ttnn.Tensor): [B,Hk,Dk] raw Q. Normalization and scaling are fused.
+            k (ttnn.Tensor): [B,Hk,Dk] raw K. Normalization is fused.
+            v (ttnn.Tensor): [B,H,Dv] value vectors.
+            beta (ttnn.Tensor): [1,B,H] update coefficient.
+            decay (ttnn.Tensor): [1,B,H] recurrent-state decay.
+            recurrent_state (ttnn.Tensor): [B,H,Dk,Dv] recurrent state
 
         Keyword Args:
             num_heads (int): Number of value/output heads.
@@ -47,7 +49,9 @@ void bind_deltanet_decode_full(nb::module_& mod) {
         mod,
         doc,
         &ttnn::experimental::deltanet_decode_full,
-        nb::arg("qkv_proj"),
+        nb::arg("q"),
+        nb::arg("k"),
+        nb::arg("v"),
         nb::arg("beta"),
         nb::arg("decay"),
         nb::arg("recurrent_state"),

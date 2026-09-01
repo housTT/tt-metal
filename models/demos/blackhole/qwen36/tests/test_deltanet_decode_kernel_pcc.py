@@ -20,20 +20,17 @@ def test_deltanet_decode_kernel_matches_torch(mesh_device, ensure_gc):
     num_k_heads, num_heads = 4, 12
     k_head_dim = v_head_dim = 128
     head_expand_ratio = num_heads // num_k_heads
-    key_dim = num_k_heads * k_head_dim
-    value_dim = num_heads * v_head_dim
-    conv_dim = 2 * key_dim + value_dim
-
     torch.manual_seed(0)
-    q = torch.nn.functional.normalize(torch.randn(num_k_heads, k_head_dim), dim=-1) * k_head_dim**-0.5
-    k = torch.nn.functional.normalize(torch.randn(num_k_heads, k_head_dim), dim=-1)
+    q = torch.randn(num_k_heads, k_head_dim)
+    k = torch.randn(num_k_heads, k_head_dim)
     v = torch.randn(num_heads, v_head_dim) * 0.3
     beta = torch.rand(num_heads)
     decay = torch.exp(-torch.rand(num_heads) * 0.1)
     state = torch.randn(num_heads, k_head_dim, v_head_dim) * 0.1
 
-    q_expanded = q.repeat_interleave(head_expand_ratio, dim=0)
-    k_expanded = k.repeat_interleave(head_expand_ratio, dim=0)
+    q_expanded = torch.nn.functional.normalize(q, dim=-1).repeat_interleave(head_expand_ratio, dim=0)
+    q_expanded *= k_head_dim**-0.5
+    k_expanded = torch.nn.functional.normalize(k, dim=-1).repeat_interleave(head_expand_ratio, dim=0)
     expected_state = state * decay[:, None, None]
     residual = v - torch.einsum("hk,hkv->hv", k_expanded, expected_state)
     expected_state += beta[:, None, None] * torch.einsum("hk,hv->hkv", k_expanded, residual)
@@ -51,11 +48,12 @@ def test_deltanet_decode_kernel_matches_torch(mesh_device, ensure_gc):
             memory_config=memory_config,
         )
 
-    qkv = torch.cat((q.flatten(), k.flatten(), v.flatten())).reshape(1, 1, 1, conv_dim)
     outputs = ttnn.experimental.deltanet_decode_full(
-        to_device(qkv),
-        to_device(beta.reshape(1, 1, 1, num_heads)),
-        to_device(decay.reshape(1, 1, 1, num_heads)),
+        to_device(q.unsqueeze(0)),
+        to_device(k.unsqueeze(0)),
+        to_device(v.unsqueeze(0)),
+        to_device(beta.reshape(1, 1, num_heads)),
+        to_device(decay.reshape(1, 1, num_heads)),
         to_device(state.unsqueeze(0), memory_config=ttnn.DRAM_MEMORY_CONFIG),
         num_heads=num_heads,
         num_k_heads=num_k_heads,
@@ -79,25 +77,18 @@ def test_deltanet_decode_kernel_512_step_continuity(mesh_device, ensure_gc):
     num_k_heads, num_heads = 4, 12
     k_head_dim = v_head_dim = 128
     head_expand_ratio = num_heads // num_k_heads
-    key_dim = num_k_heads * k_head_dim
-    value_dim = num_heads * v_head_dim
-    qkv_dim = 2 * key_dim + value_dim
-
     torch.manual_seed(17)
 
     def bf16(tensor):
         return tensor.to(torch.bfloat16).float()
 
-    q = bf16(torch.nn.functional.normalize(torch.randn(steps, num_k_heads, k_head_dim), dim=-1))
-    q = bf16(q * k_head_dim**-0.5)
-    k = bf16(torch.nn.functional.normalize(torch.randn(steps, num_k_heads, k_head_dim), dim=-1))
+    q = bf16(torch.randn(steps, num_k_heads, k_head_dim))
+    k = bf16(torch.randn(steps, num_k_heads, k_head_dim))
     v = bf16(torch.randn(steps, num_heads, v_head_dim) * 0.2)
     beta = bf16(torch.sigmoid(torch.randn(steps, num_heads)))
     # Model-like near-one decays exercise the accumulation path without rapidly erasing history.
     decay = bf16(torch.exp(-torch.rand(steps, num_heads) * 0.05))
     initial_state = bf16(torch.randn(num_heads, k_head_dim, v_head_dim) * 0.05)
-    qkv = torch.cat((q.flatten(1), k.flatten(1), v.flatten(1)), dim=-1).reshape(steps, 1, 1, qkv_dim)
-
     replicate = ttnn.ReplicateTensorToMesh(mesh_device)
 
     def to_device(tensor, memory_config):
@@ -110,37 +101,59 @@ def test_deltanet_decode_kernel_512_step_continuity(mesh_device, ensure_gc):
             memory_config=memory_config,
         )
 
-    qkv_all = to_device(qkv, ttnn.DRAM_MEMORY_CONFIG)
-    beta_all = to_device(beta.reshape(steps, 1, 1, num_heads), ttnn.DRAM_MEMORY_CONFIG)
-    decay_all = to_device(decay.reshape(steps, 1, 1, num_heads), ttnn.DRAM_MEMORY_CONFIG)
+    q_all = to_device(q, ttnn.DRAM_MEMORY_CONFIG)
+    k_all = to_device(k, ttnn.DRAM_MEMORY_CONFIG)
+    v_all = to_device(v, ttnn.DRAM_MEMORY_CONFIG)
+    beta_all = to_device(beta.reshape(steps, 1, num_heads), ttnn.DRAM_MEMORY_CONFIG)
+    decay_all = to_device(decay.reshape(steps, 1, num_heads), ttnn.DRAM_MEMORY_CONFIG)
     state = to_device(initial_state.unsqueeze(0), ttnn.DRAM_MEMORY_CONFIG)
 
     state_ref = initial_state.clone()
     expected_output = None
     actual_output = None
     for step in range(steps):
-        q_expanded = q[step].repeat_interleave(head_expand_ratio, dim=0)
-        k_expanded = k[step].repeat_interleave(head_expand_ratio, dim=0)
+        q_expanded = torch.nn.functional.normalize(q[step], dim=-1).repeat_interleave(head_expand_ratio, dim=0)
+        q_expanded = bf16(q_expanded * k_head_dim**-0.5)
+        k_expanded = bf16(torch.nn.functional.normalize(k[step], dim=-1).repeat_interleave(head_expand_ratio, dim=0))
         state_ref = state_ref * decay[step, :, None, None]
         residual = v[step] - torch.einsum("hk,hkv->hv", k_expanded, state_ref)
         state_ref += beta[step, :, None, None] * torch.einsum("hk,hv->hkv", k_expanded, residual)
         expected_output = torch.einsum("hk,hkv->hv", q_expanded, state_ref)
 
-        qkv_step = ttnn.slice(qkv_all, (step, 0, 0, 0), (step + 1, 1, 1, qkv_dim), memory_config=ttnn.L1_MEMORY_CONFIG)
+        q_step = ttnn.slice(
+            q_all,
+            (step, 0, 0),
+            (step + 1, num_k_heads, k_head_dim),
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+        k_step = ttnn.slice(
+            k_all,
+            (step, 0, 0),
+            (step + 1, num_k_heads, k_head_dim),
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
+        v_step = ttnn.slice(
+            v_all,
+            (step, 0, 0),
+            (step + 1, num_heads, v_head_dim),
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+        )
         beta_step = ttnn.slice(
             beta_all,
-            (step, 0, 0, 0),
-            (step + 1, 1, 1, num_heads),
+            (step, 0, 0),
+            (step + 1, 1, num_heads),
             memory_config=ttnn.L1_MEMORY_CONFIG,
         )
         decay_step = ttnn.slice(
             decay_all,
-            (step, 0, 0, 0),
-            (step + 1, 1, 1, num_heads),
+            (step, 0, 0),
+            (step + 1, 1, num_heads),
             memory_config=ttnn.L1_MEMORY_CONFIG,
         )
         outputs = ttnn.experimental.deltanet_decode_full(
-            qkv_step,
+            q_step,
+            k_step,
+            v_step,
             beta_step,
             decay_step,
             state,
@@ -156,7 +169,9 @@ def test_deltanet_decode_kernel_512_step_continuity(mesh_device, ensure_gc):
         if actual_output is not None:
             ttnn.deallocate(actual_output)
         actual_output = outputs[0]
-        ttnn.deallocate(qkv_step)
+        ttnn.deallocate(q_step)
+        ttnn.deallocate(k_step)
+        ttnn.deallocate(v_step)
         ttnn.deallocate(beta_step)
         ttnn.deallocate(decay_step)
 
