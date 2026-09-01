@@ -91,12 +91,22 @@ class TraceEvidence:
     sampling_state_host_refreshes: int = 0
     decode_output_collections: int = 0
     asynchronous_decode_output_collections: int = 0
+    minimal_token_readbacks: int = 0
+    token_read_device_shards: int = 0
+    token_read_replica_shards_skipped: int = 0
     new_prefill_variants_compiled: int = 0
     decode_trace_releases_for_prefill_compile: int = 0
     decode_trace_releases_for_host_sampling: int = 0
 
     def to_dict(self):
         return dict(vars(self))
+
+
+@dataclass(frozen=True)
+class _MinimalTokenHostOutput:
+    """Host-resident token shards selected before crossing the async boundary."""
+
+    shards: tuple[Any, ...]
 
 
 def _to_torch_page_table(page_table) -> torch.Tensor:
@@ -698,6 +708,52 @@ class Generator(_ReadinessGenerator):
             raise RuntimeError("canonical greedy sampling state is not prepared")
         return self._replay_prepared_sampling(tt_logits, enable_trace=enable_trace)
 
+    @staticmethod
+    def _select_minimal_token_shards(device_shards, *, users_row_sharded: bool, mesh_cols: int):
+        """Select one sampled-token replica per distinct data-parallel row."""
+
+        if not device_shards:
+            raise RuntimeError("sampled token output has no device shards")
+        if users_row_sharded:
+            if mesh_cols <= 0 or len(device_shards) % mesh_cols:
+                raise RuntimeError(
+                    f"cannot select token rows from {len(device_shards)} shards with mesh_cols={mesh_cols}"
+                )
+            return device_shards[::mesh_cols]
+        return device_shards[:1]
+
+    def _minimal_token_output(self, device_output):
+        """Return the token tensor when no log-prob payload needs collection."""
+
+        if getattr(self._inner, "data_parallel", 1) != 1 or len(device_output) != 1:
+            return None
+        output = device_output[0]
+        if isinstance(output, tuple):
+            if len(output) != 2 or output[1] is not None:
+                return None
+            output = output[0]
+        return output if isinstance(output, ttnn.Tensor) else None
+
+    def _read_minimal_token_output(self, token_output, *, async_read: bool):
+        """Read one token replica per mesh row instead of every TP replica."""
+
+        device_shards = ttnn.get_device_tensors(token_output)
+        inner_model = self._inner.model[0]
+        mesh_cols = int(inner_model.mesh_device.shape[1])
+        selected = self._select_minimal_token_shards(
+            device_shards,
+            users_row_sharded=bool(getattr(inner_model, "users_row_sharded", False)),
+            mesh_cols=mesh_cols,
+        )
+        host_shards = tuple(shard.cpu(blocking=not async_read) for shard in selected)
+        self.trace_evidence.minimal_token_readbacks += 1
+        self.trace_evidence.token_read_device_shards += len(host_shards)
+        self.trace_evidence.token_read_replica_shards_skipped += len(device_shards) - len(host_shards)
+        host_output = _MinimalTokenHostOutput(host_shards)
+        if async_read:
+            return host_output, [ttnn.record_event(inner_model.mesh_device, 0)]
+        return host_output
+
     def read_decode_output(self, device_output, *, async_read: bool = False, is_tokens: bool = True):
         """Collect an explicitly submitted device token output.
 
@@ -706,7 +762,11 @@ class Generator(_ReadinessGenerator):
         token IDs to a flat int64 tensor.
         """
 
-        host_output = self._inner.read_decode_output(device_output, async_read=async_read)
+        token_output = self._minimal_token_output(device_output) if is_tokens else None
+        if token_output is not None:
+            host_output = self._read_minimal_token_output(token_output, async_read=async_read)
+        else:
+            host_output = self._inner.read_decode_output(device_output, async_read=async_read)
         if async_read:
             self.trace_evidence.asynchronous_decode_output_collections += 1
             return host_output
@@ -721,6 +781,10 @@ class Generator(_ReadinessGenerator):
     def process_decode_output_host(self, host_output, *, is_tokens: bool = False):
         """Format an already-submitted decode read without issuing device work."""
 
+        if isinstance(host_output, _MinimalTokenHostOutput):
+            if not is_tokens:
+                raise RuntimeError("minimal sampled-token output cannot be processed as logits")
+            return torch.cat([ttnn.to_torch(shard).reshape(-1) for shard in host_output.shards], dim=0).to(torch.int64)
         return self._inner.process_decode_output_host(host_output, is_tokens=is_tokens)
 
     def warmup_model_prefill(self, *, kv_cache, enable_trace: bool, can_sample_on_device: bool):

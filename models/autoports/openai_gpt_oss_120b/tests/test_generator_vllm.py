@@ -17,6 +17,7 @@ from models.autoports.openai_gpt_oss_120b.tt.model import (
     Model,
 )
 from models.common.sampling.sampling_params import SamplingParams
+from models.tt_transformers.tt.common import get_block_size
 from models.tt_transformers.tt.generator import (
     assemble_decode_trace_vector,
     prefilled_decode_rows,
@@ -47,6 +48,7 @@ class _FakeGenerator:
         self.decode_capture_calls = []
         self.trace_release_calls = 0
         self.trace_live = True
+        self.teardown_calls = 0
         self._lifetime_decode_trace_releases_for_prefill_compile = 0
         self.release_for_prefill_compile = False
         self.already_warmed_up_prefill = True
@@ -91,6 +93,9 @@ class _FakeGenerator:
         self.trace_release_calls += 1
         self.trace_live = False
         return True
+
+    def teardown(self):
+        self.teardown_calls += 1
 
 
 def _adapter(n_layers=2):
@@ -184,6 +189,20 @@ def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_con
     assert adapter.model_args.salt_duplicate_seeds is False
 
 
+def test_persistent_capture_shutdown_flushes_runtime_evidence_before_trace_release():
+    adapter = _adapter()
+    generator = adapter.generator
+    events = []
+    adapter._write_serving_capability = lambda: events.append("snapshot")
+    generator.teardown = lambda: events.append("teardown")
+
+    adapter.release_persistent_capture()
+    adapter.release_persistent_capture()
+
+    assert events == ["snapshot", "teardown"]
+    assert adapter.generator is None
+
+
 def test_nonaligned_prefill_delegates_to_canonical_generator():
     adapter = _adapter()
     page_table = torch.zeros(2, 2048, dtype=torch.int32)
@@ -244,6 +263,25 @@ def test_prefill_warmup_state_is_proxied_but_serving_prefill_is_untraced():
         can_sample_on_device=True,
     )
     assert adapter.generator.prefill_warmup_calls[-1]["enable_trace"] is False
+    tokens, kwargs = adapter.generator.prefill_calls[-1]
+    assert tokens.shape == (1, 128)
+    assert kwargs["prompt_lens"] == [128]
+    assert kwargs["sampling_params"].top_k == 1
+    assert kwargs["enable_trace"] is False
+    assert len(kwargs["page_tables_per_layer"]) == adapter.model.n_layers
+    assert all(table.shape == (1, 2) for table in kwargs["page_tables_per_layer"])
+
+
+def test_get_block_size_never_indexes_a_device_tensor():
+    class ShapeOnlyTensor:
+        shape = (4096, 2, 64, 64)
+
+        def __getitem__(self, index):
+            raise AssertionError(f"device tensor indexing is forbidden: {index}")
+
+    tensor = ShapeOnlyTensor()
+    assert get_block_size([tensor, tensor]) == 64
+    assert get_block_size([[tensor, tensor], [tensor, tensor]]) == 64
 
 
 def test_steady_decode_reuses_sampling_and_page_table_state():

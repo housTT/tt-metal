@@ -770,7 +770,14 @@ def cap_seq_lens_to_max_prefill_chunk_size(seq_lens, cap):
 
 
 def get_block_size(kv_cache):
-    return kv_cache[0][0].shape[2]
+    first = kv_cache[0]
+    # Callers pass either one layer's ``[k, v]`` pair or the full
+    # ``[[k, v], ...]`` cache.  Indexing a TT tensor to distinguish the two
+    # materializes a device slice, which is both unnecessary and unsafe while
+    # decode traces are live.  Inspect only the Python container structure.
+    if isinstance(first, (list, tuple)):
+        first = first[0]
+    return first.shape[2]
 
 
 def num_blocks_in_seq(seq_len, block_size):

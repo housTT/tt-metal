@@ -1,0 +1,83 @@
+{
+  "workload": {
+    "profile": "single_user_decode",
+    "prompt_len": 128,
+    "gen_len": 128,
+    "batch": 1,
+    "concurrency": 1,
+    "temperature": 0.0,
+    "max_num_seqs": 32,
+    "max_model_len": 131072,
+    "mesh": "P150x4",
+    "sampling": "sample_on_device_mode=all"
+  },
+  "ttft_ms": 502.92781199823366,
+  "decode_ms_per_token_e2e": 17.33873313386589,
+  "decode_ms_per_token_device": null,
+  "roofline_ms_per_token_estimate": null,
+  "device_time_unavailable_reason": "vllm_serving_profiler_disabled_to_protect_hardware",
+  "before": {
+    "ttft_ms": 510.2973639986885,
+    "decode_ms_per_token_e2e": 21.6907634645667,
+    "itl_p50_ms": 21.242684000753798,
+    "itl_p99_ms": 35.6356341805076,
+    "output_throughput_tokens_per_second": 39.19990137263851,
+    "tpot_derived_decode_tokens_per_second_per_user": 46.10257272069806
+  },
+  "after": {
+    "ttft_ms": 502.92781199823366,
+    "decode_ms_per_token_e2e": 17.33873313386589,
+    "itl_p50_ms": 16.237782998359762,
+    "itl_p99_ms": 29.190858501096947,
+    "output_throughput_tokens_per_second": 47.31599317142948,
+    "tpot_derived_decode_tokens_per_second_per_user": 57.67434058067409
+  },
+  "change_percent": {
+    "ttft": -1.4441681498620906,
+    "decode_ms_per_token_e2e": -20.063979480529305,
+    "itl_p50": -23.560586798807705,
+    "itl_p99": -18.08519990626656,
+    "output_throughput": 20.70436790567416,
+    "tpot_derived_decode_tokens_per_second_per_user": 25.100047951026227
+  },
+  "ci_serving_burst": {
+    "workload": {
+      "prompt_len": 100,
+      "gen_len": 100,
+      "requests": 32,
+      "client_concurrency": null,
+      "server_max_num_seqs": 32,
+      "temperature": 0.0
+    },
+    "before": {
+      "ttft_p50_ms": 15297.454127998469,
+      "ttft_p99_ms": 15298.632032320267,
+      "tpot_mean_ms": 589.4014063731682,
+      "itl_p50_ms": 589.2701030006717,
+      "itl_p99_ms": 595.5915645111818,
+      "output_throughput_tokens_per_second": 43.44957412658933
+    },
+    "after": {
+      "ttft_p50_ms": 15272.10849349649,
+      "ttft_p99_ms": 15273.154503659753,
+      "tpot_mean_ms": 589.4087162604169,
+      "itl_p50_ms": 589.3956340005388,
+      "itl_p99_ms": 594.8447307321476,
+      "output_throughput_tokens_per_second": 43.46366837163883
+    }
+  },
+  "optimized_full_model_comparison": {
+    "workload": "P150x4 prompt-128/output-128 split greedy token-out",
+    "decode_ms_per_token": 15.903506748030864,
+    "decode_tokens_per_second_per_user": 62.87921373843022,
+    "vllm_fraction_of_full_model_rate": 0.917224264613141,
+    "vllm_itl_p50_over_full_model_ms": 0.334276250328898
+  },
+  "named_limitations": [
+    "Live-server Tracy, tt-perf-report, device-profiler, adapter-profiler, and ReadDeviceProfiler collection were intentionally disabled by the vLLM-serving contract.",
+    "The optimized serving path still has one caller-visible sampled-token boundary per vLLM step, but reads one replica instead of four and submits the read nonblocking.",
+    "Normal logging emits one generic active-trace warning for reserved trace storage; a full-36 tracker run with program-cache tracking enabled completed every B1/B32 replay with zero unsafe survivors.",
+    "Prefix caching remains disabled for the hybrid alternating-attention cache contract.",
+    "P150 and P150x2 cannot fit the fixed resident model state; production serving requires P150x4."
+  ]
+}

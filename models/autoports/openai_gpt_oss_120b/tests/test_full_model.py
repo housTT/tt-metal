@@ -752,6 +752,16 @@ def test_split_greedy_submission_has_one_explicit_collection_boundary():
     assert evidence.page_table_reuses == 2
 
 
+def test_minimal_token_read_selects_one_tp_replica_per_distinct_row(expect_error):
+    shards = list(range(8))
+
+    assert Generator._select_minimal_token_shards(shards, users_row_sharded=False, mesh_cols=4) == [0]
+    assert Generator._select_minimal_token_shards(shards, users_row_sharded=True, mesh_cols=4) == [0, 4]
+
+    with expect_error(RuntimeError, "mesh_cols=3"):
+        Generator._select_minimal_token_shards(shards, users_row_sharded=True, mesh_cols=3)
+
+
 def test_mixed_prefill_keeps_distinct_physical_rows_with_local_page_coordinate():
     generator = Generator.__new__(Generator)
     generator.model_args = SimpleNamespace(max_batch_size=2, max_context_len=128)

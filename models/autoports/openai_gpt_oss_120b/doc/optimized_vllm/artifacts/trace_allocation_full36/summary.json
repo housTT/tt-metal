@@ -1,0 +1,49 @@
+{
+  "status": "pass",
+  "generated_at_utc": "2026-08-31T23:57:09Z",
+  "model": "openai/gpt-oss-120b",
+  "resident_layers": 36,
+  "mesh": "P150x4",
+  "max_model_len": 131072,
+  "max_num_seqs": 32,
+  "sample_on_device_mode": "all",
+  "environment": {
+    "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+    "TT_METAL_TRACE_ALLOC_TRACEBACKS": "1",
+    "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE": "unset"
+  },
+  "single_user": {
+    "shape": "128 input / 128 output / 1 request / concurrency 1",
+    "completed_requests": 1,
+    "ttft_ms_p50": 513.076524999633,
+    "tpot_ms_mean": 17.684683440939256,
+    "itl_ms_p50": 18.424460002279375,
+    "itl_ms_p99": 29.569283495366104,
+    "output_throughput_tok_per_s": 46.387755440487126,
+    "tpot_decode_tokens_per_second_per_user": 56.54610688054751
+  },
+  "ci_serving_burst": {
+    "shape": "100 input / 100 output / 32 requests / unconstrained client concurrency",
+    "completed_requests": 32,
+    "ttft_ms_p50": 15392.636788998061,
+    "tpot_ms_mean": 589.362058341859,
+    "itl_ms_p50": 589.3981264998729,
+    "itl_ms_p99": 595.3216683592473,
+    "output_throughput_tok_per_s": 43.397368535473504
+  },
+  "trace_replays": 226,
+  "model_execute_submissions": 226,
+  "sampling_execute_submissions": 226,
+  "unsafe_live_buffer_errors": 0,
+  "active_trace_allocation_warnings": 0,
+  "host_sampling_decodes": 0,
+  "full_logits_readbacks": 0,
+  "host_argmax_calls": 0,
+  "minimal_async_token_readbacks": 226,
+  "replica_shards_skipped": 678,
+  "post_run_processes": 0,
+  "post_run_devices": 4,
+  "post_run_dram_healthy": true,
+  "root_cause": "The production full-depth path exposed two real prefill allocations that the reduced two-layer probe did not: get_block_size indexed a TT tensor and materialized a slice, and generic warmup did not compile the explicit per-request per-layer page-table signature used by vLLM PagedFillCache.",
+  "fix": "Inspect only Python cache containers when reading block size, and run one explicit B1 per-layer page-table prefill warmup before decode trace capture. Tracking remained enabled for program-cache buffers; no skip/exclusion variable was used."
+}

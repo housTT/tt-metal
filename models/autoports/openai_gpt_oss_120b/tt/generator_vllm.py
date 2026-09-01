@@ -25,7 +25,7 @@ from typing import Any
 import torch
 
 import ttnn
-from models.autoports.openai_gpt_oss_120b.tt.generator import Generator
+from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, Generator
 from models.autoports.openai_gpt_oss_120b.tt.model import HF_CONTEXT_LENGTH, MODEL_LAYERS, FullModelCapacityError, Model
 from models.autoports.openai_gpt_oss_120b.tt.precision import dtype_name
 from models.demos.gpt_oss.utils.general_utils import get_cache_file_name
@@ -685,16 +685,49 @@ class TTGptOssForCausalLM:
     def process_decode_output_host(self, host_output, is_tokens=False):
         return self._require_generator().process_decode_output_host(host_output, is_tokens=is_tokens)
 
+    def release_persistent_capture(self):
+        """Persist final serving evidence and release traces before mesh close."""
+
+        generator = self.generator
+        if generator is None:
+            return
+        try:
+            self._write_serving_capability()
+        finally:
+            generator.teardown()
+            self.generator = None
+
     def warmup_model_prefill(self, *, kv_cache, enable_trace, can_sample_on_device, **kwargs):
         del enable_trace, kwargs
         table = torch.zeros(self.max_batch_size, self.page_table_blocks, dtype=torch.int32)
         with self._route_page_tables(None, table, update_persistent=False):
-            return self._require_generator().warmup_model_prefill(
+            generator = self._require_generator()
+            result = generator.warmup_model_prefill(
                 kv_cache=kv_cache,
                 # Serving deliberately traces decode only; see prefill_forward.
                 enable_trace=False,
                 can_sample_on_device=can_sample_on_device,
             )
+        if can_sample_on_device:
+            # The generic warmup routes persistent max-width page tables through
+            # the model. Real vLLM sequential prefill instead supplies explicit
+            # per-request row slices. Compile that exact paged-fill signature
+            # before any decode trace is captured so its program-cache buffers
+            # cannot be allocated beside a live B1/B32 trace.
+            seq_len = 128
+            num_blocks = math.ceil(seq_len / PAGE_SIZE)
+            request_table = torch.arange(num_blocks, dtype=torch.int32).reshape(1, num_blocks)
+            generator.prefill_forward(
+                torch.zeros(1, seq_len, dtype=torch.int64),
+                page_table=request_table,
+                kv_cache=kv_cache,
+                prompt_lens=[seq_len],
+                sampling_params=GREEDY,
+                empty_slots=[0],
+                page_tables_per_layer=[request_table] * self.model.n_layers,
+                enable_trace=False,
+            )
+        return result
 
     def warmup_model_decode(
         self,
