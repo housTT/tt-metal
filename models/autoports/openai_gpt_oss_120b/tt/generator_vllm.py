@@ -636,7 +636,11 @@ class TTGptOssForCausalLM:
             tokens = torch.as_tensor(tokens)[:bucket]
             start_pos = torch.as_tensor(start_pos)[:bucket]
             page_table = page_table[:bucket] if isinstance(page_table, torch.Tensor) else page_table
-            page_tables_per_layer = self._slice_page_tables(page_tables_per_layer, bucket)
+        # The hybrid runner deliberately keeps per-layer tables padded to the
+        # warmup width even when its primary table, tokens, and positions use a
+        # declared B1 bucket.  Route only the selected bucket's rows into the
+        # matching persistent buffers; B32 inputs are unchanged by the slice.
+        page_tables_per_layer = self._slice_page_tables(page_tables_per_layer, bucket)
         key = _sampling_key(sampling_params)
         reuse_sampling = (
             device_sampling

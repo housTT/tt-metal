@@ -467,6 +467,28 @@ def test_host_sampling_after_b1_trace_activates_serving_width():
     assert adapter.generator.decode_calls[-1][0].shape == (32, 1)
 
 
+def test_singleton_host_sampling_slices_warmup_padded_hybrid_page_tables():
+    adapter = _adapter()
+    page_table = torch.zeros(1, 16, dtype=torch.int32)
+    padded_per_layer = torch.zeros(32, 16, dtype=torch.int32)
+
+    adapter.decode_forward(
+        tokens=torch.zeros(1, 1, dtype=torch.int32),
+        start_pos=torch.tensor([65]),
+        page_table=page_table,
+        page_tables_per_layer=[padded_per_layer, padded_per_layer],
+        kv_cache=object(),
+        sampling_params=None,
+        reset_batch=True,
+        enable_trace=True,
+        read_from_device=False,
+    )
+
+    assert adapter._active_decode_bucket == 1
+    assert [table.shape for table in adapter.model.page_table_updates[-1]] == [(1, 16), (1, 16)]
+    assert adapter.generator.decode_calls[-1][2]["page_table"].shape == (1, 16)
+
+
 def test_host_prefill_releases_then_device_prefill_recaptures_traces(monkeypatch):
     adapter = _adapter()
     monkeypatch.setattr("ttnn.synchronize_device", lambda *_: None)
