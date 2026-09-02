@@ -97,6 +97,19 @@ def validate_precision_config(config: dict) -> dict:
     if not str(_require(value, "config_id")):
         raise ValueError("precision config_id cannot be empty")
 
+    parallelism = value.get("parallelism")
+    if parallelism is not None:
+        expected_parallelism = {
+            "mesh_shape": [4, 1],
+            "dense_tp": 4,
+            "expert_parallel": 4,
+            "expert_mode": "resident_ep4",
+            "kv_replication": 2,
+            "indexer_kv_replication": 4,
+        }
+        if parallelism != expected_parallelism:
+            raise ValueError(f"Qwen3.8 resident parallelism must be {expected_parallelism}, got {parallelism}")
+
     for group in ("shared_projection", "gdn_projection", "qsa_input", "attention_output"):
         _validate_policy_pair(value, group)
 

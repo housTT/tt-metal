@@ -1,24 +1,20 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Two-die tensor-parallel Qwen3.8-Flash-Next decoder layer.
+"""Four-die tensor/expert-parallel Qwen3.8-Flash-Next decoder layer.
 
-The fixed target is the 1x2 Blackhole P300 mesh present on the bring-up host.
-Each rank owns half of the QSA head groups, shared-expert intermediate, and
-every hyperconnection stream's hidden width.  Routed experts use deterministic
-EP2 ownership with a full 640-wide projection on one rank and an exact-zero
-slot on the other, avoiding a numerically divergent split-K down projection.
-Stack-internal
-residuals stay fractured as ``[1,1,4*M,1280]``: QSA and MoE use reduce-scatter,
-while replicated-head GDN shards only its output projection.  PLE, indexer,
-router inputs, and the 48-head GDN recurrence remain replicated.  Replicated
-GDN recurrence is a deliberate correctness result: splitting it into two
-24-head kernels loses too much numerical agreement.
+The fixed target is a 4x1 Blackhole P300 mesh.  TP4 assigns each rank six QSA
+query heads, one quarter of the shared-expert intermediate, and a 640-wide
+slice of every hyperconnection stream.  The two attention KV heads are
+replicated across rank pairs; the indexer KV head is replicated on all ranks.
+Routed experts use contiguous EP4 ownership with 128 complete BFP4 experts per
+device and device-only dispatch, compute, combine, and reduction.
 
-``from_state_dict`` deliberately starts from :class:`OptimizedDecoder`: it
-builds the exact optimized local graph twice on one shared mesh allocation,
-patches logical rank 1 with its distinct setup-time shard, and releases the
-temporary rank-1 allocation.  No torch or host conversion is used by prefill,
-decode, or collective replay.
+Stack-internal residuals remain fractured as ``[1,1,4*M,640]``.  QSA and MoE
+use reduce-scatter while the correctness-selected 48-head GDN recurrence stays
+replicated and shards only its output projection.  ``from_state_dict`` builds
+the optimized local graph for each logical rank on one shared mesh, patches
+the primary allocation with ranks 1-3, and releases each temporary allocation.
+No activation or expert-weight host round trip occurs in resident execution.
 """
 
 from __future__ import annotations
@@ -38,6 +34,7 @@ import ttnn
 from models.autoports.qwen_qwen3_8_flash_next.tt import functional_decoder as _functional_decoder
 from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import (
     EXPERT_PACKED_BYTES_PER_RANK,
+    GLOBAL_INTERMEDIATE,
     PLEDeviceStaging,
     Qwen38ExpertHostSource,
     Qwen38PLEHostStore,
@@ -47,14 +44,20 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import (
 from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import LINEAR_ATTENTION
 from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import decoder_shapes as _target_decoder_shapes
 from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import OptimizedDecoder
+from models.autoports.qwen_qwen3_8_flash_next.tt.parallel_config import P300_TP4_EP4, Qwen38ParallelConfig
+from models.autoports.qwen_qwen3_8_flash_next.tt.resident_experts import (
+    Qwen38ResidentExpertSource,
+    Qwen38ResidentExperts,
+    RESIDENT_EXPERT_BYTES_PER_DEVICE,
+)
 
-TP_SIZE = 2
-TARGET_MESH = (1, 2)
+TP_SIZE = P300_TP4_EP4.dense_tp
+TARGET_MESH = P300_TP4_EP4.mesh_shape
 # The mesh must be opened with this router payload before constructing a
 # decoder; the hardware tests and context contract expose the same setting.
 COLLECTIVE_NUM_LINKS = 2
 FABRIC_PACKET_BYTES = 8192
-RESIDUAL_SHARD_WIDTH = 1280
+RESIDUAL_SHARD_WIDTH = 2560 // TP_SIZE
 DRAM_BYTES_PER_DEVICE = 34_225_520_640
 RUNTIME_RESERVE_BYTES = 1 << 30
 # BFP8 local main K/V and raw index caches plus BF16 compressed index caches
@@ -77,7 +80,7 @@ FULL_TEXT_ENDPOINT_WEIGHT_BYTES_PER_DEVICE = 1_279_016_960
 NON_EXPERT_WEIGHT_BYTES_PER_DEVICE = (
     DECODER_NON_EXPERT_WEIGHT_BYTES_PER_DEVICE + FULL_TEXT_ENDPOINT_WEIGHT_BYTES_PER_DEVICE
 )
-EXPERT_TILES_PER_DEVICE = 58_982_400
+EXPERT_TILES_PER_DEVICE = 29_491_200
 # The available compressed expert kernel distributes the packed local gate/up
 # width over eight banks and pads 640 to 768.  Down projection geometry is
 # unchanged, so the resident physical count is
@@ -195,6 +198,27 @@ class MultichipMemoryPlan:
     def host_backed_stack_fits(self) -> bool:
         return self.host_backed_stack_bytes <= self.dram_bytes
 
+    @property
+    def resident_stack_bytes(self) -> int:
+        """Conservative TP4 stack charge including every resident BFP4 expert."""
+
+        return (
+            self.runtime_reserve_bytes
+            + self.cache_bytes
+            + self.non_expert_weight_bytes
+            + self.standard_bfp4_expert_bytes
+            + self.ple_staging_bytes
+            + self.all_runtime_state_bytes
+        )
+
+    @property
+    def resident_stack_headroom_bytes(self) -> int:
+        return self.dram_bytes - self.resident_stack_bytes
+
+    @property
+    def resident_stack_fits(self) -> bool:
+        return self.resident_stack_headroom_bytes >= 0
+
 
 @dataclasses.dataclass(frozen=True)
 class HostDecodeAttention:
@@ -217,28 +241,47 @@ class HostDecodeFront:
     route_weights: object
 
 
-def _rank_local_config(hf_config, layer_idx: int | None = None, *, expert_parallel: bool = False):
-    """Clone the HF config and express one of the two equal TP ranks."""
+def _rank_local_config(
+    hf_config,
+    layer_idx: int | None = None,
+    *,
+    expert_parallel: bool = False,
+    parallel_config: Qwen38ParallelConfig = P300_TP4_EP4,
+):
+    """Clone the HF config and express one TP4 rank's logical geometry."""
 
     local = copy.deepcopy(hf_config)
     cfg = local.text_config
     names = ["shared_expert_intermediate_size"]
     if not expert_parallel:
         names.append("moe_intermediate_size")
-    if layer_idx is None or cfg.layer_types[layer_idx] != LINEAR_ATTENTION:
-        names.extend(("num_attention_heads", "num_key_value_heads"))
-    if layer_idx is None:
-        names.extend(("linear_num_key_heads", "linear_num_value_heads"))
+    is_qsa = layer_idx is None or cfg.layer_types[layer_idx] != LINEAR_ATTENTION
+    if is_qsa:
+        names.extend(("num_attention_heads", "indexer_n_heads"))
     for name in names:
         value = int(getattr(cfg, name))
-        if value % TP_SIZE:
-            raise ValueError(f"{name}={value} is not divisible by TP={TP_SIZE}")
-        setattr(cfg, name, value // TP_SIZE)
+        if value % parallel_config.dense_tp:
+            raise ValueError(f"{name}={value} is not divisible by TP={parallel_config.dense_tp}")
+        setattr(cfg, name, value // parallel_config.dense_tp)
+    if is_qsa:
+        # Two attention KV heads are each replicated over two ranks.  The
+        # indexer's single KV head is replicated over all four ranks.
+        if int(cfg.num_key_value_heads) * parallel_config.kv_replication != parallel_config.dense_tp:
+            raise ValueError("attention KV replication does not cover every TP rank")
+        cfg.num_key_value_heads = 1
+        if int(cfg.indexer_kv_heads) != 1 or parallel_config.indexer_kv_replication != parallel_config.dense_tp:
+            raise ValueError("indexer KV head must be replicated over all TP ranks")
     return local
 
 
 @contextmanager
-def _rank_local_shape_contract(global_config, layer_idx: int, *, expert_parallel: bool = False):
+def _rank_local_shape_contract(
+    global_config,
+    layer_idx: int,
+    *,
+    expert_parallel: bool = False,
+    parallel_config: Qwen38ParallelConfig = P300_TP4_EP4,
+):
     """Let the exact-target loader materialize one rank-local TP graph.
 
     ``FunctionalDecoder`` intentionally validates only checkpoint-global
@@ -250,14 +293,17 @@ def _rank_local_shape_contract(global_config, layer_idx: int, *, expert_parallel
 
     global_shapes = _target_decoder_shapes(global_config, layer_idx)
     replacements = {
-        "shared_expert_intermediate_size": global_shapes.shared_expert_intermediate_size // TP_SIZE,
+        "shared_expert_intermediate_size": global_shapes.shared_expert_intermediate_size
+        // parallel_config.dense_tp,
     }
     if not expert_parallel:
-        replacements["moe_intermediate_size"] = global_shapes.moe_intermediate_size // TP_SIZE
+        replacements["moe_intermediate_size"] = global_shapes.moe_intermediate_size // parallel_config.dense_tp
     if global_shapes.layer_type != LINEAR_ATTENTION:
         replacements.update(
-            num_attention_heads=global_shapes.num_attention_heads // TP_SIZE,
-            num_key_value_heads=global_shapes.num_key_value_heads // TP_SIZE,
+            num_attention_heads=global_shapes.num_attention_heads // parallel_config.dense_tp,
+            num_key_value_heads=1,
+            indexer_n_heads=global_shapes.indexer_n_heads // parallel_config.dense_tp,
+            indexer_kv_heads=1,
         )
     local_shapes = dataclasses.replace(global_shapes, **replacements)
 
@@ -310,13 +356,19 @@ def _bounded_host_expert_setup(local_shapes, enabled: bool):
         ttnn.zeros = original_zeros
 
 
-def _rank_local_state(state_dict: Mapping | None, rank: int, *, shard_gdn: bool = True):
+def _rank_local_state(
+    state_dict: Mapping | None,
+    rank: int,
+    *,
+    shard_gdn: bool = True,
+    expert_parallel: bool = False,
+    parallel_config: Qwen38ParallelConfig = P300_TP4_EP4,
+):
     """Return setup-only checkpoint views/concats for one TP rank."""
 
     if state_dict is None:
         return None
-    if rank not in (0, 1):
-        raise ValueError(f"rank must be 0 or 1, got {rank}")
+    parallel_config._validate_rank(rank)
 
     state = dict(state_dict)
 
@@ -324,25 +376,29 @@ def _rank_local_state(state_dict: Mapping | None, rank: int, *, shard_gdn: bool 
     for name in ("gate_proj", "up_proj"):
         key = f"mlp.shared_expert.{name}.weight"
         if key in state:
-            state[key] = state[key][rank * 320 : (rank + 1) * 320]
+            width = GLOBAL_INTERMEDIATE // parallel_config.dense_tp
+            state[key] = state[key][rank * width : (rank + 1) * width]
     key = "mlp.shared_expert.down_proj.weight"
     if key in state:
-        state[key] = state[key][:, rank * 320 : (rank + 1) * 320]
+        width = GLOBAL_INTERMEDIATE // parallel_config.dense_tp
+        state[key] = state[key][:, rank * width : (rank + 1) * width]
 
     # Routed expert: preserve packed [gate, up] ordering within each rank.
     key = "mlp.experts.gate_up_proj"
-    if key in state:
+    if key in state and not expert_parallel:
         fused = state[key]
+        width = GLOBAL_INTERMEDIATE // parallel_config.dense_tp
         state[key] = torch.cat(
             (
-                fused[:, rank * 320 : (rank + 1) * 320],
-                fused[:, 640 + rank * 320 : 640 + (rank + 1) * 320],
+                fused[:, rank * width : (rank + 1) * width],
+                fused[:, GLOBAL_INTERMEDIATE + rank * width : GLOBAL_INTERMEDIATE + (rank + 1) * width],
             ),
             dim=1,
         )
     key = "mlp.experts.down_proj"
-    if key in state:
-        state[key] = state[key][:, :, rank * 320 : (rank + 1) * 320]
+    if key in state and not expert_parallel:
+        width = GLOBAL_INTERMEDIATE // parallel_config.dense_tp
+        state[key] = state[key][:, :, rank * width : (rank + 1) * width]
 
     # The target fused recurrence changes numerical geometry at 24 local value
     # heads and misses decode PCC.  Keep GDN replicated; QSA and MoE remain TP.
@@ -384,22 +440,32 @@ def _rank_local_state(state_dict: Mapping | None, rank: int, *, shard_gdn: bool 
     key = "self_attn.q_proj.weight"
     if key in state:
         q_gate = state[key].reshape(24, 2, 256, 2560)
-        state[key] = q_gate[rank * 12 : (rank + 1) * 12].reshape(6144, 2560)
+        q_start, q_end = parallel_config.q_head_range(rank, 24)
+        state[key] = q_gate[q_start:q_end].reshape((q_end - q_start) * 2 * 256, 2560)
     for suffix in ("k_proj.weight", "v_proj.weight"):
         key = f"self_attn.{suffix}"
         if key in state:
-            state[key] = state[key][rank * 256 : (rank + 1) * 256]
+            kv_head = parallel_config.kv_head_for_rank(rank, 2)
+            state[key] = state[key][kv_head * 256 : (kv_head + 1) * 256]
     key = "self_attn.o_proj.weight"
     if key in state:
-        state[key] = state[key][:, rank * 3072 : (rank + 1) * 3072]
+        q_start, q_end = parallel_config.q_head_range(rank, 24)
+        state[key] = state[key][:, q_start * 256 : q_end * 256]
+
+    key = "self_attn.indexer.index_qk_proj.weight"
+    if key in state:
+        packed = state[key]
+        query_width = 4 * 128
+        query_start = rank * 128
+        state[key] = torch.cat((packed[query_start : query_start + 128], packed[query_width:]), dim=0)
 
     return state
 
 
 def _install_fractured_residual_weights(layer) -> None:
-    """Replace replicated HC/GDN outputs with exact within-stream TP2 shards.
+    """Replace replicated HC/GDN outputs with exact within-stream TP4 shards.
 
-    This is setup-only.  The original optimized weights are replicated on both
+    This is setup-only.  The original optimized weights are replicated on all
     ranks, so mesh-partitioning their four-stream axes preserves the represented
     BFP8 values exactly without a host round trip.  No conversion occurs in a
     forward, capture, or replay path.
@@ -415,7 +481,7 @@ def _install_fractured_residual_weights(layer) -> None:
             local_norm = ttnn.mesh_partition(
                 norm_groups,
                 dim=3,
-                cluster_axis=1,
+                cluster_axis=layer.parallel_config.collective_axis,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             created.append(local_norm)
@@ -435,7 +501,7 @@ def _install_fractured_residual_weights(layer) -> None:
             local_down = ttnn.mesh_partition(
                 down_groups,
                 dim=2,
-                cluster_axis=1,
+                cluster_axis=layer.parallel_config.collective_axis,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             created.append(local_down)
@@ -463,7 +529,7 @@ def _install_fractured_residual_weights(layer) -> None:
             local_up = ttnn.mesh_partition(
                 up_groups,
                 dim=3,
-                cluster_axis=1,
+                cluster_axis=layer.parallel_config.collective_axis,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             created.append(local_up)
@@ -477,7 +543,7 @@ def _install_fractured_residual_weights(layer) -> None:
             local_output = ttnn.mesh_partition(
                 output,
                 dim=-1,
-                cluster_axis=1,
+                cluster_axis=layer.parallel_config.collective_axis,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             created.append(local_output)
@@ -502,11 +568,11 @@ def _install_fractured_residual_weights(layer) -> None:
             ttnn.deallocate(original)
 
 
-def _patch_rank_one(target, source, seen: set[tuple[int, int]]) -> None:
-    """Copy source logical rank 1 into target's shared 1x2 mesh buffer."""
+def _patch_rank(target, source, rank: int, tp_size: int, seen: set[tuple[int, int, int]]) -> None:
+    """Copy one source logical rank into the target's distributed buffer."""
 
     if isinstance(target, ttnn.Tensor) and isinstance(source, ttnn.Tensor):
-        pair = (id(target), id(source))
+        pair = (id(target), id(source), int(rank))
         if pair in seen:
             return
         seen.add(pair)
@@ -516,23 +582,23 @@ def _patch_rank_one(target, source, seen: set[tuple[int, int]]) -> None:
             return
         target_shards = ttnn.get_device_tensors(target)
         source_shards = ttnn.get_device_tensors(source)
-        if len(target_shards) != TP_SIZE or len(source_shards) != TP_SIZE:
-            raise ValueError("rank patch requires tensors distributed over exactly two devices")
-        ttnn.copy(source_shards[1], target_shards[1])
+        if len(target_shards) != tp_size or len(source_shards) != tp_size:
+            raise ValueError(f"rank patch requires tensors distributed over exactly {tp_size} devices")
+        ttnn.copy(source_shards[rank], target_shards[rank])
         return
     if dataclasses.is_dataclass(target) and dataclasses.is_dataclass(source):
         for field in dataclasses.fields(target):
-            _patch_rank_one(getattr(target, field.name), getattr(source, field.name), seen)
+            _patch_rank(getattr(target, field.name), getattr(source, field.name), rank, tp_size, seen)
         return
     if isinstance(target, dict) and isinstance(source, dict):
         for key in target.keys() & source.keys():
-            _patch_rank_one(target[key], source[key], seen)
+            _patch_rank(target[key], source[key], rank, tp_size, seen)
         return
     if isinstance(target, (tuple, list)) and isinstance(source, (tuple, list)):
         if len(target) != len(source):
             raise ValueError("rank-local tensor containers disagree in length")
         for target_value, source_value in zip(target, source):
-            _patch_rank_one(target_value, source_value, seen)
+            _patch_rank(target_value, source_value, rank, tp_size, seen)
 
 
 def _deallocate_tree(value, seen: set[int]) -> None:
@@ -913,7 +979,9 @@ class MultichipDecoder(OptimizedDecoder):
     COLLECTIVE_NUM_LINKS = COLLECTIVE_NUM_LINKS
     FABRIC_PACKET_BYTES = FABRIC_PACKET_BYTES
     OPTIMIZATION_MANIFEST = OptimizedDecoder.OPTIMIZATION_MANIFEST + (
-        "p300_1x2_tensor_parallel_heads_and_experts",
+        "p300_4x1_tp4_ep4",
+        "replicated_attention_kv_head_pairs",
+        "replicated_single_indexer_kv_head",
         "rank_local_paged_kv_cache",
         "replicated_indexer_selection",
         "persistent_within_stream_fractured_residual",
@@ -921,9 +989,10 @@ class MultichipDecoder(OptimizedDecoder):
         "two_link_8192_byte_fabric_payload",
         "gdn_output_column_parallel",
         "distributed_hyperconnection_rmsnorm_and_projections",
-        "exact_checkpoint_host_expert_cache",
+        "resident_contiguous_ep4_bfp4_routed_experts",
+        "device_only_expert_routing_dispatch_and_combine",
         "exact_mmap_ple_row_lookup",
-        "fixed_generation_checked_expert_slots",
+        "zero_runtime_expert_weight_h2d_and_route_d2h",
         "dram_canonical_gdn_state_shared_l1_workspace",
         "direct_persistent_gdn_tap_trace_commit",
         "two_phase_stack_trace_program_warm",
@@ -962,6 +1031,36 @@ class MultichipDecoder(OptimizedDecoder):
         )
 
     @classmethod
+    def from_checkpoint_resident(
+        cls,
+        snapshot,
+        *,
+        hf_config,
+        layer_idx: int,
+        mesh_device,
+        ple_store: Qwen38PLEHostStore | None = None,
+        parallel_config: Qwen38ParallelConfig = P300_TP4_EP4,
+        **kwargs,
+    ) -> "MultichipDecoder":
+        """Build one TP4 layer with all routed experts resident in EP4 DRAM."""
+
+        checkpoint = snapshot if isinstance(snapshot, SafetensorCheckpoint) else SafetensorCheckpoint(snapshot)
+        state = checkpoint.layer_state(layer_idx, include_experts=False)
+        source = Qwen38ResidentExpertSource(checkpoint, layer_idx, parallel_config=parallel_config)
+        if layer_idx == 1 and ple_store is None:
+            ple_store = Qwen38PLEHostStore(checkpoint)
+        return cls.from_state_dict(
+            state,
+            hf_config=hf_config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            resident_expert_source=source,
+            ple_store=ple_store,
+            parallel_config=parallel_config,
+            **kwargs,
+        )
+
+    @classmethod
     def from_state_dict(
         cls,
         state_dict,
@@ -971,11 +1070,23 @@ class MultichipDecoder(OptimizedDecoder):
         mesh_device,
         **kwargs,
     ) -> "MultichipDecoder":
-        mesh_shape = tuple(int(value) for value in mesh_device.shape)
-        if mesh_shape != TARGET_MESH:
-            raise ValueError(f"Qwen3.8 multichip target requires mesh {TARGET_MESH}, got {mesh_shape}")
+        parallel_config = kwargs.pop("parallel_config", P300_TP4_EP4)
+        if not isinstance(parallel_config, Qwen38ParallelConfig):
+            raise TypeError("parallel_config must be Qwen38ParallelConfig")
+        parallel_config.validate_mesh(mesh_device)
 
         host_expert_source = kwargs.pop("host_expert_source", None)
+        resident_expert_source = kwargs.pop("resident_expert_source", None)
+        if host_expert_source is not None and resident_expert_source is not None:
+            raise ValueError("host-backed and resident experts are mutually exclusive")
+        if host_expert_source is not None and parallel_config != P300_TP4_EP4:
+            raise ValueError("the retained host-backed reference is scoped to the selected P300 mesh")
+        if resident_expert_source is not None and not isinstance(
+            resident_expert_source, Qwen38ResidentExpertSource
+        ):
+            raise TypeError("resident_expert_source must be Qwen38ResidentExpertSource")
+        if resident_expert_source is not None and resident_expert_source.layer_idx != layer_idx:
+            raise ValueError("resident expert source layer does not match decoder layer")
         expert_cache_slots = int(kwargs.pop("expert_cache_slots", HOST_EXPERT_SLOTS))
         packed_host_experts = int(kwargs.pop("packed_host_experts", HOST_PACKED_EXPERTS))
         expert_host_packed_dtype = kwargs.pop("expert_host_packed_dtype", "bfp4")
@@ -987,7 +1098,7 @@ class MultichipDecoder(OptimizedDecoder):
         ple_prefill_rows = int(kwargs.pop("ple_prefill_rows", 128))
         collective_num_links = int(kwargs.pop("collective_num_links", COLLECTIVE_NUM_LINKS))
         if collective_num_links not in (1, 2):
-            raise ValueError("P300 TP2 collective_num_links must be 1 or 2")
+            raise ValueError("P300 TP4 collective_num_links must be 1 or 2")
         collective_payload_dtype = kwargs.pop("collective_payload_dtype", "bf16")
         if collective_payload_dtype not in {"bf16", "bfp8"}:
             raise ValueError("collective_payload_dtype must be 'bf16' or 'bfp8'")
@@ -1022,13 +1133,18 @@ class MultichipDecoder(OptimizedDecoder):
         if ple_store is not None and layer_idx != 1:
             raise ValueError("PLE host store can only be attached to zero-based layer 1")
 
-        expert_parallel = host_expert_source is not None
-        local_config = _rank_local_config(hf_config, layer_idx, expert_parallel=expert_parallel)
+        expert_parallel = host_expert_source is not None or resident_expert_source is not None
+        local_config = _rank_local_config(
+            hf_config,
+            layer_idx,
+            expert_parallel=expert_parallel,
+            parallel_config=parallel_config,
+        )
         is_qsa = local_config.text_config.layer_types[layer_idx] != LINEAR_ATTENTION
         if decode_state_workspace is not None and (
-            host_expert_source is None or int(kwargs.get("max_batch", 1)) != 1 or is_qsa
+            not expert_parallel or int(kwargs.get("max_batch", 1)) != 1 or is_qsa
         ):
-            raise ValueError("shared decode-state workspace is valid only for batch-one host-backed GDN")
+            raise ValueError("shared decode-state workspace is valid only for batch-one expert-parallel GDN")
         # GDN is intentionally replicated.  Only QSA head groups and MoE
         # intermediate dimensions are tensor parallel.
         shard_gdn = False
@@ -1044,9 +1160,8 @@ class MultichipDecoder(OptimizedDecoder):
             local_kwargs.setdefault("decode_1d_config", "qsa_input:110,attn_out:20")
             local_kwargs.setdefault("prefill_config", "")
             local_kwargs.setdefault("dram_sharded_role", "")
-            # This exact optimized-baseline candidate already clears QSA PCC
-            # and trace gates.  On TP2 it saves 1.7578125 GiB/device at maximum
-            # context, which is required capacity rather than a cosmetic win.
+            # This optimized cache candidate clears QSA PCC and trace gates
+            # while preserving device headroom at maximum context.
             local_kwargs.setdefault("cache_policy", "bfp8")
         if fractured_residual:
             # The optimized auxiliary DRAM-sharded weights preserve the
@@ -1063,10 +1178,21 @@ class MultichipDecoder(OptimizedDecoder):
             "expert_bfp4_lofi_g40b16_d40b5" if expert_parallel else "expert_bfp4_lofi_g20b16_d40b5",
         )
 
-        with _rank_local_shape_contract(hf_config, layer_idx, expert_parallel=expert_parallel) as local_shapes:
-            setup_context = _bounded_host_expert_setup(local_shapes, host_expert_source is not None)
+        with _rank_local_shape_contract(
+            hf_config,
+            layer_idx,
+            expert_parallel=expert_parallel,
+            parallel_config=parallel_config,
+        ) as local_shapes:
+            setup_context = _bounded_host_expert_setup(local_shapes, expert_parallel)
             with setup_context as bounded_expert_shapes:
-                rank_zero_state = _rank_local_state(state_dict, 0, shard_gdn=shard_gdn)
+                rank_zero_state = _rank_local_state(
+                    state_dict,
+                    0,
+                    shard_gdn=shard_gdn,
+                    expert_parallel=expert_parallel,
+                    parallel_config=parallel_config,
+                )
                 primary = OptimizedDecoder.from_state_dict(
                     rank_zero_state,
                     hf_config=local_config,
@@ -1077,38 +1203,43 @@ class MultichipDecoder(OptimizedDecoder):
                 del rank_zero_state
                 gc.collect()
 
-                rank_one_state = _rank_local_state(state_dict, 1, shard_gdn=shard_gdn)
-                temporary = OptimizedDecoder.from_state_dict(
-                    rank_one_state,
-                    hf_config=local_config,
-                    layer_idx=layer_idx,
-                    mesh_device=mesh_device,
-                    **local_kwargs,
-                )
-                del rank_one_state
-                gc.collect()
-
-        skip = {"weight_group_by_id", "weight_role_by_id", "mesh_device"}
-        copied: set[tuple[int, int]] = set()
-        for name, target in primary.__dict__.items():
-            if name not in skip and name in temporary.__dict__:
-                _patch_rank_one(target, temporary.__dict__[name], copied)
-        ttnn.synchronize_device(mesh_device)
-
-        released: set[int] = set()
-        for name, value in temporary.__dict__.items():
-            if name != "mesh_device":
-                _deallocate_tree(value, released)
-        del temporary
-        gc.collect()
+                skip = {"weight_group_by_id", "weight_role_by_id", "mesh_device"}
+                for rank in range(1, parallel_config.dense_tp):
+                    rank_state = _rank_local_state(
+                        state_dict,
+                        rank,
+                        shard_gdn=shard_gdn,
+                        expert_parallel=expert_parallel,
+                        parallel_config=parallel_config,
+                    )
+                    temporary = OptimizedDecoder.from_state_dict(
+                        rank_state,
+                        hf_config=local_config,
+                        layer_idx=layer_idx,
+                        mesh_device=mesh_device,
+                        **local_kwargs,
+                    )
+                    del rank_state
+                    copied: set[tuple[int, int, int]] = set()
+                    for name, target in primary.__dict__.items():
+                        if name not in skip and name in temporary.__dict__:
+                            _patch_rank(target, temporary.__dict__[name], rank, parallel_config.dense_tp, copied)
+                    ttnn.synchronize_device(mesh_device)
+                    released: set[int] = set()
+                    for name, value in temporary.__dict__.items():
+                        if name != "mesh_device":
+                            _deallocate_tree(value, released)
+                    del temporary
+                    gc.collect()
 
         primary.__class__ = cls
         primary.mesh_device = mesh_device
         primary.global_hf_config = hf_config
         primary.local_hf_config = local_config
-        primary.tp_size = TP_SIZE
+        primary.parallel_config = parallel_config
+        primary.tp_size = parallel_config.dense_tp
         primary.collective_topology = ttnn.Topology.Linear
-        primary.collective_axis = 1
+        primary.collective_axis = parallel_config.collective_axis
         primary.collective_num_links = collective_num_links
         primary.collective_payload_dtype = collective_payload_dtype
         primary.residual_dtype = residual_dtype
@@ -1116,6 +1247,7 @@ class MultichipDecoder(OptimizedDecoder):
         primary.memory_plan = MultichipMemoryPlan()
         primary.host_expert_source = host_expert_source
         primary.host_expert_cache = None
+        primary.resident_experts = None
         primary.host_ple_store = ple_store
         primary.ple_staging = None
         primary._host_route_ids = None
@@ -1130,7 +1262,7 @@ class MultichipDecoder(OptimizedDecoder):
         primary.host_setup_expert_shapes = tuple(bounded_expert_shapes)
         if fractured_residual:
             _install_fractured_residual_weights(primary)
-        if host_expert_source is not None:
+        if expert_parallel:
             # Release one-expert setup sentinels and replace them with bounded,
             # fixed-address demand-loaded slots.
             if primary.expert_gate_up is not None and primary.expert_gate_up.is_allocated():
@@ -1139,16 +1271,26 @@ class MultichipDecoder(OptimizedDecoder):
                 ttnn.deallocate(primary.experts.down)
             primary.expert_gate_up = None
             primary.experts = dataclasses.replace(primary.experts, gate=None, up=None, down=None)
-            primary.host_expert_cache = QwenDeviceExpertCache(
-                mesh_device,
-                host_expert_source,
-                capacity=expert_cache_slots,
-                packed_host_capacity=packed_host_experts,
-                packed_dtype=expert_host_packed_dtype,
-                packed_layout=expert_host_packed_layout,
-                staging_dtype=expert_device_staging_dtype,
-                staging_layout=expert_device_staging_layout,
-            )
+            if host_expert_source is not None:
+                primary.host_expert_cache = QwenDeviceExpertCache(
+                    mesh_device,
+                    host_expert_source,
+                    capacity=expert_cache_slots,
+                    packed_host_capacity=packed_host_experts,
+                    packed_dtype=expert_host_packed_dtype,
+                    packed_layout=expert_host_packed_layout,
+                    staging_dtype=expert_device_staging_dtype,
+                    staging_layout=expert_device_staging_layout,
+                )
+            else:
+                primary.resident_experts = Qwen38ResidentExperts(
+                    mesh_device,
+                    resident_expert_source,
+                    max_batch=primary.max_batch,
+                    prefill_rows=ple_prefill_rows,
+                    num_links=collective_num_links,
+                    topology=primary.collective_topology,
+                )
         if ple_store is not None:
             primary.ple_staging = PLEDeviceStaging(
                 mesh_device,
@@ -1157,7 +1299,7 @@ class MultichipDecoder(OptimizedDecoder):
                 dtype=ple_staging_dtype,
                 layout=ple_staging_layout,
             )
-        if host_expert_source is not None and primary.max_batch == 1 and not is_qsa:
+        if expert_parallel and primary.max_batch == 1 and not is_qsa:
             if decode_state_workspace is None:
                 decode_state_workspace = MultichipDecodeStateWorkspace(mesh_device)
                 primary._owns_decode_state_workspace = True
@@ -1244,7 +1386,7 @@ class MultichipDecoder(OptimizedDecoder):
         rot_mats=None,
         ple_embeddings=None,
     ):
-        """Run prefill with the stack-internal ``[1,1,4*seq,1280]`` ABI."""
+        """Run prefill with the stack-internal ``[1,1,4*seq,640]`` ABI."""
 
         original_hidden_states = hidden_states
         hidden_states = self._residual_compute_input(hidden_states)
@@ -1332,7 +1474,7 @@ class MultichipDecoder(OptimizedDecoder):
         rot_mats=None,
         ple_embeddings=None,
     ):
-        """Run decode with the stack-internal ``[1,1,4*batch,1280]`` ABI."""
+        """Run decode with the stack-internal ``[1,1,4*batch,640]`` ABI."""
 
         original_hidden_states = hidden_states
         hidden_states = self._residual_compute_input(hidden_states)
@@ -1430,7 +1572,7 @@ class MultichipDecoder(OptimizedDecoder):
             raise RuntimeError("host expert service has no compact route ids")
         route_shards = ttnn.get_device_tensors(self._host_route_ids)
         if len(route_shards) != TP_SIZE:
-            raise RuntimeError("compact route tensor is not replicated over TP2")
+            raise RuntimeError(f"compact route tensor is not replicated over TP{TP_SIZE}")
         host = ttnn.to_torch(route_shards[0]).reshape(-1, self.shapes.num_experts_per_tok)
         rows = min(int(self._host_route_rows or host.shape[0]), int(host.shape[0]))
         return tuple(dict.fromkeys(int(value) for value in host[:rows].reshape(-1).tolist()))
@@ -1696,6 +1838,8 @@ class MultichipDecoder(OptimizedDecoder):
         return ttnn.reshape(ttnn.unsqueeze_to_4D(out), (1, 1, tokens, s.hidden_size))
 
     def _routed_experts(self, x, routing):
+        if getattr(self, "resident_experts", None) is not None:
+            raise RuntimeError("resident EP4 is invoked by the fused MoE path, not dense routing")
         if self.host_expert_cache is None:
             return super()._routed_experts(x, routing)
         if self._decode_active and self.max_batch == 1:
@@ -1743,7 +1887,7 @@ class MultichipDecoder(OptimizedDecoder):
         return output
 
     def _reduce_scatter_block(self, partial):
-        """Sum a row-parallel block and retain its within-hidden TP2 shard."""
+        """Sum a row-parallel block and retain its within-hidden TP4 shard."""
 
         payload_dtype = ttnn.bfloat8_b if self.collective_payload_dtype == "bfp8" else ttnn.bfloat16
         if partial.dtype != payload_dtype:
@@ -1789,7 +1933,7 @@ class MultichipDecoder(OptimizedDecoder):
         return converted
 
     def fracture_residual(self, replicated):
-        """One-time stack ingress: R ``[1,1,M,10240]`` -> S ``[1,1,4M,1280]``."""
+        """One-time stack ingress: R ``[1,1,M,10240]`` -> S ``[1,1,4M,640]``."""
 
         shape = _functional_decoder._shape(replicated)
         s = self.shapes
@@ -1901,7 +2045,7 @@ class MultichipDecoder(OptimizedDecoder):
         return mixed, hyper_input, injection
 
     def _hyper_inject(self, hyper_input, block_output, injection):
-        """Inject one local 1280 block shard into all four local streams."""
+        """Inject one local 640-wide block shard into all four local streams."""
 
         if not self.fractured_residual:
             return super()._hyper_inject(hyper_input, block_output, injection)
@@ -1978,6 +2122,10 @@ class MultichipDecoder(OptimizedDecoder):
         return self._reduce_scatter_block(partial) if self.fractured_residual else self._all_reduce_block(partial)
 
     def _moe(self, *args, **kwargs):
+        if self.resident_experts is not None:
+            if kwargs or len(args) != 1:
+                raise TypeError("resident EP4 MoE expects one input tensor")
+            return self._moe_resident(args[0])
         if self.host_expert_cache is None:
             partial = super()._moe(*args, **kwargs)
             return self._reduce_scatter_block(partial) if self.fractured_residual else self._all_reduce_block(partial)
@@ -1990,6 +2138,51 @@ class MultichipDecoder(OptimizedDecoder):
         finally:
             self._host_boundary_active = False
             self._host_route_rows = None
+
+    def _moe_resident(self, x):
+        """Run router, resident EP4 experts, and shared TP4 expert on device."""
+
+        s = self.shapes
+        logical = int(x.shape[-2])
+        padded = 32 * math.ceil(logical / 32)
+        work = _functional_decoder._pad_seq(x, padded, x) if padded != logical else x
+
+        packed = self._linear(work, self.w["moe_input"])
+        cursor = 0
+        logits = self._slice_last(packed, cursor, cursor + s.num_experts)
+        cursor += s.num_experts
+        gate = self._slice_last(packed, cursor, cursor + s.shared_expert_intermediate_size)
+        cursor += s.shared_expert_intermediate_size
+        up = self._slice_last(packed, cursor, cursor + s.shared_expert_intermediate_size)
+        cursor += s.shared_expert_intermediate_size
+        scalar = self._slice_last(packed, cursor, cursor + 1)
+        ttnn.deallocate(packed)
+
+        selected, indices = ttnn.topk(logits, k=s.num_experts_per_tok, dim=-1, sorted=True)
+        ttnn.deallocate(logits)
+        scores = ttnn.softmax(selected, dim=-1)
+        _functional_decoder._free(selected, scores)
+        routed = self.resident_experts(work, indices, scores, logical_rows=logical)
+
+        hidden = ttnn.multiply(gate, up, input_tensor_a_activations=[ttnn.UnaryOpType.SILU])
+        ttnn.deallocate(gate)
+        ttnn.deallocate(up)
+        gated = ttnn.multiply(hidden, scalar, input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID])
+        ttnn.deallocate(hidden)
+        ttnn.deallocate(scalar)
+        shared_partial = self._linear(gated, self.w["shared_down_proj"])
+        ttnn.deallocate(gated)
+        shared = self._reduce_scatter_block(shared_partial)
+        out = ttnn.add(routed, shared)
+        ttnn.deallocate(routed)
+        ttnn.deallocate(shared)
+        ttnn.deallocate(indices)
+        ttnn.deallocate(scores)
+        if padded != logical:
+            trimmed = ttnn.slice(out, [0, 0, 0, 0], [1, 1, logical, RESIDUAL_SHARD_WIDTH])
+            _functional_decoder._free(out, trimmed)
+            out = trimmed
+        return out
 
     def _decode_attention_host(
         self, hidden_states, *, current_pos, page_table=None, rot_mats=None, ple_embeddings=None
@@ -2192,7 +2385,7 @@ class MultichipDecoder(OptimizedDecoder):
             or hidden_shape[-1] != RESIDUAL_SHARD_WIDTH
             or hidden_shape[-2] % s.hc_count
         ):
-            raise ValueError("host-backed fractured prefill expects [1, 1, 4*seq, 1280]")
+            raise ValueError(f"host-backed fractured prefill expects [1, 1, 4*seq, {RESIDUAL_SHARD_WIDTH}]")
         seq_len = hidden_shape[-2] // s.hc_count
         ids = torch.as_tensor(input_ids, dtype=torch.int64, device="cpu")
         if ids.ndim == 1:
@@ -2308,6 +2501,9 @@ class MultichipDecoder(OptimizedDecoder):
         if self.host_expert_cache is not None:
             self.host_expert_cache.close()
             self.host_expert_cache = None
+        if self.resident_experts is not None:
+            self.resident_experts.close()
+            self.resident_experts = None
         if self.ple_staging is not None:
             self.ple_staging.close()
             self.ple_staging = None
@@ -2363,7 +2559,7 @@ class HostBackedSegmentedDecodeTrace:
             for tensor in cls._decode_state_tensors(layer):
                 shards = ttnn.get_device_tensors(tensor)
                 if len(shards) != TP_SIZE:
-                    raise RuntimeError("segmented decode state is not replicated over TP2")
+                    raise RuntimeError(f"segmented decode state is not replicated over TP{TP_SIZE}")
                 snapshots.append(ttnn.clone(tensor, memory_config=ttnn.DRAM_MEMORY_CONFIG))
             ttnn.synchronize_device(layer.mesh_device)
             return tuple(snapshots)
@@ -2794,6 +2990,204 @@ class HostBackedSegmentedDecodeTrace:
                 self.released = True
 
 
+class ResidentLayerDecodeTrace:
+    """One full-layer trace for resident EP4 execution.
+
+    There is no expert host boundary.  Layer 1 retains the single declared PLE
+    boundary: selected n-gram rows are uploaded into its persistent staging
+    tensor before the trace is submitted.
+    """
+
+    def __init__(self, layer, output, trace_id, *, state_workspace=None, captured_inputs=()):
+        self.layer = layer
+        self.output = output
+        self.trace_id = trace_id
+        self.state_workspace = state_workspace
+        self.captured_inputs = tuple(captured_inputs)
+        self.last_timing = None
+        self.last_route_ids = None
+        self.released = False
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _arguments(layer, *, current_pos, page_table, rot_mats, ple_input_ids, request_ids):
+        linear, ple_ids, ple_requests, kwargs = HostBackedSegmentedDecodeTrace._capture_arguments(
+            layer,
+            current_pos=current_pos,
+            page_table=page_table,
+            rot_mats=rot_mats,
+            ple_input_ids=ple_input_ids,
+            request_ids=request_ids,
+        )
+        del linear
+        return ple_ids, ple_requests, kwargs
+
+    @staticmethod
+    def _stage_ple(layer, ids, requests, kwargs) -> None:
+        if ids is None:
+            return
+        embeddings = layer.host_ple_store.prepare(requests, ids)
+        kwargs["ple_embeddings"] = layer.ple_staging.upload_decode(embeddings)
+
+    @classmethod
+    def warm_programs(
+        cls,
+        layer,
+        hidden_states,
+        *,
+        current_pos,
+        page_table=None,
+        rot_mats=None,
+        ple_input_ids=None,
+        request_ids=None,
+    ) -> None:
+        if layer.resident_experts is None:
+            raise RuntimeError("resident trace requires resident EP4 experts")
+        ple_ids, ple_requests, kwargs = cls._arguments(
+            layer,
+            current_pos=current_pos,
+            page_table=page_table,
+            rot_mats=rot_mats,
+            ple_input_ids=ple_input_ids,
+            request_ids=request_ids,
+        )
+        state = HostBackedSegmentedDecodeTrace._snapshot_decode_state(layer)
+        history = HostBackedSegmentedDecodeTrace._snapshot_ple_history(layer, ple_requests)
+        output = None
+        workspace = layer.decode_state_workspace
+        scope = workspace.serialize_replay() if workspace is not None else nullcontext()
+        try:
+            with scope:
+                cls._stage_ple(layer, ple_ids, ple_requests, kwargs)
+                output = layer.decode_forward_fractured(hidden_states, **kwargs)
+                ttnn.synchronize_device(layer.mesh_device)
+        finally:
+            try:
+                if output is not None and output.is_allocated():
+                    ttnn.deallocate(output)
+            finally:
+                try:
+                    HostBackedSegmentedDecodeTrace._restore_decode_state(layer, state)
+                finally:
+                    HostBackedSegmentedDecodeTrace._release_state_snapshots(state)
+                    HostBackedSegmentedDecodeTrace._restore_ple_history(layer, history)
+
+    @classmethod
+    def capture(
+        cls,
+        layer,
+        hidden_states,
+        *,
+        current_pos,
+        page_table=None,
+        rot_mats=None,
+        ple_input_ids=None,
+        request_ids=None,
+        programs_prepared=False,
+    ) -> "ResidentLayerDecodeTrace":
+        if layer.resident_experts is None:
+            raise RuntimeError("resident trace requires resident EP4 experts")
+        if not programs_prepared:
+            cls.warm_programs(
+                layer,
+                hidden_states,
+                current_pos=current_pos,
+                page_table=page_table,
+                rot_mats=rot_mats,
+                ple_input_ids=ple_input_ids,
+                request_ids=request_ids,
+            )
+        ple_ids, ple_requests, kwargs = cls._arguments(
+            layer,
+            current_pos=current_pos,
+            page_table=page_table,
+            rot_mats=rot_mats,
+            ple_input_ids=ple_input_ids,
+            request_ids=request_ids,
+        )
+        cls._stage_ple(layer, ple_ids, ple_requests, kwargs)
+        workspace = layer.decode_state_workspace
+        if workspace is not None:
+            workspace.retain_trace()
+        scope = workspace.serialize_replay() if workspace is not None else nullcontext()
+        trace_id = output = None
+        capture_open = False
+        try:
+            with scope:
+                layer.mesh_device.set_program_cache_misses_allowed(False)
+                trace_id = ttnn.begin_trace_capture(layer.mesh_device, cq_id=0)
+                capture_open = True
+                output = layer.decode_forward_fractured(hidden_states, **kwargs)
+                ttnn.end_trace_capture(layer.mesh_device, trace_id, cq_id=0)
+                capture_open = False
+                ttnn.mark_corruptible(output)
+                ttnn.execute_trace(layer.mesh_device, trace_id, cq_id=0, blocking=True)
+        except BaseException:
+            HostBackedSegmentedDecodeTrace._finish_failed_capture(layer.mesh_device, trace_id, capture_open)
+            if output is not None and output.is_allocated():
+                ttnn.deallocate(output)
+            if workspace is not None:
+                workspace.release_trace()
+            raise
+        finally:
+            layer.mesh_device.set_program_cache_misses_allowed(True)
+        return cls(layer, output, trace_id, state_workspace=workspace, captured_inputs=(hidden_states,))
+
+    def replay(self, *, ple_input_ids=None, request_ids=None):
+        with self._lock:
+            if self.released:
+                raise RuntimeError("resident layer trace was released")
+            started = time.perf_counter()
+            ple_seconds = 0.0
+            if self.layer.shapes.has_ple:
+                ple_started = time.perf_counter()
+                ids = torch.as_tensor(ple_input_ids, dtype=torch.int64, device="cpu")
+                if ids.ndim == 1:
+                    ids = ids.unsqueeze(1)
+                requests = tuple(request_ids)
+                embeddings = self.layer.host_ple_store.prepare(requests, ids)
+                self.layer.ple_staging.upload_decode(embeddings)
+                ple_seconds = time.perf_counter() - ple_started
+            elif ple_input_ids is not None or request_ids is not None:
+                raise ValueError("PLE inputs were passed to a layer without PLE")
+            scope = (
+                self.state_workspace.serialize_replay()
+                if self.state_workspace is not None
+                else nullcontext()
+            )
+            submit_started = time.perf_counter()
+            with scope:
+                ttnn.execute_trace(self.layer.mesh_device, self.trace_id, cq_id=0, blocking=False)
+            trace_seconds = time.perf_counter() - submit_started
+            self.last_timing = {
+                "ple_seconds": ple_seconds,
+                "front_trace_seconds": trace_seconds,
+                "expert_service_seconds": 0.0,
+                "route_read_and_tt_stall_seconds": 0.0,
+                "cache_control_dma_submit_seconds": 0.0,
+                "back_trace_seconds": 0.0,
+                "total_seconds": time.perf_counter() - started,
+                "expert_hits": 0,
+                "expert_misses": 0,
+            }
+            return self.output
+
+    def release(self) -> None:
+        with self._lock:
+            if self.released:
+                return
+            if self.trace_id is not None:
+                ttnn.release_trace(self.layer.mesh_device, self.trace_id)
+                self.trace_id = None
+            if self.output.is_allocated():
+                ttnn.deallocate(self.output)
+            self.captured_inputs = ()
+            if self.state_workspace is not None:
+                self.state_workspace.release_trace()
+                self.state_workspace = None
+            self.released = True
+
+
 __all__ = [
     "HostBackedSegmentedDecodeTrace",
     "HostDecodeAttention",
@@ -2802,4 +3196,5 @@ __all__ = [
     "MultichipVirtualDecodeStateBank",
     "MultichipDecoder",
     "MultichipMemoryPlan",
+    "ResidentLayerDecodeTrace",
 ]

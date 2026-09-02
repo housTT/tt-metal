@@ -244,7 +244,7 @@ def test_static_protocol_and_full_context_contract() -> None:
         assert name in inspect.signature(cls.decode_forward).parameters
 
 
-def test_initialize_uses_selected_precision_and_proven_tp2(monkeypatch) -> None:
+def test_initialize_uses_selected_precision_and_tp4_ep4(monkeypatch) -> None:
     captured = {}
 
     class FakeModel:
@@ -261,7 +261,7 @@ def test_initialize_uses_selected_precision_and_proven_tp2(monkeypatch) -> None:
         return FakeGenerator()
 
     monkeypatch.setattr(adapter_module, "build_generator", fake_build)
-    mesh = SimpleNamespace(get_num_devices=lambda: 2)
+    mesh = SimpleNamespace(get_num_devices=lambda: 4)
     result = Qwen4ExpForConditionalGeneration.initialize_vllm_model(
         SimpleNamespace(_name_or_path=adapter_module.MODEL_ID),
         mesh,

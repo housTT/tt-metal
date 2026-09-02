@@ -1355,6 +1355,9 @@ class PLEDeviceStaging:
         if (dtype, layout) != ("bf16", "tile"):
             raise ValueError("the exact Qwen3.8 PLE staging ABI currently supports only BF16 TILE tensors")
         self.mesh_device = mesh_device
+        self.num_devices = int(mesh_device.get_num_devices())
+        if self.num_devices < 1:
+            raise ValueError("PLE staging requires at least one device")
         self.max_batch = int(max_batch)
         self.prefill_rows = int(prefill_rows)
         self.dtype = dtype
@@ -1388,11 +1391,13 @@ class PLEDeviceStaging:
         self._pending_source = None
         source = ttnn.from_torch(host, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
         shards = ttnn.get_device_tensors(target)
-        if len(shards) != TP_SIZE:
-            raise RuntimeError("PLE staging requires exactly two device shards")
+        if len(shards) != self.num_devices:
+            raise RuntimeError(
+                f"PLE staging expected {self.num_devices} device shards, got {len(shards)}"
+            )
         # Writes through one shard of a replicated MeshTensor broadcast to the
-        # parent mesh.  PLE is identical on both ranks, so one broadcast is the
-        # intended TP2 transfer (expert shards deliberately use local D2D).
+        # parent mesh.  PLE is identical on every rank, so one broadcast is the
+        # intended transfer (expert shards deliberately use local D2D).
         ttnn.copy_host_to_device_tensor(source, shards[0])
         self._pending_source = source
         self.deferred_uploads += 1
@@ -1409,8 +1414,8 @@ class PLEDeviceStaging:
         started = time.perf_counter()
         self._upload_replicated(host, self.prefill)
         self.h2d_seconds += time.perf_counter() - started
-        self.h2d_bytes += TP_SIZE * self.prefill_rows * PLE_EMBED_DIM * 2
-        self.logical_h2d_bytes += TP_SIZE * logical * PLE_EMBED_DIM * 2
+        self.h2d_bytes += self.num_devices * self.prefill_rows * PLE_EMBED_DIM * 2
+        self.logical_h2d_bytes += self.num_devices * logical * PLE_EMBED_DIM * 2
         return self.prefill
 
     def upload_decode(self, embeddings: torch.Tensor):
@@ -1425,8 +1430,8 @@ class PLEDeviceStaging:
         started = time.perf_counter()
         self._upload_replicated(host, self.decode)
         self.h2d_seconds += time.perf_counter() - started
-        self.h2d_bytes += TP_SIZE * self.max_batch * PLE_EMBED_DIM * 2
-        self.logical_h2d_bytes += TP_SIZE * self.max_batch * PLE_EMBED_DIM * 2
+        self.h2d_bytes += self.num_devices * self.max_batch * PLE_EMBED_DIM * 2
+        self.logical_h2d_bytes += self.num_devices * self.max_batch * PLE_EMBED_DIM * 2
         return self.decode
 
     def metrics(self) -> dict[str, object]:

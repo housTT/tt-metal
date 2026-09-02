@@ -1,17 +1,18 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Full autoregressive Qwen3.8-Flash-Next model for the fixed P300 TP2 mesh.
+"""Full autoregressive Qwen3.8-Flash-Next model for the P300 TP4+EP4 mesh.
 
 The decoder stack is the optimized :class:`MultichipDecoder` graph.  The
-stack-internal residual stays fractured as ``[1, 1, 4*M, 1280]`` for every
+stack-internal residual stays fractured as ``[1, 1, 4*M, 640]`` for every
 layer.  Token embeddings are hidden-sharded at ingress and the only residual
 all-gather is immediately before the checkpoint-exact final hyperconnection
 mixer.  The LM head is vocabulary-sharded and feeds :class:`Sampling1D`
 without a full-vocabulary gather.
 
-Routed experts and PLE rows use the exact, declared host boundary implemented
-by ``host_weight_cache.py``.  Activations, recurrence/KV state, final mixing,
-logits, sampling, token feedback, and position advancement remain on TT.
+All routed-expert weights and routing stay on TT.  Only the small PLE n-gram
+table remains behind the exact mmap host boundary in ``host_weight_cache.py``;
+recurrence/KV state, final mixing, logits, sampling, token feedback, and
+position advancement remain on TT.
 """
 
 from __future__ import annotations
@@ -39,10 +40,12 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     COLLECTIVE_NUM_LINKS,
     RESIDUAL_SHARD_WIDTH,
     TARGET_MESH,
+    TP_SIZE,
     HostBackedSegmentedDecodeTrace,
     MultichipDecoder,
     MultichipDecodeStateWorkspace,
     MultichipVirtualDecodeStateBank,
+    ResidentLayerDecodeTrace,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import PROJECTION_POLICIES, _hifi2, _lofi
 from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import (
@@ -97,7 +100,7 @@ class LMHeadPolicySpec:
         return self.logits_dtype or self.weight_dtype
 
     def split_sizes(self, columns_per_rank: int) -> tuple[int, ...]:
-        per_rank = VOCAB_SIZE // 2
+        per_rank = VOCAB_SIZE // TP_SIZE
         if self.dram_splits is not None:
             if per_rank % self.dram_splits:
                 raise ValueError(f"local vocabulary {per_rank} is not divisible by {self.dram_splits} splits")
@@ -129,12 +132,15 @@ def _lm_head_rank_slices(
 ) -> tuple[tuple[tuple[int, int], ...], ...]:
     """Return the exact checkpoint slices placed on each TP rank, split-major."""
 
-    per_rank = VOCAB_SIZE // 2
+    per_rank = VOCAB_SIZE // TP_SIZE
     result = []
     offset = 0
     for split_size in split_sizes:
         result.append(
-            tuple((rank * per_rank + offset, rank * per_rank + offset + int(split_size)) for rank in range(2))
+            tuple(
+                (rank * per_rank + offset, rank * per_rank + offset + int(split_size))
+                for rank in range(TP_SIZE)
+            )
         )
         offset += int(split_size)
     if offset != per_rank:
@@ -317,6 +323,9 @@ class Qwen38FullModel:
         host_ple_policy = self.precision_config["host_backed"]["ple"]
         configured_slots = int(host_expert_policy["slots_per_layer"])
         configured_packed = int(host_expert_policy["packed_capacity_per_layer"])
+        self.expert_mode = str(self.precision_config.get("parallelism", {}).get("expert_mode", "resident_ep4"))
+        if self.expert_mode not in {"host_backed", "resident_ep4"}:
+            raise ValueError(f"unsupported expert mode {self.expert_mode!r}")
         expert_cache_slots = configured_slots if expert_cache_slots is None else int(expert_cache_slots)
         packed_host_experts = configured_packed if packed_host_experts is None else int(packed_host_experts)
         self.max_batch = int(max_batch)
@@ -348,7 +357,7 @@ class Qwen38FullModel:
                     f"{_functional_decoder.QSA_BLOCK_TOPK} selector; got {self.max_seq_len}"
                 )
         self.is_full_stack = self.layer_indices == all_layers
-        self.prepack_host_experts = (
+        self.prepack_host_experts = self.expert_mode == "host_backed" and (
             bool(host_expert_policy["prepack_all"]) and self.is_full_stack
             if prepack_host_experts is None
             else bool(prepack_host_experts)
@@ -368,7 +377,7 @@ class Qwen38FullModel:
         self._trace_state: Qwen38BatchState | None = None
         self.ingress_trace_id = None
         self.ingress_trace_output = None
-        self.layer_traces: list[HostBackedSegmentedDecodeTrace] = []
+        self.layer_traces: list[HostBackedSegmentedDecodeTrace | ResidentLayerDecodeTrace] = []
         self.terminal_trace_id = None
         self.trace_logits = None
         self.sampling_trace_id = None
@@ -586,7 +595,11 @@ class Qwen38FullModel:
         lazy_weights = []
         for split_index, (split_size, split_rank_slices) in enumerate(zip(split_sizes, rank_slices)):
             rank_parts = [lm_weight[start:end].transpose(0, 1) for start, end in split_rank_slices]
-            combined = torch.cat(rank_parts, dim=-1).contiguous().reshape(1, 1, HIDDEN_SIZE, 2 * split_size)
+            combined = (
+                torch.cat(rank_parts, dim=-1)
+                .contiguous()
+                .reshape(1, 1, HIDDEN_SIZE, TP_SIZE * split_size)
+            )
             weight_memcfg = ttnn.DRAM_MEMORY_CONFIG if weights_memcfgs is None else weights_memcfgs[split_index]
             lazy_weights.append(
                 LazyWeight(
@@ -631,20 +644,28 @@ class Qwen38FullModel:
             host_expert_policy = self.precision_config["host_backed"]["expert"]
             host_ple_policy = self.precision_config["host_backed"]["ple"]
             kwargs.update(
-                expert_host_packed_dtype=host_expert_policy["host_packed_dtype"],
-                expert_host_packed_layout=host_expert_policy["host_packed_layout"],
-                expert_device_staging_dtype=host_expert_policy["device_staging_dtype"],
-                expert_device_staging_layout=host_expert_policy["device_staging_layout"],
                 ple_staging_dtype=host_ple_policy["device_staging_dtype"],
                 ple_staging_layout=host_ple_policy["device_staging_layout"],
                 ple_prefill_rows=int(host_ple_policy["prefill_chunk_rows"]),
             )
+            if self.expert_mode == "host_backed":
+                kwargs.update(
+                    expert_host_packed_dtype=host_expert_policy["host_packed_dtype"],
+                    expert_host_packed_layout=host_expert_policy["host_packed_layout"],
+                    expert_device_staging_dtype=host_expert_policy["device_staging_dtype"],
+                    expert_device_staging_layout=host_expert_policy["device_staging_layout"],
+                )
             if (
                 self.decode_state_workspace is not None
                 and self.text_config.layer_types[layer_index] == LINEAR_ATTENTION
             ):
                 kwargs["decode_state_workspace"] = self.decode_state_workspace
-            layer = MultichipDecoder.from_checkpoint_host_backed(
+            constructor = (
+                MultichipDecoder.from_checkpoint_resident
+                if self.expert_mode == "resident_ep4"
+                else MultichipDecoder.from_checkpoint_host_backed
+            )
+            layer = constructor(
                 self.checkpoint,
                 hf_config=self.hf_config,
                 layer_idx=layer_index,
@@ -652,10 +673,16 @@ class Qwen38FullModel:
                 max_batch=self.max_batch,
                 max_seq_len=self.max_seq_len,
                 block_size=BLOCK_SIZE,
-                expert_cache_slots=expert_cache_slots,
-                packed_host_experts=packed_host_experts,
                 ple_store=self.ple_store if layer_index == 1 else None,
-                **kwargs,
+                **(
+                    kwargs
+                    if self.expert_mode == "resident_ep4"
+                    else {
+                        **kwargs,
+                        "expert_cache_slots": expert_cache_slots,
+                        "packed_host_experts": packed_host_experts,
+                    }
+                ),
             )
             self.layers.append(layer)
         self._kv_cache = tuple(
@@ -665,7 +692,9 @@ class Qwen38FullModel:
         )
         self.max_num_blocks = min(
             (int(layer.max_num_blocks) for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION),
-            default=0,
+            # A reduced GDN-only model has no attention allocation, but still
+            # carries the normal persistent page-table ABI through endpoints.
+            default=self.max_batch * math.ceil(self.max_seq_len / BLOCK_SIZE),
         )
         self.attention_cache_lifecycle["standalone_allocations"] = sum(
             4 for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION
@@ -688,7 +717,7 @@ class Qwen38FullModel:
         if num_blocks < math.ceil(self.max_seq_len / BLOCK_SIZE):
             raise ValueError("vLLM cache pool cannot hold one advertised-context request")
         if (local_heads, block_size, head_dim) != (1, BLOCK_SIZE, 256):
-            raise ValueError("Qwen3.8 TP2 cache requires one local KV head, 64-token pages, and head_dim=256")
+            raise ValueError("Qwen3.8 TP4 cache requires one replicated local KV head, 64-token pages, and head_dim=256")
         if self._trace_ready:
             self.release_decode_traces()
 
@@ -1400,7 +1429,7 @@ class Qwen38FullModel:
         rows = int(embedded.shape[-2])
         if rows == 1:
             # Preserve the original decode ingress exactly.  At a single row
-            # both reshapes reduce to the same rank-three [1, 1, 1280] view,
+            # both reshapes reduce to the same rank-three [1, 1, 640] view,
             # so the captured graph still contains only the existing repeat.
             expanded = ttnn.reshape(embedded, (1, 1, 1, RESIDUAL_SHARD_WIDTH))
             expanded = ttnn.repeat(expanded, (1, 1, HC_COUNT, 1))
@@ -1409,7 +1438,7 @@ class Qwen38FullModel:
             # Put the four hyper-connection streams next to each prefill token
             # without the generic tiled-reshape or repeat-interleave composite
             # paths. Nearest-neighbour width expansion of NHWC
-            # ``[1, 1, rows, 1280]`` produces the exact token-major ordering
+            # ``[1, 1, rows, 640]`` produces the exact token-major ordering
             # ``A,A,A,A,B,B,B,B,...`` required by the fractured residual ABI.
             row_major = ttnn.to_layout(embedded, ttnn.ROW_MAJOR_LAYOUT)
             rank4 = ttnn.unsqueeze_to_4D(row_major)
@@ -1565,16 +1594,23 @@ class Qwen38FullModel:
                     "ccl_payload_dtype": layer.collective_payload_dtype,
                     "ccl_num_links": int(layer.collective_num_links),
                     "ccl_topology": "linear",
-                    "host_expert": {
-                        "packed_dtype": layer.host_expert_cache.packed_dtype,
-                        "packed_layout": layer.host_expert_cache.packed_layout,
-                        "staging_dtype": layer.host_expert_cache.staging_dtype,
-                        "staging_layout": layer.host_expert_cache.staging_layout,
-                        "slots": int(layer.host_expert_cache.capacity),
-                        "packed_capacity": int(layer.host_expert_cache.packed_host_capacity),
-                        "device_bytes_per_rank": int(layer.host_expert_cache.device_bytes_per_rank),
-                        "packed_host_bytes": int(layer.host_expert_cache.packed_host_bytes),
-                    },
+                    "host_expert": (
+                        None
+                        if layer.host_expert_cache is None
+                        else {
+                            "packed_dtype": layer.host_expert_cache.packed_dtype,
+                            "packed_layout": layer.host_expert_cache.packed_layout,
+                            "staging_dtype": layer.host_expert_cache.staging_dtype,
+                            "staging_layout": layer.host_expert_cache.staging_layout,
+                            "slots": int(layer.host_expert_cache.capacity),
+                            "packed_capacity": int(layer.host_expert_cache.packed_host_capacity),
+                            "device_bytes_per_rank": int(layer.host_expert_cache.device_bytes_per_rank),
+                            "packed_host_bytes": int(layer.host_expert_cache.packed_host_bytes),
+                        }
+                    ),
+                    "resident_expert": (
+                        None if layer.resident_experts is None else layer.resident_experts.metrics()
+                    ),
                 }
             )
 
@@ -1586,6 +1622,18 @@ class Qwen38FullModel:
         def material(path, value, source):
             observed[path] = value
             sources[path] = source
+
+        if "parallelism" in config:
+            parallel = self.layers[0].parallel_config
+            for path, runtime_value in (
+                ("parallelism.mesh_shape", list(tuple(int(value) for value in self.mesh_device.shape))),
+                ("parallelism.dense_tp", int(parallel.dense_tp)),
+                ("parallelism.expert_parallel", int(parallel.expert_parallel)),
+                ("parallelism.expert_mode", self.expert_mode),
+                ("parallelism.kv_replication", int(parallel.kv_replication)),
+                ("parallelism.indexer_kv_replication", int(parallel.indexer_kv_replication)),
+            ):
+                material(path, runtime_value, "live decoder parallel configuration")
 
         material(
             "weight_groups.embedding.dtype",
@@ -1641,11 +1689,12 @@ class Qwen38FullModel:
             lm_head["logits_dtype"],
             "Sampling1D input boundary",
         )
-        material(
-            "host_backed.expert.prepack_all",
-            bool(self.prepack_host_experts),
-            "full-model preload mode",
-        )
+        if self.expert_mode == "host_backed":
+            material(
+                "host_backed.expert.prepack_all",
+                bool(self.prepack_host_experts),
+                "full-model preload mode",
+            )
         material(
             "host_backed.ple.row_cache_capacity",
             int(self.ple_store.row_cache_capacity),
@@ -1793,7 +1842,7 @@ class Qwen38FullModel:
             "device sampler strategy",
         )
 
-        if layers:
+        if layers and layers[0]["host_expert"] is not None:
             host = layers[0]["host_expert"]
             for path, key in (
                 ("host_backed.expert.host_packed_dtype", "packed_dtype"),
@@ -2179,12 +2228,15 @@ class Qwen38FullModel:
             kwargs.update(ple_input_ids=ple_input_ids, request_ids=state.request_ids)
         return kwargs
 
+    def _layer_trace_class(self):
+        return ResidentLayerDecodeTrace if self.expert_mode == "resident_ep4" else HostBackedSegmentedDecodeTrace
+
     def _warm_trace_programs(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor) -> None:
         warm_residual = self.embed_tokens(state.token_input)
         warm_logits = None
         try:
             for layer in self.layers:
-                HostBackedSegmentedDecodeTrace.warm_programs(
+                self._layer_trace_class().warm_programs(
                     layer,
                     warm_residual,
                     **self._trace_layer_kwargs(layer, state, ple_input_ids),
@@ -2204,7 +2256,7 @@ class Qwen38FullModel:
         *,
         execution_mode: str = "token_out",
     ) -> None:
-        """Capture ingress, every host-split layer, terminal, sampling, and position traces.
+        """Capture ingress, every decoder layer, terminal, sampling, and position traces.
 
         Capture deploys the first decode token exactly once, matching the
         existing segmented-layer contract.  The caller consumes
@@ -2250,7 +2302,7 @@ class Qwen38FullModel:
         residual = self.ingress_trace_output
         try:
             for layer in self.layers:
-                trace = HostBackedSegmentedDecodeTrace.capture(
+                trace = self._layer_trace_class().capture(
                     layer,
                     residual,
                     programs_prepared=True,
@@ -2476,6 +2528,7 @@ class Qwen38FullModel:
         """Compact non-monotonic host-store occupancy and preload snapshot."""
 
         experts = [layer.host_expert_cache.metrics() for layer in self.layers if layer.host_expert_cache is not None]
+        resident = [layer.resident_experts.metrics() for layer in self.layers if layer.resident_experts is not None]
         ple = self.ple_store.metrics()
         preload = self.host_preload_report or {}
         return {
@@ -2488,6 +2541,13 @@ class Qwen38FullModel:
             "expert_preload_entries": float(preload.get("loaded_entries", 0)),
             "expert_preload_bytes": float(preload.get("packed_host_bytes", 0)),
             "expert_preload_seconds": float(preload.get("seconds", 0)),
+            "resident_expert_layers": float(len(resident)),
+            "resident_expert_bytes_per_device": sum(
+                float(item.get("resident_expert_bytes_per_device", 0)) for item in resident
+            ),
+            "resident_expert_host_store_bytes": sum(
+                float(item.get("expert_host_store_bytes", 0)) for item in resident
+            ),
             "ple_row_cache_entries": float(ple["row_cache_entries"]),
             "ple_history_entries": float(ple["history_entries"]),
         }
@@ -2496,7 +2556,7 @@ class Qwen38FullModel:
         return {
             "declared_host_work": {
                 "model_load_exact_expert_prepack": self.prepack_host_experts,
-                "expert_route_id_read_and_exact_weight_dma": True,
+                "expert_route_id_read_and_exact_weight_dma": self.expert_mode == "host_backed",
                 "ple_ngram_hash_row_lookup_and_dma": True,
                 "caller_visible_compact_token_readback": True,
                 "explicit_non_greedy_seed_control_h2d": self._sampling_seed_rngs is not None,
@@ -2517,9 +2577,13 @@ class Qwen38FullModel:
                 "page_table": "state with stable model buffer",
                 "tokens_and_positions": "device feedback after request reset",
                 "expert_store": (
-                    "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots"
-                    if self.prepack_host_experts
-                    else "per-layer exact mmap source, lazy packed-host cache, and fixed TT slots"
+                    "128 complete BFP4 experts per TT device with contiguous EP4 ownership"
+                    if self.expert_mode == "resident_ep4"
+                    else (
+                        "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots"
+                        if self.prepack_host_experts
+                        else "per-layer exact mmap source, lazy packed-host cache, and fixed TT slots"
+                    )
                 ),
                 "ple_store": "shared exact mmap table with request-isolated two-token history",
             },
@@ -2542,9 +2606,13 @@ class Qwen38FullModel:
                 None,
             ),
             "experts": {
-                str(layer.shapes.layer_idx): layer.host_expert_cache.metrics()
+                str(layer.shapes.layer_idx): (
+                    layer.resident_experts.metrics()
+                    if layer.resident_experts is not None
+                    else layer.host_expert_cache.metrics()
+                )
                 for layer in self.layers
-                if layer.host_expert_cache is not None
+                if layer.resident_experts is not None or layer.host_expert_cache is not None
             },
         }
 

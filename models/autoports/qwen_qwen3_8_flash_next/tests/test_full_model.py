@@ -388,9 +388,9 @@ def test_repeated_nonaligned_embedding_expansion_has_no_tiled_reshape_stall(
             )
             residual = model.embed_tokens(token_device)
             ttnn.synchronize_device(bh_1d_mesh_device)
-            assert tuple(residual.shape) == (1, 1, length * 4, 1280)
+            assert tuple(residual.shape) == (1, 1, length * 4, 640)
             for shard in ttnn.get_device_tensors(residual):
-                host = ttnn.to_torch(shard).reshape(length, 4, 1280)
+                host = ttnn.to_torch(shard).reshape(length, 4, 640)
                 for stream in range(1, 4):
                     assert torch.equal(host[:, 0], host[:, stream])
             ttnn.deallocate(residual)
@@ -879,14 +879,15 @@ def test_full_48_layer_token_out_trace_smoke(bh_1d_mesh_device, device_params):
         max_batch=1,
         max_seq_len=4096,
     )
-    slot_shard_counts = {
-        layer.shapes.layer_idx: tuple(
-            len(ttnn.get_device_tensors(slot.gate_up)) for slot in layer.host_expert_cache.slots
-        )
+    resident_metrics = {
+        layer.shapes.layer_idx: layer.resident_experts.metrics()
         for layer in model.layers
-        if layer.host_expert_cache is not None
+        if layer.resident_experts is not None
     }
-    assert all(count == 2 for counts in slot_shard_counts.values() for count in counts), slot_shard_counts
+    assert len(resident_metrics) == 48
+    assert all(metrics["experts_per_device"] == 128 for metrics in resident_metrics.values())
+    assert all(metrics["expert_weight_h2d_bytes_runtime"] == 0 for metrics in resident_metrics.values())
+    assert all(metrics["expert_route_d2h_bytes_runtime"] == 0 for metrics in resident_metrics.values())
     generator = Qwen38Generator(model, DummyTokenizer())
     try:
         output = generator.generate_batch(

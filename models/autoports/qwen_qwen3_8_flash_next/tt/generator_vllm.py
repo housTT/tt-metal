@@ -115,9 +115,9 @@ class Qwen4ExpForConditionalGeneration:
         if optimizations is not None:
             raise ValueError("Qwen3.8 serving uses the datatype-sweep selection, not a vLLM preset")
         if int(tt_data_parallel) != 1:
-            raise ValueError("Qwen3.8 serving requires the measured TP2 mesh with tt_data_parallel=1")
-        if int(mesh_device.get_num_devices()) != 2:
-            raise ValueError("Qwen3.8 serving requires exactly two P300 devices")
+            raise ValueError("Qwen3.8 serving requires the TP4+EP4 mesh with tt_data_parallel=1")
+        if int(mesh_device.get_num_devices()) != 4:
+            raise ValueError("Qwen3.8 serving requires exactly four P300 devices (P300x2)")
         if not 1 <= int(max_batch_size) <= MAX_NUM_SEQS:
             raise ValueError(
                 f"Qwen3.8 supports between 1 and {MAX_NUM_SEQS} active virtual slots over its physical-B1 trace"

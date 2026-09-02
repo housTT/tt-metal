@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Structural and hardware gates for the fixed-P300 TP2 decoder."""
+"""Structural and hardware gates for the fixed-P300 TP4+EP4 decoder."""
 
 from __future__ import annotations
 
@@ -156,14 +156,16 @@ def _capture_routing(layer, captures):
 
 def test_multichip_class_and_memory_contract():
     assert issubclass(MultichipDecoder, OptimizedDecoder)
-    assert MultichipDecoder.TARGET_MESH == (1, 2)
+    assert MultichipDecoder.TARGET_MESH == (4, 1)
     assert MultichipDecoder.COLLECTIVE_NUM_LINKS == 2
     assert MultichipDecoder.FABRIC_PACKET_BYTES == 8192
     plan = MultichipMemoryPlan()
-    assert plan.standard_bfp4_expert_bytes == 33_973_862_400
-    assert plan.uniform_bfp2_expert_bytes == 18_874_368_000
-    assert plan.standard_bfp4_fits is False
-    assert plan.max_bfp4_fraction == pytest.approx(0.4442310248480903)
+    assert plan.standard_bfp4_expert_bytes == 16_986_931_200
+    assert plan.uniform_bfp2_expert_bytes == 9_437_184_000
+    assert plan.standard_bfp4_fits is True
+    assert plan.resident_stack_bytes == 25_630_419_968
+    assert plan.resident_stack_headroom_bytes == 8_595_100_672
+    assert plan.resident_stack_fits is True
     assert plan.max_compressed_bfp4_fraction == pytest.approx(0.2449097278071385)
     assert plan.host_expert_cache_bytes == 1_592_524_800
     assert plan.ple_staging_bytes == 819_200
@@ -182,15 +184,17 @@ def test_rank_local_config_contract():
     ep = _rank_local_config(config, 0, expert_parallel=True).text_config
     assert gdn.linear_num_key_heads == 16
     assert gdn.linear_num_value_heads == 48
-    assert qsa.num_attention_heads == 12
+    assert qsa.num_attention_heads == 6
     assert qsa.num_key_value_heads == 1
+    assert qsa.indexer_n_heads == 1
+    assert qsa.indexer_kv_heads == 1
     for local in (gdn, qsa):
-        assert local.moe_intermediate_size == 320
-        assert local.shared_expert_intermediate_size == 320
+        assert local.moe_intermediate_size == 160
+        assert local.shared_expert_intermediate_size == 160
         assert local.num_experts == 512 and local.num_experts_per_tok == 10
         assert local.hidden_size == 2560 and local.hc_count == 4
     assert ep.moe_intermediate_size == 640
-    assert ep.shared_expert_intermediate_size == 320
+    assert ep.shared_expert_intermediate_size == 160
 
 
 def test_rank_local_checkpoint_shapes_without_allocating_weights():
@@ -214,18 +218,20 @@ def test_rank_local_checkpoint_shapes_without_allocating_weights():
         "self_attn.k_proj.weight": torch.empty(512, 2560, device="meta"),
         "self_attn.v_proj.weight": torch.empty(512, 2560, device="meta"),
         "self_attn.o_proj.weight": torch.empty(2560, 6144, device="meta"),
+        "self_attn.indexer.index_qk_proj.weight": torch.empty(640, 2560, device="meta"),
     }
-    for rank in (0, 1):
+    for rank in range(4):
         local = _rank_local_state(state, rank, shard_gdn=False)
-        assert local["mlp.experts.gate_up_proj"].shape == (512, 640, 2560)
-        assert local["mlp.experts.down_proj"].shape == (512, 2560, 320)
+        assert local["mlp.experts.gate_up_proj"].shape == (512, 320, 2560)
+        assert local["mlp.experts.down_proj"].shape == (512, 2560, 160)
         assert local["linear_attn.in_proj_qkv.weight"].shape == (10240, 2560)
         assert local["linear_attn.in_proj_z.weight"].shape == (6144, 2560)
         assert local["linear_attn.conv1d.weight"].shape == (10240, 1, 4)
         assert local["linear_attn.out_proj.weight"].shape == (2560, 6144)
-        assert local["self_attn.q_proj.weight"].shape == (6144, 2560)
+        assert local["self_attn.q_proj.weight"].shape == (3072, 2560)
         assert local["self_attn.k_proj.weight"].shape == (256, 2560)
-        assert local["self_attn.o_proj.weight"].shape == (2560, 3072)
+        assert local["self_attn.o_proj.weight"].shape == (2560, 1536)
+        assert local["self_attn.indexer.index_qk_proj.weight"].shape == (256, 2560)
 
 
 def test_runtime_collective_has_no_host_fallback():
@@ -518,7 +524,7 @@ def test_multichip_fabric_packet_contract(bh_1d_mesh_device, device_params):
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     actual_packet_bytes = ttnn._ttnn.fabric.get_tt_fabric_max_payload_size_bytes()
     print(
-        f"MC_FABRIC_CONTRACT mesh=1x2 packet_bytes={actual_packet_bytes} "
+        f"MC_FABRIC_CONTRACT mesh={MultichipDecoder.TARGET_MESH} packet_bytes={actual_packet_bytes} "
         f"collective_num_links={MultichipDecoder.COLLECTIVE_NUM_LINKS}"
     )
     assert actual_packet_bytes == MultichipDecoder.FABRIC_PACKET_BYTES

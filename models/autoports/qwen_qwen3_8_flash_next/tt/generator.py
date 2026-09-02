@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Standalone/readiness generator for Qwen3.8-Flash-Next on P300 TP2.
+"""Standalone/readiness generator for Qwen3.8-Flash-Next on P300 TP4+EP4.
 
 The optimized path uses the model's split traces: traced decoder segments,
 traced terminal projection, traced ``Sampling1D`` candidate sampling, direct

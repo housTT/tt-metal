@@ -464,7 +464,8 @@ class FunctionalDecoder(LightweightModule):
                     shape=(1, 1, 1, s.head_dim),
                     add_one=True,
                 )
-            iqk = raw(f"{p}.indexer.index_qk_proj.weight", (640, s.hidden_size))
+            index_qk_width = (s.indexer_n_heads + s.indexer_kv_heads) * s.indexer_head_dim
+            iqk = raw(f"{p}.indexer.index_qk_proj.weight", (index_qk_width, s.hidden_size))
             iq = None if iqk is None else iqk[: s.indexer_n_heads * s.indexer_head_dim]
             ik = None if iqk is None else iqk[s.indexer_n_heads * s.indexer_head_dim :]
             w["index_q"] = upload(
