@@ -170,7 +170,7 @@ Before full release, the no-Docker smoke passed in order:
 
 1. health endpoint HTTP 200;
 2. one OpenAI-compatible request HTTP 200 and `finish_reason=length` at its
-   deliberately tiny 64-token connectivity cap;
+   deliberately tiny 8-token connectivity cap;
 3. one TTI benchmark with `disable_trace_capture=true`, 1/1 completed.
 
 The smoke retained only hashes, counts, timings, and finish metadata. The tiny
