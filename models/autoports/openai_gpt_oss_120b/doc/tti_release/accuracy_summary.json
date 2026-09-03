@@ -1,6 +1,7 @@
 {
   "scope": "ci-nightly-subset",
   "unrestricted_full_set_run": false,
+  "release_readiness": "release-readiness-ci-subset-pass",
   "tasks": [
     {
       "task_name": "aime25",
@@ -19,9 +20,29 @@
       "sample_fraction": 0.15,
       "score_percent": 84.6732487070992,
       "accuracy_check": "pass"
+    },
+    {
+      "task_name": "meta_ifeval",
+      "lm_eval_task_name": "ifeval",
+      "dataset_path": "google/IFEval",
+      "scope": "full-unbounded",
+      "samples": 541,
+      "strict_passes": 463,
+      "score_percent": 85.58225508317929,
+      "published_score_percent": 78.2,
+      "minimum_passing_score_percent": 74.29,
+      "generation_policy": {
+        "reasoning_effort": "medium",
+        "max_gen_toks": 4096,
+        "do_sample": false,
+        "temperature": 0.0,
+        "seed": 42,
+        "max_length": 131072
+      },
+      "accuracy_check": "pass"
     }
   ],
   "meta_gpqa_cot_status": "pass via gpqa_diamond_cot_zeroshot",
-  "meta_ifeval_status": "not configured in the Stage 11 model spec",
+  "meta_ifeval_status": "pass via canonical google/IFEval full 541-sample run",
   "raw_eval_samples_copied": false
 }

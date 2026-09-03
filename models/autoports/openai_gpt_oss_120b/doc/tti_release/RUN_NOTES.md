@@ -2,13 +2,15 @@
 
 ## Outcome
 
-- Readiness: **PASS — `ci-nightly-subset`** for the generated autoport on
+- Readiness: **PASS — `release-readiness-ci-subset-pass`** for the generated
+  autoport on
   P150x4. This is not an unrestricted full-set or unrestricted performance
   claim.
 - Final repaired release handoff/report merger: `EXIT_CODE=0`, no acceptance
   blockers.
-- Accuracy: AIME 2025 13/15 (86.6667%), GPQA Diamond CoT 7/7 (100%), and
-  MMLU generative 84.6732%; all configured accuracy gates pass.
+- Accuracy: AIME 2025 13/15 (86.6667%), GPQA Diamond CoT 7/7 (100%),
+  MMLU generative 84.6732%, and full canonical IFEval 463/541 (85.5823%);
+  all four accuracy gates pass.
 - API/spec tests: Logger Fork Safety passes; Vllm Chat Completions passes
   22/22, including both stop-string cases.
 - Benchmarks: all 21 requested rows completed with exact input/output lengths,
@@ -22,9 +24,11 @@
 
 The original monolithic `run.py --workflow release` attempt exited 1 because
 of repairable TTI GPQA, benchmark, spec-timeout, coherence, and stop-semantics
-problems. AutoFix isolated those problems. The corrected GPQA, full benchmark,
-and full spec-test workflows each exited 0, and the evidence-validating merger
-then exited 0. The outcome above does not mislabel the initial monolithic exit.
+problems. AutoFix isolated those problems and the initially omitted mandatory
+IFEval gate. The corrected GPQA, full benchmark, full spec-test, and full
+canonical IFEval workflows each exited 0, and the fail-closed
+evidence-validating merger then exited 0. The outcome above does not mislabel
+the initial monolithic exit or the rejected low-effort IFEval attempt.
 
 ## Autoport implementation check: `models/autoports/openai_gpt_oss_120b`
 
@@ -60,7 +64,7 @@ evaluated.
 Every serve operation first sourced
 `.agents/scripts/gpt_oss_workspace_env.sh` and repeated the import-origin
 check. The final server was owned by tmux session
-`gpt-oss-120b-tti-server-r3`.
+`gpt-oss-120b-tti-server-r4`.
 
 ## Provenance
 
@@ -70,7 +74,7 @@ check. The final server was owned by tmux session
 | completed optimized-vLLM stage | `bcb3f87dd50d4813bb2c917701dedf3f06b13545` |
 | official vLLM base / final local repair | `568afb3a13806beb53bb2e6bd518269357b237c0` / `54dea57d98ccfaef072908f085d9296d544ba1fe` |
 | standalone TT vLLM plugin | `053c0782aa11028924c21cb061ffa76576705cad` |
-| TTI base / final local repair | `f07a31d2a2f908aa04098685034e7a5bde7554ea` / `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4` |
+| TTI base / intermediate / final local repair | `f07a31d2a2f908aa04098685034e7a5bde7554ea` / `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4` / `ddfba898209f0aaada2294d9230801d053edcf80` |
 | inherited release tag | v0.17.0, `48055de3d1b444e0dbce23cc378590eb6abc2ca5` |
 | inherited image, not used | `ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.17.0-8c48a10-f52987a` |
 | TTI client checkout | VERSION 0.21.0 |
@@ -114,9 +118,32 @@ python3 run.py \
 The corrected constituent reruns used the same command shape and external
 endpoint with embedded `workflow=evals`, `benchmarks`, and `spec_tests`
 respectively. The GPQA repair spec selected exactly samples 0 through 6. The
-spec-test runtime proof is copied as `runtime_model_spec_validation.json`.
+final IFEval runtime proof is copied as `runtime_model_spec_validation.json`.
 The checkout's own `run.py --help` spelling is summarized in
 `run_py_help_summary.txt`.
+
+The mandatory IFEval recovery used the copied `run_tti_ifeval_repair.sh` and
+`autoport_ifeval_repair_spec.json`. Its logical selector is `meta_ifeval`, its
+lm-eval execution task is canonical `ifeval` over `google/IFEval`, and its
+embedded spec has `workflow=evals`, `docker_server=false`,
+`local_server=false`, `service_port=8000`, `disable_trace_capture=true`, and
+no sample limit. The full run used `eval_max_concurrency=1`; an eight-way
+throughput probe was stopped when eight requests took 7m24s, substantially
+slower than serial execution, without disturbing the server.
+
+Exact full IFEval client command:
+
+```bash
+cd /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b
+bash run_tti_ifeval_repair.sh
+```
+
+The generated command used canonical `--tasks ifeval`,
+`--apply_chat_template`, no `--limit` or `--samples`, concurrency 1,
+`reasoning_effort=medium`, `max_gen_toks=4096`, `do_sample=false`,
+`temperature=0`, seed 42, and `max_length=131072`. It completed 541/541
+requests from 2026-09-03 00:39:36 UTC through 04:17:04 UTC; the workflow
+exited 0 after 13046.7 seconds.
 
 The source specs set `docker_server=false`, `local_server=false`,
 `service_port=8000`, and the intended workflow before execution; command-line
@@ -130,7 +157,8 @@ settings were `VLLM_TARGET_DEVICE=tt`, `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`,
 Before full release, the no-Docker smoke passed in order:
 
 1. health endpoint HTTP 200;
-2. one OpenAI-compatible request HTTP 200 and `finish_reason=stop`;
+2. one OpenAI-compatible request HTTP 200 and `finish_reason=length` at its
+   deliberately tiny 64-token connectivity cap;
 3. one TTI benchmark with `disable_trace_capture=true`, 1/1 completed.
 
 The smoke retained only hashes, counts, timings, and finish metadata. The tiny
@@ -148,18 +176,23 @@ cap, so this handoff does not overstate qualitative completeness.
 
 Final compact evidence:
 
-- `accuracy_summary.json`: all three configured nightly-equivalent tasks pass.
-  `meta_gpqa_cot` is satisfied by GPQA Diamond CoT 7/7. `meta_ifeval` is not
-  configured in this Stage 11 model spec, so there is no failed or waived
-  IFEval row.
+- `accuracy_summary.json`: all four gates pass. `meta_gpqa_cot` is
+  satisfied by GPQA Diamond CoT 7/7. Logical `meta_ifeval` is satisfied by
+  the full canonical `ifeval` task over `google/IFEval`: 463/541 strict
+  prompts, 85.58225508317929%, versus the 74.29% minimum.
+- `ifeval_summary.json`, `ifeval_report_full.json`, and
+  `ifeval_aggregate_results.json`: full-scope count, configuration, score,
+  and provenance evidence without sample outputs.
 - `benchmark_summary.csv`: 21/21 rows complete, zero request failures/errors,
   exact lengths/counts, and no missing metrics. The 10000-token non-aligned
   workload passed without alignment.
 - `spec_test_summary.json`: acceptance true, zero blockers, 22/22 Vllm Chat
   Completions plus Logger Fork Safety pass.
 - `report_data_release_ci_nightly.json` and
-  `report_release_ci_nightly.md`: merged readiness PASS with validated links to
-  each authoritative source report and raw benchmark projection.
+  `report_release_ci_nightly.md`: four-gate merged readiness PASS with
+  validated links to each authoritative source report and raw benchmark
+  projection. The merger exited 0 with `acceptance=PASS` and
+  `blocker_keys=none`.
 
 The one benchmark waiver is limited to `ISL=128, OSL=128, concurrency=1,
 requests=8`. It completed 8/8 and reproduced the optimized autoport baseline,
@@ -168,6 +201,24 @@ but TTI assigns a B32-like aggregate target to that B1 row. See
 failures, missing metrics, shortened requests, or any other row, and it does
 not establish unrestricted performance readiness.
 
+An unrestricted release run was not a practical nightly gate: the configured
+full task set represents approximately 1,070,170,112 maximum output tokens;
+at the measured 57.674 output tok/s that is about 214.8 device-days before
+prefill and harness overhead. The effective nightly-equivalent limits were
+AIME 50% (15 samples), GPQA 3.5% (7 samples), and MMLU 15% (approximately
+2,127 samples). Canonical IFEval was run at its full 541-sample scope—stronger
+than its 5% nightly slice—because the initial 28-sample diagnostic scored
+20/28 and did not pass the configured gate. That diagnostic was neither
+masked nor waived.
+
+The first full canonical IFEval run used low reasoning and a 1,280-token
+generation budget. Although all 541 requests completed, its strict score was
+397/541 (73.3826%), below the gate; it was rejected and not waived. A fixed
+20-ID A/B isolated the generation budget and reasoning policy without printing
+responses. The accepted medium+4096 policy matches the cited public reference
+semantics and raised the full strict score to 463/541. Details are in
+`ifeval_AUTOFIX.md` and `ifeval_reference_parity_AUTOFIX.md`.
+
 ## Recovery and validation
 
 - Corrected custom-spec external mode, service port, workflow, and autoport
@@ -175,10 +226,20 @@ not establish unrestricted performance readiness.
 - Retained the exact-context router repair and verified the maximum logical
   request twice without context reduction.
 - Repaired GPQA dataset/harness wiring and reran 7/7 successfully.
+- Repaired TTI's GPT-OSS IFEval wiring by preserving the logical
+  `meta_ifeval` report identity while executing canonical `ifeval`; added a
+  task selector orthogonal to sample limiting, strict-metric fail-closed
+  behavior, authoritative nonzero subprocess-exit handling, explicit rejection
+  of both `NA` and `FAIL` rows, and the required readiness-status spelling.
 - Repaired the benchmark endpoint, deterministic temperature behavior, and
   streaming raw-evidence merger; the corrected full 21-row workflow exited 0.
 - Repaired TTI spec timeouts, reasoning-aware coherence validation, and exact
   completion checks. The TTI host suite passed 308 tests.
+- The final touched-surface suite passed 299 tests, the final merger suite
+  passed 17 tests, and Python compilation plus diff checks passed. The
+  checkout's pre-commit wrapper could not start because its expected
+  `.pre-commit/bin/activate` is absent; the available copyright hook passed
+  earlier, and no formatter/linter dependency was installed.
 - AutoFix found that vLLM's detokenizer removed a matched stop string while
   the Harmony parser rebuilt reasoning from untrimmed token IDs. The official
   vLLM checkout now trims parsed non-stream output consistently with
@@ -190,6 +251,8 @@ not establish unrestricted performance readiness.
 - No ARC, ERISC, remote-Ethernet, or reset failure occurred in the final runs.
   An earlier interrupted AIME attempt was an external process interruption;
   health/import checks passed and no reset was warranted.
+- Removed an ignored zero-byte TTI `.env`; it contained no data and no secret
+  was read or copied.
 - Post-shutdown `tt-smi -ls --local` listed all four boards as visible and
   resettable; a fresh P150x4 `(1, 4)` open/close ended `MESH_SMOKE_OK`.
 
@@ -197,7 +260,7 @@ not establish unrestricted performance readiness.
 
 Authoritative generated report:
 
-`/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/final_release_report/report_id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-02T210023+0000.md`
+`/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/final_release_report/report_id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-03T041922+0000.md`
 
 Its JSON peer is under the adjacent `data/` directory. The corrected spec
 report is:
@@ -205,22 +268,31 @@ report is:
 `/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/spec_tests/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_20-59-57.json`
 
 Small reports, summaries, specs, repair notes, and smoke metadata were copied
-to this directory. Raw completions/reasoning, raw eval samples, token IDs,
-weights, caches, persistent TT cache, Docker layers, and large server/eval
-logs were intentionally excluded.
+to this directory. The copied 27.9 KB IFEval aggregate contains only
+configuration, counts, and aggregate metrics; it has no sample or response
+field. Raw completions/reasoning, per-sample eval JSONL, token IDs, weights,
+caches, persistent TT cache, Docker layers, and large server/eval logs were
+intentionally excluded.
 
 Cleanup completed: the owned server exited gracefully, its tmux session was
 removed, no owned vLLM process remains, no TTI container was created, and only
 the pre-existing unrelated tmux session `0` remains. Existing unrelated
-Supabase containers were left untouched. An incidental 52-byte TTI `uv.lock`
-and temporary GPQA cache symlink were removed; neither was tracked or part of
-the release handoff.
+Supabase containers were left untouched. Post-shutdown `tt-smi -ls --local`
+showed all four boards visible and resettable; a fresh P150x4 `(1, 4)`
+open/close ended `MESH_SMOKE_OK`, so no reset was performed. The
+runtime-mutated serving capability file was restored to SHA-256
+`e63ca5f81e1496be55c709c06c3881637e1efeccf5d16703ff82c998b64f625a`.
+The empty harness-created TTI `.env`, incidental 52-byte `uv.lock`, and
+temporary GPQA cache symlink were removed; none contained or exposed a secret.
 
 ## Local handoff commits and final review
 
 - Official vLLM repair: `54dea57d98ccfaef072908f085d9296d544ba1fe`.
-- TTI harness and merger repair: `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4`.
-- tt-metal report/capability handoff: pending commit.
+- TTI intermediate repair: `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4`.
+- TTI final IFEval repair: `ddfba898209f0aaada2294d9230801d053edcf80`.
+- tt-metal initial report/capability handoff:
+  `44c461da3a59e8fa9bcf6d9aedb91cab34208dd0`.
+- tt-metal IFEval remediation handoff: pending local commit.
 - Independent stage review: pending.
 
 No commit was pushed.

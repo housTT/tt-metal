@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Merge validated GPQA, benchmark, and spec-test repairs and rerender."""
+"""Merge validated GPQA, IFEval, benchmark, and spec-test repairs and rerender."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,16 @@ from report_module import ReportGenerator, ReportSchema, acceptance_criteria_che
 
 TASK_NAME = "gpqa_diamond_cot_zeroshot"
 EXPECTED_EVAL_TASKS = frozenset({"aime25", TASK_NAME, "mmlu_generative"})
+IFEVAL_TASK_NAME = "meta_ifeval"
+IFEVAL_LM_EVAL_TASK_NAME = "ifeval"
+IFEVAL_DATASET_PATH = "google/IFEval"
+IFEVAL_SAMPLE_COUNT = 541
+IFEVAL_STRICT_PROMPT_METRIC = "prompt_level_strict_acc,none"
+IFEVAL_REASONING_EFFORT = "medium"
+IFEVAL_MAX_GEN_TOKS = 4096
+IFEVAL_SEED = 42
+RELEASE_READINESS_STATUS = "release-readiness-ci-subset-pass"
+FINAL_EVAL_TASKS = EXPECTED_EVAL_TASKS | {IFEVAL_TASK_NAME}
 EXPECTED_BENCHMARK_ROWS = (
     (128, 128, 1, 8),
     (128, 128, 32, 256),
@@ -71,6 +82,13 @@ RAW_BENCHMARK_FIELDS = frozenset(
         "total_output_tokens",
     }
 )
+RAW_IFEVAL_FIELDS = frozenset({"config", "configs", "n-samples", "results"})
+
+
+def _release_readiness_metadata() -> dict[str, str]:
+    """Return the exact Stage 11 CI-subset readiness marker for report output."""
+
+    return {"release_readiness": RELEASE_READINESS_STATUS}
 
 
 def _read_json(path: Path) -> dict:
@@ -217,6 +235,25 @@ def _exact_int(value, label: str) -> int:
     return result
 
 
+def _finite_float(value, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(f"{label} is not numeric")
+    result = float(value)
+    if not math.isfinite(result):
+        raise RuntimeError(f"{label} is not finite")
+    return result
+
+
+def _workspace_file(path: Path, label: str, workspace_root: Path = WORKSPACE_ROOT) -> Path:
+    resolved = path.resolve()
+    resolved_root = workspace_root.resolve()
+    if resolved_root != resolved and resolved_root not in resolved.parents:
+        raise RuntimeError(f"{label} is outside the authorized workspace")
+    if not resolved.is_file():
+        raise RuntimeError(f"{label} does not exist: {resolved}")
+    return resolved
+
+
 def _normalized_timestamp(value: str, label: str) -> str:
     for fmt in ("%Y%m%d-%H%M%S", "%Y-%m-%d %H:%M:%S"):
         try:
@@ -306,6 +343,159 @@ def _validate_raw_benchmarks(benchmark_blocks, raw_dir: Path) -> list[dict]:
     return validated
 
 
+def _validate_ifeval_generation_config(config: object, label: str) -> None:
+    """Require the deterministic GPT-OSS policy used for reference parity."""
+
+    if not isinstance(config, dict):
+        raise RuntimeError(f"IFEval {label} is malformed")
+    if config.get("reasoning_effort") != IFEVAL_REASONING_EFFORT:
+        raise RuntimeError(f"IFEval {label} does not use {IFEVAL_REASONING_EFFORT} reasoning")
+    max_gen_toks = _exact_int(config.get("max_gen_toks"), f"IFEval {label} max_gen_toks")
+    if max_gen_toks != IFEVAL_MAX_GEN_TOKS:
+        raise RuntimeError(f"IFEval {label} max_gen_toks={max_gen_toks}, " f"expected {IFEVAL_MAX_GEN_TOKS}")
+    if config.get("do_sample") is not False:
+        raise RuntimeError(f"IFEval {label} must set do_sample=false")
+    temperature = _finite_float(config.get("temperature"), f"IFEval {label} temperature")
+    if temperature != 0.0:
+        raise RuntimeError(f"IFEval {label} must set temperature=0")
+    seed = _exact_int(config.get("seed"), f"IFEval {label} seed")
+    if seed != IFEVAL_SEED:
+        raise RuntimeError(f"IFEval {label} seed={seed}, expected {IFEVAL_SEED}")
+
+
+def _validate_ifeval_recovery(
+    report_path: Path,
+    raw_result_path: Path,
+    *,
+    workspace_root: Path = WORKSPACE_ROOT,
+):
+    """Validate and project a separately completed canonical Google IFEval run."""
+
+    report_path = _workspace_file(report_path, "IFEval report", workspace_root)
+    raw_result_path = _workspace_file(raw_result_path, "IFEval raw result", workspace_root)
+
+    payload = _read_json(report_path)
+    if payload.get("acceptance_criteria") is not True:
+        raise RuntimeError("IFEval workflow did not pass acceptance")
+    blockers = payload.get("acceptance_blockers")
+    if not isinstance(blockers, dict) or blockers:
+        raise RuntimeError("IFEval workflow has malformed or nonempty blockers")
+
+    report = ReportSchema.from_dict(payload)
+    eval_blocks = [block for block in report.sections if block.kind == "evals"]
+    if len(eval_blocks) != 1:
+        raise RuntimeError(f"expected one IFEval report block, found {len(eval_blocks)}")
+    block = eval_blocks[0]
+    if _task_name(block) != IFEVAL_TASK_NAME:
+        raise RuntimeError("IFEval report does not use logical task meta_ifeval")
+    if block.data.get("lm_eval_task_name") != IFEVAL_LM_EVAL_TASK_NAME:
+        raise RuntimeError("IFEval report does not prove canonical task provenance")
+    if block.targets.get("task_name") != IFEVAL_TASK_NAME:
+        raise RuntimeError("IFEval report target does not use logical task meta_ifeval")
+
+    report_score = _finite_float(block.data.get("score"), "IFEval report score")
+    accuracy_check = _exact_int(block.data.get("accuracy_check"), "IFEval accuracy_check")
+    if accuracy_check != 2:
+        raise RuntimeError("IFEval accuracy row is not PASS")
+    recomputed_acceptance, recomputed_blockers, _ = acceptance_criteria_check(report)
+    if not recomputed_acceptance or recomputed_blockers:
+        raise RuntimeError("IFEval report block does not independently pass acceptance")
+
+    raw = _read_json_fields(raw_result_path, RAW_IFEVAL_FIELDS)
+    missing_fields = RAW_IFEVAL_FIELDS - raw.keys()
+    if missing_fields:
+        raise RuntimeError(f"IFEval raw result is missing fields: {sorted(missing_fields)}")
+
+    run_config = raw["config"]
+    if not isinstance(run_config, dict) or "limit" not in run_config:
+        raise RuntimeError("IFEval raw result has no explicit run limit")
+    if run_config["limit"] is not None:
+        raise RuntimeError("IFEval raw result is not a full unbounded run")
+
+    model_args = run_config.get("model_args")
+    if not isinstance(model_args, dict):
+        raise RuntimeError("IFEval raw run model_args are malformed")
+    run_max_length = _exact_int(model_args.get("max_length"), "IFEval raw run max_length")
+    if run_max_length != SUPPORTED_CONTEXT:
+        raise RuntimeError(f"IFEval raw run max_length={run_max_length}, expected {SUPPORTED_CONTEXT}")
+    _validate_ifeval_generation_config(run_config.get("gen_kwargs"), "raw run gen_kwargs")
+
+    expected_raw_keys = {IFEVAL_LM_EVAL_TASK_NAME}
+    for label, field in (
+        ("configs", raw["configs"]),
+        ("n-samples", raw["n-samples"]),
+        ("results", raw["results"]),
+    ):
+        if not isinstance(field, dict) or set(field) != expected_raw_keys:
+            raise RuntimeError(f"IFEval raw {label} must contain only canonical task ifeval")
+
+    canonical_config = raw["configs"][IFEVAL_LM_EVAL_TASK_NAME]
+    if not isinstance(canonical_config, dict):
+        raise RuntimeError("IFEval canonical task config is malformed")
+    if canonical_config.get("task") != IFEVAL_LM_EVAL_TASK_NAME:
+        raise RuntimeError("IFEval raw task identity is not canonical ifeval")
+    if canonical_config.get("dataset_path") != IFEVAL_DATASET_PATH:
+        raise RuntimeError("IFEval raw result does not use google/IFEval")
+
+    task_metadata = canonical_config.get("metadata")
+    if not isinstance(task_metadata, dict):
+        raise RuntimeError("IFEval canonical task metadata is malformed")
+    task_max_length = _exact_int(task_metadata.get("max_length"), "IFEval canonical task max_length")
+    if task_max_length != SUPPORTED_CONTEXT:
+        raise RuntimeError("IFEval canonical task max_length=" f"{task_max_length}, expected {SUPPORTED_CONTEXT}")
+    _validate_ifeval_generation_config(
+        canonical_config.get("generation_kwargs"),
+        "canonical task generation_kwargs",
+    )
+
+    sample_counts = raw["n-samples"][IFEVAL_LM_EVAL_TASK_NAME]
+    if not isinstance(sample_counts, dict):
+        raise RuntimeError("IFEval raw sample counts are malformed")
+    for count_name in ("original", "effective"):
+        count = _exact_int(sample_counts.get(count_name), f"IFEval {count_name} samples")
+        if count != IFEVAL_SAMPLE_COUNT:
+            raise RuntimeError(f"IFEval {count_name} samples={count}, expected {IFEVAL_SAMPLE_COUNT}")
+
+    raw_results = raw["results"][IFEVAL_LM_EVAL_TASK_NAME]
+    if not isinstance(raw_results, dict):
+        raise RuntimeError("IFEval raw metrics are malformed")
+    strict_prompt = _finite_float(
+        raw_results.get(IFEVAL_STRICT_PROMPT_METRIC),
+        f"IFEval raw {IFEVAL_STRICT_PROMPT_METRIC}",
+    )
+    if not 0.0 <= strict_prompt <= 1.0:
+        raise RuntimeError("IFEval strict prompt metric is outside [0, 1]")
+    expected_report_score = strict_prompt * 100.0
+    if not math.isclose(report_score, expected_report_score, rel_tol=1e-12, abs_tol=1e-12):
+        raise RuntimeError("IFEval report score does not match the raw strict prompt metric")
+
+    recovery_metadata = {
+        "logical_task_name": IFEVAL_TASK_NAME,
+        "canonical_task_name": IFEVAL_LM_EVAL_TASK_NAME,
+        "dataset_path": IFEVAL_DATASET_PATH,
+        "scope": {
+            "limit": None,
+            "original_samples": IFEVAL_SAMPLE_COUNT,
+            "effective_samples": IFEVAL_SAMPLE_COUNT,
+            "strict_prompt_metric": IFEVAL_STRICT_PROMPT_METRIC,
+            "max_length": SUPPORTED_CONTEXT,
+            "generation_policy": {
+                "reasoning_effort": IFEVAL_REASONING_EFFORT,
+                "max_gen_toks": IFEVAL_MAX_GEN_TOKS,
+                "do_sample": False,
+                "temperature": 0.0,
+                "seed": IFEVAL_SEED,
+            },
+        },
+        "report_paths": {
+            "report_json": str(report_path),
+            "raw_result_json": str(raw_result_path),
+        },
+        "raw_samples_copied": False,
+    }
+    return block, recovery_metadata
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release-report-json", required=True, type=Path)
@@ -314,6 +504,8 @@ def main() -> int:
     parser.add_argument("--benchmark-raw-dir", required=True, type=Path)
     parser.add_argument("--benchmark-issue-waiver", required=True, type=Path)
     parser.add_argument("--spec-repair-report-json", required=True, type=Path)
+    parser.add_argument("--ifeval-report-json", required=True, type=Path)
+    parser.add_argument("--ifeval-raw-result-json", required=True, type=Path)
     parser.add_argument("--runtime-model-spec", required=True, type=Path)
     parser.add_argument("--official-vllm-release-commit", required=True)
     parser.add_argument("--tti-release-commit", required=True)
@@ -367,6 +559,7 @@ def main() -> int:
     repair = ReportSchema.from_dict(repair_payload)
     benchmark_repair = ReportSchema.from_dict(benchmark_payload)
     spec_repair = ReportSchema.from_dict(spec_payload)
+    ifeval_block, ifeval_recovery = _validate_ifeval_recovery(args.ifeval_report_json, args.ifeval_raw_result_json)
 
     release_eval_tasks = {task_name for block in release.sections if (task_name := _task_name(block)) is not None}
     if release_eval_tasks != EXPECTED_EVAL_TASKS:
@@ -494,7 +687,8 @@ def main() -> int:
     merged_sections = []
     inserted_benchmarks = False
     inserted_specs = False
-    for block in release.sections:
+    last_eval_index = max(index for index, block in enumerate(release.sections) if block.kind == "evals")
+    for index, block in enumerate(release.sections):
         if block.kind == "benchmarks":
             if not inserted_benchmarks:
                 merged_sections.extend(benchmark_blocks)
@@ -506,6 +700,8 @@ def main() -> int:
                 inserted_specs = True
             continue
         merged_sections.append(block)
+        if index == last_eval_index:
+            merged_sections.append(ifeval_block)
     if not inserted_benchmarks or not inserted_specs:
         raise RuntimeError("main release did not provide benchmark/spec insertion points")
     release = ReportSchema(metadata=release.metadata, sections=merged_sections)
@@ -520,7 +716,7 @@ def main() -> int:
             "generated_at": generated_at,
             "report_id": f"{runtime_spec['model_id']}_release-repaired_{generated_at.replace(':', '')}",
             "workflow": "release",
-            "release_readiness": "ci-nightly-subset-pass",
+            **_release_readiness_metadata(),
             "vllm_base_commit": source_vllm_commit,
             "vllm_commit": args.official_vllm_release_commit,
             "tti_commit": args.tti_release_commit,
@@ -548,6 +744,7 @@ def main() -> int:
                 "sample_ids": list(range(7)),
                 "raw_samples_copied": False,
             },
+            "ifeval_harness_recovery": ifeval_recovery,
             "benchmark_harness_recovery": {
                 "repair_report_json": str(args.benchmark_repair_report_json),
                 "endpoint": "/v1/completions",
@@ -591,6 +788,9 @@ def main() -> int:
         model_status=model_status,
     )
     release.metadata.update(build_acceptance_export(accepted, blockers, categories, model_status))
+    final_eval_tasks = {task_name for block in release.sections if (task_name := _task_name(block)) is not None}
+    if final_eval_tasks != FINAL_EVAL_TASKS:
+        raise RuntimeError("merged release report has unexpected eval coverage: " f"{sorted(final_eval_tasks)}")
     result = ReportGenerator().generate(release, args.output_dir)
 
     print(f"acceptance={'PASS' if accepted else 'FAIL'}")

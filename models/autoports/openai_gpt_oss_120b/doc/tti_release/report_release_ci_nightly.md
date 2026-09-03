@@ -6,8 +6,8 @@
 {
     "model_name": "openai/gpt-oss-120b",
     "device": "P150X4",
-    "generated_at": "2026-09-02T21:00:23+00:00",
-    "report_id": "id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-02T210023+0000",
+    "generated_at": "2026-09-03T04:19:22+00:00",
+    "report_id": "id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-03T041922+0000",
     "workflow": "release",
     "server_mode": "API",
     "run_command": "python run.py --model gpt-oss-120b --runtime-model-spec-json /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/specs/autoport_release_spec.json --tt-device p150x4 --engine vllm --workflow release --server-url http://127.0.0.1:8000 --service-port 8000 --no-auth --skip-system-sw-validation --limit-samples-mode ci-nightly",
@@ -18,17 +18,17 @@
     "tt_metal_commit": "76e51849603f6ff7d05f37e15b4938016d7e946e",
     "vllm_commit": "54dea57d98ccfaef072908f085d9296d544ba1fe",
     "model_impl": "gpt-oss-autoport",
-    "release_readiness": "ci-nightly-subset-pass",
+    "release_readiness": "release-readiness-ci-subset-pass",
     "vllm_base_commit": "568afb3a13806beb53bb2e6bd518269357b237c0",
-    "tti_commit": "b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4",
+    "tti_commit": "ddfba898209f0aaada2294d9230801d053edcf80",
     "source_release_report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/release/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_13-42-30.json",
     "source_release_runtime_model_spec_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-01_18-57-30_id_openai-gpt-oss-120b-autoport_p150x4_DCBRySjX.json",
-    "validation_runtime_model_spec_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-02_20-32-37_id_openai-gpt-oss-120b-autoport_p150x4_yDK2_4yk.json",
+    "validation_runtime_model_spec_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-03_00-39-36_id_openai-gpt-oss-120b-autoport_p150x4_AcpnnKS6.json",
     "handoff_runtime_model_spec_json": "models/autoports/openai_gpt_oss_120b/doc/tti_release/runtime_model_spec_validation.json",
     "autoport_code_path": "models/autoports/openai_gpt_oss_120b",
     "release_code_commits": {
         "official_vllm": "54dea57d98ccfaef072908f085d9296d544ba1fe",
-        "tti_client": "b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4"
+        "tti_client": "ddfba898209f0aaada2294d9230801d053edcf80"
     },
     "context_contract": {
         "path": "models/autoports/openai_gpt_oss_120b/doc/context_contract.json",
@@ -51,6 +51,30 @@
             5,
             6
         ],
+        "raw_samples_copied": false
+    },
+    "ifeval_harness_recovery": {
+        "logical_task_name": "meta_ifeval",
+        "canonical_task_name": "ifeval",
+        "dataset_path": "google/IFEval",
+        "scope": {
+            "limit": null,
+            "original_samples": 541,
+            "effective_samples": 541,
+            "strict_prompt_metric": "prompt_level_strict_acc,none",
+            "max_length": 131072,
+            "generation_policy": {
+                "reasoning_effort": "medium",
+                "max_gen_toks": 4096,
+                "do_sample": false,
+                "temperature": 0.0,
+                "seed": 42
+            }
+        },
+        "report_paths": {
+            "report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/data/report_data_openai__gpt-oss-120b_2026-09-03T041704+0000.json",
+            "raw_result_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/gpt-oss-120b_p150x4_evals/eval_id_openai-gpt-oss-120b-autoport_p150x4/openai__gpt-oss-120b/results_2026-09-03T04-17-04.086964.json"
+        },
         "raw_samples_copied": false
     },
     "benchmark_harness_recovery": {
@@ -322,7 +346,7 @@
 - Acceptance status: ✅ `PASS`
 - Model status: `EXPERIMENTAL`
 - Benchmarks: ✅ `PASS` (0/21 passed, 1 waived, 20 NA)
-- Evals: ✅ `PASS` (3/3 passed)
+- Evals: ✅ `PASS` (4/4 passed)
 - Spec Tests: ✅ `PASS` (1/1 passed)
 - All acceptance criteria passed.
 
@@ -330,11 +354,12 @@
 
 ### Accuracy Evaluations for openai/gpt-oss-120b on P150X4
 
-| Task                      | Tolerance | Published Score | Published Score Ref                                                                        | GPU Reference Score | gpu_reference_score_ref                                                                | Score | Ratio to Published | Ratio to Reference | Accuracy Check | mean_seconds_per_task |
-|:--------------------------|:----------|:----------------|:-------------------------------------------------------------------------------------------|:--------------------|:---------------------------------------------------------------------------------------|:------|:-------------------|:-------------------|:---------------|:----------------------|
-| aime25                    | 0.05      | 92.5            | https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf | 90.4                | https://github.com/tenstorrent/tt-inference-server/issues/1322#issuecomment-3801635211 | 86.67 | 0.9369             | 0.9587             | ✅ PASS        | 2123                  |
-| gpqa_diamond_cot_zeroshot | 0.05      | 80.1            | https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf | 79.7                | https://github.com/tenstorrent/tt-inference-server/issues/1322#issuecomment-3801635211 | 100   | 1.248              | 1.255              | ✅ PASS        | 11.35                 |
-| mmlu_generative           | 0.05      | 85.9            | https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf | 85.9                | DUMMY VALUE                                                                            | 84.67 | 0.9857             | 0.9857             | ✅ PASS        | N/A                   |
+| Task                      | Tolerance | Published Score | Published Score Ref                                                                          | GPU Reference Score | gpu_reference_score_ref                                                                | Score | Ratio to Published | Ratio to Reference | Accuracy Check | mean_seconds_per_task | lm_eval_task_name |
+|:--------------------------|:----------|:----------------|:---------------------------------------------------------------------------------------------|:--------------------|:---------------------------------------------------------------------------------------|:------|:-------------------|:-------------------|:---------------|:----------------------|:------------------|
+| aime25                    | 0.05      | 92.5            | https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf   | 90.4                | https://github.com/tenstorrent/tt-inference-server/issues/1322#issuecomment-3801635211 | 86.67 | 0.9369             | 0.9587             | ✅ PASS        | 2123                  | N/A               |
+| gpqa_diamond_cot_zeroshot | 0.05      | 80.1            | https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf   | 79.7                | https://github.com/tenstorrent/tt-inference-server/issues/1322#issuecomment-3801635211 | 100   | 1.248              | 1.255              | ✅ PASS        | 11.35                 | N/A               |
+| mmlu_generative           | 0.05      | 85.9            | https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf   | 85.9                | DUMMY VALUE                                                                            | 84.67 | 0.9857             | 0.9857             | ✅ PASS        | N/A                   | N/A               |
+| meta_ifeval               | 0.05      | 78.2            | https://frozebench.com/runs/openai-mirror%2Fgpt-oss-120b__ifeval__2025-10-20T07-31-55.208086 | N/A                 | N/A                                                                                    | 85.58 | 1.094              | N/A                | ✅ PASS        | 466                   | ifeval            |
 
 Note: The ratio to published scores defines if eval ran roughly correctly, as the exact methodology of the model publisher cannot always be reproduced. For this reason the accuracy check is based first on being equivalent to the GPU reference within a +/- tolerance. If a value GPU reference is not available, the accuracy check is based on the direct ratio to the published score.
 
@@ -404,7 +429,7 @@ Note: No perf targets are configured for these sweep points, so these rows are r
 | Success Rate   | 100.0%                    |
 | Total Duration | 1640.21s                  |
 | Total Attempts | 2                         |
-| Generated      | 2026-09-02T21:00:23+00:00 |
+| Generated      | 2026-09-03T04:19:22+00:00 |
 
 ## 🧪 Test Results
 
