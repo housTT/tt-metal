@@ -325,8 +325,10 @@ temporary GPQA cache symlink were removed; none contained or exposed a secret.
   `44c461da3a59e8fa9bcf6d9aedb91cab34208dd0`.
 - tt-metal IFEval remediation handoff:
   `9a5d198fee3b4406fe417e2579a79311ad4e2ca5`.
-- tt-metal metric-integrity/report handoff: the local commit containing this
-  note; its parent is `9a5d198fee3b4406fe417e2579a79311ad4e2ca5`.
+- tt-metal metric-integrity/report handoff:
+  `417bb4e7c8e2b3ab111676c6baa79f5007a96bb0`.
+- tt-metal contradictory source-report cleanup:
+  `d478af00c792e7beadcd7c2841c7cc8d0ed71ff1`.
 - Independent stage review: provisional `more-work-needed` findings are in
   `stage_review_metric_findings.md`; a fresh post-remediation verdict is
   required before completion.
