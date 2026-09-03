@@ -2,8 +2,8 @@
     "metadata": {
         "model_name": "openai/gpt-oss-120b",
         "device": "P150X4",
-        "generated_at": "2026-09-03T04:19:22+00:00",
-        "report_id": "id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-03T041922+0000",
+        "generated_at": "2026-09-03T04:39:07+00:00",
+        "report_id": "id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-03T043907+0000",
         "workflow": "release",
         "server_mode": "API",
         "run_command": "python run.py --model gpt-oss-120b --runtime-model-spec-json /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/specs/autoport_release_spec.json --tt-device p150x4 --engine vllm --workflow release --server-url http://127.0.0.1:8000 --service-port 8000 --no-auth --skip-system-sw-validation --limit-samples-mode ci-nightly",
@@ -16,15 +16,15 @@
         "model_impl": "gpt-oss-autoport",
         "release_readiness": "release-readiness-ci-subset-pass",
         "vllm_base_commit": "568afb3a13806beb53bb2e6bd518269357b237c0",
-        "tti_commit": "ddfba898209f0aaada2294d9230801d053edcf80",
-        "source_release_report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/release/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_13-42-30.json",
+        "tti_commit": "8459ba8dc6e690e7987235182a0d87c67bacc4a7",
+        "source_release_report_json": "tti_cache/workflow_logs/reports_output/release/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_13-42-30.json",
         "source_release_runtime_model_spec_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-01_18-57-30_id_openai-gpt-oss-120b-autoport_p150x4_DCBRySjX.json",
-        "validation_runtime_model_spec_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-03_00-39-36_id_openai-gpt-oss-120b-autoport_p150x4_AcpnnKS6.json",
+        "validation_runtime_model_spec_json": "tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-03_00-39-36_id_openai-gpt-oss-120b-autoport_p150x4_AcpnnKS6.json",
         "handoff_runtime_model_spec_json": "models/autoports/openai_gpt_oss_120b/doc/tti_release/runtime_model_spec_validation.json",
         "autoport_code_path": "models/autoports/openai_gpt_oss_120b",
         "release_code_commits": {
             "official_vllm": "54dea57d98ccfaef072908f085d9296d544ba1fe",
-            "tti_client": "ddfba898209f0aaada2294d9230801d053edcf80"
+            "tti_client": "8459ba8dc6e690e7987235182a0d87c67bacc4a7"
         },
         "context_contract": {
             "path": "models/autoports/openai_gpt_oss_120b/doc/context_contract.json",
@@ -34,7 +34,10 @@
         },
         "gpqa_harness_recovery": {
             "task_name": "gpqa_diamond_cot_zeroshot",
-            "repair_report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/data/report_data_openai__gpt-oss-120b_2026-09-02T152431+0000.json",
+            "canonical_task_name": "gpqa_diamond_cot_zeroshot",
+            "dataset_path": "Idavidrein/gpqa",
+            "dataset_name": "gpqa_diamond",
+            "score_metric": "exact_match,flexible-extract",
             "publisher_revision": "56686c06f5e19865c153de0fdb11be3890014df7",
             "archive_sha256": "461ae7329f15a3e35f8184d2dac24b990f34fdf12f366ca4062d8e6638cd08dc",
             "diamond_csv_sha256": "41d1213cd7a4998605a26c2798500652572007161b3a92817ba46b35befcd305",
@@ -47,6 +50,49 @@
                 5,
                 6
             ],
+            "sample_count": 7,
+            "scope": {
+                "selection_source": "runtime_model_spec.cli_args.eval_samples",
+                "raw_original_samples": 198,
+                "raw_effective_samples": 198,
+                "raw_count_semantics": "dataset-size-not-selected-request-count",
+                "generation_policy": {
+                    "reasoning_effort": "high",
+                    "max_gen_toks": 122880,
+                    "do_sample": true,
+                    "temperature": 1.0,
+                    "stream": false,
+                    "seed": 42,
+                    "request_timeout_seconds": 14400,
+                    "num_concurrent": 1
+                }
+            },
+            "server": {
+                "mode": "external",
+                "docker_server": false,
+                "local_server": false,
+                "service_port": 8000,
+                "workflow": "evals",
+                "autoport_code_path": "models/autoports/openai_gpt_oss_120b",
+                "supported_context": 131072
+            },
+            "timing": {
+                "source": "raw_result.total_evaluation_time_seconds",
+                "semantics": "lm-eval-evaluation-time-per-selected-request",
+                "total_evaluation_time_seconds": 2246.9087665929983,
+                "mean_seconds_per_task": 320.9869666561426,
+                "sample_count": 7
+            },
+            "report_paths": {
+                "report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/data/report_data_openai__gpt-oss-120b_2026-09-02T152431+0000.json",
+                "raw_result_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/gpt-oss-120b_p150x4_evals/eval_id_openai-gpt-oss-120b-autoport_p150x4/openai__gpt-oss-120b/results_2026-09-02T15-24-31.282444.json",
+                "runtime_model_spec_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-02_14-47-02_id_openai-gpt-oss-120b-autoport_p150x4_WFiF8fGp.json"
+            },
+            "artifact_sha256": {
+                "report_json": "fe6186966733023b9922c0274e73527ebb6554f122ff2eb2fa816ba486d7e83d",
+                "raw_result_json": "b50689f2da14790f334907dd1669f5d45b500faeca3602caad1c0f3fcc24b395",
+                "runtime_model_spec_json": "6ea10cf6a1326292dd9a434c91b60887d87dadf68c4f00c511aabb226404caad"
+            },
             "raw_samples_copied": false
         },
         "ifeval_harness_recovery": {
@@ -71,10 +117,15 @@
                 "report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/data/report_data_openai__gpt-oss-120b_2026-09-03T041704+0000.json",
                 "raw_result_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/evals/gpt-oss-120b_p150x4_evals/eval_id_openai-gpt-oss-120b-autoport_p150x4/openai__gpt-oss-120b/results_2026-09-03T04-17-04.086964.json"
             },
+            "timing": {
+                "total_evaluation_time_seconds": 13045.45777320399,
+                "mean_seconds_per_task": 24.11360032015525,
+                "sample_count": 541
+            },
             "raw_samples_copied": false
         },
         "benchmark_harness_recovery": {
-            "repair_report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/data/report_data_openai__gpt-oss-120b_2026-09-02T194657+0000.json",
+            "repair_report_json": "tti_cache/workflow_logs/reports_output/benchmarks/data/report_data_openai__gpt-oss-120b_2026-09-02T194657+0000.json",
             "endpoint": "/v1/completions",
             "backend": "vllm",
             "temperature": 0,
@@ -323,12 +374,31 @@
                 },
                 "source": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/evidence/benchmark_target_ISSUE_WAIVER.md",
                 "handoff_path": "models/autoports/openai_gpt_oss_120b/doc/tti_release/benchmark_target_ISSUE_WAIVER.md",
-                "reason": "the source target combines a concurrency-1 row with an aggregate-throughput threshold scaled for a larger batch",
+                "reason": "three aggregate-throughput checks use a batch-scaled source target, while complete/target TTFT are genuine unmet higher performance tiers",
+                "failed_subchecks": [
+                    "complete.tput",
+                    "complete.ttft",
+                    "functional.tput",
+                    "target.tput",
+                    "target.ttft"
+                ],
+                "disposition": {
+                    "source_target_defect": [
+                        "complete.tput",
+                        "functional.tput",
+                        "target.tput"
+                    ],
+                    "unmet_performance_tiers": [
+                        "complete.ttft",
+                        "target.ttft"
+                    ]
+                },
+                "acceptance_basis": "informational-under-experimental-status",
                 "unrestricted_performance_readiness": false
             }
         },
         "spec_test_harness_recovery": {
-            "repair_report_json": "/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/spec_tests/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_20-59-57.json",
+            "repair_report_json": "tti_cache/workflow_logs/reports_output/spec_tests/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_20-59-57.json",
             "request_timeout_seconds": 300,
             "generated_token_checks_use_reasoning_fallback": true,
             "final_content_required_for_coherence": true,
@@ -374,7 +444,7 @@
                 "ratio_to_published": 1.2484394506866419,
                 "ratio_to_reference": 1.2547051442910915,
                 "accuracy_check": 2,
-                "mean_seconds_per_task": 11.353456513252553
+                "mean_seconds_per_task": 320.9869666561426
             },
             "title": "LLM Eval \u2014 gpqa_diamond_cot_zeroshot",
             "task_type": "llm",
@@ -424,7 +494,7 @@
                 "ratio_to_reference": "N/A",
                 "accuracy_check": 2,
                 "lm_eval_task_name": "ifeval",
-                "mean_seconds_per_task": 465.953656654964
+                "mean_seconds_per_task": 24.11360032015525
             },
             "title": "LLM Eval \u2014 meta_ifeval",
             "task_type": "llm",
@@ -452,7 +522,7 @@
                 "tps_output_throughput": 45.3798,
                 "tps_total_throughput": 90.7597,
                 "request_throughput": 0.3545,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "target_check": 3,
                 "target_checks": {
                     "functional": {
@@ -515,7 +585,7 @@
                 "tps_output_throughput": 45.4198,
                 "tps_total_throughput": 90.8396,
                 "request_throughput": 0.3548,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -544,7 +614,7 @@
                 "tps_output_throughput": 52.7343,
                 "tps_total_throughput": 59.3261,
                 "request_throughput": 0.0515,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -573,7 +643,7 @@
                 "tps_output_throughput": 52.9442,
                 "tps_total_throughput": 59.5622,
                 "request_throughput": 0.0517,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -602,7 +672,7 @@
                 "tps_output_throughput": 17.9374,
                 "tps_total_throughput": 161.4363,
                 "request_throughput": 0.1401,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -631,7 +701,7 @@
                 "tps_output_throughput": 21.4105,
                 "tps_total_throughput": 192.6942,
                 "request_throughput": 0.1673,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -660,7 +730,7 @@
                 "tps_output_throughput": 9.3481,
                 "tps_total_throughput": 158.9173,
                 "request_throughput": 0.073,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -689,7 +759,7 @@
                 "tps_output_throughput": 13.2563,
                 "tps_total_throughput": 225.3568,
                 "request_throughput": 0.1036,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -718,7 +788,7 @@
                 "tps_output_throughput": 6.9604,
                 "tps_total_throughput": 229.6938,
                 "request_throughput": 0.0544,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -747,7 +817,7 @@
                 "tps_output_throughput": 7.5153,
                 "tps_total_throughput": 248.004,
                 "request_throughput": 0.0587,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -776,7 +846,7 @@
                 "tps_output_throughput": 3.2733,
                 "tps_total_throughput": 212.7636,
                 "request_throughput": 0.0256,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -805,7 +875,7 @@
                 "tps_output_throughput": 3.7342,
                 "tps_total_throughput": 242.7209,
                 "request_throughput": 0.0292,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -834,7 +904,7 @@
                 "tps_output_throughput": 20.9636,
                 "tps_total_throughput": 188.6723,
                 "request_throughput": 0.0205,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -863,7 +933,7 @@
                 "tps_output_throughput": 14.085,
                 "tps_total_throughput": 126.7649,
                 "request_throughput": 0.0138,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -892,7 +962,7 @@
                 "tps_output_throughput": 12.5926,
                 "tps_total_throughput": 135.5668,
                 "request_throughput": 0.0123,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -921,7 +991,7 @@
                 "tps_output_throughput": 8.9843,
                 "tps_total_throughput": 96.7219,
                 "request_throughput": 0.0088,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -950,7 +1020,7 @@
                 "tps_output_throughput": 2.0195,
                 "tps_total_throughput": 260.5185,
                 "request_throughput": 0.0158,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -979,7 +1049,7 @@
                 "tps_output_throughput": 1.8428,
                 "tps_total_throughput": 237.7169,
                 "request_throughput": 0.0144,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -1008,7 +1078,7 @@
                 "tps_output_throughput": 1.0205,
                 "tps_total_throughput": 262.2686,
                 "request_throughput": 0.008,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -1037,7 +1107,7 @@
                 "tps_output_throughput": 0.892,
                 "tps_total_throughput": 229.2387,
                 "request_throughput": 0.007,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },
@@ -1066,7 +1136,7 @@
                 "tps_output_throughput": 0.5267,
                 "tps_total_throughput": 270.1809,
                 "request_throughput": 0.0041,
-                "error_request_count": null,
+                "error_request_count": 0,
                 "status": "na",
                 "target_check": 1
             },

@@ -1,0 +1,129 @@
+No validation is done, loading runtime model spec from JSON: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/specs/autoport_smoke_spec.json
+2026-09-01 12:02:44,093 - run.py:1114 - INFO: TT-Inference version: 0.21.0
+2026-09-01 12:02:44,093 - run.py:1115 - INFO: TT-Inference SHA: f07a31d2a2f9
+2026-09-01 12:02:44,093 - run.py:1116 - INFO:
+============================================================
+tt-inference-server run.py CLI args summary
+============================================================
+
+Model Options:
+  model:                      gpt-oss-120b
+  device:                     p150x4
+  impl:                       None
+  engine:                     vLLM
+  workflow:                   benchmarks
+  tools:                      vllm
+
+Optional args:
+  dev_mode:                   False
+  docker_server:              False
+  local_server:               False
+  no_auth:                    True
+  tt_metal_python_venv_dir:   None
+  tt_metal_home:              /home/ttuser/dev/gpt-oss-20b/tt-metal
+  service_port:               8000
+  bind_host:                  0.0.0.0
+  docker_override_image:      None
+  docker_interactive:         False
+  device_id:                  None
+  disable_trace_capture:      True
+  override_tt_config:         None
+  vllm_override_args:         None
+  workflow_args:              None
+  limit_samples_mode:         smoke-test
+  eval_samples:               None
+  skip_system_sw_validation:  True
+
+Host Storage Options:
+  host_volume:                None
+  host_hf_cache:              None
+  host_weights_dir:           None
+  image_user:                 1000
+
+============================================================
+2026-09-01 12:02:44,093 - run.py:1122 - INFO: Runtime model spec saved to: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-01_12-02-44_id_openai-gpt-oss-120b-autoport-smoke_p150x4_4y9-Q9vl.json
+2026-09-01 12:02:44,093 - validate_setup.py:317 - INFO: Starting local setup validation
+2026-09-01 12:02:44,093 - validate_setup.py:353 - INFO: ✅ validating local setup completed
+2026-09-01 12:02:44,093 - run.py:1238 - INFO: Model gpt-oss-120b (model_type=LLM) routes through the workflow engine.
+2026-09-01 12:02:44,093 - runner.py:31 - INFO: → command=benchmarks
+2026-09-01 12:02:44,094 - utils.py:272 - INFO: Running command: /home/ttuser/dev/gpt-oss-20b/tt-metal/python_env/bin/python3 /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/launchers/run_llm_bench.py --model gpt-oss-120b --workflow benchmarks --device p150x4 --service-port 8000 --runtime-model-spec-json /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/runtime_model_specs/runtime_model_spec_2026-09-01_12-02-44_id_openai-gpt-oss-120b-autoport-smoke_p150x4_4y9-Q9vl.json --output-dir /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks --server-url http://127.0.0.1:8000 --tools vllm
+2026-09-01 12:02:44,118 [INFO] run_log: sub-dir already exists for llm_vllm: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/.workflow_venvs/.venv_llm_vllm/artifacts
+2026-09-01 12:02:44,118 [INFO] run_log: Running command: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/.workflow_venvs/.venv_bootstrap_uv/bin/uv pip install --managed-python --python /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/.workflow_venvs/.venv_llm_vllm/bin/python --index-strategy unsafe-best-match --override /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/requirements/llm-vllm-overrides.txt -r /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/requirements/llm-vllm.txt
+2026-09-01 12:02:44,123 [INFO] run_log: Using Python 3.11.16 environment at: .workflow_venvs/.venv_llm_vllm
+2026-09-01 12:02:44,129 [INFO] run_log: Checked 7 packages in 6ms
+2026-09-01 12:02:44,129 [INFO] tt_llm_bench_launcher: Launching run_workflows.py for --tools vllm inside venv: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/.workflow_venvs/.venv_llm_vllm/bin/python
+2026-09-01 12:02:44,355 [INFO] workflow_module.runner: → command=workflow
+2026-09-01 12:02:44,356 [INFO] workflow.benchmarks: === Workflow start: benchmarks | model=gpt-oss-120b device=P150X4 port=8000 output=/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/gpt-oss-120b_p150x4_benchmarks ===
+2026-09-01 12:02:44,370 [INFO] workflow.benchmarks: → task=llm_benchmark tools=vllm
+2026-09-01 12:02:44,372 [INFO] test_module.llm_tests.llm_benchmark_tests: Running LLM benchmark: tool=vllm over 1 sweep point(s)
+2026-09-01 12:02:44,375 [INFO] utils.remote_readiness: ✅ Remote OpenAI endpoint ready at http://127.0.0.1:8000/v1/models
+2026-09-01 12:02:44,375 [INFO] llm_module.runner: Running vllm sweep point 1/1  isl=8 osl=8 max_conc=1 n=1
+2026-09-01 12:02:44,376 [INFO] llm_module.drivers._subprocess: Executing: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tt-inference-server/.workflow_venvs/.venv_llm_vllm/bin/vllm bench serve --backend openai-chat --endpoint /v1/chat/completions --model openai/gpt-oss-120b --max-concurrency 1 --num-prompts 1 --percentile-metrics ttft,tpot,itl,e2el --save-result --save-detailed --result-filename /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/gpt-oss-120b_p150x4_benchmarks/llm/benchmark_openai__gpt-oss-120b_2026-09-01_12-02-44_isl-8_osl-8_maxcon-1_n-1.json --dataset-name random --random-input-len 8 --random-output-len 8 --trust-remote-code --base-url http://127.0.0.1:8000 --ready-check-timeout-sec 0 --header Accept-Encoding=identity
+INFO 09-01 12:02:45 [__init__.py:52] Available plugins for group vllm.platform_plugins:
+INFO 09-01 12:02:45 [__init__.py:54] - tt -> vllm_tt_plugin.entrypoints:platform_plugin
+INFO 09-01 12:02:45 [__init__.py:66] Loading plugin tt
+INFO 09-01 12:02:47 [importing.py:53] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+INFO 09-01 12:02:47 [importing.py:88] Triton not installed or not compatible; certain GPU-related functions will not be available.
+INFO 09-01 12:02:48 [main.py:69] Unspecified platform detected, switching to CPU Platform instead.
+WARNING 09-01 12:02:48 [cpu.py:440] Failed to import from vllm._C: ModuleNotFoundError("No module named 'vllm._C'")
+Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x72693e3568e0>, trust_remote_code=True, seed=0, num_prompts=1, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, enable_multimodal_chat=False, disable_shuffle=False, custom_output_len=256, custom_ensure_client_side_data=False, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, timed_trace_chunk_hash_size=16, timed_trace_sec_multiplier=1, timed_trace_label_timestamp='timestamp', timed_trace_label_input_length='input_length', timed_trace_label_output_length='output_length', timed_trace_label_hash_ids='hash_ids', blazedit_min_distance=0.0, blazedit_max_distance=1.0, asr_max_audio_len_sec=inf, asr_min_audio_len_sec=0.0, random_input_len=8, random_output_len=8, random_range_ratio='0.0', random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, bfcl_categories=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, speed_bench_dataset_subset='qualitative', speed_bench_output_len=4096, speed_bench_category=None, label=None, backend='openai-chat', base_url='http://127.0.0.1:8000', host='127.0.0.1', port=8000, endpoint='/v1/chat/completions', header=['Accept-Encoding=identity'], max_concurrency=1, model='openai/gpt-oss-120b', input_len=None, output_len=None, tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=True, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/gpt-oss-120b_p150x4_benchmarks/llm/benchmark_openai__gpt-oss-120b_2026-09-01_12-02-44_isl-8_osl-8_maxcon-1_n-1.json', ignore_eos=False, self_timed=None, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-5fbe5890-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, served_model_name=None, lora_modules=None, lora_assignment='random', ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=0, chat_template_kwargs=None, extra_body=None, skip_tokenizer_init=False, insecure=False, plot_timeline=False, timeline_itl_thresholds='25,50', plot_dataset_stats=False)
+INFO 09-01 12:02:49 [utils.py:90] Sampling input_len from [8, 8] and output_len from [8, 8]
+WARNING: vllm bench serve no longer sets temperature==0 (greedy) in requests by default. The default will be determined on the server side and can be model/API specific. For the old behavior, include --temperature=0.
+Starting initial single prompt test run...
+Skipping endpoint ready check.
+Starting main benchmark run...
+Traffic request rate: inf
+Burstiness factor: 1.0 (Poisson process)
+Maximum request concurrency: 1
+
+0%|          | 0/1 [00:00<?, ?it/s]
+100%|██████████| 1/1 [00:01<00:00,  1.03s/it]
+100%|██████████| 1/1 [00:01<00:00,  1.03s/it]
+tip: install termplotlib and gnuplot to plot the metrics
+============ Serving Benchmark Result ============
+Successful requests:                     1
+Failed requests:                         0
+Maximum request concurrency:             1
+Benchmark duration (s):                  1.03
+Total input tokens:                      75
+Total generated tokens:                  8
+Request throughput (req/s):              0.97
+Output token throughput (tok/s):         7.77
+Peak output token throughput (tok/s):    4.00
+Peak concurrent requests:                1.00
+Total token throughput (tok/s):          80.66
+---------------Time to First Token----------------
+Mean TTFT (ms):                          481.01
+Median TTFT (ms):                        481.01
+P99 TTFT (ms):                           481.01
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          78.24
+Median TPOT (ms):                        78.24
+P99 TPOT (ms):                           78.24
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           109.54
+Median ITL (ms):                         86.81
+P99 ITL (ms):                            256.99
+----------------End-to-end Latency----------------
+Mean E2EL (ms):                          1028.72
+Median E2EL (ms):                        1028.72
+P99 E2EL (ms):                           1028.72
+==================================================
+2026-09-01 12:02:51,453 [INFO] test_module.llm_tests.llm_performance_tests: LLM sweep produced 1 Block(s) over 1 sweep point(s)
+2026-09-01 12:02:51,453 [INFO] workflow_module.blocks_sink: BlockAccumulator: +1 block(s), total=1
+2026-09-01 12:02:51,453 [INFO] workflow_module.blocks_sink:   - kind=benchmarks id=openai__gpt-oss-120b_P150X4 targets={'tool': 'vllm', 'model': 'openai/gpt-oss-120b', 'device': 'P150X4', 'timestamp': '2026-09-01 12:02:51'}
+2026-09-01 12:02:51,453 [INFO] workflow.benchmarks: ✅ task=llm_benchmark blocks=1 kind=benchmarks (7.1s)
+2026-09-01 12:02:51,453 [INFO] workflow.benchmarks: Acceptance: PASS (0 blocker(s))
+2026-09-01 12:02:51,454 [INFO] report_module.report_file_saver: Saved markdown to: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/report_openai__gpt-oss-120b_2026-09-01T120251+0000.md
+2026-09-01 12:02:51,454 [INFO] report_module.report_file_saver: Saved JSON to: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/data/report_data_openai__gpt-oss-120b_2026-09-01T120251+0000.json
+2026-09-01 12:02:51,454 [INFO] report_module.report_file_saver: Saved JSON to: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/data/report_data_openai__gpt-oss-120b_2026-09-01T120251+0000.json
+2026-09-01 12:02:51,454 [INFO] report_module.generator: Generated report: md=/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/report_openai__gpt-oss-120b_2026-09-01T120251+0000.md, json=/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/data/report_data_openai__gpt-oss-120b_2026-09-01T120251+0000.json
+2026-09-01 12:02:51,454 [INFO] workflow.benchmarks: Wrote markdown: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/report_openai__gpt-oss-120b_2026-09-01T120251+0000.md
+2026-09-01 12:02:51,454 [INFO] workflow.benchmarks: Wrote json:     /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/benchmarks/data/report_data_openai__gpt-oss-120b_2026-09-01T120251+0000.json
+2026-09-01 12:02:51,454 [INFO] workflow.benchmarks: === Workflow done: benchmarks (rc=0) ===
+2026-09-01 12:02:51,454 [INFO] workflow_module.runner: ✅ command=workflow rc=0
+2026-09-01 12:02:51,479 - runner.py:42 - INFO: ✅ command=benchmarks rc=0
+2026-09-01 12:02:51,479 - run.py:1269 - INFO: Completed run.py.
+2026-09-01 12:02:51,479 - run.py:1275 - INFO: The output of the workflows is not checked and any errors will be in the logs above and in the saved log file.
+2026-09-01 12:02:51,479 - run.py:1279 - INFO: If you encounter any issues please share the log file in a GitHub issue and server log if available.
+2026-09-01 12:02:51,479 - run.py:1283 - INFO: This log file is saved on local machine at: /home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/run_logs/run_2026-09-01_12-02-44_id_openai-gpt-oss-120b-autoport-smoke_p150x4_benchmarks_zKCHEv14.log

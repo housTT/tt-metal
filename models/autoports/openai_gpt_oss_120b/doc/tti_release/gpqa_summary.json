@@ -1,0 +1,41 @@
+{
+  "task_name": "gpqa_diamond_cot_zeroshot",
+  "dataset_path": "Idavidrein/gpqa",
+  "dataset_name": "gpqa_diamond",
+  "score_metric": "exact_match,flexible-extract",
+  "score_percent": 100.0,
+  "accuracy_check": "pass",
+  "selection": {
+    "source": "gpqa_runtime_model_spec.json:runtime_model_spec.cli_args.eval_samples",
+    "sample_ids": [0, 1, 2, 3, 4, 5, 6],
+    "selected_request_count": 7,
+    "raw_original_samples": 198,
+    "raw_effective_samples": 198,
+    "raw_count_semantics": "lm-eval dataset size, not selected request count"
+  },
+  "timing": {
+    "source": "gpqa_aggregate_results.json:total_evaluation_time_seconds",
+    "total_evaluation_time_seconds": 2246.9087665929983,
+    "mean_seconds_per_selected_request": 320.9869666561426
+  },
+  "server": {
+    "mode": "external-autoport-no-docker",
+    "service_port": 8000,
+    "workflow": "evals",
+    "disable_trace_capture": true,
+    "supported_context": 131072,
+    "autoport_code_path": "models/autoports/openai_gpt_oss_120b"
+  },
+  "generation_policy": {
+    "reasoning_effort": "high",
+    "max_gen_toks": 122880,
+    "do_sample": true,
+    "temperature": 1.0,
+    "stream": false,
+    "seed": 42,
+    "request_timeout_seconds": 14400,
+    "num_concurrent": 1
+  },
+  "aggregate_result_contains_sample_outputs": false,
+  "raw_eval_samples_copied": false
+}

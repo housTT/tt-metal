@@ -19,6 +19,17 @@ sys.path.insert(0, str(TTI_ROOT))
 from report_module import ReportGenerator, ReportSchema, acceptance_criteria_check, build_acceptance_export
 
 TASK_NAME = "gpqa_diamond_cot_zeroshot"
+GPQA_DATASET_PATH = "Idavidrein/gpqa"
+GPQA_DATASET_NAME = "gpqa_diamond"
+GPQA_SAMPLE_IDS = tuple(range(7))
+GPQA_DATASET_SAMPLE_COUNT = 198
+GPQA_SCORE_METRIC = "exact_match,flexible-extract"
+GPQA_SERVICE_PORT = 8000
+GPQA_REASONING_EFFORT = "high"
+GPQA_MAX_GEN_TOKS = 122880
+GPQA_SEED = 42
+GPQA_REQUEST_TIMEOUT = 14400
+GPQA_NUM_CONCURRENT = 1
 EXPECTED_EVAL_TASKS = frozenset({"aime25", TASK_NAME, "mmlu_generative"})
 IFEVAL_TASK_NAME = "meta_ifeval"
 IFEVAL_LM_EVAL_TASK_NAME = "ifeval"
@@ -53,6 +64,9 @@ EXPECTED_BENCHMARK_ROWS = (
     (32768, 128, 3, 3),
     (65536, 128, 1, 1),
 )
+BENCHMARK_SOURCE_TARGET_FAILURES = frozenset({"functional.tput", "complete.tput", "target.tput"})
+BENCHMARK_UNMET_TIER_FAILURES = frozenset({"complete.ttft", "target.ttft"})
+EXPECTED_WAIVED_BENCHMARK_FAILURES = BENCHMARK_SOURCE_TARGET_FAILURES | BENCHMARK_UNMET_TIER_FAILURES
 AUTOPORT_PATH = "models/autoports/openai_gpt_oss_120b"
 HANDOFF_PATH = f"{AUTOPORT_PATH}/doc/tti_release"
 CONTEXT_CONTRACT_PATH = WORKSPACE_ROOT / "tt-metal" / AUTOPORT_PATH / "doc" / "context_contract.json"
@@ -82,7 +96,25 @@ RAW_BENCHMARK_FIELDS = frozenset(
         "total_output_tokens",
     }
 )
-RAW_IFEVAL_FIELDS = frozenset({"config", "configs", "n-samples", "results"})
+RAW_IFEVAL_FIELDS = frozenset(
+    {
+        "config",
+        "configs",
+        "n-samples",
+        "results",
+        "total_evaluation_time_seconds",
+    }
+)
+RAW_GPQA_FIELDS = frozenset(
+    {
+        "config",
+        "configs",
+        "model_name",
+        "n-samples",
+        "results",
+        "total_evaluation_time_seconds",
+    }
+)
 
 
 def _release_readiness_metadata() -> dict[str, str]:
@@ -94,6 +126,14 @@ def _release_readiness_metadata() -> dict[str, str]:
 def _read_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class _JsonChars:
@@ -244,6 +284,22 @@ def _finite_float(value, label: str) -> float:
     return result
 
 
+def _positive_timing_float(value, label: str) -> float:
+    """Parse a positive duration, including lm-eval's numeric-string format."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise RuntimeError(f"{label} is not numeric")
+    try:
+        result = float(value)
+    except (ValueError, OverflowError) as exc:
+        raise RuntimeError(f"{label} is not numeric") from exc
+    if not math.isfinite(result):
+        raise RuntimeError(f"{label} is not finite")
+    if result <= 0.0:
+        raise RuntimeError(f"{label} must be positive")
+    return result
+
+
 def _workspace_file(path: Path, label: str, workspace_root: Path = WORKSPACE_ROOT) -> Path:
     resolved = path.resolve()
     resolved_root = workspace_root.resolve()
@@ -325,6 +381,10 @@ def _validate_raw_benchmarks(benchmark_blocks, raw_dir: Path) -> list[dict]:
                 raise RuntimeError(f"raw row {index} has malformed {key} evidence")
             if any(_exact_int(value, f"raw row {index} {key}") != exact_length for value in lengths):
                 raise RuntimeError(f"raw row {index} does not preserve exact {key}={exact_length}")
+        # The aggregate parser represents zero request errors as null. Once the
+        # raw artifact proves every request completed without an error, retain
+        # the authoritative numeric value in the customer-facing row.
+        block.data["error_request_count"] = 0
         validated.append(
             {
                 "artifact": path.name,
@@ -341,6 +401,305 @@ def _validate_raw_benchmarks(benchmark_blocks, raw_dir: Path) -> list[dict]:
     if len(used_paths) != len(EXPECTED_BENCHMARK_ROWS):
         raise RuntimeError("raw benchmark evidence did not bind uniquely to all rows")
     return validated
+
+
+def _validate_benchmark_waiver_failures(block) -> list[str]:
+    target_checks = block.data.get("target_checks")
+    if not isinstance(target_checks, dict):
+        raise RuntimeError("waived benchmark row has malformed target checks")
+    failed = set()
+    for tier, checks in target_checks.items():
+        if not isinstance(checks, dict):
+            raise RuntimeError(f"waived benchmark {tier} checks are malformed")
+        for key, value in checks.items():
+            if not key.endswith("_check"):
+                continue
+            check = _exact_int(value, f"waived benchmark {tier}.{key}")
+            if check == 3:
+                failed.add(f"{tier}.{key.removesuffix('_check')}")
+    if failed != EXPECTED_WAIVED_BENCHMARK_FAILURES:
+        raise RuntimeError(
+            "waived benchmark failure set does not match the five reviewed " f"subchecks: {sorted(failed)}"
+        )
+    return sorted(failed)
+
+
+def _validate_gpqa_generation_config(config: object, label: str) -> None:
+    if not isinstance(config, dict):
+        raise RuntimeError(f"GPQA {label} is malformed")
+    if config.get("reasoning_effort") != GPQA_REASONING_EFFORT:
+        raise RuntimeError(f"GPQA {label} does not use high reasoning")
+    max_gen_toks = _exact_int(config.get("max_gen_toks"), f"GPQA {label} max_gen_toks")
+    if max_gen_toks != GPQA_MAX_GEN_TOKS:
+        raise RuntimeError(f"GPQA {label} max_gen_toks={max_gen_toks}, " f"expected {GPQA_MAX_GEN_TOKS}")
+    if config.get("do_sample") is not True:
+        raise RuntimeError(f"GPQA {label} must set do_sample=true")
+    temperature = _finite_float(config.get("temperature"), f"GPQA {label} temperature")
+    if temperature != 1.0:
+        raise RuntimeError(f"GPQA {label} must set temperature=1")
+    if config.get("stream") is not False:
+        raise RuntimeError(f"GPQA {label} must set stream=false")
+    seed = _exact_int(config.get("seed"), f"GPQA {label} seed")
+    if seed != GPQA_SEED:
+        raise RuntimeError(f"GPQA {label} seed={seed}, expected {GPQA_SEED}")
+
+
+def _validate_gpqa_recovery(
+    report_path: Path,
+    raw_result_path: Path,
+    runtime_spec_path: Path,
+    *,
+    workspace_root: Path = WORKSPACE_ROOT,
+):
+    """Validate and project the explicit seven-sample GPQA repair run."""
+
+    report_path = _workspace_file(report_path, "GPQA report", workspace_root)
+    raw_result_path = _workspace_file(raw_result_path, "GPQA raw result", workspace_root)
+    runtime_spec_path = _workspace_file(runtime_spec_path, "GPQA runtime model spec", workspace_root)
+
+    payload = _read_json(report_path)
+    if payload.get("acceptance_criteria") is not True:
+        raise RuntimeError("GPQA repair workflow did not pass acceptance")
+    blockers = payload.get("acceptance_blockers")
+    if not isinstance(blockers, dict) or blockers:
+        raise RuntimeError("GPQA repair workflow has malformed or nonempty blockers")
+    report_metadata = payload.get("metadata")
+    if not isinstance(report_metadata, dict):
+        raise RuntimeError("GPQA report metadata is malformed")
+    if report_metadata.get("workflow") != "evals":
+        raise RuntimeError("GPQA report workflow is not evals")
+    if report_metadata.get("server_mode") != "API":
+        raise RuntimeError("GPQA report did not use an external API server")
+    reported_runtime_spec = report_metadata.get("runtime_model_spec_json")
+    if not isinstance(reported_runtime_spec, str) or Path(reported_runtime_spec).resolve() != runtime_spec_path:
+        raise RuntimeError("GPQA report does not reference the supplied runtime spec")
+
+    report = ReportSchema.from_dict(payload)
+    eval_blocks = [block for block in report.sections if block.kind == "evals"]
+    if len(eval_blocks) != 1:
+        raise RuntimeError(f"expected one GPQA report block, found {len(eval_blocks)}")
+    block = eval_blocks[0]
+    if _task_name(block) != TASK_NAME or block.targets.get("task_name") != TASK_NAME:
+        raise RuntimeError("GPQA report does not preserve canonical task identity")
+    report_score = _finite_float(block.data.get("score"), "GPQA report score")
+    accuracy_check = _exact_int(block.data.get("accuracy_check"), "GPQA accuracy_check")
+    if accuracy_check != 2:
+        raise RuntimeError("GPQA accuracy row is not PASS")
+    recomputed_acceptance, recomputed_blockers, _ = acceptance_criteria_check(report)
+    if not recomputed_acceptance or recomputed_blockers:
+        raise RuntimeError("GPQA report block does not independently pass acceptance")
+
+    runtime_wrapper = _read_json(runtime_spec_path)
+    runtime_spec = runtime_wrapper.get("runtime_model_spec", runtime_wrapper)
+    if not isinstance(runtime_spec, dict):
+        raise RuntimeError("GPQA runtime model spec is malformed")
+    expected_runtime_identity = {
+        "model_id": "id_openai-gpt-oss-120b-autoport_p150x4",
+        "model_name": "gpt-oss-120b",
+        "inference_engine": "vLLM",
+        "device_type": "P150X4",
+    }
+    for key, expected_value in expected_runtime_identity.items():
+        if runtime_spec.get(key) != expected_value:
+            raise RuntimeError(f"GPQA runtime {key} identity is incorrect")
+    impl = runtime_spec.get("impl")
+    if not isinstance(impl, dict) or impl.get("code_path") != AUTOPORT_PATH:
+        raise RuntimeError("GPQA runtime spec does not identify the generated autoport")
+    metadata = runtime_spec.get("metadata")
+    if not isinstance(metadata, dict):
+        raise RuntimeError("GPQA runtime spec metadata is malformed")
+    if metadata.get("autoport_code_path") != AUTOPORT_PATH:
+        raise RuntimeError("GPQA runtime metadata does not identify the autoport path")
+    if metadata.get("external_autoport_server") is not True:
+        raise RuntimeError("GPQA runtime spec is not an external-server run")
+    if metadata.get("docker_server_used") is not False:
+        raise RuntimeError("GPQA runtime spec used Docker")
+
+    device_spec = runtime_spec.get("device_model_spec")
+    if not isinstance(device_spec, dict):
+        raise RuntimeError("GPQA device model spec is malformed")
+    vllm_args = device_spec.get("vllm_args")
+    if not isinstance(vllm_args, dict):
+        raise RuntimeError("GPQA vLLM args are malformed")
+    context_values = {
+        "metadata.supported_context": metadata.get("supported_context"),
+        "device_model_spec.max_context": device_spec.get("max_context"),
+        "device_model_spec.max_tokens_all_users_override": device_spec.get("max_tokens_all_users_override"),
+        "device_model_spec.vllm_args.max_model_len": vllm_args.get("max_model_len"),
+        "device_model_spec.vllm_args.max_num_batched_tokens": vllm_args.get("max_num_batched_tokens"),
+    }
+    for label, value in context_values.items():
+        if isinstance(value, str):
+            try:
+                exact_value = int(value)
+            except ValueError as exc:
+                raise RuntimeError(f"GPQA {label} is not an integer: {value}") from exc
+            if str(exact_value) != value:
+                raise RuntimeError(f"GPQA {label} is not an integer: {value}")
+        else:
+            exact_value = _exact_int(value, f"GPQA {label}")
+        if exact_value != SUPPORTED_CONTEXT:
+            raise RuntimeError(f"GPQA {label} does not preserve {SUPPORTED_CONTEXT}")
+
+    cli_args = runtime_spec.get("cli_args")
+    if not isinstance(cli_args, dict):
+        raise RuntimeError("GPQA runtime cli_args are malformed")
+    if cli_args.get("workflow") != "evals":
+        raise RuntimeError("GPQA runtime workflow is not evals")
+    if cli_args.get("model") != "gpt-oss-120b":
+        raise RuntimeError("GPQA runtime model identity is incorrect")
+    if cli_args.get("engine") != "vLLM":
+        raise RuntimeError("GPQA runtime engine is not vLLM")
+    if cli_args.get("device") != "p150x4" or cli_args.get("tt_device") != "p150x4":
+        raise RuntimeError("GPQA runtime device identity is not p150x4")
+    if cli_args.get("docker_server") is not False:
+        raise RuntimeError("GPQA runtime docker_server must be false")
+    if cli_args.get("local_server") is not False:
+        raise RuntimeError("GPQA runtime local_server must be false")
+    if cli_args.get("server_url") != f"http://127.0.0.1:{GPQA_SERVICE_PORT}":
+        raise RuntimeError("GPQA runtime server_url is incorrect")
+    if cli_args.get("service_port") not in (
+        GPQA_SERVICE_PORT,
+        str(GPQA_SERVICE_PORT),
+    ):
+        raise RuntimeError("GPQA runtime service_port is incorrect")
+    if cli_args.get("limit_samples_mode") is not None:
+        raise RuntimeError("GPQA runtime unexpectedly applied a sample limit")
+    if cli_args.get("disable_trace_capture") is not True:
+        raise RuntimeError("GPQA runtime did not disable trace capture")
+    try:
+        eval_samples = json.loads(cli_args.get("eval_samples"))
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("GPQA runtime eval_samples is malformed") from exc
+    expected_eval_samples = {TASK_NAME: list(GPQA_SAMPLE_IDS)}
+    if eval_samples != expected_eval_samples:
+        raise RuntimeError("GPQA runtime eval_samples must be exactly IDs 0..6")
+
+    raw = _read_json_fields(raw_result_path, RAW_GPQA_FIELDS)
+    missing_fields = RAW_GPQA_FIELDS - raw.keys()
+    if missing_fields:
+        raise RuntimeError(f"GPQA raw result is missing fields: {sorted(missing_fields)}")
+    if raw["model_name"] != "openai/gpt-oss-120b":
+        raise RuntimeError("GPQA raw result has an unexpected model identity")
+    run_config = raw["config"]
+    if not isinstance(run_config, dict) or "limit" not in run_config or run_config["limit"] is not None:
+        raise RuntimeError("GPQA raw result is not an explicit unbounded run")
+    if run_config.get("model") != "local-chat-completions":
+        raise RuntimeError("GPQA raw result did not use chat completions")
+    model_args = run_config.get("model_args")
+    if not isinstance(model_args, dict):
+        raise RuntimeError("GPQA raw model_args are malformed")
+    if model_args.get("model") != "openai/gpt-oss-120b":
+        raise RuntimeError("GPQA raw model_args have an unexpected model")
+    if model_args.get("base_url") != (f"http://127.0.0.1:{GPQA_SERVICE_PORT}/v1/chat/completions"):
+        raise RuntimeError("GPQA raw result used an unexpected API endpoint")
+    if _exact_int(model_args.get("timeout"), "GPQA raw request timeout") != (GPQA_REQUEST_TIMEOUT):
+        raise RuntimeError("GPQA raw result used an unexpected request timeout")
+    if _exact_int(model_args.get("num_concurrent"), "GPQA raw concurrency") != (GPQA_NUM_CONCURRENT):
+        raise RuntimeError("GPQA raw result used unexpected concurrency")
+    _validate_gpqa_generation_config(run_config.get("gen_kwargs"), "raw run gen_kwargs")
+
+    expected_raw_keys = {TASK_NAME}
+    for label, field in (
+        ("configs", raw["configs"]),
+        ("n-samples", raw["n-samples"]),
+        ("results", raw["results"]),
+    ):
+        if not isinstance(field, dict) or set(field) != expected_raw_keys:
+            raise RuntimeError(f"GPQA raw {label} must contain only canonical task {TASK_NAME}")
+    canonical_config = raw["configs"][TASK_NAME]
+    if not isinstance(canonical_config, dict):
+        raise RuntimeError("GPQA canonical task config is malformed")
+    if canonical_config.get("task") != TASK_NAME:
+        raise RuntimeError("GPQA raw task identity is not canonical")
+    if canonical_config.get("dataset_path") != GPQA_DATASET_PATH:
+        raise RuntimeError("GPQA raw result has an unexpected dataset path")
+    if canonical_config.get("dataset_name") != GPQA_DATASET_NAME:
+        raise RuntimeError("GPQA raw result has an unexpected dataset name")
+    _validate_gpqa_generation_config(
+        canonical_config.get("generation_kwargs"),
+        "canonical task generation_kwargs",
+    )
+
+    raw_sample_counts = raw["n-samples"][TASK_NAME]
+    if not isinstance(raw_sample_counts, dict):
+        raise RuntimeError("GPQA raw sample counts are malformed")
+    for count_name in ("original", "effective"):
+        count = _exact_int(raw_sample_counts.get(count_name), f"GPQA raw {count_name} samples")
+        if count != GPQA_DATASET_SAMPLE_COUNT:
+            raise RuntimeError(f"GPQA raw {count_name} samples={count}, " f"expected {GPQA_DATASET_SAMPLE_COUNT}")
+
+    raw_results = raw["results"][TASK_NAME]
+    if not isinstance(raw_results, dict):
+        raise RuntimeError("GPQA raw metrics are malformed")
+    raw_score = _finite_float(raw_results.get(GPQA_SCORE_METRIC), f"GPQA raw {GPQA_SCORE_METRIC}")
+    if not 0.0 <= raw_score <= 1.0:
+        raise RuntimeError("GPQA flexible-extract metric is outside [0, 1]")
+    if not math.isclose(report_score, raw_score * 100.0, rel_tol=1e-12, abs_tol=1e-12):
+        raise RuntimeError("GPQA report score does not match the raw aggregate metric")
+    total_evaluation_time_seconds = _positive_timing_float(
+        raw["total_evaluation_time_seconds"],
+        "GPQA total_evaluation_time_seconds",
+    )
+    mean_seconds_per_task = total_evaluation_time_seconds / len(GPQA_SAMPLE_IDS)
+    block.data["mean_seconds_per_task"] = mean_seconds_per_task
+
+    recovery_metadata = {
+        "task_name": TASK_NAME,
+        "canonical_task_name": TASK_NAME,
+        "dataset_path": GPQA_DATASET_PATH,
+        "dataset_name": GPQA_DATASET_NAME,
+        "score_metric": GPQA_SCORE_METRIC,
+        "publisher_revision": PUBLISHER_REVISION,
+        "archive_sha256": ARCHIVE_SHA256,
+        "diamond_csv_sha256": DIAMOND_SHA256,
+        "sample_ids": list(GPQA_SAMPLE_IDS),
+        "sample_count": len(GPQA_SAMPLE_IDS),
+        "scope": {
+            "selection_source": "runtime_model_spec.cli_args.eval_samples",
+            "raw_original_samples": GPQA_DATASET_SAMPLE_COUNT,
+            "raw_effective_samples": GPQA_DATASET_SAMPLE_COUNT,
+            "raw_count_semantics": "dataset-size-not-selected-request-count",
+            "generation_policy": {
+                "reasoning_effort": GPQA_REASONING_EFFORT,
+                "max_gen_toks": GPQA_MAX_GEN_TOKS,
+                "do_sample": True,
+                "temperature": 1.0,
+                "stream": False,
+                "seed": GPQA_SEED,
+                "request_timeout_seconds": GPQA_REQUEST_TIMEOUT,
+                "num_concurrent": GPQA_NUM_CONCURRENT,
+            },
+        },
+        "server": {
+            "mode": "external",
+            "docker_server": False,
+            "local_server": False,
+            "service_port": GPQA_SERVICE_PORT,
+            "workflow": "evals",
+            "autoport_code_path": AUTOPORT_PATH,
+            "supported_context": SUPPORTED_CONTEXT,
+        },
+        "timing": {
+            "source": "raw_result.total_evaluation_time_seconds",
+            "semantics": "lm-eval-evaluation-time-per-selected-request",
+            "total_evaluation_time_seconds": total_evaluation_time_seconds,
+            "mean_seconds_per_task": mean_seconds_per_task,
+            "sample_count": len(GPQA_SAMPLE_IDS),
+        },
+        "report_paths": {
+            "report_json": str(report_path),
+            "raw_result_json": str(raw_result_path),
+            "runtime_model_spec_json": str(runtime_spec_path),
+        },
+        "artifact_sha256": {
+            "report_json": _sha256_file(report_path),
+            "raw_result_json": _sha256_file(raw_result_path),
+            "runtime_model_spec_json": _sha256_file(runtime_spec_path),
+        },
+        "raw_samples_copied": False,
+    }
+    return block, recovery_metadata
 
 
 def _validate_ifeval_generation_config(config: object, label: str) -> None:
@@ -405,6 +764,10 @@ def _validate_ifeval_recovery(
     missing_fields = RAW_IFEVAL_FIELDS - raw.keys()
     if missing_fields:
         raise RuntimeError(f"IFEval raw result is missing fields: {sorted(missing_fields)}")
+    total_evaluation_time_seconds = _positive_timing_float(
+        raw["total_evaluation_time_seconds"],
+        "IFEval total_evaluation_time_seconds",
+    )
 
     run_config = raw["config"]
     if not isinstance(run_config, dict) or "limit" not in run_config:
@@ -469,6 +832,9 @@ def _validate_ifeval_recovery(
     if not math.isclose(report_score, expected_report_score, rel_tol=1e-12, abs_tol=1e-12):
         raise RuntimeError("IFEval report score does not match the raw strict prompt metric")
 
+    mean_seconds_per_task = total_evaluation_time_seconds / IFEVAL_SAMPLE_COUNT
+    block.data["mean_seconds_per_task"] = mean_seconds_per_task
+
     recovery_metadata = {
         "logical_task_name": IFEVAL_TASK_NAME,
         "canonical_task_name": IFEVAL_LM_EVAL_TASK_NAME,
@@ -491,6 +857,11 @@ def _validate_ifeval_recovery(
             "report_json": str(report_path),
             "raw_result_json": str(raw_result_path),
         },
+        "timing": {
+            "total_evaluation_time_seconds": total_evaluation_time_seconds,
+            "mean_seconds_per_task": mean_seconds_per_task,
+            "sample_count": IFEVAL_SAMPLE_COUNT,
+        },
         "raw_samples_copied": False,
     }
     return block, recovery_metadata
@@ -500,6 +871,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release-report-json", required=True, type=Path)
     parser.add_argument("--repair-report-json", required=True, type=Path)
+    parser.add_argument("--gpqa-raw-result-json", required=True, type=Path)
+    parser.add_argument("--gpqa-runtime-model-spec", required=True, type=Path)
     parser.add_argument("--benchmark-repair-report-json", required=True, type=Path)
     parser.add_argument("--benchmark-raw-dir", required=True, type=Path)
     parser.add_argument("--benchmark-issue-waiver", required=True, type=Path)
@@ -552,13 +925,16 @@ def main() -> int:
     context_contract_sha256 = hashlib.sha256(CONTEXT_CONTRACT_PATH.read_bytes()).hexdigest()
 
     release_payload = _read_json(args.release_report_json)
-    repair_payload = _read_json(args.repair_report_json)
     benchmark_payload = _read_json(args.benchmark_repair_report_json)
     spec_payload = _read_json(args.spec_repair_report_json)
     release = ReportSchema.from_dict(release_payload)
-    repair = ReportSchema.from_dict(repair_payload)
     benchmark_repair = ReportSchema.from_dict(benchmark_payload)
     spec_repair = ReportSchema.from_dict(spec_payload)
+    repair_block, gpqa_recovery = _validate_gpqa_recovery(
+        args.repair_report_json,
+        args.gpqa_raw_result_json,
+        args.gpqa_runtime_model_spec,
+    )
     ifeval_block, ifeval_recovery = _validate_ifeval_recovery(args.ifeval_report_json, args.ifeval_raw_result_json)
 
     release_eval_tasks = {task_name for block in release.sections if (task_name := _task_name(block)) is not None}
@@ -584,20 +960,6 @@ def main() -> int:
         raise RuntimeError(
             "main release has blockers unrelated to the recovered GPQA task: " f"{sorted(unrelated_blockers)}"
         )
-
-    if repair_payload.get("acceptance_criteria") is not True:
-        raise RuntimeError("GPQA repair workflow did not pass acceptance")
-    if repair_payload.get("acceptance_blockers"):
-        raise RuntimeError("GPQA repair workflow still has acceptance blockers")
-
-    repair_blocks = [block for block in repair.sections if _task_name(block) == TASK_NAME]
-    if len(repair_blocks) != 1:
-        raise RuntimeError(f"expected one repair block, found {len(repair_blocks)}")
-    repair_block = repair_blocks[0]
-    if repair_block.data.get("score") is None:
-        raise RuntimeError("repair block has no score")
-    if int(repair_block.data.get("accuracy_check", 3)) == 3:
-        raise RuntimeError("repair GPQA accuracy row did not pass")
 
     if benchmark_payload.get("acceptance_criteria") is not True:
         raise RuntimeError("benchmark repair workflow did not pass acceptance")
@@ -638,6 +1000,7 @@ def main() -> int:
     if tuple(realized_rows) != EXPECTED_BENCHMARK_ROWS:
         raise RuntimeError("benchmark repair did not preserve the exact ordered workload matrix: " f"{realized_rows}")
     raw_benchmark_evidence = _validate_raw_benchmarks(benchmark_blocks, args.benchmark_raw_dir)
+    waived_benchmark_failures = _validate_benchmark_waiver_failures(benchmark_blocks[0])
     issue_waiver = args.benchmark_issue_waiver.resolve()
     workspace_root = WORKSPACE_ROOT.resolve()
     if workspace_root != issue_waiver and workspace_root not in issue_waiver.parents:
@@ -735,15 +1098,7 @@ def main() -> int:
                 "supported_context": SUPPORTED_CONTEXT,
                 "non_aligned_requests_preserved": True,
             },
-            "gpqa_harness_recovery": {
-                "task_name": TASK_NAME,
-                "repair_report_json": str(args.repair_report_json),
-                "publisher_revision": PUBLISHER_REVISION,
-                "archive_sha256": ARCHIVE_SHA256,
-                "diamond_csv_sha256": DIAMOND_SHA256,
-                "sample_ids": list(range(7)),
-                "raw_samples_copied": False,
-            },
+            "gpqa_harness_recovery": gpqa_recovery,
             "ifeval_harness_recovery": ifeval_recovery,
             "benchmark_harness_recovery": {
                 "repair_report_json": str(args.benchmark_repair_report_json),
@@ -764,9 +1119,16 @@ def main() -> int:
                     "source": str(issue_waiver),
                     "handoff_path": (f"{HANDOFF_PATH}/benchmark_target_ISSUE_WAIVER.md"),
                     "reason": (
-                        "the source target combines a concurrency-1 row with "
-                        "an aggregate-throughput threshold scaled for a larger batch"
+                        "three aggregate-throughput checks use a batch-scaled "
+                        "source target, while complete/target TTFT are genuine "
+                        "unmet higher performance tiers"
                     ),
+                    "failed_subchecks": waived_benchmark_failures,
+                    "disposition": {
+                        "source_target_defect": sorted(BENCHMARK_SOURCE_TARGET_FAILURES),
+                        "unmet_performance_tiers": sorted(BENCHMARK_UNMET_TIER_FAILURES),
+                    },
+                    "acceptance_basis": "informational-under-experimental-status",
                     "unrestricted_performance_readiness": False,
                 },
             },

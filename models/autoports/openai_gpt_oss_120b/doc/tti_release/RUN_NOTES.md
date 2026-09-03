@@ -14,13 +14,17 @@
 - API/spec tests: Logger Fork Safety passes; Vllm Chat Completions passes
   22/22, including both stop-string cases.
 - Benchmarks: all 21 requested rows completed with exact input/output lengths,
-  counts, and metrics. One B1 row is narrowly `issue-waived` for an internally
-  inconsistent aggregate target; the other 20 rows are ungraded (`NA`).
+  counts, metrics, and numeric zero error counts. One B1 row is narrowly
+  `issue-waived`: three aggregate-throughput failures come from an internally
+  inconsistent batch-scaled target, while two higher-tier TTFT targets are
+  genuinely unmet; the other 20 rows are ungraded (`NA`).
 - Context: exact 131072-token support is preserved. The boundary request
   `130944 + 128 = 131072` passed twice, and non-aligned logical length 10000
   remained unmodified.
-- Stage review: pending the final independent review after this handoff is
-  committed; its verdict will be appended without changing report data.
+- Stage review: the independent metric-integrity review returned
+  `more-work-needed`; every listed finding is fixed in this handoff. A fresh
+  post-remediation review is required before stage completion and will be
+  recorded in `stage_review_final.md`.
 
 The original monolithic `run.py --workflow release` attempt exited 1 because
 of repairable TTI GPQA, benchmark, spec-timeout, coherence, and stop-semantics
@@ -74,7 +78,7 @@ check. The final server was owned by tmux session
 | completed optimized-vLLM stage | `bcb3f87dd50d4813bb2c917701dedf3f06b13545` |
 | official vLLM base / final local repair | `568afb3a13806beb53bb2e6bd518269357b237c0` / `54dea57d98ccfaef072908f085d9296d544ba1fe` |
 | standalone TT vLLM plugin | `053c0782aa11028924c21cb061ffa76576705cad` |
-| TTI base / intermediate / final local repair | `f07a31d2a2f908aa04098685034e7a5bde7554ea` / `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4` / `ddfba898209f0aaada2294d9230801d053edcf80` |
+| TTI base / intermediate / IFEval / final metric repair | `f07a31d2a2f908aa04098685034e7a5bde7554ea` / `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4` / `ddfba898209f0aaada2294d9230801d053edcf80` / `8459ba8dc6e690e7987235182a0d87c67bacc4a7` |
 | inherited release tag | v0.17.0, `48055de3d1b444e0dbce23cc378590eb6abc2ca5` |
 | inherited image, not used | `ghcr.io/tenstorrent/tt-inference-server/vllm-tt-metal-src-release-ubuntu-22.04-amd64:0.17.0-8c48a10-f52987a` |
 | TTI client checkout | VERSION 0.21.0 |
@@ -121,6 +125,14 @@ respectively. The GPQA repair spec selected exactly samples 0 through 6. The
 final IFEval runtime proof is copied as `runtime_model_spec_validation.json`.
 The checkout's own `run.py --help` spelling is summarized in
 `run_py_help_summary.txt`.
+
+The final fail-closed report merge used the original release plus the passing
+GPQA, benchmark, spec-test, and full IFEval reports, and additionally required
+the exact GPQA raw aggregate/runtime spec, IFEval raw aggregate/runtime spec,
+all 21 raw benchmark artifacts, and the single-row issue waiver. It passed with
+`acceptance=PASS`, `blocker_keys=none`, official vLLM commit
+`54dea57d98ccfaef072908f085d9296d544ba1fe`, and TTI commit
+`8459ba8dc6e690e7987235182a0d87c67bacc4a7`.
 
 The mandatory IFEval recovery used the copied `run_tti_ifeval_repair.sh` and
 `autoport_ifeval_repair_spec.json`. Its logical selector is `meta_ifeval`, its
@@ -183,6 +195,11 @@ Final compact evidence:
 - `ifeval_summary.json`, `ifeval_report_full.json`, and
   `ifeval_aggregate_results.json`: full-scope count, configuration, score,
   and provenance evidence without sample outputs.
+- `gpqa_summary.json`, `gpqa_aggregate_results.json`, and
+  `gpqa_runtime_model_spec.json`: the exact seven selected IDs, flexible score,
+  external autoport wiring, and corrected `2246.9087665929983 / 7 =
+  320.9869666561426` seconds per selected request. The copied aggregate has no
+  sample or response field.
 - `benchmark_summary.csv`: 21/21 rows complete, zero request failures/errors,
   exact lengths/counts, and no missing metrics. The 10000-token non-aligned
   workload passed without alignment.
@@ -195,8 +212,12 @@ Final compact evidence:
   `blocker_keys=none`.
 
 The one benchmark waiver is limited to `ISL=128, OSL=128, concurrency=1,
-requests=8`. It completed 8/8 and reproduced the optimized autoport baseline,
-but TTI assigns a B32-like aggregate target to that B1 row. See
+requests=8`. It completed 8/8 and reproduced the optimized autoport baseline.
+The exact failed set is `functional.tput`, `complete.tput`, `target.tput`,
+`complete.ttft`, and `target.ttft`. The three throughput failures derive from a
+B32-like aggregate target attached to the B1 row; the two TTFT failures are
+genuine unmet higher performance tiers. All five are informational under TTI's
+committed `EXPERIMENTAL` policy and remain visibly failed in the report. See
 `benchmark_target_ISSUE_WAIVER.md`. The waiver does not cover correctness,
 failures, missing metrics, shortened requests, or any other row, and it does
 not establish unrestricted performance readiness.
@@ -231,12 +252,17 @@ semantics and raised the full strict score to 463/541. Details are in
   task selector orthogonal to sample limiting, strict-metric fail-closed
   behavior, authoritative nonzero subprocess-exit handling, explicit rejection
   of both `NA` and `FAIL` rows, and the required readiness-status spelling.
+- Repaired explicit eval-sample accounting: selected logical IDs now override
+  lm-eval's full-dataset count for acceptance and timing, canonical aliases are
+  preserved, and expanded group results fail closed rather than reusing one
+  count for every subtask. GPQA's authoritative raw duration now uses seven—not
+  198—as its denominator; IFEval uses the newest 541-sample artifact.
 - Repaired the benchmark endpoint, deterministic temperature behavior, and
   streaming raw-evidence merger; the corrected full 21-row workflow exited 0.
 - Repaired TTI spec timeouts, reasoning-aware coherence validation, and exact
   completion checks. The TTI host suite passed 308 tests.
-- The final touched-surface suite passed 299 tests, the final merger suite
-  passed 17 tests, and Python compilation plus diff checks passed. The
+- The final touched-surface suite passed 304 tests, the final merger suite
+  passed 36 tests, and Python compilation plus diff checks passed. The
   checkout's pre-commit wrapper could not start because its expected
   `.pre-commit/bin/activate` is absent; the available copyright hook passed
   earlier, and no formatter/linter dependency was installed.
@@ -260,19 +286,19 @@ semantics and raised the full strict score to 463/541. Details are in
 
 Authoritative generated report:
 
-`/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/final_release_report/report_id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-03T041922+0000.md`
+`/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/final_release_report/report_id_openai-gpt-oss-120b-autoport_p150x4_release-repaired_2026-09-03T043907+0000.md`
 
 Its JSON peer is under the adjacent `data/` directory. The corrected spec
 report is:
 
 `/home/ttuser/dev/gpt-oss-20b/tti-release/openai_gpt_oss_120b/tti_cache/workflow_logs/reports_output/spec_tests/data/report_data_id_openai-gpt-oss-120b-autoport_p150x4_2026-09-02_20-59-57.json`
 
-Small reports, summaries, specs, repair notes, and smoke metadata were copied
-to this directory. The copied 27.9 KB IFEval aggregate contains only
-configuration, counts, and aggregate metrics; it has no sample or response
-field. Raw completions/reasoning, per-sample eval JSONL, token IDs, weights,
-caches, persistent TT cache, Docker layers, and large server/eval logs were
-intentionally excluded.
+Small reports, summaries, specs, repair notes, the benchmark CSV, and the smoke
+log were copied to this directory. The copied IFEval and GPQA aggregates contain
+only configuration, counts, and aggregate metrics; neither has a sample or
+response field. Raw completions/reasoning, per-sample eval JSONL, token IDs,
+weights, caches, persistent TT cache, Docker layers, and large server/eval logs
+were intentionally excluded.
 
 Cleanup completed: the owned server exited gracefully, its tmux session was
 removed, no owned vLLM process remains, no TTI container was created, and only
@@ -289,10 +315,17 @@ temporary GPQA cache symlink were removed; none contained or exposed a secret.
 
 - Official vLLM repair: `54dea57d98ccfaef072908f085d9296d544ba1fe`.
 - TTI intermediate repair: `b15d3ae6ac5ae2a00ecffc2e795d37246bb4d5e4`.
-- TTI final IFEval repair: `ddfba898209f0aaada2294d9230801d053edcf80`.
+- TTI IFEval repair: `ddfba898209f0aaada2294d9230801d053edcf80`.
+- TTI final metric-integrity repair:
+  `8459ba8dc6e690e7987235182a0d87c67bacc4a7`.
 - tt-metal initial report/capability handoff:
   `44c461da3a59e8fa9bcf6d9aedb91cab34208dd0`.
-- tt-metal IFEval remediation handoff: pending local commit.
-- Independent stage review: pending.
+- tt-metal IFEval remediation handoff:
+  `9a5d198fee3b4406fe417e2579a79311ad4e2ca5`.
+- tt-metal metric-integrity/report handoff: the local commit containing this
+  note; its parent is `9a5d198fee3b4406fe417e2579a79311ad4e2ca5`.
+- Independent stage review: provisional `more-work-needed` findings are in
+  `stage_review_metric_findings.md`; a fresh post-remediation verdict is
+  required before completion.
 
 No commit was pushed.
