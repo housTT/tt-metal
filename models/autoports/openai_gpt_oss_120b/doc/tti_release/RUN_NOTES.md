@@ -21,10 +21,11 @@
 - Context: exact 131072-token support is preserved. The boundary request
   `130944 + 128 = 131072` passed twice, and non-aligned logical length 10000
   remained unmodified.
-- Stage review: the independent metric-integrity review returned
-  `more-work-needed`; every listed finding is fixed in this handoff. A fresh
-  post-remediation review is required before stage completion and will be
-  recorded in `stage_review_final.md`.
+- Stage review: **`clean-pass`**. The independent metric-integrity review first
+  returned `more-work-needed`; every listed finding was fixed. The fresh
+  post-remediation review found one final docs-only smoke-cap mismatch, which
+  was corrected at `076a5e46ff7fd470e2f54f98614edbd563abd069` and rereviewed
+  clean. The complete verdict is `stage_review_final.md`.
 
 The original monolithic `run.py --workflow release` attempt exited 1 because
 of repairable TTI GPQA, benchmark, spec-timeout, coherence, and stop-semantics
@@ -330,7 +331,8 @@ temporary GPQA cache symlink were removed; none contained or exposed a secret.
 - tt-metal contradictory source-report cleanup:
   `d478af00c792e7beadcd7c2841c7cc8d0ed71ff1`.
 - Independent stage review: provisional `more-work-needed` findings are in
-  `stage_review_metric_findings.md`; a fresh post-remediation verdict is
-  required before completion.
+  `stage_review_metric_findings.md`; final `clean-pass` is in
+  `stage_review_final.md`, committed at
+  `f5dc6d3847a2e2e6e83008cb90fae3d79d28f042`.
 
 No commit was pushed.
