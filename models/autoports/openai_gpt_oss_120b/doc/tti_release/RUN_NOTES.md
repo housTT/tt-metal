@@ -192,9 +192,12 @@ Final compact evidence:
   satisfied by GPQA Diamond CoT 7/7. Logical `meta_ifeval` is satisfied by
   the full canonical `ifeval` task over `google/IFEval`: 463/541 strict
   prompts, 85.58225508317929%, versus the 74.29% minimum.
-- `ifeval_summary.json`, `ifeval_report_full.json`, and
-  `ifeval_aggregate_results.json`: full-scope count, configuration, score,
-  and provenance evidence without sample outputs.
+- `ifeval_summary.json`, `ifeval_aggregate_results.json`,
+  `runtime_model_spec_validation.json`, and the final merged report: full-scope
+  count, configuration, corrected timing, score, and provenance evidence
+  without sample outputs. The pre-repair TTI source report is retained only in
+  the bounded TTI work area because its stale timing denominator would make a
+  contradictory customer handoff artifact.
 - `gpqa_summary.json`, `gpqa_aggregate_results.json`, and
   `gpqa_runtime_model_spec.json`: the exact seven selected IDs, flexible score,
   external autoport wiring, and corrected `2246.9087665929983 / 7 =

@@ -80,8 +80,11 @@ The authoritative full medium+4,096 run completed 541/541 requests in
   `ifeval`;
 - release merger: `acceptance=PASS`, `blocker_keys=none`.
 
-The compact source report is copied as `ifeval_report_full.json`; the
-response-free lm-eval aggregate is `ifeval_aggregate_results.json`; and the
-matching runtime spec is `runtime_model_spec_validation.json`. The final
-four-gate report is `report_data_release_ci_nightly.json`. Raw per-sample
-JSONL data remains only in the TTI cache and is not part of this handoff.
+The response-free lm-eval aggregate is `ifeval_aggregate_results.json`; the
+matching runtime spec is `runtime_model_spec_validation.json`; and the final
+four-gate report is `report_data_release_ci_nightly.json`. The pre-repair TTI
+source report remains in the bounded TTI work area rather than this customer
+handoff because its original harness timing used the stale 28-sample
+denominator. The merged report recomputes timing from the authoritative
+aggregate total and 541-sample count. Raw per-sample JSONL data remains only in
+the TTI cache and is not part of this handoff.
