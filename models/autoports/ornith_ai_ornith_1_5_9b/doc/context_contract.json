@@ -1,7 +1,7 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "functional-decoder",
+  "stage": "fused-decoder",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
@@ -22,9 +22,9 @@
   "largest_tested_decode_position": 262143,
   "limiting_reason": null,
   "context_evidence": [
-    "functional_decoder/logs/native_prefill.log",
-    "functional_decoder/logs/final_long.log",
-    "functional_decoder/logs/watcher_final.log"
+    "fused_decoder/logs/final_long_v2.log.gz",
+    "fused_decoder/logs/final_long_v2.provenance.json",
+    "fused_decoder/logs/watcher_final_v2.log.gz"
   ],
   "batch_context_semantics": "Native context validated at batch 1; batch 4 and 32 correctness/tracing validated with shorter per-user caches. Aggregate capacity depends on caller allocation.",
   "largest_tested_batch": 32,
@@ -53,5 +53,6 @@
     ],
     "decoder_million_context_validated": false,
     "status": "opt-in setup supported; million-token full-layer capacity/accuracy not claimed by this native-context stage"
-  }
+  },
+  "fusion_capacity_validation": "Packed BF16 projections, prepared depthwise convolution weights, and temporary L1/sharded rotary layouts retain native capacity. Final fused tests execute both layer kinds through 262144-token prefill and traced decode at position 262143; batch 32 is validated at shorter contexts. KV dtype and recurrent-state dtype are unchanged."
 }
