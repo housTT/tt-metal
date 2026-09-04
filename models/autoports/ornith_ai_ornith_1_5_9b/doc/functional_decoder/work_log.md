@@ -240,9 +240,18 @@ capability is tested without reduction. No later pipeline stage was started.
 
 Only stage-owned files in `models/autoports/ornith_ai_ornith_1_5_9b` are checkpointed
 in tt-metal on branch `hous/ornith-1.5-9b`; no other repo was changed. Local commits
-only; never pushed. The stage checkpoint SHA is recorded by the metadata commit
-following the checkpoint.
+only; never pushed. The following metadata commit records the stage checkpoint.
 
 `pre-commit run` also passes after the final review report and completion metadata
 are staged (`logs/precommit_reviewed.log`). Final performance CSV bytes and all
 reviewed implementation hashes remain unchanged.
+
+
+| Repository | Branch | Reviewed stage checkpoint |
+| --- | --- | --- |
+| tt-metal | hous/ornith-1.5-9b | `3bdcbf715694d8ac2df1c94e5ca108960d4aa178` |
+
+Checkpoint message: `Add Ornith-1.5-9B functional TTNN decoder and validation`.
+The commit hook reran all applicable pre-commit checks successfully. This follow-up
+commit changes only this log to record the exact checkpoint SHA; its own SHA is
+reported in the final handoff. No pushes or PRs were performed.
