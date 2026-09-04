@@ -1,0 +1,57 @@
+{
+  "model": "ornith-ai/Ornith-1.5-9B",
+  "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
+  "stage": "functional-decoder",
+  "status": "complete",
+  "hf_advertised_context": 262144,
+  "supported_context_target": 262144,
+  "largest_tested_prefill_context": 262144,
+  "largest_tested_decode_context": 262144,
+  "capability_reduction": null,
+  "profile": "p150",
+  "physical_hardware": "one Blackhole chip on P300c boards",
+  "mesh": [
+    1,
+    1
+  ],
+  "layer_kinds": [
+    "linear_attention",
+    "full_attention"
+  ],
+  "current_supported_context": 262144,
+  "largest_tested_decode_position": 262143,
+  "limiting_reason": null,
+  "context_evidence": [
+    "functional_decoder/logs/native_prefill.log",
+    "functional_decoder/logs/final_long.log",
+    "functional_decoder/logs/watcher_final.log"
+  ],
+  "batch_context_semantics": "Native context validated at batch 1; batch 4 and 32 correctness/tracing validated with shorter per-user caches. Aggregate capacity depends on caller allocation.",
+  "largest_tested_batch": 32,
+  "tested_layer_kinds": {
+    "linear_attention": {
+      "layer_index": 0,
+      "largest_prefill": 262144,
+      "largest_decode_context": 262144,
+      "state": "fixed convolution history and FP32 recurrent matrix"
+    },
+    "full_attention": {
+      "layer_index": 3,
+      "largest_prefill": 262144,
+      "largest_decode_context": 262144,
+      "cache": "BF16 paged KV, 64-token pages, 4 KV heads, dimension 256"
+    }
+  },
+  "optional_yarn": {
+    "target_context": 1000000,
+    "factor": 3.814697265625,
+    "table_parity_tested_positions": [
+      0,
+      262143,
+      262144,
+      999999
+    ],
+    "decoder_million_context_validated": false,
+    "status": "opt-in setup supported; million-token full-layer capacity/accuracy not claimed by this native-context stage"
+  }
+}
