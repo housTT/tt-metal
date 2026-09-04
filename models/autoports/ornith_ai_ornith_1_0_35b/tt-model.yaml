@@ -1,0 +1,130 @@
+schema: "5.1"
+
+repo: tt-hous/ornith-1.0-35b-p150
+name: ornith-1.0-35b-p150
+weights:
+  repo: ornith-ai/Ornith-1.0-35B
+  revision: 5df2ed3f675c7beaa490328cc70bb573b65fb660
+kind: vllm-fork
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  tt_metal: /home/ttuser/dev/ornith/tt-metal
+  code:
+    - models/autoports/ornith_ai_ornith_1_0_35b
+    - models/common
+    - models/demos/blackhole/qwen36/tt/gdn
+    - models/experimental/gated_attention_gated_deltanet/tt
+  ubuntu: "22.04"
+  python: "3.10"
+
+runtime:
+  vllm:
+    repo: https://github.com/housTT/vllm.git
+    ref: a887998646dc4e6f192bce8d485bf89f4596ca2f
+  model_dir: models/autoports/ornith_ai_ornith_1_0_35b
+  lock: requirements.lock
+
+serve:
+  port: 7890
+  max_num_seqs: 1
+  block_size: 64
+  max_model_len: 262144
+  server_timeout: 1800
+  capabilities:
+    tool_parser: qwen3_xml
+    reasoning_parser: qwen3
+  additional_config:
+    tt:
+      sample_on_device_mode: all
+      trace_region_size: 200000000
+      l1_small_size: 32768
+  env:
+    ORNITH_VLLM_PREFILL_WARMUP: all
+    TT_INTERLEAVE_PREFILL_CHUNKS: "1"
+    TT_MAX_PREFILLS_PER_STEP: "1"
+    VLLM_RPC_TIMEOUT: "900000"
+  args:
+    - --async-scheduling
+    - --disable-log-stats
+
+serve_profiles:
+  - name: p150
+    description: One interactive user on one P150 board.
+    hardware: p150
+    mesh_device: P150
+    env:
+      TT_METAL_VISIBLE_DEVICES: "0"
+      TT_VISIBLE_DEVICES: "0"
+      TT_MESH_GRAPH_DESC_PATH: /opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto
+  - name: p150x2
+    description: One interactive user on both P150-class ASICs of one P300C board using tensor and expert parallelism.
+    hardware: p150x2
+    mesh_device: P150x2
+    additional_config:
+      tt:
+        fabric_config: FABRIC_1D
+        fabric_router_max_packet_bytes: 8192
+    env:
+      TT_METAL_VISIBLE_DEVICES: "0,1"
+      TT_VISIBLE_DEVICES: "0,1"
+      TT_MESH_GRAPH_DESC_PATH: /opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto
+default_profile: p150x2
+
+verify:
+  - "from pathlib import Path; p = Path('/opt/tt-metal/models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/selected_precision_config.json'); assert p.is_file(), 'the validated Ornith precision policy is missing'"
+  - "from models.autoports.ornith_ai_ornith_1_0_35b.tt.generator_vllm import TTQwen3_5MoeForConditionalGeneration; assert TTQwen3_5MoeForConditionalGeneration"
+  - "from importlib.metadata import version; assert version('torch') == '2.11.0+cpu'; assert version('transformers') == '5.12.1'"
+
+card:
+  description: |
+    Ornith-1.0-35B is an agentic reasoning and coding model served through an
+    OpenAI-compatible vLLM endpoint on Tenstorrent Blackhole hardware.
+  quickstart: |
+    ### Select a serve profile
+
+    ```bash
+    tt-model serve tt-hous/ornith-1.0-35b-p150 --profile p150 --follow
+    tt-model serve tt-hous/ornith-1.0-35b-p150 --profile p150x2 --follow
+    ```
+
+    The API listens at `http://127.0.0.1:7890/v1`. Both profiles enable
+    Qwen3 reasoning and Qwen3 XML tool-call parsing. `tt-model pull` downloads
+    the 70 GB Hugging Face snapshot. The first serve loads it onto the device
+    and compiles kernels into the persistent model cache; later starts reuse
+    that cache.
+
+    ### OpenCode
+
+    Configure an OpenAI-compatible provider with base URL
+    `http://127.0.0.1:7890/v1` and model
+    `ornith-ai/Ornith-1.0-35B`.
+
+    ### Measured endpoint performance
+
+    Measured with `vllm bench serve` against the packaged server settings on
+    one P300C board: one ASIC for `p150`, both ASICs for `p150x2`. Each row is
+    the p50 of three sequential requests with exact random input/output
+    lengths, concurrency 1, greedy sampling, and EOS ignored. Decode tokens/s
+    is derived as `1000 / p50 TPOT`.
+
+    #### P150
+
+    | Input tokens | Output tokens | TTFT (ms) | Decode tokens/s | TPOT (ms) |
+    | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 253 | 11.59 | 86.25 |
+    | 2,048 | 128 | 2,601 | 11.57 | 86.45 |
+    | 8,192 | 128 | 10,409 | 11.53 | 86.72 |
+    | 32,768 | 128 | 42,786 | 11.41 | 87.61 |
+
+    #### P150x2
+
+    | Input tokens | Output tokens | TTFT (ms) | Decode tokens/s | TPOT (ms) |
+    | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 153 | 33.27 | 30.06 |
+    | 2,048 | 128 | 1,404 | 33.16 | 30.16 |
+    | 8,192 | 128 | 5,912 | 32.90 | 30.40 |
+    | 32,768 | 128 | 24,468 | 32.01 | 31.24 |

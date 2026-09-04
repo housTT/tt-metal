@@ -1251,7 +1251,15 @@ class OrnithModel(LightweightModule):
         non-aligned group would let the reduction read tile padding. The rule reproduces the
         full-model stage's measured 20 for the unpadded 62080-wide shard and picks 32 for the
         32-tile-aligned 62464 the optimized stage builds.
+
+        A ``(1, 1)`` mesh is deliberately different.  The shared sampler uses its two-half
+        reduction for a single device because the full vocabulary is wider than one Blackhole
+        top-k invocation supports.  Grouped local top-k is the multi-device alternative to that
+        reduction, not an extra stage that can be combined with it, so TP=1 must retain the
+        sampler's default group count of one.
         """
+        if self.tp == 1:
+            return 1
         width = self.padded_vocab_size // self.tp
         tiles = width // TILE
         best, best_cost = 1, None
