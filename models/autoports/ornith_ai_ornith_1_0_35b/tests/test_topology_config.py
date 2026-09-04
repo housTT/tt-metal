@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Host-only invariants for the P150, P150x2, and four-chip Ornith layouts."""
 
+from pathlib import Path
+
 import pytest
 import torch
+import yaml
 
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model import OrnithModel
 from models.autoports.ornith_ai_ornith_1_0_35b.tt.model_config import OrnithDecoderConfig
@@ -102,3 +105,26 @@ def test_single_device_sampling_keeps_the_supported_two_half_reduction():
     model.tp = 1
     model.padded_vocab_size = 249856
     assert model.best_topk_groups(max_top_k=32) == 1
+
+
+def test_release_manifest_preserves_the_original_four_chip_profile():
+    manifest_path = Path(__file__).parents[1] / "tt-model.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text())
+    profiles = {profile["name"]: profile for profile in manifest["serve_profiles"]}
+
+    assert set(profiles) == {"p150", "p150x2", "p150x4"}
+    assert manifest["default_profile"] == "p150x4"
+    assert manifest["serve"]["capabilities"] == {
+        "tool_parser": "qwen3_xml",
+        "reasoning_parser": "qwen3",
+    }
+
+    p150x4 = profiles["p150x4"]
+    assert (p150x4["hardware"], p150x4["mesh_device"]) == ("p150x4", "P150x4")
+    assert p150x4["additional_config"]["tt"] == {
+        "fabric_config": "FABRIC_1D_RING",
+        "fabric_router_max_packet_bytes": 8192,
+    }
+    assert p150x4["env"]["TT_VISIBLE_DEVICES"] == "0,1,2,3"
+    assert p150x4["env"]["TT_METAL_VISIBLE_DEVICES"] == "0,1,2,3"
+    assert p150x4["env"]["TT_MESH_GRAPH_DESC_PATH"].endswith("/p300_x2_mesh_graph_descriptor.textproto")

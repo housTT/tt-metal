@@ -72,7 +72,19 @@ serve_profiles:
       TT_METAL_VISIBLE_DEVICES: "0,1"
       TT_VISIBLE_DEVICES: "0,1"
       TT_MESH_GRAPH_DESC_PATH: /opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto
-default_profile: p150x2
+  - name: p150x4
+    description: One interactive user on all four P150-class ASICs across two P300C boards using tensor and expert parallelism.
+    hardware: p150x4
+    mesh_device: P150x4
+    additional_config:
+      tt:
+        fabric_config: FABRIC_1D_RING
+        fabric_router_max_packet_bytes: 8192
+    env:
+      TT_METAL_VISIBLE_DEVICES: "0,1,2,3"
+      TT_VISIBLE_DEVICES: "0,1,2,3"
+      TT_MESH_GRAPH_DESC_PATH: /opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p300_x2_mesh_graph_descriptor.textproto
+default_profile: p150x4
 
 verify:
   - "from pathlib import Path; p = Path('/opt/tt-metal/models/autoports/ornith_ai_ornith_1_0_35b/doc/datatype_sweep/selected_precision_config.json'); assert p.is_file(), 'the validated Ornith precision policy is missing'"
@@ -89,14 +101,14 @@ card:
     ```bash
     tt-model serve tt-hous/ornith-1.0-35b-p150 --profile p150 --follow
     tt-model serve tt-hous/ornith-1.0-35b-p150 --profile p150x2 --follow
+    tt-model serve tt-hous/ornith-1.0-35b-p150 --profile p150x4 --follow
     ```
 
-    The API listens at `http://127.0.0.1:7890/v1`. Both profiles enable
+    The API listens at `http://127.0.0.1:7890/v1`. All three profiles enable
     Qwen3 reasoning and Qwen3 XML tool-call parsing. `tt-model pull --with-weights`
     downloads the 70 GB Hugging Face snapshot. The first serve loads it onto
-    the device
-    and compiles kernels into the persistent model cache; later starts reuse
-    that cache.
+    the device and compiles kernels into the persistent model cache; later
+    starts reuse that cache.
 
     ### OpenCode
 
@@ -107,10 +119,11 @@ card:
     ### Measured endpoint performance
 
     Measured with `vllm bench serve` against the packaged server settings on
-    one P300C board: one ASIC for `p150`, both ASICs for `p150x2`. Each row is
-    the p50 of three sequential requests with exact random input/output
-    lengths, concurrency 1, greedy sampling, and EOS ignored. Decode tokens/s
-    is derived as `1000 / p50 TPOT`.
+    this two-P300C host: one ASIC for `p150`, both ASICs of one board for
+    `p150x2`, and all four ASICs across both boards for `p150x4`. Each row is
+    the p50 of three sequential requests with exact random input/output lengths,
+    concurrency 1, greedy sampling, and EOS ignored. Decode tokens/s is derived
+    as `1000 / p50 TPOT`.
 
     #### P150
 
@@ -129,3 +142,12 @@ card:
     | 2,048 | 128 | 1,404 | 33.16 | 30.16 |
     | 8,192 | 128 | 5,912 | 32.90 | 30.40 |
     | 32,768 | 128 | 24,468 | 32.01 | 31.24 |
+
+    #### P150x4
+
+    | Input tokens | Output tokens | TTFT (ms) | Decode tokens/s | TPOT (ms) |
+    | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 160 | 43.03 | 23.24 |
+    | 2,048 | 128 | 801 | 42.67 | 23.44 |
+    | 8,192 | 128 | 3,475 | 42.33 | 23.62 |
+    | 32,768 | 128 | 14,450 | 40.75 | 24.54 |
