@@ -4,6 +4,19 @@ This autoport implements text and agentic inference for `ornith-ai/Ornith-1.5-9B
 The supervising user's full release requirements below apply in addition to the
 current multigoal stage. Finish only the current stage; do not skip ahead.
 
+The user explicitly requests leveraging their Ornith-1.0-35B bringup. Its
+autoport is available as reference at
+`/home/hous/dev/ornith-1.5-9b/references/ornith-1.0-35b/models/autoports/ornith_ai_ornith_1_0_35b`.
+Source: `housTT/tt-metal`, branch `hous/ornith-1.0-35B-p150-package`, pinned
+commit `f7662055fe4ae3d66509335d96a7c74acd53911b` (also fetched into this repo).
+Read its functional decoder, RoPE, reference harness, and tests before rebuilding
+equivalent mechanisms. DeltaNet, full attention, padding neutrality, trace
+state, and request-slot isolation are useful references. Adapt and validate
+against this checkpoint: 35B has an MoE MLP and hidden width 2048; 9B is dense
+with hidden width 4096. Never copy old accuracy/performance claims into new
+evidence. The old serving report disables prefix caching and rejects YaRN;
+those are unfinished requirements here, not inherited exceptions.
+
 - Base tt-metal main: `e7638d2859b6a1ef30eb984781cbddf9872a8d62`.
 - Workflow `.agents/` only, imported from tt-metal branch
   `agentic-research/fast-models-fast`, commit
