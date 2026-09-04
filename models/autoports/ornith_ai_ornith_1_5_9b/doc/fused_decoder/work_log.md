@@ -349,3 +349,15 @@ the audit (actual outer transpose fusion, GDN concat trial, trace benchmark
 allocation ordering, and stale metadata) is fixed or measured/rejected and
 reviewed. The runtime remains exactly the tested `18d59502…f9b11d` source.
 The stage is ready for its local checkpoint. No push is authorized or performed.
+
+
+## Local checkpoint
+
+Repository: `/home/hous/dev/ornith-1.5-9b/tt-metal`
+Branch: `hous/ornith-1.5-9b`
+Stage checkpoint: `0e0fcfc6f3b2d08026ae0e4e1cc4b1d49da5032c`
+Review: [clean-pass](STAGE_REVIEW.md). The checkpoint includes the final tested
+runtime, tests, context contract, full evidence and review. Commit-time
+pre-commit hooks pass. This SHA-recording documentation update follows in a
+separate local commit, whose SHA is reported in the completion response.
+No other repository was changed, no later stage was started, and nothing was pushed.
