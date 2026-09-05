@@ -517,3 +517,19 @@ evidence are checkpointed. No vLLM integration, datatype frontier, C++/CMake
 changes or push is included. The implementation/evidence commit SHA is appended
 in the following documentation receipt commit; that receipt's own SHA is recorded
 outside the worktree and in the final handoff to avoid a self-referential commit.
+
+
+Implementation/evidence checkpoint: **`34ae6a065e2b33df96f7da30c28139cae4503257`**.
+Command: `SKIP=trailing-whitespace,end-of-file-fixer git commit --quiet -F
+/home/hous/dev/ornith-1.5-9b/state/optimized-full-model-commit-message.txt`.
+The commit hook passes all remaining applicable checks across791 staged files.
+The two raw-byte-changing hooks were separately checked on authored files;
+final completion documentation passes `precommit_checkpoint_docs_v1` with no
+skips. [Commit hook output](logs/local_checkpoint.log.gz) is preserved.
+
+Before this commit, all1091 indexed artifact hashes and implementation/context
+hashes were verified against the live files. Every staged file is stage-owned
+and below500000 bytes. The following receipt commit only adds this SHA, commit
+hook evidence and the refreshed manifest. Its SHA is logged in
+`/home/hous/dev/ornith-1.5-9b/state/optimized-full-model-local-commits.json`
+and the final handoff. Both commits remain local; nothing was pushed.
