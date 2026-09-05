@@ -232,3 +232,25 @@ this reviewer and no hardware was accessed.
 - Ethernet watcher coverage and the unlocalized historical GDN observation
   retain the specific limits described above. No current final-path failure
   remains hidden by a lowered tolerance, xfail, synthetic veto or stale result.
+
+## Post-Review Artifact Format Clarification
+
+The stage checkpoint is
+`7be0fb74df50d238e0976c1ebe8ff02b827b6df7`. Checking the entire committed
+stage exposed CSV CRLF endings and twelve single-space blank context lines
+in `reader_mesh.patch`; the earlier working-tree `git diff --check` did not
+cover then-untracked artifacts. These are artifact-format findings, not
+implementation or numerical failures.
+
+Reviewed the evidence-local [.gitattributes](.gitattributes): CSV files retain
+`blank-at-eol,blank-at-eof,space-before-tab` checks with `cr-at-eol` enabled;
+only `reader_mesh.patch` disables whitespace checks to preserve its literal
+unified-diff syntax. `git check-attr` confirms that Python and Markdown files
+retain their existing whitespace policy. The CSV inspection found no trailing
+spaces or tabs after removing line endings. All twelve patch findings are
+single-space context markers, and its unchanged SHA256 is
+`10b01e5e5aff4c7007c412547c5143ef07a65991d3068ae1db496adb6686a395`.
+The full-stage `git diff 65abe7f69dbf128012108ef99262bf337f7cdc70 --check`
+passes with these scoped attributes. Runtime and recorded evidence contents
+are unchanged. The clean-pass verdict stands; this clarification is ready for
+the final documentation checkpoint.

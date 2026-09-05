@@ -330,4 +330,20 @@ work was performed, and no push or PR was created.
 
 Repository: `tt-metal`; branch: `hous/ornith-1.5-9b`. Stage-owned code, tests
 and compact evidence are isolated from the ignored raw profiler/tensor dumps.
-Checkpoint SHA is appended immediately after the local commit.
+Implementation, tests and compact evidence checkpoint: `7be0fb74df50d238e0976c1ebe8ff02b827b6df7`
+(`Optimize Ornith TP4 decoder projections and mesh DRAM readers`). All commit
+hooks pass. A documentation-only follow-up records this SHA and completion.
+
+The staged whole-stage whitespace check additionally exposed native CSV CRLF
+endings and single-space blank context lines in the preserved `reader_mesh.patch`.
+These are artifact syntax, not runtime whitespace defects. Scoped `.gitattributes`
+accepts CSV CRLF while retaining normal whitespace checks, and exempts only that
+literal patch artifact. Exported data and checksums remain unchanged. The earlier
+un-staged `git diff --check` did not include then-untracked artifacts. The full
+stage check is repeated after these attributes, alongside the repository hooks.
+
+Full-stage `git diff 65abe7f69d --check` and the follow-up pre-commit checks
+pass. The independent reviewer rechecks the artifact attributes and unchanged
+checksums, appends the clarification to `STAGE_REVIEW.md`, and confirms that
+`clean-pass` stands. The final documentation commit contains this checkpoint
+record and artifact-format handling; runtime code is unchanged.
