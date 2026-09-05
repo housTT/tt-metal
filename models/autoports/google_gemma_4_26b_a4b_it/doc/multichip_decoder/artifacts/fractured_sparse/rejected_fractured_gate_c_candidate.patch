@@ -1,0 +1,342 @@
+--- a/models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py
++++ b/models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py
+@@ -61,6 +61,7 @@
+ ADVERTISED_CONTEXT_TOKENS = 262144
+ _PREFILL_CONTEXT_LIMIT_BY_TP = {1: 50624, 2: ADVERTISED_CONTEXT_TOKENS, 4: ADVERTISED_CONTEXT_TOKENS}
+ _ROUTING_ROW_MAJOR_ENV = "GEMMA4_OPT_ROUTING_ROW_MAJOR"
++_FRACTURED_RESIDUAL_ENV = "GEMMA4_MULTICHIP_FRACTURED_RESIDUAL_CANDIDATE"
+ _PACKED_EXPERT_POLICY_FLAGS = (
+     "packed_expert_decode_gate_up",
+     "packed_expert_prefill_gate_up",
+@@ -276,6 +277,26 @@
+     ).unsqueeze(0)
+ 
+ 
++def _fractured_qkv_decode_config(device: Any, output_width: int) -> Any:
++    """Program the K-sharded QKV partial used by the TP4 residual candidate."""
++
++    output_tiles = output_width // TILE_SIZE
++    per_core_n = (output_tiles + 10) // 11
++    out_block_w = next(value for value in (8, 6, 5, 4, 3, 2, 1) if per_core_n % value == 0)
++    return ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
++        compute_with_storage_grid_size=(11, 6),
++        in0_block_w=2,
++        out_subblock_h=1,
++        out_subblock_w=1,
++        per_core_M=1,
++        per_core_N=per_core_n,
++        out_block_w=out_block_w,
++        transpose_mcast=False,
++        fused_activation=None,
++        fuse_batch=False,
++    )
++
++
+ def _require_target_mesh(mesh_device: Any) -> TPProfile:
+     if not isinstance(mesh_device, ttnn.MeshDevice):
+         raise ValueError("MultichipDecoder requires a TTNN MeshDevice")
+@@ -645,6 +666,10 @@
+         )
+         decoder.decode_packed_expert_gate_up = None
+         decoder.decode_packed_expert_gate_up_batch32 = None
++        decoder.fractured_packed_expert_gate_up = None
++        decoder.fractured_qkv = None
++        decoder.fractured_input_ln = None
++        decoder.fractured_boundary_resources = None
+         decoder.batch32_expert_gate = decoder.weights.expert_gate
+         decoder.batch32_expert_up = decoder.weights.expert_up
+         if packed_expert_decode:
+@@ -655,6 +680,34 @@
+                 mapper=shard_n,
+             )
+             decoder.decode_packed_expert_gate_up_batch32 = decoder.decode_packed_expert_gate_up
++        fractured_candidate = _multichip_bool_from_env(_FRACTURED_RESIDUAL_ENV, False)
++        if fractured_candidate and tp_size != 4:
++            raise ValueError(f"{_FRACTURED_RESIDUAL_ENV}=1 currently requires the measured TP4 mesh")
++        if fractured_candidate:
++            if expert_gate_weight_dtype != expert_up_weight_dtype:
++                raise ValueError("fractured packed expert decode requires matching gate and up weight dtypes")
++            decoder.fractured_packed_expert_gate_up = upload(
++                "fractured_packed_expert_gate_up_tp4",
++                _packed_expert_gate_up_mesh_source(expert_gate, expert_up, tp_size),
++                dtype=expert_gate_weight_dtype,
++                mapper=shard_k,
++            )
++            decoder.fractured_qkv = upload(
++                "fractured_qkv_tp4",
++                qkv_mesh_source,
++                dtype=attention_weight_dtype,
++                mapper=shard_k,
++            )
++            decoder.fractured_input_ln = upload(
++                "fractured_input_ln_tp4",
++                get("input_layernorm.weight")
++                .reshape(tp_size, 1, HIDDEN_SIZE // tp_size // TILE_SIZE, TILE_SIZE)
++                .contiguous(),
++                dtype=ttnn.bfloat16,
++                mapper=ttnn.ShardTensorToMesh(mesh_device, dim=0),
++                layout=ttnn.ROW_MAJOR_LAYOUT,
++            )
++        decoder.fractured_residual_candidate_enabled = fractured_candidate
+         decoder.prefill_packed_expert_gate_up = None
+         decoder.packed_mlp_gate_up = ttnn.concat(
+             [weights.mlp_gate, weights.mlp_up], dim=-1, memory_config=ttnn.DRAM_MEMORY_CONFIG
+@@ -1532,6 +1585,258 @@
+             memory_config=gate_up.memory_config(),
+         )
+ 
++    def fractured_route_metadata(
++        self,
++        routing_weights: ttnn.Tensor,
++    ) -> tuple[ttnn.Tensor, ttnn.Tensor, ttnn.Tensor]:
++        """Build indexed sparse metadata for the opt-in TP4 residual path.
++
++        ``routing_weights`` is the normal on-device router result: exactly
++        eight nonzero entries in its 128-expert row.  A second top-k compacts
++        those entries without a host readback and keeps dynamic expert IDs in
++        caller-owned tensors suitable for trace capture.
++        """
++
++        self._require_fractured_candidate()
++        if tuple(routing_weights.shape) != (1, 1, 1, NUM_EXPERTS):
++            raise ValueError(
++                "fractured route metadata requires one logical decode token with "
++                f"shape (1, 1, 1, {NUM_EXPERTS}), got {tuple(routing_weights.shape)}"
++            )
++        tiled_routing = routing_weights
++        if tiled_routing.layout != ttnn.TILE_LAYOUT:
++            tiled_routing = ttnn.to_layout(
++                tiled_routing,
++                ttnn.TILE_LAYOUT,
++                memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            )
++        top_values, top_indices = ttnn.topk(
++            tiled_routing,
++            k=TOP_K_EXPERTS,
++            dim=-1,
++            sorted=True,
++        )
++        sparsity = ttnn.to_layout(
++            tiled_routing,
++            ttnn.ROW_MAJOR_LAYOUT,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        indices = ttnn.to_layout(
++            top_indices,
++            ttnn.ROW_MAJOR_LAYOUT,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        compact_scores = ttnn.permute(
++            top_values,
++            (0, 3, 2, 1),
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        compact_scores = ttnn.pad(
++            compact_scores,
++            [(0, 0), (0, 0), (0, TILE_SIZE - 1), (0, 0)],
++            0.0,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        return sparsity, indices, compact_scores
++
++    def fractured_expert_to_next_qkv(
++        self,
++        hidden_states: ttnn.Tensor,
++        routing_weights: ttnn.Tensor,
++        indices: ttnn.Tensor,
++        compact_scores: ttnn.Tensor,
++        *,
++        next_decoder: "MultichipDecoder",
++    ) -> tuple[ttnn.Tensor, ttnn.Tensor]:
++        """Keep a TP4 residual fractured through experts and next-layer QKV.
++
++        This deliberately separate opt-in entry point is the stack boundary
++        proven by the AutoFix experiment.  It does not alter the selected
++        replicated ``decode_forward`` contract until a complete layer path
++        demonstrates an end-to-end win.
++        """
++
++        self._require_fractured_candidate()
++        next_decoder._require_fractured_candidate()
++        local_hidden = HIDDEN_SIZE // self.tp_size
++        if tuple(hidden_states.shape) != (1, 1, TILE_SIZE, local_hidden):
++            raise ValueError(
++                "fractured expert decode requires TP4-local hidden shape "
++                f"(1, 1, {TILE_SIZE}, {local_hidden}), got {tuple(hidden_states.shape)}"
++            )
++        if tuple(indices.shape) != (1, 1, 1, TOP_K_EXPERTS):
++            raise ValueError(f"expected compact expert indices [1, 1, 1, {TOP_K_EXPERTS}]")
++        if tuple(compact_scores.shape) != (1, TOP_K_EXPERTS, TILE_SIZE, 1):
++            raise ValueError(f"expected compact expert scores [1, {TOP_K_EXPERTS}, {TILE_SIZE}, 1]")
++
++        resources = self._fractured_resources(next_decoder)
++        packed_width = 2 * self.tp_profile.padded_moe_intermediate_size
++        local_intermediate = self.tp_profile.local_moe_intermediate_size
++        local_packed = 2 * local_intermediate
++        packed_config = _optimized_sparse_decode_config(
++            self.mesh_device,
++            n=packed_width,
++            per_core_n=2,
++            in0_block_w=11,
++            out_subblock_w=2,
++        )
++        down_config = _optimized_sparse_decode_config(
++            self.mesh_device,
++            n=HIDDEN_SIZE,
++            per_core_n=2,
++            in0_block_w=6,
++            out_subblock_w=2,
++        )
++        common = {
++            "sparsity": routing_weights,
++            "indices": indices,
++            "is_input_b_sparse": True,
++            "memory_config": ttnn.DRAM_MEMORY_CONFIG,
++            "output_tile": ttnn.Tile([TILE_SIZE, TILE_SIZE]),
++            "dtype": ttnn.bfloat16,
++            "compute_kernel_config": self.expert_compute_config,
++        }
++        packed_partial = ttnn.sparse_matmul(
++            hidden_states,
++            self.fractured_packed_expert_gate_up,
++            is_input_a_sparse=False,
++            program_config=packed_config,
++            **common,
++        )
++        # The indexed rank-5 consumer retains both operands' broadcast axes
++        # and returns rank 6.  Canonicalize it explicitly before CCL; this is
++        # metadata-only and preserves the mesh K fracture.
++        packed_partial = ttnn.reshape(
++            packed_partial,
++            (1, TOP_K_EXPERTS, TILE_SIZE, packed_width),
++        )
++        packed_local = self._fractured_reduce_scatter(packed_partial, "packed", resources)
++        up_local = ttnn.slice(
++            packed_local,
++            [0, 0, 0, 0],
++            [1, TOP_K_EXPERTS, TILE_SIZE, local_intermediate],
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        gate_local = ttnn.slice(
++            packed_local,
++            [0, 0, 0, local_intermediate],
++            [1, TOP_K_EXPERTS, TILE_SIZE, local_packed],
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        down_input = ttnn.mul(
++            gate_local,
++            up_local,
++            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 0.0)],
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++        )
++        down_partial = ttnn.sparse_matmul(
++            down_input,
++            self.weights.expert_down,
++            is_input_a_sparse=True,
++            program_config=down_config,
++            **common,
++        )
++        weighted = ttnn.mul(down_partial, compact_scores, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++        down_summed = ttnn.sum(weighted, dim=1, keepdim=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++        local_branch = self._fractured_reduce_scatter(down_summed, "down", resources)
++        residual = ttnn.add(local_branch, hidden_states, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++
++        local_stats = ttnn.rms_norm_pre_all_gather(residual, dtype=ttnn.bfloat16)
++        global_stats = ttnn.experimental.all_gather_async(
++            local_stats,
++            persistent_output_buffer=resources["norm_output"],
++            dim=3,
++            multi_device_global_semaphore=resources["norm_semaphores"],
++            num_links=2,
++            topology=ttnn.Topology.Ring,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            cluster_axis=1,
++        )
++        if resources["norm_output"] is None:
++            resources["norm_output"] = global_stats
++        normalized = ttnn.rms_norm_post_all_gather(
++            residual,
++            global_stats,
++            epsilon=next_decoder.eps,
++            weight=next_decoder.fractured_input_ln,
++        )
++        qkv_partial = ttnn.linear(
++            normalized,
++            next_decoder.fractured_qkv,
++            dtype=ttnn.bfloat16,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            program_config=_fractured_qkv_decode_config(
++                self.mesh_device,
++                next_decoder.fractured_qkv.shape[-1],
++            ),
++            compute_kernel_config=next_decoder.decode_attention_compute_config,
++        )
++        qkv = self._fractured_reduce_scatter(qkv_partial, "qkv", resources)
++        if not resources["initialized"]:
++            ttnn.synchronize_device(self.mesh_device)
++            for name, partial in (("packed", packed_partial), ("down", down_summed), ("qkv", qkv_partial)):
++                intermediate, penultimate = ttnn.experimental.reduce_scatter_minimal_async_create_intermediate_buffer(
++                    partial,
++                    dim=3,
++                    topology=ttnn.Topology.Ring,
++                    cluster_axis=1,
++                    compute_kernel_config=self.expert_compute_config,
++                )
++                resources[f"{name}_buffers"] = [intermediate, resources[f"{name}_output"], penultimate]
++            resources["initialized"] = True
++        return residual, qkv
++
++    def _require_fractured_candidate(self) -> None:
++        if not self.fractured_residual_candidate_enabled:
++            raise RuntimeError(f"set {_FRACTURED_RESIDUAL_ENV}=1 while loading both boundary decoders")
++
++    def _fractured_resources(self, next_decoder: "MultichipDecoder") -> dict[str, Any]:
++        key = (next_decoder.layer_idx, next_decoder.layer_kind.name)
++        if self.fractured_boundary_resources is not None:
++            if self.fractured_boundary_resources["key"] != key:
++                raise RuntimeError("one fractured resource bundle cannot be reused across different next-layer shapes")
++            return self.fractured_boundary_resources
++        grid = self.mesh_device.compute_with_storage_grid_size()
++        cores = ttnn.num_cores_to_corerangeset(grid.x * grid.y, grid, row_wise=True)
++        self.fractured_boundary_resources = {
++            "key": key,
++            "initialized": False,
++            "packed_semaphores": [ttnn.create_global_semaphore(self.mesh_device, cores, 0) for _ in range(3)],
++            "down_semaphores": [ttnn.create_global_semaphore(self.mesh_device, cores, 0) for _ in range(3)],
++            "norm_semaphores": [ttnn.create_global_semaphore(self.mesh_device, cores, 0) for _ in range(2)],
++            "qkv_semaphores": [ttnn.create_global_semaphore(self.mesh_device, cores, 0) for _ in range(3)],
++            "packed_buffers": None,
++            "down_buffers": None,
++            "qkv_buffers": None,
++            "packed_output": None,
++            "down_output": None,
++            "norm_output": None,
++            "qkv_output": None,
++        }
++        ttnn.synchronize_device(self.mesh_device)
++        return self.fractured_boundary_resources
++
++    def _fractured_reduce_scatter(
++        self,
++        partial: ttnn.Tensor,
++        name: str,
++        resources: dict[str, Any],
++    ) -> ttnn.Tensor:
++        output = ttnn.experimental.reduce_scatter_minimal_async(
++            partial,
++            persistent_output_buffers=resources[f"{name}_buffers"],
++            dim=3,
++            multi_device_global_semaphore=resources[f"{name}_semaphores"],
++            num_links=2,
++            memory_config=ttnn.DRAM_MEMORY_CONFIG,
++            topology=ttnn.Topology.Ring,
++            cluster_axis=1,
++            compute_kernel_config=self.expert_compute_config,
++        )
++        if resources[f"{name}_output"] is None:
++            resources[f"{name}_output"] = output
++        return output
++
+     def _moe_prefill(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
+         self.multichip_path_counters["expert_tp"] += 1
+         return self._all_reduce_hidden(super()._moe_prefill(hidden_states, routing_weights))

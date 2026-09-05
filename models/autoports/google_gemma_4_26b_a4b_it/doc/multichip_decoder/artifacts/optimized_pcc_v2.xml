@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="11.720" timestamp="2026-09-05T15:16:16.848737+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0-device_params0]" time="5.880"><properties><property name="start_timestamp" value="2026-09-05T15:16:17" /><property name="end_timestamp" value="2026-09-05T15:16:23" /></properties><failure message="AttributeError: 'MultichipDecoder' object has no attribute 'attention_compute_config'. Did you mean: 'decode_attention_compute_config'?">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x79e508dca240&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+&gt;       prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:454:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:599: in prefill_forward
+    return super().prefill_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2106: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2143: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x79e508c3a1e0&gt;
+x = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-2.3594e+00,  3.0273e-01,  ...,  1.6094e+00,  1.9219e+00],
+      ...e+00,  ...,  3.4062e+00, -1.3438e+00]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+call = {'cache_position_modulo': None, 'chunk_page_table': None, 'kv_cache': (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tenso... 0.0000]]]], shape=Shape([4, 2, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)), 'logical_seq_len': 32, ...}
+kind = _LayerKind(name='sliding_attention', num_kv_heads=8, head_dim=256, block_size=64, sliding_window=1024, uses_k_as_v=False)
+seq_len = 32, local_kv_heads = 2
+
+    def _attention_prefill(self, x: ttnn.Tensor, **call: Any) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["prefill_attention"] += 1
+        self.multichip_path_counters["attention_tp"] += 1
+        kind = self.layer_kind
+        seq_len = x.shape[-2]
+        local_kv_heads = 1 if kind.name == "full_attention" else 2
+&gt;       xqkv = self._linear(x, "qkv", compute_kernel_config=self.attention_compute_config)
+                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'MultichipDecoder' object has no attribute 'attention_compute_config'. Did you mean: 'decode_attention_compute_config'?
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:718: AttributeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device0-device_params0]" time="4.841"><properties><property name="start_timestamp" value="2026-09-05T15:16:23" /><property name="end_timestamp" value="2026-09-05T15:16:28" /></properties><failure message="AttributeError: 'MultichipDecoder' object has no attribute 'attention_compute_config'. Did you mean: 'decode_attention_compute_config'?">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x79e508c0f8f0&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+&gt;       prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:454:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:599: in prefill_forward
+    return super().prefill_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2106: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2143: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x79e3fc0731d0&gt;
+x = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-2.2500e+00,  2.2500e+01,  ...,  6.9000e+01,  2.6750e+01],
+      ...e+00,  ..., -9.3000e+01,  5.8438e+00]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+call = {'cache_position_modulo': None, 'chunk_page_table': None, 'kv_cache': (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tenso...0.0000]]]], shape=Shape([2, 1, 128, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)), 'logical_seq_len': 32, ...}
+kind = _LayerKind(name='full_attention', num_kv_heads=2, head_dim=512, block_size=128, sliding_window=None, uses_k_as_v=True)
+seq_len = 32, local_kv_heads = 1
+
+    def _attention_prefill(self, x: ttnn.Tensor, **call: Any) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["prefill_attention"] += 1
+        self.multichip_path_counters["attention_tp"] += 1
+        kind = self.layer_kind
+        seq_len = x.shape[-2]
+        local_kv_heads = 1 if kind.name == "full_attention" else 2
+&gt;       xqkv = self._linear(x, "qkv", compute_kernel_config=self.attention_compute_config)
+                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'MultichipDecoder' object has no attribute 'attention_compute_config'. Did you mean: 'decode_attention_compute_config'?
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:718: AttributeError</failure></testcase></testsuite></testsuites>

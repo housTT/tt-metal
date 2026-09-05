@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="23.839" timestamp="2026-09-05T17:41:17.835038+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace[blackhole-mesh_device0-device_params0]" time="22.943"><properties><property name="start_timestamp" value="2026-09-05T17:41:18" /><property name="end_timestamp" value="2026-09-05T17:41:41" /></properties><failure message="AssertionError: TP2 stacked eager decode PCCs=[(True, 0.9912233635607709), (False, 0.9834710494588356)]&#10;assert False&#10; +  where False = all(&lt;generator object test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace.&lt;locals&gt;.&lt;genexpr&gt; at 0x7ea6b2b7f780&gt;)">mesh_device = MeshDevice(2x2 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_2D, 'trace_region_size': 134217728}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7ea6b2cdbb30&gt;
+
+    @pytest.mark.timeout(1800)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 128 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(2, 2)], indirect=True)
+    def test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace(mesh_device, device_params, monkeypatch):
+        """Exercise shared rotating CCL resources across a real two-layer chain."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        monkeypatch.setenv("GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE", "1")
+        reference_policy = "selected_optimized"
+        reference_kwargs = {}
+        if os.getenv("GEMMA4_MULTICHIP_STACKED_REFERENCE_R0") == "1":
+            reference_policy = "r0_raw_equivalent"
+            monkeypatch.setenv("GEMMA4_OPT_ROUTING_ROW_MAJOR", "0")
+            reference_kwargs = {
+                "residual_shard_cores": 0,
+                "packed_expert_decode_gate_up": False,
+                "packed_expert_prefill_gate_up": False,
+                "folded_router_projection": False,
+                "shared_ffn_norm": False,
+                "folded_expert_scale": False,
+                "fused_final_scalar": False,
+                "expert_gate_weight_dtype": ttnn.bfloat8_b,
+            }
+        cfg = functional_tests._load_text_config()
+        layer_indices = (0, 5)
+        states = {layer_idx: functional_tests._load_layer_state(layer_idx) for layer_idx in layer_indices}
+        tp_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 2)), offset=ttnn.MeshCoordinate(0, 0))
+        reference_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 1)), offset=ttnn.MeshCoordinate(1, 0))
+
+        reference_layers = [
+            OptimizedDecoder.from_state_dict(
+                states[layer_idx],
+                hf_config=cfg,
+                layer_idx=layer_idx,
+                mesh_device=reference_mesh,
+                **reference_kwargs,
+            )
+            for layer_idx in layer_indices
+        ]
+        multichip_layers = [MultichipDecoder.from_state_dict(states[0], hf_config=cfg, layer_idx=0, mesh_device=tp_mesh)]
+        shared_resources = multichip_layers[0].persistent_all_reduce_resources
+        assert shared_resources is not None
+        multichip_layers.append(
+            MultichipDecoder.from_state_dict(
+                states[5],
+                hf_config=cfg,
+                layer_idx=5,
+                mesh_device=tp_mesh,
+                persistent_all_reduce_resources=shared_resources,
+            )
+        )
+        for decoder in multichip_layers:
+            assert decoder.persistent_all_reduce_resources is shared_resources
+            assert decoder.persistent_all_reduce_buffers is shared_resources["buffers"]
+            assert decoder.persistent_all_reduce_semaphores is shared_resources["semaphores"]
+        assert len(shared_resources["buffers"]) == len(shared_resources["semaphores"]) == 3
+
+        seq_len = 32
+        torch.manual_seed(4505)
+        prefill_hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        positions = torch.arange(seq_len).unsqueeze(0)
+        decode_positions = torch.tensor([[seq_len]])
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        host_rope = {}
+        for layer_idx in layer_indices:
+            layer_type = cfg.layer_types[layer_idx]
+            host_rope[layer_idx] = (
+                *rotary(prefill_hidden, positions, layer_type=layer_type),
+                *rotary(decode_hidden, decode_positions, layer_type=layer_type),
+            )
+
+        def make_layer_calls(target_mesh, decoders, *, local_cache):
+            calls = []
+            for layer_idx, decoder in zip(layer_indices, decoders):
+                kind = SLIDING_KIND if cfg.layer_types[layer_idx] == "sliding_attention" else FULL_KIND
+                blocks = 4 if kind is SLIDING_KIND else 2
+                if local_cache:
+                    heads = decoder.local_sliding_kv_heads if kind is SLIDING_KIND else decoder.local_full_kv_heads
+                else:
+                    heads = kind.num_kv_heads
+                page_table = functional_tests._as_tt(
+                    target_mesh,
+                    torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+                    dtype=ttnn.int32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                )
+                cache_shape = (blocks, heads, kind.block_size, kind.head_dim)
+                kv_cache = tuple(
+                    functional_tests._as_tt(target_mesh, torch.zeros(cache_shape, dtype=torch.bfloat16)) for _ in range(2)
+                )
+                prefill_cos, prefill_sin, decode_cos, decode_sin = host_rope[layer_idx]
+                calls.append(
+                    {
+                        "prefill": {
+                            "position_cos": functional_tests._as_tt(target_mesh, prefill_cos.unsqueeze(1)),
+                            "position_sin": functional_tests._as_tt(target_mesh, prefill_sin.unsqueeze(1)),
+                            "page_table": page_table,
+                            "kv_cache": kv_cache,
+                        },
+                        "decode": {
+                            "position_cos": functional_tests._as_tt(target_mesh, decode_cos.unsqueeze(1)),
+                            "position_sin": functional_tests._as_tt(target_mesh, decode_sin.unsqueeze(1)),
+                            "current_pos": functional_tests._as_tt(
+                                target_mesh,
+                                torch.tensor([seq_len], dtype=torch.int32),
+                                dtype=ttnn.int32,
+                                layout=ttnn.ROW_MAJOR_LAYOUT,
+                            ),
+                            "page_table": page_table,
+                            "kv_cache": kv_cache,
+                        },
+                        "cache_shape": cache_shape,
+                    }
+                )
+            return calls
+
+        reference_calls = make_layer_calls(reference_mesh, reference_layers, local_cache=False)
+        multichip_calls = make_layer_calls(tp_mesh, multichip_layers, local_cache=True)
+
+        def run_chain(decoders, hidden_states, calls, phase):
+            output = hidden_states
+            layer_outputs = []
+            for decoder, layer_call in zip(decoders, calls):
+                if phase == "prefill":
+                    output = decoder.prefill_forward(output, **layer_call[phase])
+                else:
+                    output = decoder.decode_forward(hidden_states=output, **layer_call[phase])
+                layer_outputs.append(output)
+            return layer_outputs
+
+        reference_prefill_layers = run_chain(
+            reference_layers,
+            functional_tests._as_tt(reference_mesh, prefill_hidden.unsqueeze(1)),
+            reference_calls,
+            "prefill",
+        )
+        multichip_prefill_layers = run_chain(
+            multichip_layers,
+            functional_tests._as_tt(tp_mesh, prefill_hidden.unsqueeze(1)),
+            multichip_calls,
+            "prefill",
+        )
+        reference_prefill_hosts = [
+            ttnn.to_torch(ttnn.get_device_tensors(output.cpu())[0]) for output in reference_prefill_layers
+        ]
+        multichip_prefill_shards_by_layer = [
+            [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(output.cpu())]
+            for output in multichip_prefill_layers
+        ]
+
+        routing_captures = {"reference": {}, "multichip": {}}
+        original_routing_methods = []
+        for path, decoders in (("reference", reference_layers), ("multichip", multichip_layers)):
+            for layer_idx, decoder in zip(layer_indices, decoders):
+                original = decoder._router_weights_from_normalized
+
+                def capture_routing(router_in, *, original=original, path=path, layer_idx=layer_idx):
+                    routing = original(router_in)
+                    routing_captures[path][layer_idx] = routing
+                    return routing
+
+                decoder._router_weights_from_normalized = capture_routing
+                original_routing_methods.append((decoder, original))
+
+        reference_decode_layers = run_chain(
+            reference_layers,
+            functional_tests._as_tt(reference_mesh, decode_hidden.unsqueeze(1)),
+            reference_calls,
+            "decode",
+        )
+        multichip_decode_layers = run_chain(
+            multichip_layers,
+            functional_tests._as_tt(tp_mesh, decode_hidden.unsqueeze(1)),
+            multichip_calls,
+            "decode",
+        )
+        ttnn.synchronize_device(reference_mesh)
+        ttnn.synchronize_device(tp_mesh)
+        reference_decode_hosts = [
+            ttnn.to_torch(ttnn.get_device_tensors(output.cpu())[0]) for output in reference_decode_layers
+        ]
+        multichip_decode_shards_by_layer = [
+            [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(output.cpu())]
+            for output in multichip_decode_layers
+        ]
+        reference_routing_hosts = {
+            layer_idx: ttnn.to_torch(ttnn.get_device_tensors(routing.cpu())[0])
+            for layer_idx, routing in routing_captures["reference"].items()
+        }
+        multichip_routing_hosts = {
+            layer_idx: ttnn.to_torch(ttnn.get_device_tensors(routing.cpu())[0])
+            for layer_idx, routing in routing_captures["multichip"].items()
+        }
+        for decoder, original in original_routing_methods:
+            decoder._router_weights_from_normalized = original
+
+        trace_input = functional_tests._as_tt(tp_mesh, decode_hidden.unsqueeze(1))
+        trace_id = ttnn.begin_trace_capture(tp_mesh, cq_id=0)
+        traced_decode = run_chain(multichip_layers, trace_input, multichip_calls, "decode")[-1]
+        ttnn.end_trace_capture(tp_mesh, trace_id, cq_id=0)
+        stress_replays = 20
+        replay_shards = []
+        try:
+            for _ in range(stress_replays):
+                ttnn.execute_trace(tp_mesh, trace_id, cq_id=0, blocking=True)
+                replay_shards.append([ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(traced_decode.cpu())])
+        finally:
+            ttnn.release_trace(tp_mesh, trace_id)
+
+        threshold = 0.99
+        prefill_results = [
+            functional_tests.comp_pcc(reference, multichip[0], threshold)
+            for reference, multichip in zip(reference_prefill_hosts, multichip_prefill_shards_by_layer)
+        ]
+        eager_results = [
+            functional_tests.comp_pcc(reference, multichip[0], threshold)
+            for reference, multichip in zip(reference_decode_hosts, multichip_decode_shards_by_layer)
+        ]
+        trace_ok, trace_pcc = functional_tests.comp_pcc(reference_decode_hosts[-1], replay_shards[-1][0], threshold)
+        active_expert_indices = {
+            path: {
+                str(layer_idx): sorted(torch.topk(routing.abs().reshape(-1), k=8).indices.tolist())
+                for layer_idx, routing in hosts.items()
+            }
+            for path, hosts in (("reference", reference_routing_hosts), ("multichip", multichip_routing_hosts))
+        }
+        active_expert_agreement = {
+            str(layer_idx): len(
+                set(active_expert_indices["reference"][str(layer_idx)])
+                &amp; set(active_expert_indices["multichip"][str(layer_idx)])
+            )
+            for layer_idx in layer_indices
+        }
+        replicas_bit_exact = all(
+            torch.equal(rank_zero, rank_one)
+            for shards in (
+                *multichip_prefill_shards_by_layer,
+                *multichip_decode_shards_by_layer,
+                *replay_shards,
+            )
+            for rank_zero, rank_one in [shards]
+        )
+        eager_trace_bit_exact = torch.equal(multichip_decode_shards_by_layer[-1][0], replay_shards[0][0])
+        repeat_bit_exact = all(torch.equal(replay_shards[0][0], replay[0]) for replay in replay_shards[1:])
+        artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        suffix = _measurement_artifact_suffix()
+        (artifact_dir / f"stacked_tp2_mixed_trace{suffix}.json").write_text(
+            json.dumps(
+                {
+                    "tp_size": 2,
+                    "layer_indices": layer_indices,
+                    "layer_types": [cfg.layer_types[layer_idx] for layer_idx in layer_indices],
+                    "reference_policy": reference_policy,
+                    "sequence_length": seq_len,
+                    "shared_persistent_resource_slots": len(shared_resources["buffers"]),
+                    "persistent_resource_index_after_capture": shared_resources["index"],
+                    "stress_trace_replays": stress_replays,
+                    "optimized_vs_multichip_prefill_pcc_by_layer": [float(result[1]) for result in prefill_results],
+                    "optimized_vs_multichip_eager_decode_pcc_by_layer": [float(result[1]) for result in eager_results],
+                    "optimized_vs_multichip_trace_decode_pcc": float(trace_pcc),
+                    "optimized_pcc_threshold": threshold,
+                    "active_expert_indices": active_expert_indices,
+                    "active_expert_agreement_out_of_8": active_expert_agreement,
+                    "eager_vs_trace_bit_exact": eager_trace_bit_exact,
+                    "trace_replays_bit_exact": repeat_bit_exact,
+                    "replicas_bit_exact": replicas_bit_exact,
+                    "local_cache_shapes": [call["cache_shape"] for call in multichip_calls],
+                    "all_reduce_dispatches_per_layer": [
+                        decoder.multichip_path_counters["all_reduce"] for decoder in multichip_layers
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        assert all(result[0] for result in prefill_results), f"TP2 stacked prefill PCCs={prefill_results}"
+&gt;       assert all(result[0] for result in eager_results), f"TP2 stacked eager decode PCCs={eager_results}"
+E       AssertionError: TP2 stacked eager decode PCCs=[(True, 0.9912233635607709), (False, 0.9834710494588356)]
+E       assert False
+E        +  where False = all(&lt;generator object test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace.&lt;locals&gt;.&lt;genexpr&gt; at 0x7ea6b2b7f780&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1762: AssertionError</failure></testcase></testsuite></testsuites>

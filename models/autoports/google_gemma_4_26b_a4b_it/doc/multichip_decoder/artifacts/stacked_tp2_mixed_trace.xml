@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="1" skipped="0" tests="1" time="27.426" timestamp="2026-09-05T17:22:19.275335+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace[blackhole-mesh_device0-device_params0]" time="26.515"><properties><property name="start_timestamp" value="2026-09-05T17:22:20" /></properties><failure message="AssertionError: TP2 stacked eager decode PCC=0.9840812210831071&#10;assert False">mesh_device = MeshDevice(2x2 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_2D, 'trace_region_size': 134217728}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x78dcbd7e60f0&gt;
+
+        page_shards = [ttnn.to_torch(x) for x in ttnn.get_device_tensors(page_table.cpu())]
+        pos_shards = [ttnn.to_torch(x) for x in ttnn.get_device_tensors(decode_args["current_pos"].cpu())]
+        for rank in range(1, TP_SIZE):
+            assert torch.equal(page_shards[0], page_shards[rank])
+            assert torch.equal(pos_shards[0], pos_shards[rank])
+        cache_shards = [ttnn.to_torch(x) for x in ttnn.get_device_tensors(kv_cache[0].cpu())]
+        assert all(tuple(shard.shape) == (blocks, heads, block, dim) for shard in cache_shards)
+        if layer_type == "full_attention":
+            assert torch.equal(cache_shards[0], cache_shards[1]), "full KV head 0 pair diverged"
+            assert torch.equal(cache_shards[2], cache_shards[3]), "full KV head 1 pair diverged"
+            assert not torch.equal(cache_shards[0], cache_shards[2]), "distinct full KV heads collapsed"
+        assert decoder.multichip_path_counters["attention_tp"] &gt;= 3
+        assert decoder.multichip_path_counters["expert_tp"] &gt;= 3
+        assert decoder.multichip_path_counters["all_reduce"] &gt;= 9
+        for _ in range(5):
+            ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        iterations = 30
+        started = time.perf_counter()
+        for _ in range(iterations):
+            ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        multi_ms = (time.perf_counter() - started) * 1000 / iterations
+        artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        baseline = json.loads((artifact_dir / f"optimized_batch1_layer{layer_idx}.json").read_text())
+        single_ms = baseline["trace_replay_ms"]
+        suffix = _measurement_artifact_suffix()
+        (artifact_dir / f"trace_{layer_type}_batch1{suffix}.json").write_text(
+            json.dumps(
+                {
+                    "layer_idx": layer_idx,
+                    "layer_type": layer_type,
+                    "logical_prefill_length": seq_len,
+                    "decode_batch": 1,
+                    "warmups": 5,
+                    "iterations": iterations,
+                    "single_chip_optimized_baseline_ms": single_ms,
+                    "single_chip_source": f"optimized_batch1_layer{layer_idx}.json",
+                    "multichip_trace_replay_ms": multi_ms,
+                    "speedup": single_ms / multi_ms,
+                    "tp_efficiency": single_ms / multi_ms / TP_SIZE,
+                    "repeat_bit_exact": True,
+                    "replicas_bit_exact": True,
+                    "page_table_replicated": True,
+                    "current_position_replicated": True,
+                    "local_cache_shape": [blocks, heads, block, dim],
+                    "full_kv_pair_duplication_verified": layer_type == "full_attention",
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        ttnn.release_trace(mesh_device, trace_id)
+
+
+    @pytest.mark.timeout(1800)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 128 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(2, 2)], indirect=True)
+    def test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace(mesh_device, device_params, monkeypatch):
+        """Exercise shared rotating CCL resources across a real two-layer chain."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        monkeypatch.setenv("GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE", "1")
+        cfg = functional_tests._load_text_config()
+        layer_indices = (0, 5)
+        states = {layer_idx: functional_tests._load_layer_state(layer_idx) for layer_idx in layer_indices}
+        tp_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 2)), offset=ttnn.MeshCoordinate(0, 0))
+        reference_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 1)), offset=ttnn.MeshCoordinate(1, 0))
+
+        reference_layers = [
+            OptimizedDecoder.from_state_dict(
+                states[layer_idx], hf_config=cfg, layer_idx=layer_idx, mesh_device=reference_mesh
+            )
+            for layer_idx in layer_indices
+        ]
+        multichip_layers = [
+            MultichipDecoder.from_state_dict(states[0], hf_config=cfg, layer_idx=0, mesh_device=tp_mesh)
+        ]
+        shared_resources = multichip_layers[0].persistent_all_reduce_resources
+        assert shared_resources is not None
+        multichip_layers.append(
+            MultichipDecoder.from_state_dict(
+                states[5],
+                hf_config=cfg,
+                layer_idx=5,
+                mesh_device=tp_mesh,
+                persistent_all_reduce_resources=shared_resources,
+            )
+        )
+        for decoder in multichip_layers:
+            assert decoder.persistent_all_reduce_resources is shared_resources
+            assert decoder.persistent_all_reduce_buffers is shared_resources["buffers"]
+            assert decoder.persistent_all_reduce_semaphores is shared_resources["semaphores"]
+        assert len(shared_resources["buffers"]) == len(shared_resources["semaphores"]) == 3
+
+        seq_len = 32
+        torch.manual_seed(4505)
+        prefill_hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        positions = torch.arange(seq_len).unsqueeze(0)
+        decode_positions = torch.tensor([[seq_len]])
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        host_rope = {}
+        for layer_idx in layer_indices:
+            layer_type = cfg.layer_types[layer_idx]
+            host_rope[layer_idx] = (
+                *rotary(prefill_hidden, positions, layer_type=layer_type),
+                *rotary(decode_hidden, decode_positions, layer_type=layer_type),
+            )
+
+        def make_layer_calls(target_mesh, decoders, *, local_cache):
+            calls = []
+            for layer_idx, decoder in zip(layer_indices, decoders):
+                kind = SLIDING_KIND if cfg.layer_types[layer_idx] == "sliding_attention" else FULL_KIND
+                blocks = 4 if kind is SLIDING_KIND else 2
+                if local_cache:
+                    heads = decoder.local_sliding_kv_heads if kind is SLIDING_KIND else decoder.local_full_kv_heads
+                else:
+                    heads = kind.num_kv_heads
+                page_table = functional_tests._as_tt(
+                    target_mesh,
+                    torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+                    dtype=ttnn.int32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                )
+                cache_shape = (blocks, heads, kind.block_size, kind.head_dim)
+                kv_cache = tuple(
+                    functional_tests._as_tt(target_mesh, torch.zeros(cache_shape, dtype=torch.bfloat16)) for _ in range(2)
+                )
+                prefill_cos, prefill_sin, decode_cos, decode_sin = host_rope[layer_idx]
+                calls.append(
+                    {
+                        "prefill": {
+                            "position_cos": functional_tests._as_tt(target_mesh, prefill_cos.unsqueeze(1)),
+                            "position_sin": functional_tests._as_tt(target_mesh, prefill_sin.unsqueeze(1)),
+                            "page_table": page_table,
+                            "kv_cache": kv_cache,
+                        },
+                        "decode": {
+                            "position_cos": functional_tests._as_tt(target_mesh, decode_cos.unsqueeze(1)),
+                            "position_sin": functional_tests._as_tt(target_mesh, decode_sin.unsqueeze(1)),
+                            "current_pos": functional_tests._as_tt(
+                                target_mesh,
+                                torch.tensor([seq_len], dtype=torch.int32),
+                                dtype=ttnn.int32,
+                                layout=ttnn.ROW_MAJOR_LAYOUT,
+                            ),
+                            "page_table": page_table,
+                            "kv_cache": kv_cache,
+                        },
+                        "cache_shape": cache_shape,
+                    }
+                )
+            return calls
+
+        reference_calls = make_layer_calls(reference_mesh, reference_layers, local_cache=False)
+        multichip_calls = make_layer_calls(tp_mesh, multichip_layers, local_cache=True)
+
+        def run_chain(decoders, hidden_states, calls, phase):
+            output = hidden_states
+            for decoder, layer_call in zip(decoders, calls):
+                if phase == "prefill":
+                    output = decoder.prefill_forward(output, **layer_call[phase])
+                else:
+                    output = decoder.decode_forward(hidden_states=output, **layer_call[phase])
+            return output
+
+        reference_prefill = run_chain(
+            reference_layers,
+            functional_tests._as_tt(reference_mesh, prefill_hidden.unsqueeze(1)),
+            reference_calls,
+            "prefill",
+        )
+        multichip_prefill = run_chain(
+            multichip_layers,
+            functional_tests._as_tt(tp_mesh, prefill_hidden.unsqueeze(1)),
+            multichip_calls,
+            "prefill",
+        )
+        reference_prefill_host = ttnn.to_torch(ttnn.get_device_tensors(reference_prefill.cpu())[0])
+        multichip_prefill_shards = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(multichip_prefill.cpu())]
+
+        reference_decode = run_chain(
+            reference_layers,
+            functional_tests._as_tt(reference_mesh, decode_hidden.unsqueeze(1)),
+            reference_calls,
+            "decode",
+        )
+        multichip_decode = run_chain(
+            multichip_layers,
+            functional_tests._as_tt(tp_mesh, decode_hidden.unsqueeze(1)),
+            multichip_calls,
+            "decode",
+        )
+        ttnn.synchronize_device(mesh_device)
+        reference_decode_host = ttnn.to_torch(ttnn.get_device_tensors(reference_decode.cpu())[0])
+        multichip_decode_shards = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(multichip_decode.cpu())]
+
+        trace_input = functional_tests._as_tt(tp_mesh, decode_hidden.unsqueeze(1))
+        trace_id = ttnn.begin_trace_capture(tp_mesh, cq_id=0)
+&gt;       traced_decode = run_chain(multichip_layers, trace_input, multichip_calls, "decode")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: TP2 stacked eager decode PCC=0.9840812210831071
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1465: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace[blackhole-mesh_device0-device_params0]" time="0.001"><properties><property name="start_timestamp" value="2026-09-05T17:22:20" /><property name="end_timestamp" value="2026-09-05T17:22:46" /></properties><error message="failed on teardown with &quot;RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/distributed/mesh_device.cpp:994: tt::exception&#10;info:&#10;MeshDevice cq ID 0 is in use by parent mesh ID 0 during close of mesh ID 1&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x84ad5a) [0x78dd1304ad5a]&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::close_impl(tt::tt_metal::distributed::MeshDevice*)&#10; --- tt::tt_metal::distributed::MeshDevice::close()&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x6598a4) [0x78dd16e598a4]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x66b0bd) [0x78dd16e6b0bd]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1813d0b]&#10; --- python_env/bin/python() [0x181394d]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]&#10; --- python_env/bin/python() [0x1923266]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(PyObject_Call+0xf4) [0x18536f4]&#10; --- python_env/bin/python() [0x18d7f24]&#10; --- python_env/bin/python(_PyObject_MakeTpCall+0x1d0) [0x184e4ec]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x78dd5da2a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x78dd5da2a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]&quot;">request = &lt;SubRequest 'mesh_device' for &lt;Function test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace[blackhole-mesh_device0-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_2D, 'trace_region_size': 134217728}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+
+        try:
+            param = request.param
+        except (ValueError, AttributeError):
+            # No explicit parametrization; fall back to the system mesh size resolved below.
+            param = None
+
+        # The mesh that open_mesh_device can actually allocate is bounded by the system mesh exposed
+        # by the control plane, which may be smaller than the number of physical chips. For example,
+        # fabric auto-discovery can downgrade the mesh (e.g. to 2x2) when ethernet/fabric links are
+        # missing or fail to train, even though get_num_devices() still reports all physical chips.
+        # Comparing only against get_num_devices() would let the test proceed and then crash inside
+        # open_mesh_device with a TT_FATAL; also accounting for the system mesh size lets us skip
+        # gracefully on such machines instead.
+        #
+        # Query the system mesh once. A failure here means control-plane / mesh-graph discovery itself
+        # errored (missing descriptor, untrained eth links, control-plane regression, ...). That is an
+        # infrastructure/software fault, not a capacity mismatch, so we must FAIL fixture setup instead
+        # of skipping: turning discovery errors into skips would let a broken machine report false-green
+        # CI with no device path exercised. The confirmed capacity-mismatch case is handled below via
+        # pytest.skip, once the system mesh size is known.
+        try:
+            system_mesh_size = ttnn._ttnn.multi_device.SystemMeshDescriptor().shape().mesh_size()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not query the system mesh descriptor (control-plane/mesh discovery failed): {e}"
+            ) from e
+
+        if param is None:
+            param = system_mesh_size
+
+        if isinstance(param, tuple):
+            grid_dims = param
+            assert len(grid_dims) == 2, "Device mesh grid shape should have exactly two elements."
+            num_devices_requested = grid_dims[0] * grid_dims[1]
+            available_num_devices = (
+                system_mesh_size if ttnn.using_distributed_env() else min(ttnn.get_num_devices(), system_mesh_size)
+            )
+            if (
+                device_params.get("require_exact_physical_num_devices", False)
+                and num_devices_requested != available_num_devices
+            ):
+                pytest.skip(
+                    f"Test requires exact match of requested num devices ({num_devices_requested}) to available physical num devices ({available_num_devices})."
+                )
+
+            if num_devices_requested &gt; available_num_devices:
+                pytest.skip(
+                    f"Requested more devices ({num_devices_requested}) than available ({available_num_devices}). Test not applicable for machine"
+                )
+            mesh_shape = ttnn.MeshShape(*grid_dims)
+        else:
+            if not ttnn.using_distributed_env():
+                available_num_devices = min(ttnn.get_num_devices(), system_mesh_size)
+                if param &gt; available_num_devices:
+                    pytest.skip(
+                        f"Requested more devices ({param}) than available ({available_num_devices}). Test not applicable for machine"
+                    )
+            mesh_shape = ttnn.MeshShape(1, param)
+
+        # Resolve trace_region_size against the SKU of the submesh actually opened.
+        # TRACE_MODEL_KEY_PARAM is resolved here (not at device_params/collection time) so the
+        # logical SKU reflects request.param/data_parallel/MESH_DEVICE, not the physical cluster.
+        trace_model_key = device_params.pop(TRACE_MODEL_KEY_PARAM, None)
+        if "trace_region_size" in device_params:
+            logger.info(
+                f"Keeping trace_region_size={device_params['trace_region_size']!r} from device_params (already set)"
+            )
+        elif trace_model_key is not None:
+            sku = get_logical_sku(request, param)
+            if sku is None:
+                logger.info(f"No SKU for {param!r}; not setting trace_region_size for model {trace_model_key!r}")
+            else:
+                device_params["trace_region_size"] = resolve_trace_region_size(trace_model_key, sku)
+        else:
+            override_trace_region_size = get_supported_trace_region_size(request, param)
+            if override_trace_region_size is None:
+                logger.info(f"No trace region size for {param!r}")
+            else:
+                device_params["trace_region_size"] = override_trace_region_size
+
+        updated_device_params = get_updated_device_params(device_params)
+        updated_device_params.pop("require_exact_physical_num_devices", False)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+        mesh_device = ttnn.open_mesh_device(mesh_shape=mesh_shape, **updated_device_params)
+
+        from tests.tests_common.cache_entries_counter import CacheEntriesCounter
+
+        mesh_device.cache_entries_counter = CacheEntriesCounter(mesh_device)
+
+        logger.debug(f"multidevice with {mesh_device.get_num_devices()} devices is created")
+        yield mesh_device
+
+        for submesh in mesh_device.get_submeshes():
+&gt;           ttnn.close_mesh_device(submesh)
+
+conftest.py:672:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_device = MeshDevice(1x2 grid, 2 devices)
+
+    def close_mesh_device(mesh_device):
+        """
+        close_mesh_device(multi_device: ttnn.Multi) -&gt; None:
+
+        Close the device and remove it from the device cache.
+        """
+&gt;       return ttnn._ttnn.multi_device.close_mesh_device(mesh_device)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/distributed/mesh_device.cpp:994: tt::exception
+E       info:
+E       MeshDevice cq ID 0 is in use by parent mesh ID 0 during close of mesh ID 1
+E       backtrace:
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x84ad5a) [0x78dd1304ad5a]
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::close_impl(tt::tt_metal::distributed::MeshDevice*)
+E        --- tt::tt_metal::distributed::MeshDevice::close()
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x6598a4) [0x78dd16e598a4]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x66b0bd) [0x78dd16e6b0bd]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1813d0b]
+E        --- python_env/bin/python() [0x181394d]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]
+E        --- python_env/bin/python() [0x1923266]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x18122ac]
+E        --- python_env/bin/python(PyObject_Call+0xf4) [0x18536f4]
+E        --- python_env/bin/python() [0x18d7f24]
+E        --- python_env/bin/python(_PyObject_MakeTpCall+0x1d0) [0x184e4ec]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E        --- python_env/bin/python() [0x18b1b4c]
+E        --- python_env/bin/python() [0x180874f]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1985162]
+E        --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E        --- python_env/bin/python() [0x19846df]
+E        --- python_env/bin/python() [0x19844ec]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x78dd5da2a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x78dd5da2a28b]
+E        --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/distributed/distributed.py:689: RuntimeError</error></testcase></testsuite></testsuites>

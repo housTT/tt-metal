@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="9.695" timestamp="2026-09-05T17:19:30.718684+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150_proxy_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0]" time="5.211"><properties><property name="start_timestamp" value="2026-09-05T17:19:31" /><property name="end_timestamp" value="2026-09-05T17:19:36" /></properties><failure message="AssertionError: TP1 layer 0 decode PCC=0.9941319550896643&#10;assert False">mesh_device = MeshDevice(1x1 grid, 1 devices)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x71b94b32ee10&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_p150_proxy_matches_optimized_single_chip(mesh_device, monkeypatch, layer_idx):
+        """Validate the one-chip P150 proxy without fabric."""
+&gt;       test_multichip_matches_optimized_single_chip(mesh_device, {}, monkeypatch, layer_idx)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:723:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices), device_params = {}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x71b94b32ee10&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, decoder.local_full_kv_heads, 128, 512
+        else:
+            blocks, heads, block, dim = 4, decoder.local_sliding_kv_heads, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+        decode = decoder.decode_forward(
+            hidden_states=functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            current_pos=functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+        multichip_prefill, multichip_decode = (
+            ttnn.to_torch(ttnn.get_device_tensors(result.cpu())[0]) for result in (prefill, decode)
+        )
+        reference = torch.load(
+            Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+            / f"optimized_reference_layer{layer_idx}.pt",
+            weights_only=True,
+        )
+        prefill_ok, prefill_pcc = functional_tests.comp_pcc(reference["prefill"], multichip_prefill, 0.995)
+        decode_ok, decode_pcc = functional_tests.comp_pcc(reference["decode"], multichip_decode, 0.995)
+        assert prefill_ok, f"TP{decoder.tp_size} layer {layer_idx} prefill PCC={prefill_pcc}"
+&gt;       assert decode_ok, f"TP{decoder.tp_size} layer {layer_idx} decode PCC={decode_pcc}"
+E       AssertionError: TP1 layer 0 decode PCC=0.9941319550896643
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:699: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150_proxy_matches_optimized_single_chip[blackhole-full_attention-mesh_device0]" time="3.583"><properties><property name="start_timestamp" value="2026-09-05T17:19:36" /><property name="end_timestamp" value="2026-09-05T17:19:40" /></properties></testcase></testsuite></testsuites>

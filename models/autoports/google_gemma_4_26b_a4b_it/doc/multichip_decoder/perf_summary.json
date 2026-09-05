@@ -1,0 +1,508 @@
+{
+  "schema_version": 3,
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "hardware": "four P300C devices used as the accepted P150x4 proxy",
+  "selected_unprofiled_decode": {
+    "measurement": "warmed trace replay for one representative decoder layer; not full-model throughput",
+    "mandatory_profiles_batch_1_sequence_33": {
+      "status": "verified_on_frozen_final_source",
+      "warmups": 5,
+      "iterations": 30,
+      "final_multichip_source_sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+      "measured_multichip_test_sha256": "9125621e2e5a7e7fe72d73fc5fb6bb6498775c573b643e97425e1dcc9144178b",
+      "current_final_multichip_test_sha256": "9634ba5e5440096d1565f890b0731e5b488a9d74672607e0f9dd8dc7032f26b4",
+      "junit": "artifacts/warmed_required_profiles_final.xml",
+      "exact_command": "GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' timeout 900 python_env/bin/python -m pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k required_profile_warmed_trace_latency --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/warmed_required_profiles_final.xml",
+      "P150_tp1": {
+        "sliding_attention": {
+          "single_chip_optimized_ms": 0.7656910029860834,
+          "selected_ms": 0.9298796649090946,
+          "speedup": 0.8234302048759585,
+          "tp_efficiency_pct": 82.34302048759585,
+          "source": "artifacts/trace_tp1_sliding_attention_batch1.json",
+          "source_sha256": "9d55ed12ac92afdef3d03c305b9d2cd8e7a9a3ef03d240fa128a70c9bd5bb7c9"
+        },
+        "full_attention": {
+          "single_chip_optimized_ms": 0.8120686979964375,
+          "selected_ms": 1.0486103012226522,
+          "speedup": 0.7744237273366347,
+          "tp_efficiency_pct": 77.44237273366347,
+          "source": "artifacts/trace_tp1_full_attention_batch1.json",
+          "source_sha256": "c8c8537810dc8bc2ce96785123952541029e8d6651a1e065f185f963af5c7bf7"
+        }
+      },
+      "P150x2_tp2": {
+        "sliding_attention": {
+          "single_chip_optimized_ms": 0.7656910029860834,
+          "selected_ms": 0.8166432341871163,
+          "speedup": 0.937607722603922,
+          "tp_efficiency_pct": 46.8803861301961,
+          "source": "artifacts/trace_tp2_sliding_attention_batch1.json",
+          "source_sha256": "7af288988f7c05808a3c117a26418dccbeea624fbeb7dcdbc140e645b4afe095"
+        },
+        "full_attention": {
+          "single_chip_optimized_ms": 0.8120686979964375,
+          "selected_ms": 0.9139943324650327,
+          "speedup": 0.8884832970531635,
+          "tp_efficiency_pct": 44.424164852658175,
+          "source": "artifacts/trace_tp2_full_attention_batch1.json",
+          "source_sha256": "fee70106808ff70b7585bfefb0dab0d51fad9077bc04948e8c0a3543966de33f"
+        }
+      },
+      "repeat_bit_exact": true,
+      "replicas_bit_exact": true,
+      "interpretation": "These are layer-level scaling results. TP1 and TP2 are slower than the optimized one-chip baseline at B1; efficiency is speedup divided by TP size."
+    },
+    "batch_1_sequence_33": {
+      "status": "verified",
+      "sliding_attention": {
+        "single_chip_optimized_ms": 0.7656910029860834,
+        "tp4_ms": 0.652139230320851,
+        "speedup": 1.174121977923894,
+        "tp_efficiency_pct": 29.35304944809735,
+        "repeat_bit_exact": true,
+        "replicas_bit_exact": true,
+        "iterations": 30,
+        "source": "artifacts/trace_sliding_attention_batch1.json",
+        "source_sha256": "23d950d88cccb9c83b044aaa87bd01ab79f5707c081d25c7e04823342d3319f4"
+      },
+      "full_attention": {
+        "single_chip_optimized_ms": 0.8120686979964375,
+        "tp4_ms": 0.9524277644231915,
+        "speedup": 0.8526302238661028,
+        "tp_efficiency_pct": 21.31575559665257,
+        "repeat_bit_exact": true,
+        "replicas_bit_exact": true,
+        "iterations": 30,
+        "source": "artifacts/trace_full_attention_batch1.json",
+        "source_sha256": "2ab508076a889530ff83503de147c3ca0d2d7d10cc2e2536a58f79ae3fa7dacd"
+      }
+    },
+    "batch_32_decode_position_32": {
+      "status": "verified",
+      "decode_current_position": 32,
+      "cache_capacity_tokens_per_user": 256,
+      "history_contract": "Full attention prefills 32 tokens per user. Sliding attention starts from the test's zero-initialized cache; this is not an S=1024 measurement.",
+      "sliding_attention": {
+        "single_chip_optimized_ms": 12.199191768498471,
+        "tp4_ms": 8.81750260014087,
+        "speedup": 1.3835200647747554,
+        "tp_efficiency_pct": 34.588001619368886,
+        "optimized_baseline_pcc": 0.9952382122172192,
+        "repeat_bit_exact": true,
+        "source": "artifacts/multichip_batch32_layer0.json",
+        "source_sha256": "dd50a204fa8b93820c5d6181c465f4a90996a25d94efed712f21466f56ae15d9"
+      },
+      "full_attention": {
+        "single_chip_optimized_ms": 12.19984480024626,
+        "tp4_ms": 9.17401856665189,
+        "speedup": 1.3298256060428555,
+        "tp_efficiency_pct": 33.24564015107139,
+        "optimized_baseline_pcc": 0.995025344013609,
+        "repeat_bit_exact": true,
+        "source": "artifacts/multichip_batch32_layer5.json",
+        "source_sha256": "aa72f9ab0fc18961853fbb099c68c257617403a85415b37c3937f9dae4f274fe"
+      }
+    }
+  },
+  "stage_review_autofix": {
+    "tp4_mixed_stack": {
+      "status": "verified",
+      "mesh": "1x4 P300C proxy",
+      "sequence_length": 32,
+      "trace_replays": 20,
+      "same_input_prefill_pcc": [
+        0.9977918067606355,
+        0.9989640407297182
+      ],
+      "same_input_decode_pcc": [
+        0.9991172200926836,
+        0.9952877576765382
+      ],
+      "chained_prefill_pcc": [
+        0.9977918067606355,
+        0.9915882283571914
+      ],
+      "chained_decode_pcc": [
+        0.9991172200926836,
+        0.9860776914712382
+      ],
+      "junit": "artifacts/stacked_tp4_mixed_trace.xml",
+      "machine_data": "artifacts/stacked_tp4_mixed_trace.json"
+    },
+    "bfp4_attention": {
+      "status": "rejected",
+      "selected_policy_unchanged": true,
+      "real_weights": true,
+      "cache_consuming_decode_position": 32,
+      "warmups": 5,
+      "trace_replays": 30,
+      "qkv_bfp4_pcc_sliding_full": [
+        0.9844980159285389,
+        0.9782919205631848
+      ],
+      "o_bfp4_pcc_sliding_full": [
+        0.9914477984613633,
+        0.9987438686022467
+      ],
+      "full_o_nominal_speedup": 1.0039158014306842,
+      "decision": "QKV and sliding O fail the 0.995 PCC gate; the passing full-only O delta is below a robust signal and requires another retained tensor",
+      "machine_data": "artifacts/bfp4_attention_summary.json"
+    },
+    "fractured_residual": {
+      "status": "rejected_after_complete_layer_measurement",
+      "micro_chain": {
+        "candidate_ms": 0.258290,
+        "incumbent_ms": 0.449673,
+        "speedup": 1.74096,
+        "candidate_vs_incumbent_pcc": 0.999979406,
+        "stress_replays": 100,
+        "watcher_clean": true,
+        "tt_perf_report": "artifacts/fractured_sparse/tt_perf_report/"
+      },
+      "complete_sliding_layer": {
+        "candidate_ms": 0.8442790131084621,
+        "incumbent_ms": 0.6520859897136688,
+        "speedup": 0.7723584023637186,
+        "regression_pct": 29.473570422696138,
+        "candidate_mean_ms": 0.844539903725187,
+        "incumbent_mean_ms": 0.652836806451281,
+        "candidate_p95_ms": 0.8477499941363931,
+        "incumbent_p95_ms": 0.6579869659617543,
+        "p95_speedup": 0.7761568510915163,
+        "warmups": 5,
+        "individual_timing_samples_per_path": 30,
+        "trace_lifecycle": "sequential capture/replay/release with all readback after release",
+        "active_trace_allocation_warning_clean": true,
+        "candidate_vs_incumbent_pcc": 0.9998051981460713,
+        "stress_replays": 20,
+        "collectives": {
+          "reduce_scatter": 6,
+          "norm_stats_all_gather": 6,
+          "router_all_reduce": 1
+        },
+        "machine_data": "artifacts/fractured_sparse/gate_d_complete_sliding_layer_layer_discriminator_v6.json"
+      },
+      "restored_selected_source": {
+        "source_sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+        "trace_ms": 0.6516096997074783,
+        "warmups": 5,
+        "trace_replays": 30,
+        "machine_data": "artifacts/trace_sliding_attention_batch1_fractured_rejection_restored.json"
+      }
+    }
+  },
+  "profiled_batch_1_sequence_1024": {
+    "status": "verified_final_selected_policy",
+    "measurement": "one warmed prefill plus three warmed blocking decode trace replays under Tracy and device profiling",
+    "prefill": {
+      "sliding_attention": {
+        "single_chip_optimized_ms": 96.36591200251132,
+        "tp4_host_ms": 80.03024803474545,
+        "speedup": 1.2041186222573455,
+        "tp_efficiency_pct": 30.102965556433638
+      },
+      "full_attention": {
+        "single_chip_optimized_ms": 107.63681400567293,
+        "tp4_host_ms": 88.84324005339295,
+        "speedup": 1.211536341324173,
+        "tp_efficiency_pct": 30.288408533104327
+      },
+      "interpretation": "TP efficiency is speedup divided by four; it is a scaling proxy, not measured device utilization. The optimized and TP4 artifacts use the same sequence, batch, layer, hardware family, and TTNN extension but come from different recorded checkouts."
+    },
+    "decode": {
+      "sliding_attention": {
+        "host_e2e_ms": 0.7607273291796446,
+        "rows_per_device_over_three_replays": 258,
+        "ops_per_device_per_replay": 86,
+        "per_device_op_sum_us": {
+          "0": 631.2596666666667,
+          "1": 633.008,
+          "2": 629.0749999999999,
+          "3": 631.5646666666667
+        },
+        "critical_device": 1,
+        "critical_device_op_sum_us": 633.008,
+        "device_ops_accounted_pct_of_e2e": 83.2108924866187,
+        "unaccounted_remainder_us": 127.71932917964455,
+        "unaccounted_remainder_pct_of_e2e": 16.789107513381293,
+        "all_reduce_count_per_device_per_replay": 3,
+        "per_device_all_reduce_sum_us": {
+          "0": 53.11333333333334,
+          "1": 56.238,
+          "2": 53.59033333333333,
+          "3": 52.97366666666667
+        },
+        "critical_device_all_reduce_sum_us": 56.238,
+        "collective_share_of_critical_op_sum_pct": 8.88424790839926,
+        "collective_share_of_host_e2e_pct": 7.39266197530278
+      },
+      "full_attention": {
+        "host_e2e_ms": 1.077322366957863,
+        "rows_per_device_over_three_replays": 261,
+        "ops_per_device_per_replay": 87,
+        "per_device_op_sum_us": {
+          "0": 945.9326666666666,
+          "1": 947.4513333333333,
+          "2": 942.862,
+          "3": 946.1990000000001
+        },
+        "critical_device": 1,
+        "critical_device_op_sum_us": 947.4513333333333,
+        "device_ops_accounted_pct_of_e2e": 87.9450164957348,
+        "unaccounted_remainder_us": 129.8710336245298,
+        "unaccounted_remainder_pct_of_e2e": 12.054983504265198,
+        "all_reduce_count_per_device_per_replay": 3,
+        "per_device_all_reduce_sum_us": {
+          "0": 52.011,
+          "1": 57.739000000000004,
+          "2": 54.85033333333333,
+          "3": 52.39066666666667
+        },
+        "critical_device_all_reduce_sum_us": 57.739000000000004,
+        "collective_share_of_critical_op_sum_pct": 6.09413887221648,
+        "collective_share_of_host_e2e_pct": 5.35949143644377
+      },
+      "derivation": "tt-perf-report was rerun host-only with --no-merge-devices against each retained ops.csv. Each per-device sum covers three trace replays and is divided by three. Remainder is host e2e minus the maximum per-device op sum; it includes dispatch, firmware gaps, and any work not represented as a device-op duration, so it is not assigned to one cause."
+    },
+    "modeled_roofline": {
+      "overall_dram": {
+        "sliding_attention": {
+          "prefill_gbps": 8,
+          "prefill_roofline_pct": 1.6,
+          "decode_gbps": 58,
+          "decode_roofline_pct": 11.3
+        },
+        "full_attention": {
+          "prefill_gbps": 7,
+          "prefill_roofline_pct": 1.4,
+          "decode_gbps": 36,
+          "decode_roofline_pct": 7.0
+        }
+      },
+      "representative_decode_rows": [
+        {
+          "name": "sliding_qkv",
+          "source": "tt_perf_report/sliding_b1/decode.txt",
+          "source_row_id": 6954,
+          "op": "MatmulDeviceOperation 32 x 2816 x 2048",
+          "device": 0,
+          "device_time_us": 50.835,
+          "dram_gbps": 233.0211861906167,
+          "dram_roofline_pct": 45.51195042785483,
+          "tflops": 7.260720999311497,
+          "compute_roofline_pct": 8.206652605196913,
+          "math_and_dtype": "HiFi4 BF16 x BF16 => BF16",
+          "dram_sharded": false,
+          "input_0_memory": "DRAM interleaved",
+          "inner_dim_block_size": 2,
+          "output_subblock": "1x1"
+        },
+        {
+          "name": "sliding_packed_sparse_expert_gate_up",
+          "source": "tt_perf_report/sliding_b1/decode.txt",
+          "source_row_id": 6929,
+          "op": "SparseMatmulDeviceOperation active=8/128 x 32 x 2816 x 384",
+          "device": 1,
+          "device_time_us": 106.979,
+          "dram_gbps": 80.86402004131651,
+          "dram_roofline_pct": 15.79375391431963,
+          "tflops": 5.175297282644257,
+          "compute_roofline_pct": 15.598769298093462,
+          "math_and_dtype": "LoFi BF16 x BFP8 => BF16",
+          "dram_sharded": false,
+          "input_0_memory": "L1 interleaved",
+          "inner_dim_block_size": 44,
+          "output_subblock": "1x2"
+        },
+        {
+          "name": "sliding_o",
+          "source": "tt_perf_report/sliding_b1/decode.txt",
+          "source_row_id": 7320,
+          "op": "MatmulDeviceOperation 32 x 1024 x 2816",
+          "device": 0,
+          "device_time_us": 24.927,
+          "dram_gbps": 231.36229790989688,
+          "dram_roofline_pct": 45.187948810526734,
+          "tflops": 7.4035935331167,
+          "compute_roofline_pct": 66.9451093489285,
+          "math_and_dtype": "HiFi4 BF16 x BF16 => BF16",
+          "dram_sharded": true,
+          "input_0_memory": "L1 width sharded",
+          "inner_dim_block_size": 2
+        },
+        {
+          "name": "full_qkv",
+          "source": "tt_perf_report/full_b1/decode.txt",
+          "source_row_id": 7088,
+          "op": "MatmulDeviceOperation 32 x 2816 x 3072",
+          "device": 3,
+          "device_time_us": 64.653,
+          "dram_gbps": 139.6313241458246,
+          "dram_roofline_pct": 27.271742997231367,
+          "tflops": 8.56337877592687,
+          "compute_roofline_pct": 1.6131702519031799,
+          "math_and_dtype": "LoFi BF16 x BFP8 => BF16",
+          "dram_sharded": false,
+          "input_0_memory": "DRAM interleaved",
+          "inner_dim_block_size": 2,
+          "output_subblock": "1x1"
+        },
+        {
+          "name": "full_o",
+          "source": "tt_perf_report/full_b1/decode.txt",
+          "source_row_id": 7025,
+          "op": "MatmulDeviceOperation 32 x 2048 x 2816",
+          "device": 0,
+          "device_time_us": 20.384,
+          "dram_gbps": 282.9262166405024,
+          "dram_roofline_pct": 55.25902668759812,
+          "tflops": 18.107277864992152,
+          "compute_roofline_pct": 40.93261236118379,
+          "math_and_dtype": "LoFi BF16 x BFP8 => BF16",
+          "dram_sharded": true,
+          "input_0_memory": "L1 width sharded",
+          "inner_dim_block_size": 4
+        }
+      ],
+      "row_precision_provenance": "The tracked decode.txt reports contain these IDs with rounded values. Full-precision fields were regenerated from the local generated CSVs; the underlying ignored ops.csv captures are anchored by SHA256 and the exact host-only command templates below.",
+      "interpretation": "Per-row DRAM/compute models and device durations are usable. AllReduceAsync is unclassified by this tt-perf-report version. Total-percent columns are not whole-layer attribution because ReadDeviceProfiler calls inside the signposted loop insert host gaps."
+    }
+  },
+  "provenance": {
+    "final_selected_policy": true,
+    "qualification": "The final profiler captured selected source SHA256 34225bd3... and test SHA256 8338455c.... Black subsequently removed only redundant assignment-call parentheses, producing source SHA256 4617f559... with an equivalent AST and no runtime-policy change. The formatted source then passed py_compile and the final four-case watcher gate; no profiler rerun was required.",
+    "post_profile_mechanical_format": {
+      "profiled_decoder_sha256": "34225bd3fa03639ecbc9311264e420d7a70c99772e6991f339cbe7107dca6f76",
+      "formatted_decoder_sha256": "4617f559feedd1dfef9633ea47063283b9dd0eed2319cfc831f254271817daef",
+      "multichip_test_sha256": "8338455c27a473c506486a1f1c4c864699ebfc234c018e540e0606bdf90c1ba8",
+      "delta": "Black removed redundant parentheses around an assignment-call expression only; AST and profiler behavior are unchanged."
+    },
+    "tp4_profile": {
+      "checkout_git_sha": "7f1f91d3167e6e36e547b095ee5ddce8a7514855",
+      "measured_decoder_sha256": "34225bd3fa03639ecbc9311264e420d7a70c99772e6991f339cbe7107dca6f76",
+      "current_ast_equivalent_decoder_sha256": "4617f559feedd1dfef9633ea47063283b9dd0eed2319cfc831f254271817daef",
+      "multichip_test_sha256": "8338455c27a473c506486a1f1c4c864699ebfc234c018e540e0606bdf90c1ba8",
+      "ttnn_extension_sha256": "52deb65dd2ded7e68753dc8fbec68ae992a72dd85596b7769beda7968fbe0e98",
+      "device_ids": [
+        1,
+        0,
+        3,
+        2
+      ],
+      "sliding_junit": {
+        "path": "artifacts/profiler_sliding_b1_final_selected.xml",
+        "tests": 1,
+        "failures": 0,
+        "suite_time_seconds": 19.433,
+        "testcase_time_seconds": 18.656
+      },
+      "full_junit": {
+        "path": "artifacts/profiler_full_b1_final_selected.xml",
+        "tests": 1,
+        "failures": 0,
+        "suite_time_seconds": 17.244,
+        "testcase_time_seconds": 16.485
+      }
+    },
+    "optimized_prefill_baseline": {
+      "candidate_id": "final_reviewfix2_perf_v6",
+      "checkout_git_sha": "6e67efeb6251e655cb27c39153db5af1da90d68b",
+      "measured_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+      "ttnn_extension_sha256": "52deb65dd2ded7e68753dc8fbec68ae992a72dd85596b7769beda7968fbe0e98",
+      "device_ids": [
+        0
+      ]
+    },
+    "exact_profile_commands": {
+      "sliding_attention": "env -u TT_METAL_WATCHER GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_RANGE_DOWNLOAD=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=2 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=3 timeout 900 python_env/bin/python -m tracy -r -p -o generated/profiler/gemma4_multichip_final_selected_sliding_b1 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_multichip_perf_profile[blackhole-sliding_attention-batch1-mesh_device0-device_params0]' --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/profiler_sliding_b1_final_selected.xml",
+      "full_attention": "env -u TT_METAL_WATCHER GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_RANGE_DOWNLOAD=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=2 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=3 timeout 900 python_env/bin/python -m tracy -r -p -o generated/profiler/gemma4_multichip_final_selected_full_b1 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_multichip_perf_profile[blackhole-full_attention-batch1-mesh_device0-device_params0]' --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/profiler_full_b1_final_selected.xml"
+    },
+    "report_commands": {
+      "human_readable": "python_env/bin/tt-perf-report <ops.csv> --start-signpost <PERF_PHASE_case> --end-signpost <PERF_PHASE_case_END> --arch blackhole --active-experts 8 --no-color",
+      "standard_structured": "python_env/bin/tt-perf-report <ops.csv> --start-signpost <PERF_PHASE_case> --end-signpost <PERF_PHASE_case_END> --arch blackhole --active-experts 8 --no-color --csv <phase.csv> --stacked-csv <phase_stacked>",
+      "per_device_decode": "python_env/bin/tt-perf-report <ops.csv> --start-signpost <PERF_DECODE_case> --end-signpost <PERF_DECODE_case_END> --arch blackhole --active-experts 8 --no-merge-devices --no-host-ops --no-summary --no-advice --no-color --csv <decode_per_device.csv>"
+    },
+    "raw_capture_sources": {
+      "sliding_attention": "generated/profiler/gemma4_multichip_final_selected_sliding_b1/reports/2026_09_05_18_35_46/ops_perf_results_2026_09_05_18_35_46.csv",
+      "full_attention": "generated/profiler/gemma4_multichip_final_selected_full_b1/reports/2026_09_05_18_36_41/ops_perf_results_2026_09_05_18_36_41.csv"
+    },
+    "immutable_profile_inputs": [
+      {
+        "path": "artifacts/layer0_sliding_attention_seq1024_batch1_host_timings.json",
+        "sha256": "3168b38e90e4ce9b9608d2fd312a1841f2af6411dd6fb9db3a962a8affeebb6e",
+        "tracked": true
+      },
+      {
+        "path": "artifacts/layer5_full_attention_seq1024_batch1_host_timings.json",
+        "sha256": "cb464b65563a401f04b2b9a480c361aaf9e8011f5be5cd46b1a0b78a1eeb04d1",
+        "tracked": true
+      },
+      {
+        "path": "artifacts/profiler_sliding_b1_final_selected.xml",
+        "sha256": "71921f30904d5afc4bd9700e126548e072f3a95d5ecf708c28960089f212268b",
+        "tracked": true
+      },
+      {
+        "path": "artifacts/profiler_full_b1_final_selected.xml",
+        "sha256": "458fef00180c3eb317c6d5e817086010aa79c01c2d8f9ce53f6b1bd936be9ba0",
+        "tracked": true
+      },
+      {
+        "path": "tt_perf_report/sliding_b1/ops.csv",
+        "sha256": "3854f4e65499148d34ab5871f20aefad03b501151abb5609e83034807f58918c",
+        "tracked": false
+      },
+      {
+        "path": "tt_perf_report/full_b1/ops.csv",
+        "sha256": "8bd2592fe7c0ccf2e9604993f76cfd2b76588d6419e375eda3b9c3b663fc25b2",
+        "tracked": false
+      },
+      {
+        "path": "tt_perf_report/sliding_b1/decode.txt",
+        "sha256": "ebf228e634427b26a947f0e612b5cac31e9505616cae94b231c8c68b158aa535",
+        "tracked": true
+      },
+      {
+        "path": "tt_perf_report/sliding_b1/prefill.txt",
+        "sha256": "757f13eb7632c9041d19f5f1364e671993d93e295d44a7e9e21d511d75a54f95",
+        "tracked": true
+      },
+      {
+        "path": "tt_perf_report/full_b1/decode.txt",
+        "sha256": "d2c21e9f549ec85d037fe905720c3dab27828b01b0b820793e8bd07280f1c6e4",
+        "tracked": true
+      },
+      {
+        "path": "tt_perf_report/full_b1/prefill.txt",
+        "sha256": "f5d0090de711bc0227508f2783818e70a740d2c7a03428137bf30602adca1926",
+        "tracked": true
+      },
+      {
+        "path": "tt_perf_report/selected_accounting.csv",
+        "sha256": "6c81fdebf82d9e62f6603d3955732e6615df9eec4f3e02e2bacca0347bd3bbe2",
+        "tracked": true
+      },
+      {
+        "path": "../optimized_decoder/layer0_sliding_attention_seq1024_batch1_host_timings.json",
+        "sha256": "6ffe7ad957e7a926d48bf70acf0010d0b0626f20899ef678ebd6ccf311b86e23",
+        "tracked": true
+      },
+      {
+        "path": "../optimized_decoder/layer5_full_attention_seq1024_batch1_host_timings.json",
+        "sha256": "2cd6bde98acef230bc7e06877ef78da204f9245b3c7ec07ba9c733c407fd0153",
+        "tracked": true
+      }
+    ],
+    "entrypoint_correction": "The two TP4 host-timing JSON files embed the delegated functional helper's command string. Their four-device metadata, measured multichip_decoder.py and test hashes, and profiler JUnit testcase names prove that the actual outer entrypoint was test_multichip_decoder.py::test_multichip_perf_profile. The exact outer commands above are authoritative."
+  },
+  "excluded_or_stale": {
+    "artifacts/profiler_sliding_b1_current.xml": "provisional sliding run captured while source/test edits were still settling; not selected",
+    "artifacts/profiler_*_b1_selected_current.xml": "pre-HF-AutoFix frozen-hash reruns; superseded by profiler_*_b1_final_selected.xml and the canonical profiler_sliding_b1.xml/profiler_full_b1.xml copies",
+    "artifacts/layer0_sliding_attention_seq1024_batch32_host_timings.json": "profiler-instrumented B32 run whose merged capture dropped an operation marker; not the selected unprofiled B32 timing",
+    "tt_perf_report/*/ops.csv": "ignored local profiler intermediates; their hashes and generated-source paths anchor this derivation, while rendered reports and selected_accounting.csv are intended tracked evidence",
+    "tt_perf_report/*/decode.csv Device column": "merged view: maximum-duration device is retained for ordinary ops and device durations are averaged for collectives; use the no-merge derivation for per-device sums",
+    "tt_perf_report/*/*_stacked.csv Total %": "not valid whole-layer attribution under the profiler-readback timing regime"
+  },
+  "claims": "No blanket speedup claim: verified unprofiled TP4 decode is faster for both measured batch-32 cases and sliding S=33, but slower for full-attention S=33. The separate final-policy S=1024 profiled prefills are faster than the optimized single-chip baselines."
+}

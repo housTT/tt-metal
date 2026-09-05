@@ -1,0 +1,829 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="4" failures="0" skipped="0" tests="6" time="51.101" timestamp="2026-09-05T15:39:42.206097+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0-device_params0]" time="10.645"><properties><property name="start_timestamp" value="2026-09-05T15:39:43" /><property name="end_timestamp" value="2026-09-05T15:39:53" /></properties><error message="failed on setup with &quot;RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception&#10;info:&#10;Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (4 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]&#10; --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const&#10; --- tt::tt_metal::FabricFirmwareInitializer::configure()&#10; --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1813d0b]&#10; --- python_env/bin/python() [0x181394d]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]&quot;">request = &lt;SubRequest 'mesh_device' for &lt;Function test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+
+        try:
+            param = request.param
+        except (ValueError, AttributeError):
+            # No explicit parametrization; fall back to the system mesh size resolved below.
+            param = None
+
+        # The mesh that open_mesh_device can actually allocate is bounded by the system mesh exposed
+        # by the control plane, which may be smaller than the number of physical chips. For example,
+        # fabric auto-discovery can downgrade the mesh (e.g. to 2x2) when ethernet/fabric links are
+        # missing or fail to train, even though get_num_devices() still reports all physical chips.
+        # Comparing only against get_num_devices() would let the test proceed and then crash inside
+        # open_mesh_device with a TT_FATAL; also accounting for the system mesh size lets us skip
+        # gracefully on such machines instead.
+        #
+        # Query the system mesh once. A failure here means control-plane / mesh-graph discovery itself
+        # errored (missing descriptor, untrained eth links, control-plane regression, ...). That is an
+        # infrastructure/software fault, not a capacity mismatch, so we must FAIL fixture setup instead
+        # of skipping: turning discovery errors into skips would let a broken machine report false-green
+        # CI with no device path exercised. The confirmed capacity-mismatch case is handled below via
+        # pytest.skip, once the system mesh size is known.
+        try:
+            system_mesh_size = ttnn._ttnn.multi_device.SystemMeshDescriptor().shape().mesh_size()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not query the system mesh descriptor (control-plane/mesh discovery failed): {e}"
+            ) from e
+
+        if param is None:
+            param = system_mesh_size
+
+        if isinstance(param, tuple):
+            grid_dims = param
+            assert len(grid_dims) == 2, "Device mesh grid shape should have exactly two elements."
+            num_devices_requested = grid_dims[0] * grid_dims[1]
+            available_num_devices = (
+                system_mesh_size if ttnn.using_distributed_env() else min(ttnn.get_num_devices(), system_mesh_size)
+            )
+            if (
+                device_params.get("require_exact_physical_num_devices", False)
+                and num_devices_requested != available_num_devices
+            ):
+                pytest.skip(
+                    f"Test requires exact match of requested num devices ({num_devices_requested}) to available physical num devices ({available_num_devices})."
+                )
+
+            if num_devices_requested &gt; available_num_devices:
+                pytest.skip(
+                    f"Requested more devices ({num_devices_requested}) than available ({available_num_devices}). Test not applicable for machine"
+                )
+            mesh_shape = ttnn.MeshShape(*grid_dims)
+        else:
+            if not ttnn.using_distributed_env():
+                available_num_devices = min(ttnn.get_num_devices(), system_mesh_size)
+                if param &gt; available_num_devices:
+                    pytest.skip(
+                        f"Requested more devices ({param}) than available ({available_num_devices}). Test not applicable for machine"
+                    )
+            mesh_shape = ttnn.MeshShape(1, param)
+
+        # Resolve trace_region_size against the SKU of the submesh actually opened.
+        # TRACE_MODEL_KEY_PARAM is resolved here (not at device_params/collection time) so the
+        # logical SKU reflects request.param/data_parallel/MESH_DEVICE, not the physical cluster.
+        trace_model_key = device_params.pop(TRACE_MODEL_KEY_PARAM, None)
+        if "trace_region_size" in device_params:
+            logger.info(
+                f"Keeping trace_region_size={device_params['trace_region_size']!r} from device_params (already set)"
+            )
+        elif trace_model_key is not None:
+            sku = get_logical_sku(request, param)
+            if sku is None:
+                logger.info(f"No SKU for {param!r}; not setting trace_region_size for model {trace_model_key!r}")
+            else:
+                device_params["trace_region_size"] = resolve_trace_region_size(trace_model_key, sku)
+        else:
+            override_trace_region_size = get_supported_trace_region_size(request, param)
+            if override_trace_region_size is None:
+                logger.info(f"No trace region size for {param!r}")
+            else:
+                device_params["trace_region_size"] = override_trace_region_size
+
+        updated_device_params = get_updated_device_params(device_params)
+        updated_device_params.pop("require_exact_physical_num_devices", False)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+&gt;       mesh_device = ttnn.open_mesh_device(mesh_shape=mesh_shape, **updated_device_params)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+conftest.py:662:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_shape = MeshShape([1, 1]), l1_small_size = 0, trace_region_size = 0
+num_command_queues = 1
+dispatch_core_config = &lt;ttnn.device.DispatchCoreConfig object at 0x73bc22b4f390&gt;
+offset = None, physical_device_ids = [], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+
+        """
+&gt;       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception
+E       info:
+E       Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (4 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.
+E       backtrace:
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]
+E        --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const
+E        --- tt::tt_metal::FabricFirmwareInitializer::configure()
+E        --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1813d0b]
+E        --- python_env/bin/python() [0x181394d]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E        --- python_env/bin/python() [0x18b1b4c]
+E        --- python_env/bin/python() [0x180874f]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1985162]
+E        --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E        --- python_env/bin/python() [0x19846df]
+E        --- python_env/bin/python() [0x19844ec]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]
+E        --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/distributed/distributed.py:671: RuntimeError</error></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device1-device_params0]" time="10.324"><properties><property name="start_timestamp" value="2026-09-05T15:39:53" /><property name="end_timestamp" value="2026-09-05T15:40:04" /></properties><error message="failed on setup with &quot;RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception&#10;info:&#10;Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (2 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]&#10; --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const&#10; --- tt::tt_metal::FabricFirmwareInitializer::configure()&#10; --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1813d0b]&#10; --- python_env/bin/python() [0x181394d]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]&quot;">request = &lt;SubRequest 'mesh_device' for &lt;Function test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device1-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+
+        try:
+            param = request.param
+        except (ValueError, AttributeError):
+            # No explicit parametrization; fall back to the system mesh size resolved below.
+            param = None
+
+        # The mesh that open_mesh_device can actually allocate is bounded by the system mesh exposed
+        # by the control plane, which may be smaller than the number of physical chips. For example,
+        # fabric auto-discovery can downgrade the mesh (e.g. to 2x2) when ethernet/fabric links are
+        # missing or fail to train, even though get_num_devices() still reports all physical chips.
+        # Comparing only against get_num_devices() would let the test proceed and then crash inside
+        # open_mesh_device with a TT_FATAL; also accounting for the system mesh size lets us skip
+        # gracefully on such machines instead.
+        #
+        # Query the system mesh once. A failure here means control-plane / mesh-graph discovery itself
+        # errored (missing descriptor, untrained eth links, control-plane regression, ...). That is an
+        # infrastructure/software fault, not a capacity mismatch, so we must FAIL fixture setup instead
+        # of skipping: turning discovery errors into skips would let a broken machine report false-green
+        # CI with no device path exercised. The confirmed capacity-mismatch case is handled below via
+        # pytest.skip, once the system mesh size is known.
+        try:
+            system_mesh_size = ttnn._ttnn.multi_device.SystemMeshDescriptor().shape().mesh_size()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not query the system mesh descriptor (control-plane/mesh discovery failed): {e}"
+            ) from e
+
+        if param is None:
+            param = system_mesh_size
+
+        if isinstance(param, tuple):
+            grid_dims = param
+            assert len(grid_dims) == 2, "Device mesh grid shape should have exactly two elements."
+            num_devices_requested = grid_dims[0] * grid_dims[1]
+            available_num_devices = (
+                system_mesh_size if ttnn.using_distributed_env() else min(ttnn.get_num_devices(), system_mesh_size)
+            )
+            if (
+                device_params.get("require_exact_physical_num_devices", False)
+                and num_devices_requested != available_num_devices
+            ):
+                pytest.skip(
+                    f"Test requires exact match of requested num devices ({num_devices_requested}) to available physical num devices ({available_num_devices})."
+                )
+
+            if num_devices_requested &gt; available_num_devices:
+                pytest.skip(
+                    f"Requested more devices ({num_devices_requested}) than available ({available_num_devices}). Test not applicable for machine"
+                )
+            mesh_shape = ttnn.MeshShape(*grid_dims)
+        else:
+            if not ttnn.using_distributed_env():
+                available_num_devices = min(ttnn.get_num_devices(), system_mesh_size)
+                if param &gt; available_num_devices:
+                    pytest.skip(
+                        f"Requested more devices ({param}) than available ({available_num_devices}). Test not applicable for machine"
+                    )
+            mesh_shape = ttnn.MeshShape(1, param)
+
+        # Resolve trace_region_size against the SKU of the submesh actually opened.
+        # TRACE_MODEL_KEY_PARAM is resolved here (not at device_params/collection time) so the
+        # logical SKU reflects request.param/data_parallel/MESH_DEVICE, not the physical cluster.
+        trace_model_key = device_params.pop(TRACE_MODEL_KEY_PARAM, None)
+        if "trace_region_size" in device_params:
+            logger.info(
+                f"Keeping trace_region_size={device_params['trace_region_size']!r} from device_params (already set)"
+            )
+        elif trace_model_key is not None:
+            sku = get_logical_sku(request, param)
+            if sku is None:
+                logger.info(f"No SKU for {param!r}; not setting trace_region_size for model {trace_model_key!r}")
+            else:
+                device_params["trace_region_size"] = resolve_trace_region_size(trace_model_key, sku)
+        else:
+            override_trace_region_size = get_supported_trace_region_size(request, param)
+            if override_trace_region_size is None:
+                logger.info(f"No trace region size for {param!r}")
+            else:
+                device_params["trace_region_size"] = override_trace_region_size
+
+        updated_device_params = get_updated_device_params(device_params)
+        updated_device_params.pop("require_exact_physical_num_devices", False)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+&gt;       mesh_device = ttnn.open_mesh_device(mesh_shape=mesh_shape, **updated_device_params)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+conftest.py:662:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_shape = MeshShape([1, 2]), l1_small_size = 0, trace_region_size = 0
+num_command_queues = 1
+dispatch_core_config = &lt;ttnn.device.DispatchCoreConfig object at 0x73bc209032f0&gt;
+offset = None, physical_device_ids = [], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+
+        """
+&gt;       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception
+E       info:
+E       Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (2 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.
+E       backtrace:
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]
+E        --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const
+E        --- tt::tt_metal::FabricFirmwareInitializer::configure()
+E        --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1813d0b]
+E        --- python_env/bin/python() [0x181394d]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E        --- python_env/bin/python() [0x18b1b4c]
+E        --- python_env/bin/python() [0x180874f]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1985162]
+E        --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E        --- python_env/bin/python() [0x19846df]
+E        --- python_env/bin/python() [0x19844ec]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]
+E        --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/distributed/distributed.py:671: RuntimeError</error></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device2-device_params0]" time="4.519"><properties><property name="start_timestamp" value="2026-09-05T15:40:04" /><property name="end_timestamp" value="2026-09-05T15:40:08" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device0-device_params0]" time="10.320"><properties><property name="start_timestamp" value="2026-09-05T15:40:08" /><property name="end_timestamp" value="2026-09-05T15:40:18" /></properties><error message="failed on setup with &quot;RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception&#10;info:&#10;Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (4 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]&#10; --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const&#10; --- tt::tt_metal::FabricFirmwareInitializer::configure()&#10; --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1813d0b]&#10; --- python_env/bin/python() [0x181394d]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]&quot;">request = &lt;SubRequest 'mesh_device' for &lt;Function test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device0-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+
+        try:
+            param = request.param
+        except (ValueError, AttributeError):
+            # No explicit parametrization; fall back to the system mesh size resolved below.
+            param = None
+
+        # The mesh that open_mesh_device can actually allocate is bounded by the system mesh exposed
+        # by the control plane, which may be smaller than the number of physical chips. For example,
+        # fabric auto-discovery can downgrade the mesh (e.g. to 2x2) when ethernet/fabric links are
+        # missing or fail to train, even though get_num_devices() still reports all physical chips.
+        # Comparing only against get_num_devices() would let the test proceed and then crash inside
+        # open_mesh_device with a TT_FATAL; also accounting for the system mesh size lets us skip
+        # gracefully on such machines instead.
+        #
+        # Query the system mesh once. A failure here means control-plane / mesh-graph discovery itself
+        # errored (missing descriptor, untrained eth links, control-plane regression, ...). That is an
+        # infrastructure/software fault, not a capacity mismatch, so we must FAIL fixture setup instead
+        # of skipping: turning discovery errors into skips would let a broken machine report false-green
+        # CI with no device path exercised. The confirmed capacity-mismatch case is handled below via
+        # pytest.skip, once the system mesh size is known.
+        try:
+            system_mesh_size = ttnn._ttnn.multi_device.SystemMeshDescriptor().shape().mesh_size()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not query the system mesh descriptor (control-plane/mesh discovery failed): {e}"
+            ) from e
+
+        if param is None:
+            param = system_mesh_size
+
+        if isinstance(param, tuple):
+            grid_dims = param
+            assert len(grid_dims) == 2, "Device mesh grid shape should have exactly two elements."
+            num_devices_requested = grid_dims[0] * grid_dims[1]
+            available_num_devices = (
+                system_mesh_size if ttnn.using_distributed_env() else min(ttnn.get_num_devices(), system_mesh_size)
+            )
+            if (
+                device_params.get("require_exact_physical_num_devices", False)
+                and num_devices_requested != available_num_devices
+            ):
+                pytest.skip(
+                    f"Test requires exact match of requested num devices ({num_devices_requested}) to available physical num devices ({available_num_devices})."
+                )
+
+            if num_devices_requested &gt; available_num_devices:
+                pytest.skip(
+                    f"Requested more devices ({num_devices_requested}) than available ({available_num_devices}). Test not applicable for machine"
+                )
+            mesh_shape = ttnn.MeshShape(*grid_dims)
+        else:
+            if not ttnn.using_distributed_env():
+                available_num_devices = min(ttnn.get_num_devices(), system_mesh_size)
+                if param &gt; available_num_devices:
+                    pytest.skip(
+                        f"Requested more devices ({param}) than available ({available_num_devices}). Test not applicable for machine"
+                    )
+            mesh_shape = ttnn.MeshShape(1, param)
+
+        # Resolve trace_region_size against the SKU of the submesh actually opened.
+        # TRACE_MODEL_KEY_PARAM is resolved here (not at device_params/collection time) so the
+        # logical SKU reflects request.param/data_parallel/MESH_DEVICE, not the physical cluster.
+        trace_model_key = device_params.pop(TRACE_MODEL_KEY_PARAM, None)
+        if "trace_region_size" in device_params:
+            logger.info(
+                f"Keeping trace_region_size={device_params['trace_region_size']!r} from device_params (already set)"
+            )
+        elif trace_model_key is not None:
+            sku = get_logical_sku(request, param)
+            if sku is None:
+                logger.info(f"No SKU for {param!r}; not setting trace_region_size for model {trace_model_key!r}")
+            else:
+                device_params["trace_region_size"] = resolve_trace_region_size(trace_model_key, sku)
+        else:
+            override_trace_region_size = get_supported_trace_region_size(request, param)
+            if override_trace_region_size is None:
+                logger.info(f"No trace region size for {param!r}")
+            else:
+                device_params["trace_region_size"] = override_trace_region_size
+
+        updated_device_params = get_updated_device_params(device_params)
+        updated_device_params.pop("require_exact_physical_num_devices", False)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+&gt;       mesh_device = ttnn.open_mesh_device(mesh_shape=mesh_shape, **updated_device_params)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+conftest.py:662:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_shape = MeshShape([1, 1]), l1_small_size = 0, trace_region_size = 0
+num_command_queues = 1
+dispatch_core_config = &lt;ttnn.device.DispatchCoreConfig object at 0x73bc20903700&gt;
+offset = None, physical_device_ids = [], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+
+        """
+&gt;       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception
+E       info:
+E       Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (4 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.
+E       backtrace:
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]
+E        --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const
+E        --- tt::tt_metal::FabricFirmwareInitializer::configure()
+E        --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1813d0b]
+E        --- python_env/bin/python() [0x181394d]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E        --- python_env/bin/python() [0x18b1b4c]
+E        --- python_env/bin/python() [0x180874f]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1985162]
+E        --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E        --- python_env/bin/python() [0x19846df]
+E        --- python_env/bin/python() [0x19844ec]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]
+E        --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/distributed/distributed.py:671: RuntimeError</error></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device1-device_params0]" time="10.317"><properties><property name="start_timestamp" value="2026-09-05T15:40:18" /><property name="end_timestamp" value="2026-09-05T15:40:29" /></properties><error message="failed on setup with &quot;RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception&#10;info:&#10;Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (2 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]&#10; --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const&#10; --- tt::tt_metal::FabricFirmwareInitializer::configure()&#10; --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()&#10; --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)&#10; --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1813d0b]&#10; --- python_env/bin/python() [0x181394d]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]&quot;">request = &lt;SubRequest 'mesh_device' for &lt;Function test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device1-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+
+        try:
+            param = request.param
+        except (ValueError, AttributeError):
+            # No explicit parametrization; fall back to the system mesh size resolved below.
+            param = None
+
+        # The mesh that open_mesh_device can actually allocate is bounded by the system mesh exposed
+        # by the control plane, which may be smaller than the number of physical chips. For example,
+        # fabric auto-discovery can downgrade the mesh (e.g. to 2x2) when ethernet/fabric links are
+        # missing or fail to train, even though get_num_devices() still reports all physical chips.
+        # Comparing only against get_num_devices() would let the test proceed and then crash inside
+        # open_mesh_device with a TT_FATAL; also accounting for the system mesh size lets us skip
+        # gracefully on such machines instead.
+        #
+        # Query the system mesh once. A failure here means control-plane / mesh-graph discovery itself
+        # errored (missing descriptor, untrained eth links, control-plane regression, ...). That is an
+        # infrastructure/software fault, not a capacity mismatch, so we must FAIL fixture setup instead
+        # of skipping: turning discovery errors into skips would let a broken machine report false-green
+        # CI with no device path exercised. The confirmed capacity-mismatch case is handled below via
+        # pytest.skip, once the system mesh size is known.
+        try:
+            system_mesh_size = ttnn._ttnn.multi_device.SystemMeshDescriptor().shape().mesh_size()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not query the system mesh descriptor (control-plane/mesh discovery failed): {e}"
+            ) from e
+
+        if param is None:
+            param = system_mesh_size
+
+        if isinstance(param, tuple):
+            grid_dims = param
+            assert len(grid_dims) == 2, "Device mesh grid shape should have exactly two elements."
+            num_devices_requested = grid_dims[0] * grid_dims[1]
+            available_num_devices = (
+                system_mesh_size if ttnn.using_distributed_env() else min(ttnn.get_num_devices(), system_mesh_size)
+            )
+            if (
+                device_params.get("require_exact_physical_num_devices", False)
+                and num_devices_requested != available_num_devices
+            ):
+                pytest.skip(
+                    f"Test requires exact match of requested num devices ({num_devices_requested}) to available physical num devices ({available_num_devices})."
+                )
+
+            if num_devices_requested &gt; available_num_devices:
+                pytest.skip(
+                    f"Requested more devices ({num_devices_requested}) than available ({available_num_devices}). Test not applicable for machine"
+                )
+            mesh_shape = ttnn.MeshShape(*grid_dims)
+        else:
+            if not ttnn.using_distributed_env():
+                available_num_devices = min(ttnn.get_num_devices(), system_mesh_size)
+                if param &gt; available_num_devices:
+                    pytest.skip(
+                        f"Requested more devices ({param}) than available ({available_num_devices}). Test not applicable for machine"
+                    )
+            mesh_shape = ttnn.MeshShape(1, param)
+
+        # Resolve trace_region_size against the SKU of the submesh actually opened.
+        # TRACE_MODEL_KEY_PARAM is resolved here (not at device_params/collection time) so the
+        # logical SKU reflects request.param/data_parallel/MESH_DEVICE, not the physical cluster.
+        trace_model_key = device_params.pop(TRACE_MODEL_KEY_PARAM, None)
+        if "trace_region_size" in device_params:
+            logger.info(
+                f"Keeping trace_region_size={device_params['trace_region_size']!r} from device_params (already set)"
+            )
+        elif trace_model_key is not None:
+            sku = get_logical_sku(request, param)
+            if sku is None:
+                logger.info(f"No SKU for {param!r}; not setting trace_region_size for model {trace_model_key!r}")
+            else:
+                device_params["trace_region_size"] = resolve_trace_region_size(trace_model_key, sku)
+        else:
+            override_trace_region_size = get_supported_trace_region_size(request, param)
+            if override_trace_region_size is None:
+                logger.info(f"No trace region size for {param!r}")
+            else:
+                device_params["trace_region_size"] = override_trace_region_size
+
+        updated_device_params = get_updated_device_params(device_params)
+        updated_device_params.pop("require_exact_physical_num_devices", False)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+&gt;       mesh_device = ttnn.open_mesh_device(mesh_shape=mesh_shape, **updated_device_params)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+conftest.py:662:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_shape = MeshShape([1, 2]), l1_small_size = 0, trace_region_size = 0
+num_command_queues = 1
+dispatch_core_config = &lt;ttnn.device.DispatchCoreConfig object at 0x73bc209d8780&gt;
+offset = None, physical_device_ids = [], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+
+        """
+&gt;       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_THROW @ /home/hous/dev/tt-metal/tt_metal/impl/device/firmware/fabric_firmware_initializer.cpp:271: tt::exception
+E       info:
+E       Fabric Router Sync: Timeout after 10000 ms on Device 1: expected status 0xa2b2c2d2. Master chan=4 got 0xa0b0c0d0. furthest-behind stage: STARTED (2 core(s), e.g. chan=4 got 0xa0b0c0d0). Hint: router(s) likely entered the main function but did not complete the remote (ethernet) handshake. Ethernet handshake likely failed -- the link may not be healthy. Investigate link training state, cable integrity, and whether the remote-side partner kernel is running and responsive. See error log above for per-core status breakdown.
+E       backtrace:
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8ac9b1) [0x73bc76eac9b1]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a5ac0) [0x73bc76ea5ac0]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x8a180e) [0x73bc76ea180e]
+E        --- tt::tt_metal::FabricFirmwareInitializer::wait_for_fabric_router_sync(unsigned int) const
+E        --- tt::tt_metal::FabricFirmwareInitializer::configure()
+E        --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;, tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&amp;, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::span&lt;unsigned int const, 18446744073709551615ul&gt;, unsigned long)
+E        --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshShape&gt; const&amp;, std::optional&lt;tt::tt_metal::distributed::MeshCoordinate&gt; const&amp;, std::vector&lt;int, std::allocator&lt;int&gt; &gt; const&amp;, unsigned long)
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x73bc7ac59691]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x73bc7ac67a44]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1813d0b]
+E        --- python_env/bin/python() [0x181394d]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python() [0x1ab9bae]
+E        --- python_env/bin/python() [0x18cb66c]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E        --- python_env/bin/python() [0x18b1b4c]
+E        --- python_env/bin/python() [0x180874f]
+E        --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- python_env/bin/python() [0x1985162]
+E        --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E        --- python_env/bin/python() [0x19846df]
+E        --- python_env/bin/python() [0x19844ec]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73bcc162a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x73bcc162a28b]
+E        --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/distributed/distributed.py:671: RuntimeError</error></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device2-device_params0]" time="4.062"><properties><property name="start_timestamp" value="2026-09-05T15:40:29" /><property name="end_timestamp" value="2026-09-05T15:40:33" /></properties></testcase></testsuite></testsuites>

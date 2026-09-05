@@ -99,5 +99,108 @@
       "One pinned-host upload transport stall was captured during a 262143-token sliding prefill. Fresh unpinned and pinned controls passed, and the final combined four-case context gate passed, so no runtime or advertised-capacity change was made.",
       "The v5 context/watcher artifacts use pre-format test hash cc236183671b8a0e18e8c16f2a30754a7678facb1042e07548756ecabf97848d. Pre-commit changed one dense_roles ternary from three lines to one; independent byte reconstruction and AST comparison prove it is formatting-only. The v6 complete and performance gates use the current hash."
     ]
+  },
+  "multichip_decoder": {
+    "hardware": "one P300C QB2: 1/2/4 devices as accepted proxies for mandatory P150/P150x2/P150x4 profiles",
+    "advertised_context": 262144,
+    "current_supported_context": 50624,
+    "profile_dependent_context": true,
+    "kv_cache_contract_changed": false,
+    "kv_cache_dtype": "BF16",
+    "terminal_embedding_lm_head_contract": "mandatory downstream BFP8_B placement; physical tile accounting; not implemented by the decoder stage",
+    "operational_reserve_policy": "configured 64 MiB trace region plus conservative source-live prefill tensors plus profile-specific allocator reserve",
+    "profiles": {
+      "P150": {
+        "tp_size": 1,
+        "supported_context_tokens": 50624,
+        "advertised_context_supported": false,
+        "local_sliding_kv_heads": 8,
+        "local_full_kv_heads": 2,
+        "packed_expert_decode_enabled": false,
+        "packed_expert_retained_copy_bytes_per_device": 0,
+        "prior_o_and_dense_retained_copy_bytes_per_device": 0,
+        "capacity_projection_bytes_per_device": 27284654080,
+        "full_stack_projection_bytes_per_device": 34358700544,
+        "full_stack_headroom_bytes_per_device": 1037824,
+        "boundary_evidence": {
+          "largest_nonaligned_tokens": 50623,
+          "largest_aligned_tokens": 50624,
+          "first_capacity_rejected_tokens": 50625,
+          "hardware_status": "passed real-weight sliding/full representative-layer probes at 50623 and 50624; 50625 is rejected by the host capacity guard",
+          "artifacts": [
+            "multichip_decoder/artifacts/p150_prefill_capacity_50623.xml",
+            "multichip_decoder/artifacts/p150_prefill_capacity_50624.xml",
+            "multichip_decoder/artifacts/prefill_capacity_sliding_attention_50623.json",
+            "multichip_decoder/artifacts/prefill_capacity_full_attention_50623.json",
+            "multichip_decoder/artifacts/prefill_capacity_sliding_attention_50624.json",
+            "multichip_decoder/artifacts/prefill_capacity_full_attention_50624.json"
+          ]
+        }
+      },
+      "P150x2": {
+        "tp_size": 2,
+        "supported_context_tokens": 262144,
+        "advertised_context_supported": true,
+        "local_sliding_kv_heads": 4,
+        "local_full_kv_heads": 1,
+        "packed_expert_decode_enabled": false,
+        "packed_expert_retained_copy_bytes_per_device": 0,
+        "prior_o_and_dense_retained_copy_bytes_per_device": 0,
+        "capacity_projection_bytes_per_device": 16486360064,
+        "full_stack_projection_bytes_per_device": 33570989056,
+        "full_stack_headroom_bytes_per_device": 788749312,
+        "selected_policy_revalidation": "passed final no-packed direct PCC, independent HF PCC, mixed-layer stacked decode, and warmed trace/performance gates; see multichip_decoder/artifacts/final_profiles_after_capacity.xml and warmed_required_profiles_final.xml"
+      },
+      "P150x4": {
+        "tp_size": 4,
+        "supported_context_tokens": 262144,
+        "advertised_context_supported": true,
+        "local_sliding_kv_heads": 2,
+        "local_full_kv_heads": 1,
+        "full_kv_head_pair_duplication": true,
+        "packed_expert_decode_enabled": true,
+        "packed_expert_retained_copy_bytes_per_device": 4411883520,
+        "prior_o_and_dense_retained_copy_bytes_per_device": 642611200,
+        "capacity_projection_bytes_per_device": 15251053568,
+        "full_stack_projection_bytes_per_device": 33419910144,
+        "full_stack_headroom_bytes_per_device": 939828224
+      }
+    },
+    "layer_kinds": {
+      "sliding_attention": {
+        "representative_layer": 0,
+      "tested_prefill_context": 262143,
+        "tested_decode_current_position": 262143,
+        "artifacts": [
+          "multichip_decoder/artifacts/prefill_capacity_sliding_attention_262143.json",
+          "multichip_decoder/artifacts/advertised_context_decode_sliding_attention.json",
+          "multichip_decoder/artifacts/bounded_modulo_tail_tp4.xml"
+        ]
+      },
+      "full_attention": {
+        "representative_layer": 5,
+        "tested_prefill_context": 262143,
+        "tested_decode_current_position": 262143,
+        "artifacts": [
+          "multichip_decoder/artifacts/prefill_capacity_full_attention_262143.json",
+          "multichip_decoder/artifacts/advertised_context_decode_full_attention.json"
+        ]
+      }
+    },
+    "notes": [
+      "The 262143-token TP4 prefill probes use real checkpoint weights and verify a finite last-token result for both layer kinds.",
+      "The last-position TP4 decode probes use replicated page tables/current positions, device-initialized KV history, sentinel readback, trace capture/replay, and deterministic repeat replay.",
+      "Logical S=33 prefill plus decode verifies non-tile-aligned tails, local cache ownership, and bit-exact output replicas.",
+      "The capacity-required BFP4 exception is limited to TP1 full-attention expert gate/up weights and passes representative prefill/decode PCC 0.995.",
+      "BF16 embedding plus a separate BF16 LM head require 2952790016 bytes on TP1 and do not fit after the decoder/KV placement plus final norm and the operating reserve.",
+      "Full-stack placement therefore requires downstream embedding and LM-head storage in BFP8_B; this decoder stage records but does not implement or claim terminal/logit correctness for that policy.",
+      "The operating reserve includes the configured 64 MiB trace region, all conservatively source-live prefill tensors, and the prior profile-specific allocator slack; chunked SDPA does not bound the full QKV or inherited residual lifetime.",
+      "Packed expert decode retains an additional physical BFP8 tensor per layer and is selected on TP4 only. Capacity disables TP2's 8088453120-byte retained copy; TP4 retains 4411883520 packed-expert bytes plus 642611200 bytes of prior O/dense copies.",
+      "TP1 packed expert decode is disabled by a hard capacity limit: even the unselected all-BFP4 physical-tile lower bound is 8564244480 bytes, larger than its 7075084288-byte decoder-stage headroom at the reduced context.",
+      "At 262144 tokens the conservative TP1 full-stack projection is 56398546944 bytes, so the shared 32 GiB device cannot honor the advertised prefill context with the correctness-proven precision policy. The per-profile hard limit is 50624; 50623 is the tighter nonaligned boundary and 50625 is rejected before device allocation.",
+      "TP2 and TP4 preserve the advertised 262144-token contract with conservative headroom of 788749312 and 939828224 bytes per device.",
+      "P150 real-weight representative-layer probes pass at both the 50623-token nonaligned boundary and aligned 50624-token limit; 50625 is rejected safely before device allocation.",
+      "The earlier P150 53343/53344 real-weight probes also passed but are superseded/non-boundary evidence after correcting MoE concat lifetime to include both accumulated chunks and the newly allocated concat output."
+    ]
   }
 }

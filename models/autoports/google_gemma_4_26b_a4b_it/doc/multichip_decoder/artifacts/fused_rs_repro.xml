@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="3.338" timestamp="2026-09-05T15:03:50.901164+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fused_matmul_reduce_scatter_exact_shape_repro[blackhole-sliding_o_k4096-mesh_device0-device_params0]" time="1.318"><properties><property name="start_timestamp" value="2026-09-05T15:03:51" /><property name="end_timestamp" value="2026-09-05T15:03:53" /></properties><failure message="TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'">mesh_device = MeshDevice(1x4 grid, 4 devices), role = 'sliding_o'
+global_k = 4096, matmul_core_grid = (11, 6), max_in0_block_w = 4
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize(
+        "role,global_k,matmul_core_grid,max_in0_block_w",
+        [
+            pytest.param("sliding_o", 4096, (11, 6), 4, id="sliding_o_k4096"),
+            pytest.param("full_o", 8192, (11, 6), 8, id="full_o_k8192"),
+            pytest.param("dense_down", PADDED_MLP_INTERMEDIATE_SIZE, (11, 6), 2, id="dense_down_k2176"),
+            pytest.param("expert_down", PADDED_MOE_INTERMEDIATE_SIZE, (11, 6), 2, id="expert_down_k768"),
+        ],
+    )
+    def test_tp4_fused_matmul_reduce_scatter_exact_shape_repro(
+        mesh_device, role, global_k, matmul_core_grid, max_in0_block_w
+    ):
+        """Shape-faithful repro for the fractured-residual producer boundary.
+
+        This is opt-in because it installs a sub-device manager and exercises an
+        experimental async CCL.  It deliberately adapts every row-parallel Gemma
+        contraction to the fused op's required 2D-multicast program contract.  A
+        passing result is a 704-wide shard per rank; the four shards compose the
+        2816-wide residual without restoring the replicated all-reduce contract.
+        """
+        if os.getenv("GEMMA4_MULTICHIP_FUSED_RS_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FUSED_RS_REPRO=1 for the serialized fused-RS hardware repro")
+        from tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter import run_reduce_scatter_impl
+
+        if tuple(mesh_device.shape) != (1, TP_SIZE):
+            pytest.skip(f"requires target 1x{TP_SIZE} mesh, got {tuple(mesh_device.shape)}")
+        assert HIDDEN_SIZE % TP_SIZE == 0
+        assert global_k % (TP_SIZE * 32) == 0
+&gt;       run_reduce_scatter_impl(
+            mesh_device=mesh_device,
+            num_devices=TP_SIZE,
+            rs_input_shape=[1, 1, 32, global_k],
+            mm_shard_dim=2,
+            rs_scatter_dim=3,
+            num_links=2,
+            mm_weights_shape=[1, 1, global_k, HIDDEN_SIZE],
+            rs_input_dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            matmul_weights_dtype=ttnn.bfloat8_b,
+            max_in0_block_w=max_in0_block_w,
+            use_bias=False,
+            mem_config_input=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_rs=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+            rs_topology=ttnn.Topology.Ring,
+            use_non_fused=False,
+            num_iters=1,
+            enable_trace=False,
+            matmul_core_grid=matmul_core_grid,
+        )
+E       TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:163: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fused_matmul_reduce_scatter_exact_shape_repro[blackhole-full_o_k8192-mesh_device0-device_params0]" time="0.364"><properties><property name="start_timestamp" value="2026-09-05T15:03:53" /><property name="end_timestamp" value="2026-09-05T15:03:53" /></properties><failure message="TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'">mesh_device = MeshDevice(1x4 grid, 4 devices), role = 'full_o', global_k = 8192
+matmul_core_grid = (11, 6), max_in0_block_w = 8
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize(
+        "role,global_k,matmul_core_grid,max_in0_block_w",
+        [
+            pytest.param("sliding_o", 4096, (11, 6), 4, id="sliding_o_k4096"),
+            pytest.param("full_o", 8192, (11, 6), 8, id="full_o_k8192"),
+            pytest.param("dense_down", PADDED_MLP_INTERMEDIATE_SIZE, (11, 6), 2, id="dense_down_k2176"),
+            pytest.param("expert_down", PADDED_MOE_INTERMEDIATE_SIZE, (11, 6), 2, id="expert_down_k768"),
+        ],
+    )
+    def test_tp4_fused_matmul_reduce_scatter_exact_shape_repro(
+        mesh_device, role, global_k, matmul_core_grid, max_in0_block_w
+    ):
+        """Shape-faithful repro for the fractured-residual producer boundary.
+
+        This is opt-in because it installs a sub-device manager and exercises an
+        experimental async CCL.  It deliberately adapts every row-parallel Gemma
+        contraction to the fused op's required 2D-multicast program contract.  A
+        passing result is a 704-wide shard per rank; the four shards compose the
+        2816-wide residual without restoring the replicated all-reduce contract.
+        """
+        if os.getenv("GEMMA4_MULTICHIP_FUSED_RS_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FUSED_RS_REPRO=1 for the serialized fused-RS hardware repro")
+        from tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter import run_reduce_scatter_impl
+
+        if tuple(mesh_device.shape) != (1, TP_SIZE):
+            pytest.skip(f"requires target 1x{TP_SIZE} mesh, got {tuple(mesh_device.shape)}")
+        assert HIDDEN_SIZE % TP_SIZE == 0
+        assert global_k % (TP_SIZE * 32) == 0
+&gt;       run_reduce_scatter_impl(
+            mesh_device=mesh_device,
+            num_devices=TP_SIZE,
+            rs_input_shape=[1, 1, 32, global_k],
+            mm_shard_dim=2,
+            rs_scatter_dim=3,
+            num_links=2,
+            mm_weights_shape=[1, 1, global_k, HIDDEN_SIZE],
+            rs_input_dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            matmul_weights_dtype=ttnn.bfloat8_b,
+            max_in0_block_w=max_in0_block_w,
+            use_bias=False,
+            mem_config_input=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_rs=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+            rs_topology=ttnn.Topology.Ring,
+            use_non_fused=False,
+            num_iters=1,
+            enable_trace=False,
+            matmul_core_grid=matmul_core_grid,
+        )
+E       TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:163: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fused_matmul_reduce_scatter_exact_shape_repro[blackhole-dense_down_k2176-mesh_device0-device_params0]" time="0.372"><properties><property name="start_timestamp" value="2026-09-05T15:03:53" /><property name="end_timestamp" value="2026-09-05T15:03:53" /></properties><failure message="TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'">mesh_device = MeshDevice(1x4 grid, 4 devices), role = 'dense_down'
+global_k = 2176, matmul_core_grid = (11, 6), max_in0_block_w = 2
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize(
+        "role,global_k,matmul_core_grid,max_in0_block_w",
+        [
+            pytest.param("sliding_o", 4096, (11, 6), 4, id="sliding_o_k4096"),
+            pytest.param("full_o", 8192, (11, 6), 8, id="full_o_k8192"),
+            pytest.param("dense_down", PADDED_MLP_INTERMEDIATE_SIZE, (11, 6), 2, id="dense_down_k2176"),
+            pytest.param("expert_down", PADDED_MOE_INTERMEDIATE_SIZE, (11, 6), 2, id="expert_down_k768"),
+        ],
+    )
+    def test_tp4_fused_matmul_reduce_scatter_exact_shape_repro(
+        mesh_device, role, global_k, matmul_core_grid, max_in0_block_w
+    ):
+        """Shape-faithful repro for the fractured-residual producer boundary.
+
+        This is opt-in because it installs a sub-device manager and exercises an
+        experimental async CCL.  It deliberately adapts every row-parallel Gemma
+        contraction to the fused op's required 2D-multicast program contract.  A
+        passing result is a 704-wide shard per rank; the four shards compose the
+        2816-wide residual without restoring the replicated all-reduce contract.
+        """
+        if os.getenv("GEMMA4_MULTICHIP_FUSED_RS_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FUSED_RS_REPRO=1 for the serialized fused-RS hardware repro")
+        from tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter import run_reduce_scatter_impl
+
+        if tuple(mesh_device.shape) != (1, TP_SIZE):
+            pytest.skip(f"requires target 1x{TP_SIZE} mesh, got {tuple(mesh_device.shape)}")
+        assert HIDDEN_SIZE % TP_SIZE == 0
+        assert global_k % (TP_SIZE * 32) == 0
+&gt;       run_reduce_scatter_impl(
+            mesh_device=mesh_device,
+            num_devices=TP_SIZE,
+            rs_input_shape=[1, 1, 32, global_k],
+            mm_shard_dim=2,
+            rs_scatter_dim=3,
+            num_links=2,
+            mm_weights_shape=[1, 1, global_k, HIDDEN_SIZE],
+            rs_input_dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            matmul_weights_dtype=ttnn.bfloat8_b,
+            max_in0_block_w=max_in0_block_w,
+            use_bias=False,
+            mem_config_input=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_rs=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+            rs_topology=ttnn.Topology.Ring,
+            use_non_fused=False,
+            num_iters=1,
+            enable_trace=False,
+            matmul_core_grid=matmul_core_grid,
+        )
+E       TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:163: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fused_matmul_reduce_scatter_exact_shape_repro[blackhole-expert_down_k768-mesh_device0-device_params0]" time="0.362"><properties><property name="start_timestamp" value="2026-09-05T15:03:53" /><property name="end_timestamp" value="2026-09-05T15:03:54" /></properties><failure message="TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'">mesh_device = MeshDevice(1x4 grid, 4 devices), role = 'expert_down'
+global_k = 768, matmul_core_grid = (11, 6), max_in0_block_w = 2
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize(
+        "role,global_k,matmul_core_grid,max_in0_block_w",
+        [
+            pytest.param("sliding_o", 4096, (11, 6), 4, id="sliding_o_k4096"),
+            pytest.param("full_o", 8192, (11, 6), 8, id="full_o_k8192"),
+            pytest.param("dense_down", PADDED_MLP_INTERMEDIATE_SIZE, (11, 6), 2, id="dense_down_k2176"),
+            pytest.param("expert_down", PADDED_MOE_INTERMEDIATE_SIZE, (11, 6), 2, id="expert_down_k768"),
+        ],
+    )
+    def test_tp4_fused_matmul_reduce_scatter_exact_shape_repro(
+        mesh_device, role, global_k, matmul_core_grid, max_in0_block_w
+    ):
+        """Shape-faithful repro for the fractured-residual producer boundary.
+
+        This is opt-in because it installs a sub-device manager and exercises an
+        experimental async CCL.  It deliberately adapts every row-parallel Gemma
+        contraction to the fused op's required 2D-multicast program contract.  A
+        passing result is a 704-wide shard per rank; the four shards compose the
+        2816-wide residual without restoring the replicated all-reduce contract.
+        """
+        if os.getenv("GEMMA4_MULTICHIP_FUSED_RS_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FUSED_RS_REPRO=1 for the serialized fused-RS hardware repro")
+        from tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter import run_reduce_scatter_impl
+
+        if tuple(mesh_device.shape) != (1, TP_SIZE):
+            pytest.skip(f"requires target 1x{TP_SIZE} mesh, got {tuple(mesh_device.shape)}")
+        assert HIDDEN_SIZE % TP_SIZE == 0
+        assert global_k % (TP_SIZE * 32) == 0
+&gt;       run_reduce_scatter_impl(
+            mesh_device=mesh_device,
+            num_devices=TP_SIZE,
+            rs_input_shape=[1, 1, 32, global_k],
+            mm_shard_dim=2,
+            rs_scatter_dim=3,
+            num_links=2,
+            mm_weights_shape=[1, 1, global_k, HIDDEN_SIZE],
+            rs_input_dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            matmul_weights_dtype=ttnn.bfloat8_b,
+            max_in0_block_w=max_in0_block_w,
+            use_bias=False,
+            mem_config_input=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_rs=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+            rs_topology=ttnn.Topology.Ring,
+            use_non_fused=False,
+            num_iters=1,
+            enable_trace=False,
+            matmul_core_grid=matmul_core_grid,
+        )
+E       TypeError: run_reduce_scatter_impl() got an unexpected keyword argument 'matmul_core_grid'
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:163: TypeError</failure></testcase></testsuite></testsuites>

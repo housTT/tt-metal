@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="33.418" timestamp="2026-09-05T15:46:07.590162+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_proxy_profiles_match_optimized_single_chip[blackhole-sliding_attention-p150_proxy-mesh_device0-device_params0]" time="32.518"><properties><property name="start_timestamp" value="2026-09-05T15:46:08" /><property name="end_timestamp" value="2026-09-05T15:46:41" /></properties><error message="failed on setup with &quot;RuntimeError: Sysmem mapped at unexpected NOC address (likely a stale process holding sysmem); proceeding could lead to undefined behavior&#10;Location: /home/hous/dev/tt-metal/tt_metal/third_party/umd/device/chip_helpers/silicon_sysmem_manager.cpp:417&#10; 1. tt::umd::SiliconSysmemManager::pin_or_map_sysmem_to_device()&#10; 2. tt::umd::LocalChip::start_device(unsigned int)&#10; 3. tt::umd::Cluster::start_device(tt::umd::DeviceParams const&amp;)&#10; 4. tt::Cluster::start_driver(tt::umd::DeviceParams&amp;) const&#10; 5. tt::Cluster::initialize_device_drivers()&#10; 6. tt::Cluster::Cluster(tt::llrt::RunTimeOptions&amp;)&#10; 7. tt::tt_metal::MetalEnvImpl::initialize_base_objects()&#10; 8. tt::tt_metal::MetalEnvImpl::MetalEnvImpl(tt::tt_metal::MetalEnvDescriptor)&#10; 9. std::__detail::_MakeUniq&lt;tt::tt_metal::MetalEnvImpl&gt;::__single_object std::make_unique&lt;tt::tt_metal::MetalEnvImpl, tt::tt_metal::MetalEnvDescriptor&gt;(tt::tt_metal::MetalEnvDescriptor&amp;&amp;)&#10;10. tt::tt_metal::MetalEnv::MetalEnv(tt::tt_metal::MetalEnvDescriptor)&#10;11. tt::tt_metal::MetalContext::create_default_instance_implicit_locked()&#10;12. tt::tt_metal::MetalContext::instance(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;)&#10;13. tt::tt_metal::GetNumPCIeDevices()&#10;14. /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x63aab4) [0x737251a3aab4]&#10;15. /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667d3f) [0x737251a67d3f]&#10;16. _PyEval_EvalFrameDefault&#10;17. _PyEval_EvalFrameDefault&#10;18. _PyEval_EvalFrameDefault&#10;19. _PyEval_EvalFrameDefault&#10;20. _PyEval_EvalFrameDefault&#10;21. _PyEval_EvalFrameDefault&#10;22. _PyEval_EvalFrameDefault&#10;23. PyEval_EvalCode&#10;24. _PyEval_EvalFrameDefault&#10;25. Py_RunMain&#10;26. /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73729842a1ca]&#10;27. __libc_start_main&#10;28. _start&quot;">request = &lt;SubRequest 'mesh_device' for &lt;Function test_proxy_profiles_match_optimized_single_chip[blackhole-sliding_attention-p150_proxy-mesh_device0-device_params0]&gt;&gt;
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+
+&gt;       request.node.pci_ids = ttnn.get_pcie_device_ids()
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+conftest.py:572:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+ttnn/ttnn/distributed/distributed.py:635: in get_pcie_device_ids
+    num_pcie_devices = get_num_pcie_devices()
+                       ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def get_num_pcie_devices() -&gt; int:
+&gt;       return ttnn._ttnn.device.GetNumPCIeDevices()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       RuntimeError: Sysmem mapped at unexpected NOC address (likely a stale process holding sysmem); proceeding could lead to undefined behavior
+E       Location: /home/hous/dev/tt-metal/tt_metal/third_party/umd/device/chip_helpers/silicon_sysmem_manager.cpp:417
+E        1. tt::umd::SiliconSysmemManager::pin_or_map_sysmem_to_device()
+E        2. tt::umd::LocalChip::start_device(unsigned int)
+E        3. tt::umd::Cluster::start_device(tt::umd::DeviceParams const&amp;)
+E        4. tt::Cluster::start_driver(tt::umd::DeviceParams&amp;) const
+E        5. tt::Cluster::initialize_device_drivers()
+E        6. tt::Cluster::Cluster(tt::llrt::RunTimeOptions&amp;)
+E        7. tt::tt_metal::MetalEnvImpl::initialize_base_objects()
+E        8. tt::tt_metal::MetalEnvImpl::MetalEnvImpl(tt::tt_metal::MetalEnvDescriptor)
+E        9. std::__detail::_MakeUniq&lt;tt::tt_metal::MetalEnvImpl&gt;::__single_object std::make_unique&lt;tt::tt_metal::MetalEnvImpl, tt::tt_metal::MetalEnvDescriptor&gt;(tt::tt_metal::MetalEnvDescriptor&amp;&amp;)
+E       10. tt::tt_metal::MetalEnv::MetalEnv(tt::tt_metal::MetalEnvDescriptor)
+E       11. tt::tt_metal::MetalContext::create_default_instance_implicit_locked()
+E       12. tt::tt_metal::MetalContext::instance(ttsl::StrongType&lt;int, tt::tt_metal::ContextIdTag&gt;)
+E       13. tt::tt_metal::GetNumPCIeDevices()
+E       14. /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x63aab4) [0x737251a3aab4]
+E       15. /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667d3f) [0x737251a67d3f]
+E       16. _PyEval_EvalFrameDefault
+E       17. _PyEval_EvalFrameDefault
+E       18. _PyEval_EvalFrameDefault
+E       19. _PyEval_EvalFrameDefault
+E       20. _PyEval_EvalFrameDefault
+E       21. _PyEval_EvalFrameDefault
+E       22. _PyEval_EvalFrameDefault
+E       23. PyEval_EvalCode
+E       24. _PyEval_EvalFrameDefault
+E       25. Py_RunMain
+E       26. /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x73729842a1ca]
+E       27. __libc_start_main
+E       28. _start
+
+ttnn/ttnn/distributed/distributed.py:631: RuntimeError</error></testcase></testsuite></testsuites>

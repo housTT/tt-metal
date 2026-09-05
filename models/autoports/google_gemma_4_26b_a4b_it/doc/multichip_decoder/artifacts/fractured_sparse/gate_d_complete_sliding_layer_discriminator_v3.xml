@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="13.708" timestamp="2026-09-05T21:23:07.943007+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fractured_complete_sliding_layer[blackhole-mesh_device0-device_params0]" time="12.749"><properties><property name="start_timestamp" value="2026-09-05T21:23:08" /><property name="end_timestamp" value="2026-09-05T21:23:21" /></properties><failure message="RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/data_movement/reshape_view/reshape_common.cpp:50: new_volume == old_volume&#10;info:&#10;Invalid arguments to reshape&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7842bcc78439]&#10; --- ttnn::operations::data_movement::detail::infer_dims_for_reshape(ttnn::Tensor const&amp;, std::span&lt;int const, 18446744073709551615ul&gt;)&#10; --- ttnn::reshape(ttnn::Tensor const&amp;, std::span&lt;int const, 18446744073709551615ul&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;std::variant&lt;unsigned int, float&gt; &gt; const&amp;, ttnn::TileReshapeMapMode, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;, bool)&#10; --- ttnn::operations::data_movement::detail::reshape_shape_vector_wrapper(ttnn::Tensor const&amp;, ttsl::SmallVector&lt;int, 8ul&gt; const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;std::variant&lt;unsigned int, float&gt; &gt; const&amp;, ttnn::TileReshapeMapMode, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;, bool)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x578c6c) [0x7842bf778c6c]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7842bf867a44]&#10; --- python_env/bin/python(_PyObject_Call_Prepend+0xa0) [0x18cb72e]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python(_PyObject_Call_Prepend+0xa0) [0x18cb72e]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x78430622a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x78430622a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 134217728}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x784266b316a0&gt;
+
+    @pytest.mark.timeout(1200)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 128 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    def test_tp4_fractured_complete_sliding_layer(mesh_device, device_params, monkeypatch):
+        """Compare one complete fractured sliding layer with the incumbent TP4 path."""
+
+        if os.getenv("GEMMA4_MULTICHIP_FRACTURED_LAYER_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FRACTURED_LAYER_REPRO=1 for the serialized whole-layer repro")
+
+        import hashlib
+
+        import torch
+
+        from ttnn import ConcatMeshToTensor, ReplicateTensorToMesh, ShardTensorToMesh
+
+        assert ttnn.CONFIG.throw_exception_on_fallback
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        monkeypatch.setenv("GEMMA4_MULTICHIP_FRACTURED_RESIDUAL_CANDIDATE", "1")
+        cfg = functional_tests._load_text_config()
+        _, seq_len, _, decode_hidden, host_rope = _tp4_stacked_inputs_and_rope(cfg)
+        state = functional_tests._load_layer_state(0)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=0, mesh_device=mesh_device)
+        assert decoder.layer_kind is SLIDING_KIND
+        baseline_call = _tp4_stacked_layer_calls(
+            mesh_device,
+            [decoder],
+            (0,),
+            seq_len,
+            host_rope,
+            local_cache=True,
+        )[
+            0
+        ]["decode"]
+        candidate_call = _tp4_stacked_layer_calls(
+            mesh_device,
+            [decoder],
+            (0,),
+            seq_len,
+            host_rope,
+            local_cache=True,
+        )[
+            0
+        ]["decode"]
+        baseline_input = ttnn.from_torch(
+            decode_hidden.unsqueeze(1),
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ReplicateTensorToMesh(mesh_device),
+        )
+        candidate_input = ttnn.from_torch(
+            decode_hidden.unsqueeze(1),
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ShardTensorToMesh(mesh_device, dim=3),
+        )
+
+        # Compile both persistent paths before either capture.
+        decoder.decode_forward(hidden_states=baseline_input, **baseline_call)
+&gt;       decoder.decode_forward_fractured(candidate_input, **candidate_call)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:3902:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1940: in decode_forward_fractured
+    routing_weights = self._fractured_router_weights(shared_ffn_in)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:2052: in _fractured_router_weights
+    token = ttnn.reshape(normalized, (1, local_hidden))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.reshape', function=&lt;ttnn._ttnn.operations.data_movement.reshape_t obje...&lt;function default_postprocess_golden_function_outputs at 0x78426cdc7560&gt;, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-1.4941e-01, -1.1182e-01,  ...,  5.5664e-02,  1.0986e-01],
+     ...,  7.8125e-02, -1.4375e+00]]]], shape=Shape([1, 1, 32, 704]), dtype=DataType::BFLOAT16, layout=Layout::TILE), (1, 704))
+function_kwargs = {}, cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/data_movement/reshape_view/reshape_common.cpp:50: new_volume == old_volume
+E               info:
+E               Invalid arguments to reshape
+E               backtrace:
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7842bcc78439]
+E                --- ttnn::operations::data_movement::detail::infer_dims_for_reshape(ttnn::Tensor const&amp;, std::span&lt;int const, 18446744073709551615ul&gt;)
+E                --- ttnn::reshape(ttnn::Tensor const&amp;, std::span&lt;int const, 18446744073709551615ul&gt;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;std::variant&lt;unsigned int, float&gt; &gt; const&amp;, ttnn::TileReshapeMapMode, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;, bool)
+E                --- ttnn::operations::data_movement::detail::reshape_shape_vector_wrapper(ttnn::Tensor const&amp;, ttsl::SmallVector&lt;int, 8ul&gt; const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;std::variant&lt;unsigned int, float&gt; &gt; const&amp;, ttnn::TileReshapeMapMode, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;, bool)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x578c6c) [0x7842bf778c6c]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7842bf867a44]
+E                --- python_env/bin/python(_PyObject_Call_Prepend+0xa0) [0x18cb72e]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python(_PyObject_Call_Prepend+0xa0) [0x18cb72e]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x18122ac]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E                --- python_env/bin/python() [0x18b1b4c]
+E                --- python_env/bin/python() [0x180874f]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E                --- python_env/bin/python() [0x1985162]
+E                --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E                --- python_env/bin/python() [0x19846df]
+E                --- python_env/bin/python() [0x19844ec]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x78430622a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x78430622a28b]
+E                --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

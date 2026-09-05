@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "purpose": "Separate final selected-policy evidence from superseded and deliberately failing diagnostic runs.",
+  "final_source": {
+    "path": "../../tt/multichip_decoder.py",
+    "sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+    "note": "The TP4 profiler captures use SHA256 34225bd3fa03639ecbc9311264e420d7a70c99772e6991f339cbe7107dca6f76. Later changes format one assignment, add the TP1 full-stack capacity guard, and disable the retained TP2 packed-expert copy; none changes the profiled TP4 hot path. Corrected TP1 boundary probes and final TP1/TP2 warmed traces ran on this exact hash."
+  },
+  "final_test": {
+    "path": "../../tests/test_multichip_decoder.py",
+    "sha256": "9634ba5e5440096d1565f890b0731e5b488a9d74672607e0f9dd8dc7032f26b4",
+    "note": "The final test adds exact B32 metadata, strict TP2/TP4 same-input and chained stack gates, all-profile warmed timing, conservative capacity identities, real-weight BFP4 trials, and reproducible fractured-residual decision probes. Gate D now uses non-overlapping trace lifetimes, release-before-readback, 5 warmups, 30 individual samples with median/p95, and a fresh 20-replay stress trace. Hardware artifacts preserve their actual test hash at each run. Warmed TP1/TP2 traces bind to 9125621e...; TP4 stack binds to 5bd55e72...; BFP4 trials bind to 72adec37.... Corrected capacity JSONs preserve their earlier test hash 4db642db... and final measured decoder hash 7279e13a...."
+  },
+  "selected_junit": {
+    "direct_and_stacked_selected_final.xml": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final TP1/TP2/TP4 direct optimized-baseline gates and TP2 two-layer shared-CCL trace"
+    },
+    "hf_oracle_selected_final.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final TP4 sliding/full independent HF oracle"
+    },
+    "batch32_selected_final.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final TP4 sliding/full B32 PCC, trace determinism, and latency"
+    },
+    "trace_selected_final.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final TP4 sliding/full non-aligned prefill and S33 decode trace"
+    },
+    "context_cache_selected_final.xml": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final-position trace, 262143-token prefill capacity, and bounded modulo cache-tail integrity"
+    },
+    "watcher_selected_final.xml": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "covers": "formatted-source TP4 direct and trace gates with Tensix watcher enabled and ETH watcher disabled"
+    },
+    "final_profiles_after_capacity.xml": {
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final no-packed TP2 direct/HF/stacked policy plus TP1/TP2 direct and warmed trace gates"
+    },
+    "warmed_required_profiles_final.xml": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "covers": "frozen-final-source TP1/TP2 sliding/full warmed S33 trace replay"
+    },
+    "p150_prefill_capacity_50623.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "largest tight nonaligned TP1 full-stack context contract, both layer kinds"
+    },
+    "p150_prefill_capacity_50624.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "largest aligned TP1 full-stack context contract, both layer kinds"
+    },
+    "watcher_final_capacity_policy.xml": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "covers": "TP1/TP2/TP4 direct and TP4 nonaligned trace gates with Tensix watcher enabled and ETH watcher disabled"
+    },
+    "unfused_fractured_chain.xml": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "covers": "all exact row-producer shapes through unfused reduce-scatter, distributed norm, and AGMM"
+    },
+    "fused_agmm_qkv_corrected.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "corrected model-exact sliding N8192 and TP4 full physical N12288 fractured consumers"
+    },
+    "profiler_sliding_b1_final_selected.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final selected TP4 sliding S1024 B1 profiler capture"
+    },
+    "profiler_full_b1_final_selected.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final selected TP4 full S1024 B1 profiler capture"
+    },
+    "stacked_tp4_reference_capture.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "optimized one-chip two-layer oracle captured separately from the four-chip target"
+    },
+    "stacked_tp4_mixed_trace.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "TP4 R22 sliding to R0 full mixed stack, shared CCL resources, local cache/control layouts, and 20 trace replays"
+    },
+    "bfp4_attention_selected.xml": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "covers": "selected TP4 attention precision control accompanying independently rejected real-weight BFP4 candidates"
+    },
+    "fractured_sparse/gate_a_contract.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "indexed top-8 K-fractured sparse expert legality and exact-shape correctness"
+    },
+    "fractured_sparse/gate_b_kshard_qkv_rs.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "persistent dynamic expert to K-sharded next-QKV chain, changed routes, and 100 replay stress"
+    },
+    "fractured_sparse/gate_b_kshard_qkv_rs_profiler.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "separate profiler capture for fractured candidate versus incumbent micro-chain"
+    },
+    "fractured_sparse/gate_b_kshard_qkv_rs_watcher.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "separate watcher-clean fractured dynamic-expert/next-QKV chain"
+    },
+    "fractured_sparse/gate_c_product_boundary_eager_trace.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "temporary product-shaped dynamic expert, distributed norm, and next full-QKV boundary"
+    },
+    "fractured_sparse/gate_c_product_boundary_watcher.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "watcher-clean temporary product-shaped fractured boundary"
+    },
+    "fractured_sparse/gate_d_complete_sliding_layer_discriminator_v6.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "warning-clean complete real-weight paged fractured sliding layer with 5 warmups, 30 individual median/p95 samples per path, and a 20-replay fresh-trace stress endpoint; its 29.47% median loss rejects the topology"
+    },
+    "fractured_sparse/incumbent_restored_sliding_trace.xml": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "covers": "final restored-source selected TP4 sliding S33 warmed trace reproduction"
+    }
+  },
+  "selected_machine_data": [
+    "pcc_tp1_layer0.json",
+    "pcc_tp1_layer5.json",
+    "pcc_tp2_layer0.json",
+    "pcc_tp2_layer5.json",
+    "pcc_tp4_layer0.json",
+    "pcc_tp4_layer5.json",
+    "trace_sliding_attention_batch1.json",
+    "trace_full_attention_batch1.json",
+    "trace_tp1_sliding_attention_batch1.json",
+    "trace_tp1_full_attention_batch1.json",
+    "trace_tp2_sliding_attention_batch1.json",
+    "trace_tp2_full_attention_batch1.json",
+    "multichip_batch32_layer0.json",
+    "multichip_batch32_layer5.json",
+    "stacked_tp2_mixed_trace.json",
+    "advertised_context_decode_sliding_attention.json",
+    "advertised_context_decode_full_attention.json",
+    "prefill_capacity_sliding_attention_262143.json",
+    "prefill_capacity_full_attention_262143.json",
+    "prefill_capacity_sliding_attention_50623.json",
+    "prefill_capacity_full_attention_50623.json",
+    "prefill_capacity_sliding_attention_50624.json",
+    "prefill_capacity_full_attention_50624.json",
+    "tp2_hf_oracle/",
+    "stacked_tp4_mixed_trace.json",
+    "stacked_tp4_optimized_reference.pt.gz",
+    "bfp4_attention_summary.json",
+    "bfp4_attention_selected_layer0.json",
+    "bfp4_attention_selected_layer5.json",
+    "bfp4_attention_qkv_bfp4_layer0.json",
+    "bfp4_attention_qkv_bfp4_layer5.json",
+    "bfp4_attention_o_proj_bfp4_layer0.json",
+    "bfp4_attention_o_proj_bfp4_layer5.json",
+    "fractured_sparse/gate_a_contract.json",
+    "fractured_sparse/gate_b_trace_perf.json",
+    "fractured_sparse/gate_c_product_boundary_product_eager_trace.json",
+    "fractured_sparse/gate_c_product_boundary_product_watcher.json",
+    "fractured_sparse/gate_d_complete_sliding_layer_layer_discriminator_v6.json",
+    "fractured_sparse/rejected_fractured_gate_c_candidate.patch",
+    "fractured_sparse/rejected_fractured_gate_c_d_candidate.patch",
+    "fractured_sparse/tt_perf_report/accounting.csv",
+    "fractured_sparse/tt_perf_report/provenance.json",
+    "trace_sliding_attention_batch1_fractured_rejection_restored.json"
+  ],
+  "superseded_or_expected_failure": {
+    "pcc_tp4_final.xml": "superseded candidate; contains the earlier TP4/full B32-related policy failure",
+    "batch32_selected.xml": "superseded combined candidate; contains one failure before the TP4/full exception was selected",
+    "final_context_hf_selected.xml": "superseded pre-AutoFix aggregate; contains the diagnosed TP4/sliding HF miss and four skipped opt-in context probes",
+    "trace_dram_workers2.xml": "expected candidate failure proving the inherited multi-reader primitive rejects a multi-device MeshDevice",
+    "trace_dram_workers3.xml": "expected candidate failure proving the inherited multi-reader primitive rejects a multi-device MeshDevice",
+    "watcher_active_eth_overflow.xml": "expected environment limitation: active-ETH watcher firmware exceeds available ERISC code space",
+    "p150_prefill_capacity_53343.xml": "passing shape probe superseded as a capacity boundary after accounting for the concurrently live MoE concat output",
+    "p150_prefill_capacity_53344.xml": "passing shape probe superseded as a capacity boundary after accounting for the concurrently live MoE concat output",
+    "tp2_hf_same_input_stacked_final.xml": "passing pre-capacity-policy oracle superseded by final_profiles_after_capacity.xml after TP2 packed retention was disabled",
+    "hf_candidates/": "isolated AutoFix candidates; includes both refuted and passing diagnostic runs and is not selected evidence",
+    "bfp4_attention_qkv_control.xml": "expected candidate failure: sliding QKV DRAM topology control misses PCC before lowering precision",
+    "bfp4_attention_qkv_bfp4.xml": "expected candidate failures: real-weight BFP4 QKV misses PCC for both layer kinds",
+    "bfp4_attention_o_proj_bfp4.xml": "expected candidate failure: real-weight BFP4 sliding O misses PCC; full O passes but has no robust speed signal",
+    "fractured_sparse/gate_b_dynamic_discriminator.xml": "expected diagnostic failure that localized changed-route refresh to per-rank host writes",
+    "fractured_sparse/gate_d_complete_sliding_layer_discriminator.xml": "expected Gate-D setup failure before rotary head-memory correction",
+    "fractured_sparse/gate_d_complete_sliding_layer_discriminator_v2.xml": "expected Gate-D setup failure before dense-down K-block correction",
+    "fractured_sparse/gate_d_complete_sliding_layer_discriminator_v3.xml": "expected Gate-D setup failure before distributed-norm logical-row correction",
+    "fractured_sparse/gate_d_complete_sliding_layer_discriminator_v4.xml": "expected Gate-D setup failure before conditional expert-row padding correction",
+    "fractured_sparse/gate_d_complete_sliding_layer_discriminator_v5.xml": "passing but superseded Gate-D evidence: readback occurred while captured traces remained live and timing used only 1 warmup/2 aggregate iterations",
+    "fractured_sparse/gate_d_complete_sliding_layer_layer_discriminator_v5.json": "passing but superseded by warning-clean 5/30 individual-sample Gate-D v6 evidence"
+  }
+}

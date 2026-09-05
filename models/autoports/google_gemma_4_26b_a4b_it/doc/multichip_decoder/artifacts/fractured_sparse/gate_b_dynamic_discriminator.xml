@@ -1,0 +1,935 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="7.429" timestamp="2026-09-05T20:42:35.651916+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fractured_indexed_sparse_expert_contract[blackhole-mesh_device0-device_params0]" time="6.462"><properties><property name="start_timestamp" value="2026-09-05T20:42:36" /><property name="end_timestamp" value="2026-09-05T20:42:43" /></properties><failure message="AssertionError: refreshed hidden PCC=0.278303615829109&#10;assert False">mesh_device = MeshDevice(1x4 grid, 4 devices)
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    def test_tp4_fractured_indexed_sparse_expert_contract(mesh_device):
+        """Exercise the exact TP4 K-fractured dynamic top-8 expert shapes.
+
+        The selected decoder keeps gate/up N-sharded, which requires a replicated
+        H=2816 input.  This opt-in experiment instead K-shards the real gate/up
+        weights, uses indexed sparse output, reduce-scatters the packed I=768
+        dimension, and consumes the resulting local I=192 with the existing
+        K-sharded down weights.  It is intentionally test-only until the complete
+        traced chain has both correctness and latency evidence.
+        """
+        if os.getenv("GEMMA4_MULTICHIP_FRACTURED_SPARSE_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FRACTURED_SPARSE_REPRO=1 for the serialized hardware repro")
+
+        import hashlib
+
+        import torch
+        import torch.nn.functional as F
+
+        from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
+            MOE_INTERMEDIATE_SIZE,
+            NUM_EXPERTS,
+            TOP_K_EXPERTS,
+        )
+        from ttnn import ConcatMeshToTensor, ReplicateTensorToMesh, ShardTensorToMesh
+
+        if tuple(mesh_device.shape) != (1, TP_SIZE):
+            pytest.skip(f"requires target 1x{TP_SIZE} mesh, got {tuple(mesh_device.shape)}")
+        assert ttnn.CONFIG.throw_exception_on_fallback, "run this contract repro with fallback-throw enabled"
+
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(0)
+        prefix = "model.language_model.layers.0."
+        gate_up = state[prefix + "experts.gate_up_proj"]
+        gate = _pad_last(
+            gate_up[:, :MOE_INTERMEDIATE_SIZE, :].transpose(-2, -1).contiguous(),
+            PADDED_MOE_INTERMEDIATE_SIZE,
+        )
+        up = _pad_last(
+            gate_up[:, MOE_INTERMEDIATE_SIZE:, :].transpose(-2, -1).contiguous(),
+            PADDED_MOE_INTERMEDIATE_SIZE,
+        )
+        down = _pad_penultimate(
+            state[prefix + "experts.down_proj"].transpose(-2, -1).contiguous(),
+            PADDED_MOE_INTERMEDIATE_SIZE,
+        )
+        # Arrange packed N as [up_rank, gate_rank] for every rank.  One RS over N
+        # then gives each rank both local operands needed by GeGLU.
+        packed_gate_up = _packed_expert_gate_up_mesh_source(gate, up, TP_SIZE)
+        down = down.unsqueeze(0)
+        q = state[prefix + "self_attn.q_proj.weight"].transpose(-2, -1).contiguous()
+        k = state[prefix + "self_attn.k_proj.weight"].transpose(-2, -1).contiguous()
+        v = state[prefix + "self_attn.v_proj.weight"].transpose(-2, -1).contiguous()
+        q_shards = q.chunk(TP_SIZE, dim=-1)
+        k_shards = k.chunk(TP_SIZE, dim=-1)
+        v_shards = v.chunk(TP_SIZE, dim=-1)
+        qkv = (
+            torch.cat(
+                [torch.cat((q_shards[rank], k_shards[rank], v_shards[rank]), dim=-1) for rank in range(TP_SIZE)],
+                dim=-1,
+            )
+            .unsqueeze(0)
+            .unsqueeze(0)
+        )
+        assert qkv.shape[-1] == SLIDING_KIND.qkv_width
+        norm_gamma = state[prefix + "input_layernorm.weight"].to(torch.bfloat16)
+
+        torch.manual_seed(2718)
+        hidden = torch.zeros((1, 1, 32, HIDDEN_SIZE), dtype=torch.bfloat16)
+        hidden[..., 0, :] = torch.randn((HIDDEN_SIZE,), dtype=torch.bfloat16)
+        router_scale = state[prefix + "router.scale"].float()
+        router_proj = state[prefix + "router.proj.weight"].float()
+        router_per_expert_scale = state[prefix + "router.per_expert_scale"].float()
+        router_in = hidden[..., 0, :].float()
+        router_in = router_in * torch.rsqrt(router_in.pow(2).mean(dim=-1, keepdim=True) + cfg.rms_norm_eps)
+        router_in = router_in * router_scale * (HIDDEN_SIZE**-0.5)
+        router_logits = torch.matmul(router_in, router_proj.transpose(-2, -1))
+        top_values, top_indices = torch.topk(router_logits, TOP_K_EXPERTS, dim=-1, sorted=True)
+        top_scores = torch.softmax(top_values, dim=-1) * router_per_expert_scale[top_indices]
+        active_ids = top_indices.reshape(-1).tolist()
+        assert len(set(active_ids)) == TOP_K_EXPERTS
+        assert active_ids != sorted(active_ids), "the indexed repro must exercise a non-monotonic dynamic route"
+
+        routing = torch.zeros((1, 1, 1, NUM_EXPERTS), dtype=torch.bfloat16)
+        routing[..., active_ids] = top_scores.to(torch.bfloat16)
+        indices = top_indices.to(torch.int32).reshape(1, 1, 1, TOP_K_EXPERTS)
+        compact_scores = torch.zeros((1, TOP_K_EXPERTS, 32, 1), dtype=torch.bfloat16)
+        compact_scores[:, :, 0, 0] = top_scores.to(torch.bfloat16)
+
+        torch.manual_seed(2719)
+        hidden_b = torch.zeros_like(hidden)
+        hidden_b[..., 0, :] = torch.randn((HIDDEN_SIZE,), dtype=torch.bfloat16)
+        router_in_b = hidden_b[..., 0, :].float()
+        router_in_b = router_in_b * torch.rsqrt(router_in_b.pow(2).mean(dim=-1, keepdim=True) + cfg.rms_norm_eps)
+        router_in_b = router_in_b * router_scale * (HIDDEN_SIZE**-0.5)
+        router_logits_b = torch.matmul(router_in_b, router_proj.transpose(-2, -1))
+        top_values_b, top_indices_b = torch.topk(router_logits_b, TOP_K_EXPERTS, dim=-1, sorted=True)
+        top_scores_b = torch.softmax(top_values_b, dim=-1) * router_per_expert_scale[top_indices_b]
+        active_ids_b = top_indices_b.reshape(-1).tolist()
+        assert active_ids_b != active_ids
+        routing_b = torch.zeros_like(routing)
+        routing_b[..., active_ids_b] = top_scores_b.to(torch.bfloat16)
+        indices_b = top_indices_b.to(torch.int32).reshape(1, 1, 1, TOP_K_EXPERTS)
+        compact_scores_b = torch.zeros_like(compact_scores)
+        compact_scores_b[:, :, 0, 0] = top_scores_b.to(torch.bfloat16)
+
+        hidden_tt = ttnn.from_torch(
+            hidden,
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ShardTensorToMesh(mesh_device, dim=3),
+        )
+        packed_weight_tt = ttnn.from_torch(
+            packed_gate_up,
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat8_b,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ShardTensorToMesh(mesh_device, dim=2),
+        )
+        down_weight_tt = ttnn.from_torch(
+            down,
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat8_b,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ShardTensorToMesh(mesh_device, dim=2),
+        )
+        routing_tt = ttnn.from_torch(
+            routing,
+            device=mesh_device,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ReplicateTensorToMesh(mesh_device),
+        )
+        indices_tt = ttnn.from_torch(
+            indices,
+            device=mesh_device,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.uint16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ReplicateTensorToMesh(mesh_device),
+        )
+        compact_scores_tt = ttnn.from_torch(
+            compact_scores,
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ReplicateTensorToMesh(mesh_device),
+        )
+        qkv_weight_tt = ttnn.from_torch(
+            qkv,
+            device=mesh_device,
+            layout=ttnn.TILE_LAYOUT,
+            dtype=ttnn.bfloat8_b,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ShardTensorToMesh(mesh_device, dim=3),
+        )
+        norm_gamma_tt = ttnn.from_torch(
+            norm_gamma.reshape(TP_SIZE, 1, HIDDEN_SIZE // TP_SIZE // 32, 32),
+            device=mesh_device,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ShardTensorToMesh(mesh_device, dim=0),
+        )
+
+        compute_grid = mesh_device.compute_with_storage_grid_size()
+        worker_cores = ttnn.CoreRangeSet(
+            {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(compute_grid.x - 1, compute_grid.y - 1))}
+        )
+        worker_sub_device_id = ttnn.SubDeviceId(0)
+        manager = mesh_device.create_sub_device_manager([ttnn.SubDevice([worker_cores])], 0)
+        mesh_device.load_sub_device_manager(manager)
+        mesh_device.set_sub_device_stall_group([worker_sub_device_id])
+        packed_rs_semaphores = [ttnn.create_global_semaphore(mesh_device, worker_cores, 0) for _ in range(3)]
+        down_rs_semaphores = [ttnn.create_global_semaphore(mesh_device, worker_cores, 0) for _ in range(3)]
+        norm_semaphores = [ttnn.create_global_semaphore(mesh_device, worker_cores, 0) for _ in range(2)]
+        qkv_semaphores = [ttnn.create_global_semaphore(mesh_device, worker_cores, 0) for _ in range(3)]
+        compute_kernel_config = ttnn.WormholeComputeKernelConfig(
+            math_fidelity=ttnn.MathFidelity.HiFi4,
+            math_approx_mode=False,
+            fp32_dest_acc_en=True,
+            packer_l1_acc=True,
+        )
+        packed_config = _optimized_sparse_decode_config(
+            mesh_device,
+            n=2 * PADDED_MOE_INTERMEDIATE_SIZE,
+            per_core_n=2,
+            in0_block_w=11,
+            out_subblock_w=2,
+        )
+        down_config = _optimized_sparse_decode_config(
+            mesh_device,
+            n=HIDDEN_SIZE,
+            per_core_n=2,
+            in0_block_w=6,
+            out_subblock_w=2,
+        )
+        local_qkv_tiles = SLIDING_KIND.qkv_width // TP_SIZE // 32
+        qkv_grid_x = min(11, local_qkv_tiles)
+        qkv_config = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+            compute_with_storage_grid_size=(qkv_grid_x, 4),
+            in0_block_w=1,
+            out_subblock_h=1,
+            out_subblock_w=1,
+            per_core_M=1,
+            per_core_N=(local_qkv_tiles + qkv_grid_x - 1) // qkv_grid_x,
+            fuse_batch=True,
+            fused_activation=None,
+            mcast_in0=True,
+        )
+
+        try:
+            packed_partial_tt = ttnn.sparse_matmul(
+                hidden_tt,
+                packed_weight_tt,
+                sparsity=routing_tt,
+                indices=indices_tt,
+                is_input_a_sparse=False,
+                is_input_b_sparse=True,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                output_tile=ttnn.Tile([32, 32]),
+                program_config=packed_config,
+                dtype=ttnn.bfloat16,
+                compute_kernel_config=compute_kernel_config,
+            )
+            packed_partial_shapes = [list(shard.shape) for shard in ttnn.get_device_tensors(packed_partial_tt)]
+            assert packed_partial_shapes == [[1, 1, 1, TOP_K_EXPERTS, 32, 2 * PADDED_MOE_INTERMEDIATE_SIZE]] * TP_SIZE
+            # Sparse matmul preserves both operands' broadcast axes.  Production
+            # already canonicalizes this representation before consuming it; the
+            # reshape is metadata-only and does not gather the mesh-fractured K.
+            packed_partial_tt = ttnn.reshape(
+                packed_partial_tt,
+                (1, TOP_K_EXPERTS, 32, 2 * PADDED_MOE_INTERMEDIATE_SIZE),
+            )
+            packed_fractured_tt = ttnn.experimental.reduce_scatter_minimal_async(
+                packed_partial_tt,
+                persistent_output_buffers=None,
+                dim=3,
+                multi_device_global_semaphore=packed_rs_semaphores,
+                num_links=2,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                topology=ttnn.Topology.Ring,
+                subdevice_id=worker_sub_device_id,
+                cluster_axis=1,
+                compute_kernel_config=compute_kernel_config,
+            )
+            local_packed = 2 * PADDED_MOE_INTERMEDIATE_SIZE // TP_SIZE
+            local_intermediate = PADDED_MOE_INTERMEDIATE_SIZE // TP_SIZE
+            packed_fractured_shapes = [list(shard.shape) for shard in ttnn.get_device_tensors(packed_fractured_tt)]
+            assert packed_fractured_shapes == [[1, TOP_K_EXPERTS, 32, local_packed]] * TP_SIZE
+            up_local_tt = ttnn.slice(
+                packed_fractured_tt,
+                [0, 0, 0, 0],
+                [1, TOP_K_EXPERTS, 32, local_intermediate],
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            gate_local_tt = ttnn.slice(
+                packed_fractured_tt,
+                [0, 0, 0, local_intermediate],
+                [1, TOP_K_EXPERTS, 32, local_packed],
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            down_input_tt = ttnn.mul(
+                gate_local_tt,
+                up_local_tt,
+                input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 0.0)],
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            down_partial_tt = ttnn.sparse_matmul(
+                down_input_tt,
+                down_weight_tt,
+                sparsity=routing_tt,
+                indices=indices_tt,
+                is_input_a_sparse=True,
+                is_input_b_sparse=True,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                output_tile=ttnn.Tile([32, 32]),
+                program_config=down_config,
+                dtype=ttnn.bfloat16,
+                compute_kernel_config=compute_kernel_config,
+            )
+            down_partial_shapes = [list(shard.shape) for shard in ttnn.get_device_tensors(down_partial_tt)]
+            assert down_partial_shapes == [[1, TOP_K_EXPERTS, 32, HIDDEN_SIZE]] * TP_SIZE
+            weighted_tt = ttnn.mul(down_partial_tt, compact_scores_tt, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            down_summed_tt = ttnn.sum(weighted_tt, dim=1, keepdim=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            fractured_output_tt = ttnn.experimental.reduce_scatter_minimal_async(
+                down_summed_tt,
+                persistent_output_buffers=None,
+                dim=3,
+                multi_device_global_semaphore=down_rs_semaphores,
+                num_links=2,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                topology=ttnn.Topology.Ring,
+                subdevice_id=worker_sub_device_id,
+                cluster_axis=1,
+                compute_kernel_config=compute_kernel_config,
+            )
+            fractured_residual_tt = ttnn.add(
+                fractured_output_tt,
+                hidden_tt,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            local_stats_tt = ttnn.rms_norm_pre_all_gather(fractured_residual_tt, dtype=ttnn.bfloat16)
+            global_stats_tt = ttnn.experimental.all_gather_async(
+                local_stats_tt,
+                persistent_output_buffer=None,
+                dim=3,
+                multi_device_global_semaphore=norm_semaphores,
+                num_links=2,
+                topology=ttnn.Topology.Ring,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                subdevice_id=worker_sub_device_id,
+                cluster_axis=1,
+            )
+            normalized_tt = ttnn.rms_norm_post_all_gather(
+                fractured_residual_tt,
+                global_stats_tt,
+                epsilon=cfg.rms_norm_eps,
+                weight=norm_gamma_tt,
+            )
+            gathered_normalized_tt, qkv_output_tt = ttnn.experimental.all_gather_matmul_async(
+                normalized_tt,
+                qkv_weight_tt,
+                persistent_output_buffer=None,
+                dim=3,
+                multi_device_global_semaphore=qkv_semaphores,
+                all_gather_core_grid_offset=(0, 6),
+                num_links=2,
+                topology=ttnn.Topology.Ring,
+                subdevice_id=worker_sub_device_id,
+                memory_config_ag=ttnn.DRAM_MEMORY_CONFIG,
+                memory_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+                program_config=qkv_config,
+                compute_kernel_config=compute_kernel_config,
+            )
+            ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+
+            packed_actual_shards = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(packed_fractured_tt.cpu())]
+            down_input_actual_shards = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(down_input_tt.cpu())]
+            packed_actual = ttnn.to_torch(
+                ttnn.from_device(packed_fractured_tt), mesh_composer=ConcatMeshToTensor(mesh_device, dim=3)
+            )
+            output_actual = ttnn.to_torch(
+                ttnn.from_device(fractured_output_tt), mesh_composer=ConcatMeshToTensor(mesh_device, dim=3)
+            )[..., :HIDDEN_SIZE]
+            qkv_actual = ttnn.to_torch(
+                ttnn.from_device(qkv_output_tt), mesh_composer=ConcatMeshToTensor(mesh_device, dim=3)
+            )[..., : SLIDING_KIND.qkv_width]
+
+            selected_gate = gate[active_ids].float()
+            selected_up = up[active_ids].float()
+            hidden_matrix = hidden[0, 0].float()
+            gate_ref = torch.einsum("mk,eki-&gt;emi", hidden_matrix, selected_gate)
+            up_ref = torch.einsum("mk,eki-&gt;emi", hidden_matrix, selected_up)
+            packed_ref = torch.cat(
+                [
+                    torch.cat(
+                        (
+                            up_ref[..., rank * local_intermediate : (rank + 1) * local_intermediate],
+                            gate_ref[..., rank * local_intermediate : (rank + 1) * local_intermediate],
+                        ),
+                        dim=-1,
+                    )
+                    for rank in range(TP_SIZE)
+                ],
+                dim=-1,
+            ).unsqueeze(0)
+            down_input_ref = F.gelu(gate_ref, approximate="none") * up_ref
+            selected_down = down[0, active_ids].float()
+            output_ref = torch.einsum("emi,eih-&gt;emh", down_input_ref, selected_down)
+            output_ref = (output_ref * compact_scores[0].float()).sum(dim=0, keepdim=True).unsqueeze(0)
+            residual_ref = output_ref + hidden.float()
+            normalized_ref = residual_ref * torch.rsqrt(residual_ref.pow(2).mean(dim=-1, keepdim=True) + cfg.rms_norm_eps)
+            normalized_ref = normalized_ref * norm_gamma.float()
+            qkv_ref = torch.matmul(normalized_ref, qkv.float())
+            selected_gate_b = gate[active_ids_b].float()
+            selected_up_b = up[active_ids_b].float()
+            hidden_matrix_b = hidden_b[0, 0].float()
+            gate_ref_b = torch.einsum("mk,eki-&gt;emi", hidden_matrix_b, selected_gate_b)
+            up_ref_b = torch.einsum("mk,eki-&gt;emi", hidden_matrix_b, selected_up_b)
+            down_input_ref_b = F.gelu(gate_ref_b, approximate="none") * up_ref_b
+            selected_down_b = down[0, active_ids_b].float()
+            output_ref_b = torch.einsum("emi,eih-&gt;emh", down_input_ref_b, selected_down_b)
+            output_ref_b = (output_ref_b * compact_scores_b[0].float()).sum(dim=0, keepdim=True).unsqueeze(0)
+            residual_ref_b = output_ref_b + hidden_b.float()
+            normalized_ref_b = residual_ref_b * torch.rsqrt(
+                residual_ref_b.pow(2).mean(dim=-1, keepdim=True) + cfg.rms_norm_eps
+            )
+            normalized_ref_b = normalized_ref_b * norm_gamma.float()
+            qkv_ref_b = torch.matmul(normalized_ref_b, qkv.float())
+
+            packed_rank_pccs = []
+            down_input_rank_pccs = []
+            for rank in range(TP_SIZE):
+                packed_rank_ref = packed_ref[..., rank * local_packed : (rank + 1) * local_packed]
+                _, packed_rank_pcc = functional_tests.comp_pcc(
+                    packed_rank_ref[:, :, :1, :], packed_actual_shards[rank][:, :, :1, :], 0.0
+                )
+                packed_rank_pccs.append(float(packed_rank_pcc))
+                down_input_rank_ref = down_input_ref[
+                    ..., rank * local_intermediate : (rank + 1) * local_intermediate
+                ].unsqueeze(0)
+                _, down_input_rank_pcc = functional_tests.comp_pcc(
+                    down_input_rank_ref[:, :, :1, :], down_input_actual_shards[rank][:, :, :1, :], 0.0
+                )
+                down_input_rank_pccs.append(float(down_input_rank_pcc))
+            packed_ok, packed_pcc = functional_tests.comp_pcc(packed_ref[:, :, :1, :], packed_actual[:, :, :1, :], 0.99)
+            output_ok, output_pcc = functional_tests.comp_pcc(output_ref[:, :, :1, :], output_actual[:, :, :1, :], 0.99)
+            qkv_ok, qkv_pcc = functional_tests.comp_pcc(qkv_ref[:, :, :1, :], qkv_actual[:, :, :1, :], 0.99)
+            artifact_dir = Path(
+                "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/fractured_sparse"
+            )
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            test_path = Path(__file__)
+            artifact = {
+                "gate": "A_contract_and_correctness",
+                "status": "pass" if packed_ok and output_ok and qkv_ok else "fail",
+                "hardware": "four P300C devices as P150x4 proxy",
+                "mesh_shape": [1, TP_SIZE],
+                "layer_idx": 0,
+                "real_weights": True,
+                "weight_dtype": "BFLOAT8_B",
+                "activation_dtype": "BFLOAT16",
+                "active_ids": active_ids,
+                "packed_partial_local_shapes": packed_partial_shapes,
+                "packed_reduce_scatter_local_shapes": packed_fractured_shapes,
+                "down_partial_local_shapes": down_partial_shapes,
+                "final_local_shapes": [list(shard.shape) for shard in ttnn.get_device_tensors(fractured_output_tt)],
+                "packed_reduce_scatter_pcc": float(packed_pcc),
+                "packed_reduce_scatter_per_rank_pcc": packed_rank_pccs,
+                "local_geglu_per_rank_pcc": down_input_rank_pccs,
+                "fractured_expert_output_pcc": float(output_pcc),
+                "next_sliding_qkv_pcc": float(qkv_pcc),
+                "next_sliding_qkv_local_shapes": [list(shard.shape) for shard in ttnn.get_device_tensors(qkv_output_tt)],
+                "pcc_threshold": 0.99,
+                "fallback_policy": "TTNN throw_exception_on_fallback=true",
+                "persistent_buffers": False,
+                "trace": False,
+                "test_sha256_at_run": hashlib.sha256(test_path.read_bytes()).hexdigest(),
+            }
+            (artifact_dir / "gate_a_contract.json").write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+            torch.save(
+                {
+                    "packed_actual_first_token": packed_actual[:, :, 0, :],
+                    "packed_reference_first_token": packed_ref[:, :, 0, :],
+                },
+                artifact_dir / "gate_a_packed_diagnostic.pt",
+            )
+            assert packed_ok, f"logical-row packed indexed sparse + RS PCC={packed_pcc}"
+            assert output_ok, f"fractured routed expert output PCC={output_pcc}"
+            assert qkv_ok, f"fractured distributed norm + sliding QKV boundary PCC={qkv_pcc}"
+
+            if os.getenv("GEMMA4_MULTICHIP_FRACTURED_SPARSE_TRACE") != "1":
+                return
+
+            # Gate B: bind every CCL output/staging tensor, then capture the exact
+            # routed expert + next-QKV boundary.  The input/indices/score buffers
+            # remain caller-owned so a replay can select a different expert list.
+            packed_intermediate_tt, packed_penult_tt = (
+                ttnn.experimental.reduce_scatter_minimal_async_create_intermediate_buffer(
+                    packed_partial_tt,
+                    dim=3,
+                    topology=ttnn.Topology.Ring,
+                    cluster_axis=1,
+                    compute_kernel_config=compute_kernel_config,
+                )
+            )
+            down_intermediate_tt, down_penult_tt = (
+                ttnn.experimental.reduce_scatter_minimal_async_create_intermediate_buffer(
+                    down_summed_tt,
+                    dim=3,
+                    topology=ttnn.Topology.Ring,
+                    cluster_axis=1,
+                    compute_kernel_config=compute_kernel_config,
+                )
+            )
+            packed_persistent = [packed_intermediate_tt, packed_fractured_tt, packed_penult_tt]
+            down_persistent = [down_intermediate_tt, fractured_output_tt, down_penult_tt]
+            # The persistent/default AGMM implementation has an exact two-
+            # semaphore contract; the non-persistent fused path above accepts the
+            # three-handle pipeline used by existing model call sites.
+            qkv_trace_semaphores = [ttnn.create_global_semaphore(mesh_device, worker_cores, 0) for _ in range(2)]
+
+            def run_fractured_candidate():
+                packed_partial = ttnn.sparse_matmul(
+                    hidden_tt,
+                    packed_weight_tt,
+                    sparsity=routing_tt,
+                    indices=indices_tt,
+                    is_input_a_sparse=False,
+                    is_input_b_sparse=True,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    output_tile=ttnn.Tile([32, 32]),
+                    program_config=packed_config,
+                    dtype=ttnn.bfloat16,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                packed_partial = ttnn.reshape(
+                    packed_partial,
+                    (1, TOP_K_EXPERTS, 32, 2 * PADDED_MOE_INTERMEDIATE_SIZE),
+                )
+                packed_local = ttnn.experimental.reduce_scatter_minimal_async(
+                    packed_partial,
+                    persistent_output_buffers=packed_persistent,
+                    dim=3,
+                    multi_device_global_semaphore=packed_rs_semaphores,
+                    num_links=2,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    topology=ttnn.Topology.Ring,
+                    subdevice_id=worker_sub_device_id,
+                    cluster_axis=1,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                up_local = ttnn.slice(
+                    packed_local,
+                    [0, 0, 0, 0],
+                    [1, TOP_K_EXPERTS, 32, local_intermediate],
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                gate_local = ttnn.slice(
+                    packed_local,
+                    [0, 0, 0, local_intermediate],
+                    [1, TOP_K_EXPERTS, 32, local_packed],
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                down_input = ttnn.mul(
+                    gate_local,
+                    up_local,
+                    input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 0.0)],
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                down_partial = ttnn.sparse_matmul(
+                    down_input,
+                    down_weight_tt,
+                    sparsity=routing_tt,
+                    indices=indices_tt,
+                    is_input_a_sparse=True,
+                    is_input_b_sparse=True,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    output_tile=ttnn.Tile([32, 32]),
+                    program_config=down_config,
+                    dtype=ttnn.bfloat16,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                weighted = ttnn.mul(down_partial, compact_scores_tt, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                down_summed = ttnn.sum(weighted, dim=1, keepdim=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                fractured_output = ttnn.experimental.reduce_scatter_minimal_async(
+                    down_summed,
+                    persistent_output_buffers=down_persistent,
+                    dim=3,
+                    multi_device_global_semaphore=down_rs_semaphores,
+                    num_links=2,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    topology=ttnn.Topology.Ring,
+                    subdevice_id=worker_sub_device_id,
+                    cluster_axis=1,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                fractured_residual = ttnn.add(fractured_output, hidden_tt, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                local_stats = ttnn.rms_norm_pre_all_gather(fractured_residual, dtype=ttnn.bfloat16)
+                global_stats = ttnn.experimental.all_gather_async(
+                    local_stats,
+                    persistent_output_buffer=global_stats_tt,
+                    dim=3,
+                    multi_device_global_semaphore=norm_semaphores,
+                    num_links=2,
+                    topology=ttnn.Topology.Ring,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    subdevice_id=worker_sub_device_id,
+                    cluster_axis=1,
+                )
+                normalized = ttnn.rms_norm_post_all_gather(
+                    fractured_residual,
+                    global_stats,
+                    epsilon=cfg.rms_norm_eps,
+                    weight=norm_gamma_tt,
+                )
+                _, qkv_output = ttnn.experimental.all_gather_matmul_async(
+                    normalized,
+                    qkv_weight_tt,
+                    persistent_output_buffer=gathered_normalized_tt,
+                    dim=3,
+                    multi_device_global_semaphore=qkv_trace_semaphores,
+                    all_gather_core_grid_offset=(0, 6),
+                    num_links=2,
+                    topology=ttnn.Topology.Ring,
+                    subdevice_id=worker_sub_device_id,
+                    memory_config_ag=ttnn.DRAM_MEMORY_CONFIG,
+                    memory_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+                    program_config=qkv_config,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                return qkv_output
+
+            # Compile the persistent candidate before capture.
+            run_fractured_candidate()
+            ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+            candidate_trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+            candidate_trace_output_tt = run_fractured_candidate()
+            ttnn.end_trace_capture(mesh_device, candidate_trace_id, cq_id=0)
+            try:
+                for _ in range(5):
+                    ttnn.execute_trace(mesh_device, candidate_trace_id, cq_id=0, blocking=True)
+                candidate_first = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(candidate_trace_output_tt.cpu())
+                ]
+                candidate_iterations = 30
+                started = time.perf_counter()
+                for _ in range(candidate_iterations):
+                    ttnn.execute_trace(mesh_device, candidate_trace_id, cq_id=0, blocking=True)
+                candidate_trace_ms = (time.perf_counter() - started) * 1000 / candidate_iterations
+                candidate_repeat = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(candidate_trace_output_tt.cpu())
+                ]
+
+                def refresh_mesh_tensor(source, target, *, shard_dim=None):
+                    sources = list(source.chunk(TP_SIZE, dim=shard_dim)) if shard_dim is not None else [source] * TP_SIZE
+                    target_shards = ttnn.get_device_tensors(target)
+                    assert len(sources) == len(target_shards) == TP_SIZE
+                    for source_shard, target_shard in zip(sources, target_shards):
+                        host_shard = ttnn.from_torch(
+                            source_shard,
+                            dtype=target.dtype,
+                            layout=target.layout,
+                        )
+                        ttnn.copy_host_to_device_tensor(host_shard, target_shard)
+
+                cache_entries_before_dynamic_route = mesh_device.num_program_cache_entries()
+                refresh_mesh_tensor(hidden_b, hidden_tt, shard_dim=3)
+                refresh_mesh_tensor(routing_b, routing_tt)
+                refresh_mesh_tensor(indices_b, indices_tt)
+                refresh_mesh_tensor(compact_scores_b, compact_scores_tt)
+                ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+
+                # Prove that the second route reached the exact caller-owned
+                # buffers captured by the trace before attributing any mismatch
+                # to sparse-matmul replay.  Score only the public token row; the
+                # remaining tile rows are padding in this decode repro.
+                refreshed_hidden_shards = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(hidden_tt.cpu())]
+                refreshed_hidden = torch.cat(refreshed_hidden_shards, dim=3)
+                refreshed_routing = ttnn.to_torch(ttnn.get_device_tensors(routing_tt.cpu())[0])
+                refreshed_indices = ttnn.to_torch(ttnn.get_device_tensors(indices_tt.cpu())[0])
+                refreshed_scores = ttnn.to_torch(ttnn.get_device_tensors(compact_scores_tt.cpu())[0])
+                hidden_refresh_ok, hidden_refresh_pcc = functional_tests.comp_pcc(
+                    hidden_b[:, :, :1, :], refreshed_hidden[:, :, :1, :], 0.999
+                )
+                routing_refresh_exact = torch.equal(routing_b, refreshed_routing)
+                indices_refresh_exact = torch.equal(indices_b.to(refreshed_indices.dtype), refreshed_indices)
+                scores_refresh_exact = torch.equal(compact_scores_b, refreshed_scores)
+
+                # Execute the same callable eagerly at the refreshed addresses.
+                # If this agrees with route B while replay does not, the blocker
+                # is trace runtime-address/data handling rather than expert math.
+                dynamic_route_eager_tt = run_fractured_candidate()
+                ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+                dynamic_route_eager = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(dynamic_route_eager_tt.cpu())
+                ]
+                ttnn.execute_trace(mesh_device, candidate_trace_id, cq_id=0, blocking=True)
+                dynamic_route_first = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(candidate_trace_output_tt.cpu())
+                ]
+                for _ in range(100):
+                    ttnn.execute_trace(mesh_device, candidate_trace_id, cq_id=0, blocking=True)
+                dynamic_route_repeat = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(candidate_trace_output_tt.cpu())
+                ]
+                cache_entries_after_dynamic_route = mesh_device.num_program_cache_entries()
+            finally:
+                ttnn.release_trace(mesh_device, candidate_trace_id)
+            candidate_bit_exact = all(torch.equal(a, b) for a, b in zip(candidate_first, candidate_repeat))
+            dynamic_route_bit_exact = all(torch.equal(a, b) for a, b in zip(dynamic_route_first, dynamic_route_repeat))
+            dynamic_route_changed_output = any(not torch.equal(a, b) for a, b in zip(candidate_repeat, dynamic_route_first))
+            dynamic_route_concat = torch.cat(
+                [shard[..., : SLIDING_KIND.qkv_width // TP_SIZE] for shard in dynamic_route_first], -1
+            )
+            dynamic_route_eager_concat = torch.cat(
+                [shard[..., : SLIDING_KIND.qkv_width // TP_SIZE] for shard in dynamic_route_eager], -1
+            )
+            dynamic_route_ok, dynamic_route_pcc = functional_tests.comp_pcc(
+                qkv_ref_b[:, :, :1, :], dynamic_route_concat[:, :, :1, :], 0.99
+            )
+            dynamic_route_eager_ok, dynamic_route_eager_pcc = functional_tests.comp_pcc(
+                qkv_ref_b[:, :, :1, :], dynamic_route_eager_concat[:, :, :1, :], 0.99
+            )
+
+            # Incumbent: replicated H, N-sharded packed gate/up, the same K-sharded
+            # down weights, expanded sparse output, and persistent all-reduce.
+            from models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder import _width_sharded_memory_config
+
+            incumbent_packed_weight_tt = ttnn.from_torch(
+                packed_gate_up,
+                device=mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat8_b,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ShardTensorToMesh(mesh_device, dim=3),
+            )
+            incumbent_hidden_tt = ttnn.from_torch(
+                hidden,
+                device=mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ReplicateTensorToMesh(mesh_device),
+            )
+            incumbent_routing_tt = ttnn.from_torch(
+                routing,
+                device=mesh_device,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ReplicateTensorToMesh(mesh_device),
+            )
+            dense_scores = torch.zeros((1, NUM_EXPERTS, 32, 1), dtype=torch.bfloat16)
+            dense_scores[:, active_ids, 0, 0] = top_scores.to(torch.bfloat16)
+            incumbent_scores_tt = ttnn.from_torch(
+                dense_scores,
+                device=mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ReplicateTensorToMesh(mesh_device),
+            )
+            incumbent_gamma_tt = ttnn.from_torch(
+                norm_gamma.reshape(1, 1, 1, HIDDEN_SIZE),
+                device=mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ReplicateTensorToMesh(mesh_device),
+            )
+            incumbent_packed_config = _optimized_sparse_decode_config(
+                mesh_device,
+                n=local_packed,
+                per_core_n=2,
+                in0_block_w=44,
+                out_subblock_w=2,
+            )
+            ar_memory_config = _width_sharded_memory_config(HIDDEN_SIZE, ttnn.CoreGrid(x=11, y=8))
+            ar_buffer_memory_config = _width_sharded_memory_config(HIDDEN_SIZE * TP_SIZE, ttnn.CoreGrid(x=11, y=8))
+            ar_buffer_tt = ttnn.from_torch(
+                torch.zeros((1, 1, 32, HIDDEN_SIZE * TP_SIZE), dtype=torch.bfloat16),
+                device=mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ar_buffer_memory_config,
+                mesh_mapper=ReplicateTensorToMesh(mesh_device),
+            )
+            ar_semaphore = ttnn.create_global_semaphore(mesh_device, worker_cores, 0)
+
+            def run_incumbent():
+                packed_expanded = ttnn.sparse_matmul(
+                    incumbent_hidden_tt,
+                    incumbent_packed_weight_tt,
+                    sparsity=incumbent_routing_tt,
+                    nnz=TOP_K_EXPERTS,
+                    is_input_b_sparse=True,
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                    output_tile=ttnn.Tile([32, 32]),
+                    program_config=incumbent_packed_config,
+                    dtype=ttnn.bfloat16,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                packed_expanded = ttnn.reshape(packed_expanded, (1, NUM_EXPERTS, 32, local_packed))
+                up_expanded = ttnn.slice(
+                    packed_expanded,
+                    [0, 0, 0, 0],
+                    [1, NUM_EXPERTS, 32, local_intermediate],
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+                gate_expanded = ttnn.slice(
+                    packed_expanded,
+                    [0, 0, 0, local_intermediate],
+                    [1, NUM_EXPERTS, 32, local_packed],
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+                down_input = ttnn.mul(
+                    gate_expanded,
+                    up_expanded,
+                    input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 0.0)],
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+                down_expanded = ttnn.sparse_matmul(
+                    down_input,
+                    down_weight_tt,
+                    sparsity=incumbent_routing_tt,
+                    nnz=TOP_K_EXPERTS,
+                    is_input_a_sparse=True,
+                    is_input_b_sparse=True,
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                    output_tile=ttnn.Tile([32, 32]),
+                    program_config=down_config,
+                    dtype=ttnn.bfloat16,
+                    compute_kernel_config=compute_kernel_config,
+                )
+                down_expanded = ttnn.reshape(down_expanded, (1, NUM_EXPERTS, 32, HIDDEN_SIZE))
+                weighted = ttnn.mul(down_expanded, incumbent_scores_tt, memory_config=ttnn.L1_MEMORY_CONFIG)
+                partial = ttnn.sum(weighted, dim=1, keepdim=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                partial = ttnn.to_memory_config(partial, ar_memory_config, dtype=ttnn.bfloat16)
+                replicated = ttnn.experimental.all_reduce_async(
+                    partial,
+                    ar_buffer_tt,
+                    cluster_axis=1,
+                    mesh_device=mesh_device,
+                    multi_device_global_semaphore=ar_semaphore,
+                    num_links=2,
+                    topology=ttnn.Topology.Ring,
+                    memory_config=ar_memory_config,
+                    subdevice_id=worker_sub_device_id,
+                )
+                replicated = ttnn.to_memory_config(replicated, ttnn.DRAM_MEMORY_CONFIG, dtype=ttnn.bfloat16)
+                residual = ttnn.add(replicated, incumbent_hidden_tt, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                normalized = ttnn.rms_norm(
+                    residual,
+                    epsilon=cfg.rms_norm_eps,
+                    weight=incumbent_gamma_tt,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                return ttnn.linear(
+                    normalized,
+                    qkv_weight_tt,
+                    dtype=ttnn.bfloat16,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    program_config=qkv_config,
+                    compute_kernel_config=compute_kernel_config,
+                )
+
+            incumbent_eager_tt = run_incumbent()
+            ttnn.synchronize_device(mesh_device, sub_device_ids=[worker_sub_device_id])
+            incumbent_trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+            incumbent_trace_output_tt = run_incumbent()
+            ttnn.end_trace_capture(mesh_device, incumbent_trace_id, cq_id=0)
+            try:
+                for _ in range(5):
+                    ttnn.execute_trace(mesh_device, incumbent_trace_id, cq_id=0, blocking=True)
+                incumbent_first = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(incumbent_trace_output_tt.cpu())
+                ]
+                incumbent_iterations = 30
+                started = time.perf_counter()
+                for _ in range(incumbent_iterations):
+                    ttnn.execute_trace(mesh_device, incumbent_trace_id, cq_id=0, blocking=True)
+                incumbent_trace_ms = (time.perf_counter() - started) * 1000 / incumbent_iterations
+                incumbent_repeat = [
+                    ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(incumbent_trace_output_tt.cpu())
+                ]
+            finally:
+                ttnn.release_trace(mesh_device, incumbent_trace_id)
+            incumbent_eager = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(incumbent_eager_tt.cpu())]
+            incumbent_bit_exact = all(torch.equal(a, b) for a, b in zip(incumbent_first, incumbent_repeat))
+            incumbent_eager_trace_bit_exact = all(torch.equal(a, b) for a, b in zip(incumbent_eager, incumbent_first))
+            candidate_concat = torch.cat([shard[..., : SLIDING_KIND.qkv_width // TP_SIZE] for shard in candidate_first], -1)
+            incumbent_concat = torch.cat([shard[..., : SLIDING_KIND.qkv_width // TP_SIZE] for shard in incumbent_first], -1)
+            cross_ok, cross_pcc = functional_tests.comp_pcc(
+                incumbent_concat[:, :, :1, :], candidate_concat[:, :, :1, :], 0.99
+            )
+            candidate_trace_torch_ok, candidate_trace_torch_pcc = functional_tests.comp_pcc(
+                qkv_ref[:, :, :1, :], candidate_concat[:, :, :1, :], 0.99
+            )
+            incumbent_trace_torch_ok, incumbent_trace_torch_pcc = functional_tests.comp_pcc(
+                qkv_ref[:, :, :1, :], incumbent_concat[:, :, :1, :], 0.99
+            )
+            speedup = incumbent_trace_ms / candidate_trace_ms
+            gate_b = {
+                "gate": "B_persistent_trace_and_boundary_performance",
+                "status": (
+                    "accepted"
+                    if speedup &gt; 1.0 and cross_ok and dynamic_route_ok and dynamic_route_bit_exact
+                    else "rejected"
+                ),
+                "candidate": "K-fractured indexed top-8 packed expert with I/H reduce-scatter",
+                "incumbent": "replicated H expanded top-8 sparse expert with persistent all-reduce",
+                "real_weights": True,
+                "active_ids": active_ids,
+                "dynamic_active_ids": active_ids_b,
+                "persistent_candidate_buffers": {
+                    "packed_rs": [list(shard.shape) for shard in ttnn.get_device_tensors(packed_fractured_tt)],
+                    "down_rs": [list(shard.shape) for shard in ttnn.get_device_tensors(fractured_output_tt)],
+                    "norm_all_gather": [list(shard.shape) for shard in ttnn.get_device_tensors(global_stats_tt)],
+                    "qkv_all_gather": [list(shard.shape) for shard in ttnn.get_device_tensors(gathered_normalized_tt)],
+                },
+                "warmups": 5,
+                "iterations": candidate_iterations,
+                "candidate_trace_ms": candidate_trace_ms,
+                "incumbent_trace_ms": incumbent_trace_ms,
+                "speedup": speedup,
+                "candidate_repeat_bit_exact": candidate_bit_exact,
+                "dynamic_route_repeat_bit_exact_100_replays": dynamic_route_bit_exact,
+                "dynamic_route_changed_output": dynamic_route_changed_output,
+                "dynamic_route_eager_vs_torch_pcc": float(dynamic_route_eager_pcc),
+                "dynamic_route_vs_torch_pcc": float(dynamic_route_pcc),
+                "refreshed_inputs": {
+                    "hidden_pcc": float(hidden_refresh_pcc),
+                    "routing_exact": routing_refresh_exact,
+                    "indices_exact": indices_refresh_exact,
+                    "compact_scores_exact": scores_refresh_exact,
+                },
+                "program_cache_entries_before_dynamic_route": cache_entries_before_dynamic_route,
+                "program_cache_entries_after_dynamic_route": cache_entries_after_dynamic_route,
+                "incumbent_repeat_bit_exact": incumbent_bit_exact,
+                "incumbent_eager_trace_bit_exact": incumbent_eager_trace_bit_exact,
+                "candidate_vs_incumbent_pcc": float(cross_pcc),
+                "candidate_vs_torch_pcc": float(candidate_trace_torch_pcc),
+                "incumbent_vs_torch_pcc": float(incumbent_trace_torch_pcc),
+                "pcc_threshold": 0.99,
+                "fallback_policy": "TTNN throw_exception_on_fallback=true",
+            }
+            (artifact_dir / "gate_b_trace_perf.json").write_text(json.dumps(gate_b, indent=2, sort_keys=True) + "\n")
+            torch.save(
+                {
+                    "eager_first_token": dynamic_route_eager_concat[:, :, :1, :],
+                    "trace_first_token": dynamic_route_concat[:, :, :1, :],
+                    "torch_first_token": qkv_ref_b[:, :, :1, :],
+                },
+                artifact_dir / "gate_b_dynamic_diagnostic.pt",
+            )
+&gt;           assert hidden_refresh_ok, f"refreshed hidden PCC={hidden_refresh_pcc}"
+E           AssertionError: refreshed hidden PCC=0.278303615829109
+E           assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1940: AssertionError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="10.491" timestamp="2026-09-05T15:23:55.282342+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0-device_params0]" time="5.379"><properties><property name="start_timestamp" value="2026-09-05T15:23:56" /><property name="end_timestamp" value="2026-09-05T15:24:01" /></properties><failure message="AttributeError: 'MultichipDecoder' object has no attribute 'decode_dram_logical_output_widths'. Did you mean: 'decode_dram_padded_input_widths'?">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7193e7cf4fb0&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+&gt;       decode = decoder.decode_forward(
+            hidden_states=functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            current_pos=functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:483:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:609: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2221: in decode_forward
+    return super().decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:524: in decode_forward
+    mlp_out = self._dense_mlp(mlp_in)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:960: in _dense_mlp
+    return super()._dense_mlp(x)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x7193e5416f60&gt;
+x = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-1.5527e-01,  3.1055e-01,  ...,  4.6875e-01,  7.1875e-01]]]], sha...5e-01,  ...,  4.6875e-01,  7.1875e-01]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _dense_mlp(self, x: ttnn.Tensor) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["dense_mlp"] += 1
+        if self.residual_shard_cores != 0 and x.is_sharded():
+            return self._dense_mlp_residual_sharded(x)
+        if self.packed_dense_gate_up and self.packed_mlp_gate_up is not None and not self.r22_packed_dense_gate_up:
+            decode_candidate = self._use_decode_dram_weight(x, "packed_mlp_gate_up")
+            packed_weight = (
+                self.decode_dram_weights["packed_mlp_gate_up"] if decode_candidate else self.packed_mlp_gate_up
+            )
+            kwargs = {}
+            if decode_candidate:
+                kwargs["program_config"] = self.decode_dram_configs["packed_mlp_gate_up"]
+                padded_input_width = self.decode_dram_padded_input_widths.get("packed_mlp_gate_up")
+                if padded_input_width is not None:
+                    pad_spec = [(0, 0)] * len(x.shape)
+                    pad_spec[-1] = (0, padded_input_width - x.shape[-1])
+                    x = ttnn.pad(x, pad_spec, 0.0)
+                x = ttnn.to_memory_config(
+                    x,
+                    self.decode_dram_input_configs["packed_mlp_gate_up"],
+                    dtype=x.dtype,
+                )
+                kwargs["memory_config"] = self.decode_dram_output_configs["packed_mlp_gate_up"]
+            gate_up = ttnn.linear(
+                x,
+                packed_weight,
+                dtype=self.activation_dtype,
+                memory_config=kwargs.pop("memory_config", ttnn.DRAM_MEMORY_CONFIG),
+                compute_kernel_config=self.mlp_compute_config,
+                **kwargs,
+            )
+            if decode_candidate:
+                gate_up = ttnn.sharded_to_interleaved(gate_up, ttnn.DRAM_MEMORY_CONFIG)
+&gt;               logical_output_width = self.decode_dram_logical_output_widths.get("packed_mlp_gate_up")
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'MultichipDecoder' object has no attribute 'decode_dram_logical_output_widths'. Did you mean: 'decode_dram_padded_input_widths'?
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2683: AttributeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device0-device_params0]" time="4.060"><properties><property name="start_timestamp" value="2026-09-05T15:24:01" /><property name="end_timestamp" value="2026-09-05T15:24:05" /></properties><failure message="AttributeError: 'MultichipDecoder' object has no attribute 'decode_dram_logical_output_widths'. Did you mean: 'decode_dram_padded_input_widths'?">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7193e39d79e0&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+&gt;       decode = decoder.decode_forward(
+            hidden_states=functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            current_pos=functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:483:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:609: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2221: in decode_forward
+    return super().decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:524: in decode_forward
+    mlp_out = self._dense_mlp(mlp_in)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:960: in _dense_mlp
+    return super()._dense_mlp(x)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x71727c130230&gt;
+x = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-1.9165e-02, -2.6562e+00,  ...,  4.7500e+01,  7.6562e-01]]]], sha...2e+00,  ...,  4.7500e+01,  7.6562e-01]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _dense_mlp(self, x: ttnn.Tensor) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["dense_mlp"] += 1
+        if self.residual_shard_cores != 0 and x.is_sharded():
+            return self._dense_mlp_residual_sharded(x)
+        if self.packed_dense_gate_up and self.packed_mlp_gate_up is not None and not self.r22_packed_dense_gate_up:
+            decode_candidate = self._use_decode_dram_weight(x, "packed_mlp_gate_up")
+            packed_weight = (
+                self.decode_dram_weights["packed_mlp_gate_up"] if decode_candidate else self.packed_mlp_gate_up
+            )
+            kwargs = {}
+            if decode_candidate:
+                kwargs["program_config"] = self.decode_dram_configs["packed_mlp_gate_up"]
+                padded_input_width = self.decode_dram_padded_input_widths.get("packed_mlp_gate_up")
+                if padded_input_width is not None:
+                    pad_spec = [(0, 0)] * len(x.shape)
+                    pad_spec[-1] = (0, padded_input_width - x.shape[-1])
+                    x = ttnn.pad(x, pad_spec, 0.0)
+                x = ttnn.to_memory_config(
+                    x,
+                    self.decode_dram_input_configs["packed_mlp_gate_up"],
+                    dtype=x.dtype,
+                )
+                kwargs["memory_config"] = self.decode_dram_output_configs["packed_mlp_gate_up"]
+            gate_up = ttnn.linear(
+                x,
+                packed_weight,
+                dtype=self.activation_dtype,
+                memory_config=kwargs.pop("memory_config", ttnn.DRAM_MEMORY_CONFIG),
+                compute_kernel_config=self.mlp_compute_config,
+                **kwargs,
+            )
+            if decode_candidate:
+                gate_up = ttnn.sharded_to_interleaved(gate_up, ttnn.DRAM_MEMORY_CONFIG)
+&gt;               logical_output_width = self.decode_dram_logical_output_widths.get("packed_mlp_gate_up")
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'MultichipDecoder' object has no attribute 'decode_dram_logical_output_widths'. Did you mean: 'decode_dram_padded_input_widths'?
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2683: AttributeError</failure></testcase></testsuite></testsuites>

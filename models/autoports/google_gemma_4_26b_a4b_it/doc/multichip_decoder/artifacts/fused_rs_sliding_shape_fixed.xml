@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="2.340" timestamp="2026-09-05T15:08:48.021422+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_fused_matmul_reduce_scatter_exact_shape_repro[blackhole-sliding_o_k4096-mesh_device0-device_params0]" time="1.407"><properties><property name="start_timestamp" value="2026-09-05T15:08:48" /><property name="end_timestamp" value="2026-09-05T15:08:50" /></properties><failure message="RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp:534: program_config.per_core_N % program_config.out_block_w == 0&#10;info:&#10;MatmulMultiCoreReuseMultiCastProgramConfig: per_core_N (11) must be divisible by out_block_w (5)&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb7922a) [0x7a2878f7922a]&#10; --- ttnn::prim::MatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::MatmulParams const&amp;, ttnn::prim::MatmulInputs const&amp;)&#10; --- ttnn::experimental::prim::MatmulReduceScatterAsyncDeviceOperation::validate_on_program_cache_miss(ttnn::experimental::prim::MatmulReduceScatterAsyncParams const&amp;, ttnn::experimental::prim::MatmulReduceScatterAsyncInputs const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim39MatmulReduceScatterAsyncDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS8_13tensor_args_tERNS8_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1de) [0x7a287958112e]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_12experimental4prim39MatmulReduceScatterAsyncDeviceOperationEEENT_21tensor_return_value_tERKNS6_22operation_attributes_tERKNS6_13tensor_args_tE+0x32c) [0x7a287957e86c]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim27matmul_reduce_scatter_asyncERKNS_6TensorES3_RS1_S4_jRKSt6vectorIN2tt8tt_metal15GlobalSemaphoreESaIS8_EENS6_7xy_pairERKSt8optionalIS8_ERKSE_IS2_EjRKSE_INS7_12MemoryConfigEESO_NS6_9tt_fabric8TopologyESE_IN4ttsl10StrongTypeIhNS7_14SubDeviceIdTagEEEESO_bbSE_IKNS7_8DataTypeEERKSE_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS11_33MatmulMultiCoreReuseProgramConfigENS11_42MatmulMultiCoreReuseMultiCastProgramConfigENS11_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS11_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS11_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKSE_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEESE_IKNS_19ComputeKernelConfigEESE_IKNS_5types8CoreGridEE+0x866) [0x7a2879566ee6]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn12experimental27matmul_reduce_scatter_asyncERKNS_6TensorES3_RS1_S4_jRKSt6vectorIN2tt8tt_metal15GlobalSemaphoreESaIS8_EENS6_7xy_pairERKSt8optionalIS8_ERKSE_IS2_ESE_IjERKSE_INS7_12MemoryConfigEESP_NS6_9tt_fabric8TopologyESE_IN4ttsl10StrongTypeIhNS7_14SubDeviceIdTagEEEESP_bbSE_IKNS7_8DataTypeEERKSE_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS12_33MatmulMultiCoreReuseProgramConfigENS12_42MatmulMultiCoreReuseMultiCastProgramConfigENS12_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS12_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS12_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKSE_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEESE_IKNS_19ComputeKernelConfigEESE_IKNS_5types8CoreGridEE+0x15f) [0x7a28795664ef]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x315f2d) [0x7a287b115f2d]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x317824) [0x7a287b117824]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7a287b467a44]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7a28c202a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7a28c202a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]">mesh_device = MeshDevice(1x4 grid, 4 devices), role = 'sliding_o'
+global_k = 4096, max_in0_block_w = 4
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize(
+        "role,global_k,max_in0_block_w",
+        [
+            pytest.param("sliding_o", 4096, 4, id="sliding_o_k4096"),
+            pytest.param("full_o", 8192, 8, id="full_o_k8192"),
+            pytest.param("dense_down", PADDED_MLP_INTERMEDIATE_SIZE, 2, id="dense_down_k2176"),
+            pytest.param("expert_down", PADDED_MOE_INTERMEDIATE_SIZE, 2, id="expert_down_k768"),
+        ],
+    )
+    def test_tp4_fused_matmul_reduce_scatter_exact_shape_repro(mesh_device, role, global_k, max_in0_block_w):
+        """Shape-faithful repro for the fractured-residual producer boundary.
+
+        This is opt-in because it installs a sub-device manager and exercises an
+        experimental async CCL.  It deliberately adapts every row-parallel Gemma
+        contraction to the fused op's required 2D-multicast program contract.  A
+        passing result is a 704-wide shard per rank; the four shards compose the
+        2816-wide residual without restoring the replicated all-reduce contract.
+        """
+        if os.getenv("GEMMA4_MULTICHIP_FUSED_RS_REPRO") != "1":
+            pytest.skip("set GEMMA4_MULTICHIP_FUSED_RS_REPRO=1 for the serialized fused-RS hardware repro")
+        from tests.ttnn.unit_tests.operations.ccl.test_new_matmul_reduce_scatter import run_reduce_scatter_impl
+
+        if tuple(mesh_device.shape) != (1, TP_SIZE):
+            pytest.skip(f"requires target 1x{TP_SIZE} mesh, got {tuple(mesh_device.shape)}")
+        assert HIDDEN_SIZE % TP_SIZE == 0
+        assert global_k % (TP_SIZE * 32) == 0
+&gt;       run_reduce_scatter_impl(
+            mesh_device=mesh_device,
+            num_devices=TP_SIZE,
+            # The reduce-scatter consumes the row-parallel matmul's *output*, not
+            # its K-fractured input.  Its global width is therefore hidden_size.
+            rs_input_shape=[1, 1, 32, HIDDEN_SIZE],
+            mm_shard_dim=2,
+            rs_scatter_dim=3,
+            num_links=2,
+            mm_weights_shape=[1, 1, global_k, HIDDEN_SIZE],
+            rs_input_dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            matmul_weights_dtype=ttnn.bfloat8_b,
+            max_in0_block_w=max_in0_block_w,
+            use_bias=False,
+            mem_config_input=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_rs=ttnn.DRAM_MEMORY_CONFIG,
+            mem_config_mm=ttnn.DRAM_MEMORY_CONFIG,
+            rs_topology=ttnn.Topology.Ring,
+            use_non_fused=False,
+            num_iters=1,
+            enable_trace=False,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:161:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests/ttnn/unit_tests/operations/ccl/test_new_matmul_reduce_scatter.py:265: in run_reduce_scatter_impl
+    tt_matmul_out_tensor, tt_reduce_scatter_output_tensor = run_op(i)
+                                                            ^^^^^^^^^
+tests/ttnn/unit_tests/operations/ccl/test_new_matmul_reduce_scatter.py:222: in run_op
+    tt_matmul_out_tensor, tt_reduce_scatter_output_tensor = ttnn.experimental.matmul_reduce_scatter_async(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.experimental.matmul_reduce_scatter_async', function=&lt;ttnn._ttnn.operat...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 4.6680e-01,  6.7969e-01,  ...,  8.1641e-01,  1.1841e-02],
+     ... -0.1875,  ..., -0.0625, -0.2188]]]], shape=Shape([1, 1, 1024, 2816]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'bias': None, 'compute_kernel_config': &lt;ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7a282577a6...Type::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0), ...}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp:534: program_config.per_core_N % program_config.out_block_w == 0
+E               info:
+E               MatmulMultiCoreReuseMultiCastProgramConfig: per_core_N (11) must be divisible by out_block_w (5)
+E               backtrace:
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb7922a) [0x7a2878f7922a]
+E                --- ttnn::prim::MatmulDeviceOperation::validate_on_program_cache_miss(ttnn::prim::MatmulParams const&amp;, ttnn::prim::MatmulInputs const&amp;)
+E                --- ttnn::experimental::prim::MatmulReduceScatterAsyncDeviceOperation::validate_on_program_cache_miss(ttnn::experimental::prim::MatmulReduceScatterAsyncParams const&amp;, ttnn::experimental::prim::MatmulReduceScatterAsyncInputs const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim39MatmulReduceScatterAsyncDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS8_13tensor_args_tERNS8_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1de) [0x7a287958112e]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_12experimental4prim39MatmulReduceScatterAsyncDeviceOperationEEENT_21tensor_return_value_tERKNS6_22operation_attributes_tERKNS6_13tensor_args_tE+0x32c) [0x7a287957e86c]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn4prim27matmul_reduce_scatter_asyncERKNS_6TensorES3_RS1_S4_jRKSt6vectorIN2tt8tt_metal15GlobalSemaphoreESaIS8_EENS6_7xy_pairERKSt8optionalIS8_ERKSE_IS2_EjRKSE_INS7_12MemoryConfigEESO_NS6_9tt_fabric8TopologyESE_IN4ttsl10StrongTypeIhNS7_14SubDeviceIdTagEEEESO_bbSE_IKNS7_8DataTypeEERKSE_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS11_33MatmulMultiCoreReuseProgramConfigENS11_42MatmulMultiCoreReuseMultiCastProgramConfigENS11_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS11_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS11_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKSE_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEESE_IKNS_19ComputeKernelConfigEESE_IKNS_5types8CoreGridEE+0x866) [0x7a2879566ee6]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn12experimental27matmul_reduce_scatter_asyncERKNS_6TensorES3_RS1_S4_jRKSt6vectorIN2tt8tt_metal15GlobalSemaphoreESaIS8_EENS6_7xy_pairERKSt8optionalIS8_ERKSE_IS2_ESE_IjERKSE_INS7_12MemoryConfigEESP_NS6_9tt_fabric8TopologyESE_IN4ttsl10StrongTypeIhNS7_14SubDeviceIdTagEEEESP_bbSE_IKNS7_8DataTypeEERKSE_IKSt7variantIJNS_10operations6matmul28MatmulMultiCoreProgramConfigENS12_33MatmulMultiCoreReuseProgramConfigENS12_42MatmulMultiCoreReuseMultiCastProgramConfigENS12_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS12_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS12_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKSE_IKNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEESE_IKNS_19ComputeKernelConfigEESE_IKNS_5types8CoreGridEE+0x15f) [0x7a28795664ef]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x315f2d) [0x7a287b115f2d]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x317824) [0x7a287b117824]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7a287b467a44]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E                --- python_env/bin/python() [0x18b1b4c]
+E                --- python_env/bin/python() [0x180874f]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E                --- python_env/bin/python() [0x1985162]
+E                --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E                --- python_env/bin/python() [0x19846df]
+E                --- python_env/bin/python() [0x19844ec]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7a28c202a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7a28c202a28b]
+E                --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

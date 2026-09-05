@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="11.464" timestamp="2026-09-05T17:57:52.307459+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_batch32_trace_and_optimized_pcc[blackhole-full_attention-mesh_device0-device_params0]" time="10.565"><properties><property name="start_timestamp" value="2026-09-05T17:57:53" /><property name="end_timestamp" value="2026-09-05T17:58:03" /></properties><failure message="AssertionError: TP4 batch-32 layer 5 PCC=0.9945007280251531&#10;assert False">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7519f8bcf470&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_batch32_trace_and_optimized_pcc(mesh_device, device_params, monkeypatch, layer_idx):
+        import torch
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        output, latency_ms, cache_shape = _run_traced_batch32(
+            MultichipDecoder, mesh_device, cfg, state, layer_idx, local_cache=True
+        )
+        artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        reference = torch.load(artifact_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
+        pcc_ok, pcc = functional_tests.comp_pcc(reference, output, 0.995)
+&gt;       assert pcc_ok, f"TP4 batch-32 layer {layer_idx} PCC={pcc}"
+E       AssertionError: TP4 batch-32 layer 5 PCC=0.9945007280251531
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1185: AssertionError</failure></testcase></testsuite></testsuites>

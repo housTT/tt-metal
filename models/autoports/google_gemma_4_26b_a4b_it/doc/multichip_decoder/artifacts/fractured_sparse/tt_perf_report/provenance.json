@@ -1,0 +1,22 @@
+{
+  "candidate_selection": {
+    "metal_trace_id": 0,
+    "replay_session_id": 2,
+    "rows": 68
+  },
+  "decoder_sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+  "incumbent_selection": {
+    "metal_trace_id": 1,
+    "replay_session_id": 2,
+    "rows": 60
+  },
+  "notes": [
+    "watcher was disabled for profiler collection",
+    "session 1 is warmup; session 2 is the first timed replay",
+    "candidate uses three reduce-scatters plus distributed-norm stats all-gather; incumbent uses one all-reduce"
+  ],
+  "profile_command": "env -u TT_METAL_WATCHER GEMMA4_MULTICHIP_ARTIFACT_SUFFIX=_profiler GEMMA4_MULTICHIP_FRACTURED_SPARSE_REPRO=1 GEMMA4_MULTICHIP_FRACTURED_SPARSE_TRACE=1 GEMMA4_FRACTURED_TRACE_WARMUPS=1 GEMMA4_FRACTURED_TRACE_ITERATIONS=3 GEMMA4_FRACTURED_ROUTE_STRESS_ITERATIONS=3 TTNN_CONFIG_OVERRIDES={throw_exception_on_fallback:true} timeout 900 python_env/bin/python -m tracy -r -p -o generated/profiler/gemma4_fractured_kshard_qkv_rs -m pytest -q -s ...::test_tp4_fractured_indexed_sparse_expert_contract",
+  "raw_profiler_csv": "generated/profiler/gemma4_fractured_kshard_qkv_rs/reports/2026_09_05_20_58_57/ops_perf_results_2026_09_05_20_58_57.csv",
+  "raw_profiler_sha256": "3dd24e226a2bf33193a85081b402a564c0028b62e91bd4c442f89f1124316e50",
+  "test_sha256": "b039fce4446246556a504f8693cc5d4b32de6ce92b47dbe8022e605ca6c0d75e"
+}

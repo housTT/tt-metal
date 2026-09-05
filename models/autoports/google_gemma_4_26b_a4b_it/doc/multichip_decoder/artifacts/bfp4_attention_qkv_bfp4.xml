@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="17.401" timestamp="2026-09-05T20:12:40.461227+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_real_weight_attention_decode_precision_probe[blackhole-sliding_attention-mesh_device0-device_params0]" time="9.937"><properties><property name="start_timestamp" value="2026-09-05T20:12:41" /><property name="end_timestamp" value="2026-09-05T20:12:51" /></properties><failure message="AssertionError: qkv_bfp4 layer 0 cache-consuming decode PCC=0.9844980159285389&#10;assert False">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x76db217c4170&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_tp4_real_weight_attention_decode_precision_probe(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare one decode-only attention precision policy with the optimized baseline."""
+        import hashlib
+
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        mode = os.getenv("GEMMA4_MULTICHIP_ATTENTION_PROBE")
+        allowed_modes = {"selected", "qkv_control", "qkv_bfp4", "o_proj_bfp4"}
+        if mode not in allowed_modes:
+            pytest.skip("set GEMMA4_MULTICHIP_ATTENTION_PROBE to selected, qkv_control, qkv_bfp4, or o_proj_bfp4")
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        monkeypatch.delenv("GEMMA4_MULTICHIP_DECODE_QKV_WEIGHT_DTYPE", raising=False)
+        monkeypatch.delenv("GEMMA4_MULTICHIP_DECODE_O_WEIGHT_DTYPE", raising=False)
+        selected_dram_roles = "o_proj,packed_mlp_gate_up,mlp_down"
+        if mode.startswith("qkv_"):
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES", f"qkv,{selected_dram_roles}")
+        else:
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES", selected_dram_roles)
+        if mode == "qkv_bfp4":
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DECODE_QKV_WEIGHT_DTYPE", "bfp4")
+        elif mode == "o_proj_bfp4":
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DECODE_O_WEIGHT_DTYPE", "bfp4")
+
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        full_qkv_bypass_overridden_in_probe = mode.startswith("qkv_") and layer_type == "full_attention"
+        if full_qkv_bypass_overridden_in_probe:
+            selected_use_decode_dram_weight = decoder._use_decode_dram_weight
+
+            def use_decode_qkv_candidate(x, weight_name):
+                if weight_name == "qkv":
+                    return decoder.multichip_execution_phase == "decode" and weight_name in decoder.decode_dram_weights
+                return selected_use_decode_dram_weight(x, weight_name)
+
+            decoder._use_decode_dram_weight = use_decode_qkv_candidate
+
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, decoder.local_full_kv_heads, 128, 512
+        else:
+            blocks, heads, block, dim = 4, decoder.local_sliding_kv_heads, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        kv_cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+
+        observed_attention_weights = []
+        original_linear = decoder._linear
+
+        def observed_linear(x, weight_name, **kwargs):
+            if weight_name in {"qkv", "o_proj"}:
+                decode_candidate = decoder._use_decode_dram_weight(x, weight_name)
+                weight = (
+                    decoder.decode_dram_weights[weight_name] if decode_candidate else getattr(decoder.weights, weight_name)
+                )
+                observed_attention_weights.append(
+                    {
+                        "phase": decoder.multichip_execution_phase,
+                        "role": weight_name,
+                        "decode_candidate": decode_candidate,
+                        "weight_dtype": str(weight.dtype),
+                        "weight_memory_layout": str(weight.memory_config().memory_layout),
+                        "weight_buffer_type": str(weight.memory_config().buffer_type),
+                        "input_shape": list(x.shape),
+                    }
+                )
+            return original_linear(x, weight_name, **kwargs)
+
+        decoder._linear = observed_linear
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=kv_cache,
+        )
+        decode_args = {
+            "hidden_states": functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            "current_pos": functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            "page_table": page_table,
+            "kv_cache": kv_cache,
+        }
+        eager = decoder.decode_forward(**decode_args)
+        ttnn.synchronize_device(mesh_device)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced = decoder.decode_forward(**decode_args)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        try:
+            for _ in range(5):
+                ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+            first = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(traced.cpu())]
+            iterations = 30
+            started = time.perf_counter()
+            for _ in range(iterations):
+                ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+            trace_replay_ms = (time.perf_counter() - started) * 1000 / iterations
+            second = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(traced.cpu())]
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+
+        eager_shards = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(eager.cpu())]
+        prefill_shards = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(prefill.cpu())]
+        cache_shards = [[ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(cache.cpu())] for cache in kv_cache]
+        reference_path = (
+            Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+            / f"optimized_reference_layer{layer_idx}.pt"
+        )
+        reference = torch.load(reference_path, weights_only=True)
+        prefill_ok, prefill_pcc = functional_tests.comp_pcc(reference["prefill"], prefill_shards[0], 0.995)
+        decode_ok, decode_pcc = functional_tests.comp_pcc(reference["decode"], second[0], 0.995)
+        prefill_calls = [entry for entry in observed_attention_weights if entry["phase"] == "prefill"]
+        decode_calls = [entry for entry in observed_attention_weights if entry["phase"] == "decode"]
+        candidate_role = "qkv" if mode == "qkv_bfp4" else "o_proj" if mode == "o_proj_bfp4" else None
+        role_reached_runtime = candidate_role is None or any(
+            entry["role"] == candidate_role and entry["decode_candidate"] and entry["weight_dtype"] == "DataType.BFLOAT4_B"
+            for entry in decode_calls
+        )
+        prefill_preserved = all(not entry["decode_candidate"] for entry in prefill_calls)
+        other_role_preserved = candidate_role is None or all(
+            entry["weight_dtype"] != "DataType.BFLOAT4_B" for entry in decode_calls if entry["role"] != candidate_role
+        )
+        eager_trace_bit_exact = all(
+            torch.equal(eager_rank, trace_rank) for eager_rank, trace_rank in zip(eager_shards, first)
+        )
+        trace_repeat_bit_exact = all(torch.equal(first_rank, second_rank) for first_rank, second_rank in zip(first, second))
+        replicas_bit_exact = all(torch.equal(second[0], rank) for rank in second[1:])
+        cache_nonzero_on_all_ranks = all(torch.count_nonzero(rank).item() &gt; 0 for cache in cache_shards for rank in cache)
+
+        artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        source_path = Path("models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py")
+        test_path = Path("models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py")
+        artifact = {
+            "mode": mode,
+            "candidate_role": candidate_role,
+            "tp_size": decoder.tp_size,
+            "mesh_shape": [1, 4],
+            "layer_idx": layer_idx,
+            "layer_type": layer_type,
+            "real_weights": True,
+            "logical_prefill_length": seq_len,
+            "decode_current_position": seq_len,
+            "decode_batch": 1,
+            "page_table_shape": list(page_table.shape),
+            "local_cache_shape": [blocks, heads, block, dim],
+            "cache_dtype": str(kv_cache[0].dtype),
+            "cache_nonzero_on_all_ranks": cache_nonzero_on_all_ranks,
+            "prefill_pcc": float(prefill_pcc),
+            "decode_pcc": float(decode_pcc),
+            "pcc_threshold": 0.995,
+            "warmups": 5,
+            "trace_iterations": iterations,
+            "trace_replay_ms": trace_replay_ms,
+            "eager_vs_trace_bit_exact": eager_trace_bit_exact,
+            "trace_repeat_bit_exact": trace_repeat_bit_exact,
+            "replicas_bit_exact": replicas_bit_exact,
+            "prefill_weights_preserved": prefill_preserved,
+            "other_attention_role_preserved": other_role_preserved,
+            "candidate_role_reached_runtime": role_reached_runtime,
+            "full_qkv_bypass_overridden_in_probe": full_qkv_bypass_overridden_in_probe,
+            "attention_weight_calls": observed_attention_weights,
+            "decode_weight_sources": dict(decoder.decode_weight_sources),
+            "decode_attention_math_fidelity": str(decoder.decode_attention_compute_config.math_fidelity),
+            "sdpa_program_config": str(decoder.sdpa_program_config),
+            "fallback_policy": "TTNN throw_exception_on_fallback=true",
+            "optimized_reference_artifact": reference_path.name,
+            "optimized_reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
+            "source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "test_sha256": hashlib.sha256(test_path.read_bytes()).hexdigest(),
+        }
+        artifact_path = artifact_dir / f"bfp4_attention_{mode}_layer{layer_idx}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+
+        assert prefill_ok, f"{mode} layer {layer_idx} prefill PCC={prefill_pcc}"
+&gt;       assert decode_ok, f"{mode} layer {layer_idx} cache-consuming decode PCC={decode_pcc}"
+E       AssertionError: qkv_bfp4 layer 0 cache-consuming decode PCC=0.9844980159285389
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1770: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_real_weight_attention_decode_precision_probe[blackhole-full_attention-mesh_device0-device_params0]" time="6.535"><properties><property name="start_timestamp" value="2026-09-05T20:12:51" /><property name="end_timestamp" value="2026-09-05T20:12:57" /></properties><failure message="AssertionError: qkv_bfp4 layer 5 cache-consuming decode PCC=0.9782919205631848&#10;assert False">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x76db21eb2810&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_tp4_real_weight_attention_decode_precision_probe(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare one decode-only attention precision policy with the optimized baseline."""
+        import hashlib
+
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        mode = os.getenv("GEMMA4_MULTICHIP_ATTENTION_PROBE")
+        allowed_modes = {"selected", "qkv_control", "qkv_bfp4", "o_proj_bfp4"}
+        if mode not in allowed_modes:
+            pytest.skip("set GEMMA4_MULTICHIP_ATTENTION_PROBE to selected, qkv_control, qkv_bfp4, or o_proj_bfp4")
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        monkeypatch.delenv("GEMMA4_MULTICHIP_DECODE_QKV_WEIGHT_DTYPE", raising=False)
+        monkeypatch.delenv("GEMMA4_MULTICHIP_DECODE_O_WEIGHT_DTYPE", raising=False)
+        selected_dram_roles = "o_proj,packed_mlp_gate_up,mlp_down"
+        if mode.startswith("qkv_"):
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES", f"qkv,{selected_dram_roles}")
+        else:
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES", selected_dram_roles)
+        if mode == "qkv_bfp4":
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DECODE_QKV_WEIGHT_DTYPE", "bfp4")
+        elif mode == "o_proj_bfp4":
+            monkeypatch.setenv("GEMMA4_MULTICHIP_DECODE_O_WEIGHT_DTYPE", "bfp4")
+
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        full_qkv_bypass_overridden_in_probe = mode.startswith("qkv_") and layer_type == "full_attention"
+        if full_qkv_bypass_overridden_in_probe:
+            selected_use_decode_dram_weight = decoder._use_decode_dram_weight
+
+            def use_decode_qkv_candidate(x, weight_name):
+                if weight_name == "qkv":
+                    return decoder.multichip_execution_phase == "decode" and weight_name in decoder.decode_dram_weights
+                return selected_use_decode_dram_weight(x, weight_name)
+
+            decoder._use_decode_dram_weight = use_decode_qkv_candidate
+
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, decoder.local_full_kv_heads, 128, 512
+        else:
+            blocks, heads, block, dim = 4, decoder.local_sliding_kv_heads, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        kv_cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+
+        observed_attention_weights = []
+        original_linear = decoder._linear
+
+        def observed_linear(x, weight_name, **kwargs):
+            if weight_name in {"qkv", "o_proj"}:
+                decode_candidate = decoder._use_decode_dram_weight(x, weight_name)
+                weight = (
+                    decoder.decode_dram_weights[weight_name] if decode_candidate else getattr(decoder.weights, weight_name)
+                )
+                observed_attention_weights.append(
+                    {
+                        "phase": decoder.multichip_execution_phase,
+                        "role": weight_name,
+                        "decode_candidate": decode_candidate,
+                        "weight_dtype": str(weight.dtype),
+                        "weight_memory_layout": str(weight.memory_config().memory_layout),
+                        "weight_buffer_type": str(weight.memory_config().buffer_type),
+                        "input_shape": list(x.shape),
+                    }
+                )
+            return original_linear(x, weight_name, **kwargs)
+
+        decoder._linear = observed_linear
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=kv_cache,
+        )
+        decode_args = {
+            "hidden_states": functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            "current_pos": functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            "page_table": page_table,
+            "kv_cache": kv_cache,
+        }
+        eager = decoder.decode_forward(**decode_args)
+        ttnn.synchronize_device(mesh_device)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced = decoder.decode_forward(**decode_args)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        try:
+            for _ in range(5):
+                ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+            first = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(traced.cpu())]
+            iterations = 30
+            started = time.perf_counter()
+            for _ in range(iterations):
+                ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+            trace_replay_ms = (time.perf_counter() - started) * 1000 / iterations
+            second = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(traced.cpu())]
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+
+        eager_shards = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(eager.cpu())]
+        prefill_shards = [ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(prefill.cpu())]
+        cache_shards = [[ttnn.to_torch(tensor) for tensor in ttnn.get_device_tensors(cache.cpu())] for cache in kv_cache]
+        reference_path = (
+            Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+            / f"optimized_reference_layer{layer_idx}.pt"
+        )
+        reference = torch.load(reference_path, weights_only=True)
+        prefill_ok, prefill_pcc = functional_tests.comp_pcc(reference["prefill"], prefill_shards[0], 0.995)
+        decode_ok, decode_pcc = functional_tests.comp_pcc(reference["decode"], second[0], 0.995)
+        prefill_calls = [entry for entry in observed_attention_weights if entry["phase"] == "prefill"]
+        decode_calls = [entry for entry in observed_attention_weights if entry["phase"] == "decode"]
+        candidate_role = "qkv" if mode == "qkv_bfp4" else "o_proj" if mode == "o_proj_bfp4" else None
+        role_reached_runtime = candidate_role is None or any(
+            entry["role"] == candidate_role and entry["decode_candidate"] and entry["weight_dtype"] == "DataType.BFLOAT4_B"
+            for entry in decode_calls
+        )
+        prefill_preserved = all(not entry["decode_candidate"] for entry in prefill_calls)
+        other_role_preserved = candidate_role is None or all(
+            entry["weight_dtype"] != "DataType.BFLOAT4_B" for entry in decode_calls if entry["role"] != candidate_role
+        )
+        eager_trace_bit_exact = all(
+            torch.equal(eager_rank, trace_rank) for eager_rank, trace_rank in zip(eager_shards, first)
+        )
+        trace_repeat_bit_exact = all(torch.equal(first_rank, second_rank) for first_rank, second_rank in zip(first, second))
+        replicas_bit_exact = all(torch.equal(second[0], rank) for rank in second[1:])
+        cache_nonzero_on_all_ranks = all(torch.count_nonzero(rank).item() &gt; 0 for cache in cache_shards for rank in cache)
+
+        artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        source_path = Path("models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py")
+        test_path = Path("models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py")
+        artifact = {
+            "mode": mode,
+            "candidate_role": candidate_role,
+            "tp_size": decoder.tp_size,
+            "mesh_shape": [1, 4],
+            "layer_idx": layer_idx,
+            "layer_type": layer_type,
+            "real_weights": True,
+            "logical_prefill_length": seq_len,
+            "decode_current_position": seq_len,
+            "decode_batch": 1,
+            "page_table_shape": list(page_table.shape),
+            "local_cache_shape": [blocks, heads, block, dim],
+            "cache_dtype": str(kv_cache[0].dtype),
+            "cache_nonzero_on_all_ranks": cache_nonzero_on_all_ranks,
+            "prefill_pcc": float(prefill_pcc),
+            "decode_pcc": float(decode_pcc),
+            "pcc_threshold": 0.995,
+            "warmups": 5,
+            "trace_iterations": iterations,
+            "trace_replay_ms": trace_replay_ms,
+            "eager_vs_trace_bit_exact": eager_trace_bit_exact,
+            "trace_repeat_bit_exact": trace_repeat_bit_exact,
+            "replicas_bit_exact": replicas_bit_exact,
+            "prefill_weights_preserved": prefill_preserved,
+            "other_attention_role_preserved": other_role_preserved,
+            "candidate_role_reached_runtime": role_reached_runtime,
+            "full_qkv_bypass_overridden_in_probe": full_qkv_bypass_overridden_in_probe,
+            "attention_weight_calls": observed_attention_weights,
+            "decode_weight_sources": dict(decoder.decode_weight_sources),
+            "decode_attention_math_fidelity": str(decoder.decode_attention_compute_config.math_fidelity),
+            "sdpa_program_config": str(decoder.sdpa_program_config),
+            "fallback_policy": "TTNN throw_exception_on_fallback=true",
+            "optimized_reference_artifact": reference_path.name,
+            "optimized_reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
+            "source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "test_sha256": hashlib.sha256(test_path.read_bytes()).hexdigest(),
+        }
+        artifact_path = artifact_dir / f"bfp4_attention_{mode}_layer{layer_idx}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+
+        assert prefill_ok, f"{mode} layer {layer_idx} prefill PCC={prefill_pcc}"
+&gt;       assert decode_ok, f"{mode} layer {layer_idx} cache-consuming decode PCC={decode_pcc}"
+E       AssertionError: qkv_bfp4 layer 5 cache-consuming decode PCC=0.9782919205631848
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1770: AssertionError</failure></testcase></testsuite></testsuites>

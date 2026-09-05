@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="9.549" timestamp="2026-09-05T15:02:38.885054+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0-device_params0]" time="5.047"><properties><property name="start_timestamp" value="2026-09-05T15:02:39" /><property name="end_timestamp" value="2026-09-05T15:02:44" /></properties><failure message="ValueError: row-major routing candidate requires folded expert scales and the sharded residual path">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x78406cc9c6b0&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+&gt;       decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:417:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:320: in from_state_dict
+    decoder = cls(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x78406cc9ef00&gt;
+attention_math_fidelity = MathFidelity.HiFi2
+prefill_full_attention_math_fidelity = MathFidelity.HiFi2
+full_attention_math_fidelity = MathFidelity.LoFi
+residual_full_attention_math_fidelity = MathFidelity.HiFi2
+mlp_math_fidelity = MathFidelity.LoFi
+expert_gate_math_fidelity = MathFidelity.LoFi
+expert_math_fidelity = MathFidelity.LoFi, expert_gate_in0_block_w = 44
+
+    def __init__(
+        self,
+        *,
+        attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi2,
+        prefill_full_attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi2,
+        full_attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        residual_full_attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi2,
+        mlp_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        expert_gate_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        expert_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        expert_gate_in0_block_w: int = 22,
+        expert_down_in0_block_w: int = 11,
+        expert_gate_per_core_n: int = 1,
+        expert_down_per_core_n: int = 1,
+        expert_gate_out_subblock_w: int | None = None,
+        expert_down_out_subblock_w: int | None = None,
+        expert_decode_input_l1: bool = True,
+        prefill_expert_input_l1: bool = False,
+        prefill_expert_chunk_size: int = TILE_SIZE,
+        prefill_expert_per_core_n: int = 2,
+        prefill_expert_gate_in0_block_w: int = 44,
+        prefill_expert_down_in0_block_w: int = 11,
+        prefill_expert_tail_per_core_n: int = 11,
+        prefill_expert_tail_in0_block_w: int = 1,
+        prefill_routed_active: bool = True,
+        dense_decode_dram_sharded: bool = False,
+        packed_dense_gate_up: bool = True,
+        r22_dram_sharded: bool = False,
+        r22_packed_dense_gate_up: bool = False,
+        packed_expert_decode_gate_up: bool = True,
+        packed_expert_prefill_gate_up: bool = False,
+        folded_router_projection: bool = True,
+        shared_ffn_norm: bool = True,
+        folded_expert_scale: bool = True,
+        fused_final_scalar: bool = True,
+        dram_in0_block_w: int | None = None,
+        dram_workers_per_bank: int = 1,
+        dram_sharded_roles: tuple[str, ...] = (),
+        residual_shard_cores: int = 22,
+        qkv_working_cores: int = 22,
+        qkv_in0_block_w: int | None = 2,
+        qkv_out_subblock_w: int | None = 3,
+        full_o_working_cores: int = 22,
+        full_o_in0_block_w: int | None = 6,
+        full_o_out_subblock_w: int | None = 4,
+        attention_allow_padding: bool = True,
+        **kwargs: Any,
+    ) -&gt; None:
+        super().__init__(**kwargs)
+        resolved_prefill_attention_fidelity = (
+            attention_math_fidelity
+            if self.layer_kind.name == "sliding_attention"
+            else prefill_full_attention_math_fidelity
+        )
+        resolved_decode_attention_fidelity = (
+            attention_math_fidelity
+            if self.layer_kind.name == "sliding_attention"
+            else (residual_full_attention_math_fidelity if residual_shard_cores else full_attention_math_fidelity)
+        )
+        self.prefill_attention_compute_config = _compute_config(
+            self.mesh_device, fidelity=resolved_prefill_attention_fidelity
+        )
+        self.decode_attention_compute_config = _compute_config(
+            self.mesh_device, fidelity=resolved_decode_attention_fidelity
+        )
+        self.mlp_compute_config = _compute_config(self.mesh_device, fidelity=mlp_math_fidelity)
+        self.expert_gate_compute_config = _compute_config(
+            self.mesh_device,
+            fidelity=expert_gate_math_fidelity,
+            fp32_dest_acc_en=expert_gate_math_fidelity == ttnn.MathFidelity.HiFi4,
+        )
+        self.expert_compute_config = _compute_config(self.mesh_device, fidelity=expert_math_fidelity)
+        self.expert_gate_in0_block_w = expert_gate_in0_block_w
+        self.expert_down_in0_block_w = expert_down_in0_block_w
+        self.expert_gate_per_core_n = expert_gate_per_core_n
+        self.expert_down_per_core_n = expert_down_per_core_n
+        self.expert_gate_out_subblock_w = expert_gate_out_subblock_w
+        self.expert_down_out_subblock_w = expert_down_out_subblock_w
+        self.expert_decode_input_l1 = expert_decode_input_l1
+        self.prefill_expert_input_l1 = prefill_expert_input_l1
+        self.prefill_expert_chunk_size = prefill_expert_chunk_size
+        self.prefill_expert_per_core_n = prefill_expert_per_core_n
+        self.prefill_expert_gate_in0_block_w = prefill_expert_gate_in0_block_w
+        self.prefill_expert_down_in0_block_w = prefill_expert_down_in0_block_w
+        self.prefill_expert_tail_per_core_n = prefill_expert_tail_per_core_n
+        self.prefill_expert_tail_in0_block_w = prefill_expert_tail_in0_block_w
+        self.prefill_routed_active = prefill_routed_active
+        self.dense_decode_dram_sharded = dense_decode_dram_sharded
+        self.packed_dense_gate_up = packed_dense_gate_up
+        self.r22_dram_sharded = r22_dram_sharded
+        self.r22_packed_dense_gate_up = r22_packed_dense_gate_up
+        self.r22_projection_runtime = {}
+        self.packed_expert_decode_gate_up = packed_expert_decode_gate_up
+        self.packed_expert_prefill_gate_up = packed_expert_prefill_gate_up
+        self.folded_router_projection = folded_router_projection
+        self.shared_ffn_norm = shared_ffn_norm
+        self.folded_expert_scale = folded_expert_scale
+        self.fused_final_scalar = fused_final_scalar
+        self.layer_scalar_value = None
+        self.dram_in0_block_w = dram_in0_block_w
+        self.dram_workers_per_bank = dram_workers_per_bank
+        self.dram_sharded_roles = frozenset(dram_sharded_roles)
+        self.qkv_working_cores = qkv_working_cores
+        self.qkv_in0_block_w = qkv_in0_block_w
+        self.qkv_out_subblock_w = qkv_out_subblock_w
+        self.full_o_working_cores = full_o_working_cores
+        self.full_o_in0_block_w = full_o_in0_block_w
+        self.full_o_out_subblock_w = full_o_out_subblock_w
+        self.attention_allow_padding = attention_allow_padding
+        self.prefill_attention_options = _prefill_attention_options_from_env()
+        self.prefill_attention_program_configs = {}
+        self.prefill_attention_runtime = {}
+        self.routing_row_major = _bool_from_env("GEMMA4_OPT_ROUTING_ROW_MAJOR", True)
+        if self.routing_row_major and (not folded_expert_scale or residual_shard_cores == 0):
+&gt;           raise ValueError("row-major routing candidate requires folded expert scales and the sharded residual path")
+E           ValueError: row-major routing candidate requires folded expert scales and the sharded residual path
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:953: ValueError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device0-device_params0]" time="3.553"><properties><property name="start_timestamp" value="2026-09-05T15:02:44" /><property name="end_timestamp" value="2026-09-05T15:02:48" /></properties><failure message="ValueError: row-major routing candidate requires folded expert scales and the sharded residual path">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x78406f3dcb00&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+&gt;       decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:417:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:320: in from_state_dict
+    decoder = cls(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x78406b043e30&gt;
+attention_math_fidelity = MathFidelity.HiFi2
+prefill_full_attention_math_fidelity = MathFidelity.HiFi2
+full_attention_math_fidelity = MathFidelity.LoFi
+residual_full_attention_math_fidelity = MathFidelity.HiFi2
+mlp_math_fidelity = MathFidelity.LoFi
+expert_gate_math_fidelity = MathFidelity.LoFi
+expert_math_fidelity = MathFidelity.LoFi, expert_gate_in0_block_w = 44
+
+    def __init__(
+        self,
+        *,
+        attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi2,
+        prefill_full_attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi2,
+        full_attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        residual_full_attention_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi2,
+        mlp_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        expert_gate_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        expert_math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.LoFi,
+        expert_gate_in0_block_w: int = 22,
+        expert_down_in0_block_w: int = 11,
+        expert_gate_per_core_n: int = 1,
+        expert_down_per_core_n: int = 1,
+        expert_gate_out_subblock_w: int | None = None,
+        expert_down_out_subblock_w: int | None = None,
+        expert_decode_input_l1: bool = True,
+        prefill_expert_input_l1: bool = False,
+        prefill_expert_chunk_size: int = TILE_SIZE,
+        prefill_expert_per_core_n: int = 2,
+        prefill_expert_gate_in0_block_w: int = 44,
+        prefill_expert_down_in0_block_w: int = 11,
+        prefill_expert_tail_per_core_n: int = 11,
+        prefill_expert_tail_in0_block_w: int = 1,
+        prefill_routed_active: bool = True,
+        dense_decode_dram_sharded: bool = False,
+        packed_dense_gate_up: bool = True,
+        r22_dram_sharded: bool = False,
+        r22_packed_dense_gate_up: bool = False,
+        packed_expert_decode_gate_up: bool = True,
+        packed_expert_prefill_gate_up: bool = False,
+        folded_router_projection: bool = True,
+        shared_ffn_norm: bool = True,
+        folded_expert_scale: bool = True,
+        fused_final_scalar: bool = True,
+        dram_in0_block_w: int | None = None,
+        dram_workers_per_bank: int = 1,
+        dram_sharded_roles: tuple[str, ...] = (),
+        residual_shard_cores: int = 22,
+        qkv_working_cores: int = 22,
+        qkv_in0_block_w: int | None = 2,
+        qkv_out_subblock_w: int | None = 3,
+        full_o_working_cores: int = 22,
+        full_o_in0_block_w: int | None = 6,
+        full_o_out_subblock_w: int | None = 4,
+        attention_allow_padding: bool = True,
+        **kwargs: Any,
+    ) -&gt; None:
+        super().__init__(**kwargs)
+        resolved_prefill_attention_fidelity = (
+            attention_math_fidelity
+            if self.layer_kind.name == "sliding_attention"
+            else prefill_full_attention_math_fidelity
+        )
+        resolved_decode_attention_fidelity = (
+            attention_math_fidelity
+            if self.layer_kind.name == "sliding_attention"
+            else (residual_full_attention_math_fidelity if residual_shard_cores else full_attention_math_fidelity)
+        )
+        self.prefill_attention_compute_config = _compute_config(
+            self.mesh_device, fidelity=resolved_prefill_attention_fidelity
+        )
+        self.decode_attention_compute_config = _compute_config(
+            self.mesh_device, fidelity=resolved_decode_attention_fidelity
+        )
+        self.mlp_compute_config = _compute_config(self.mesh_device, fidelity=mlp_math_fidelity)
+        self.expert_gate_compute_config = _compute_config(
+            self.mesh_device,
+            fidelity=expert_gate_math_fidelity,
+            fp32_dest_acc_en=expert_gate_math_fidelity == ttnn.MathFidelity.HiFi4,
+        )
+        self.expert_compute_config = _compute_config(self.mesh_device, fidelity=expert_math_fidelity)
+        self.expert_gate_in0_block_w = expert_gate_in0_block_w
+        self.expert_down_in0_block_w = expert_down_in0_block_w
+        self.expert_gate_per_core_n = expert_gate_per_core_n
+        self.expert_down_per_core_n = expert_down_per_core_n
+        self.expert_gate_out_subblock_w = expert_gate_out_subblock_w
+        self.expert_down_out_subblock_w = expert_down_out_subblock_w
+        self.expert_decode_input_l1 = expert_decode_input_l1
+        self.prefill_expert_input_l1 = prefill_expert_input_l1
+        self.prefill_expert_chunk_size = prefill_expert_chunk_size
+        self.prefill_expert_per_core_n = prefill_expert_per_core_n
+        self.prefill_expert_gate_in0_block_w = prefill_expert_gate_in0_block_w
+        self.prefill_expert_down_in0_block_w = prefill_expert_down_in0_block_w
+        self.prefill_expert_tail_per_core_n = prefill_expert_tail_per_core_n
+        self.prefill_expert_tail_in0_block_w = prefill_expert_tail_in0_block_w
+        self.prefill_routed_active = prefill_routed_active
+        self.dense_decode_dram_sharded = dense_decode_dram_sharded
+        self.packed_dense_gate_up = packed_dense_gate_up
+        self.r22_dram_sharded = r22_dram_sharded
+        self.r22_packed_dense_gate_up = r22_packed_dense_gate_up
+        self.r22_projection_runtime = {}
+        self.packed_expert_decode_gate_up = packed_expert_decode_gate_up
+        self.packed_expert_prefill_gate_up = packed_expert_prefill_gate_up
+        self.folded_router_projection = folded_router_projection
+        self.shared_ffn_norm = shared_ffn_norm
+        self.folded_expert_scale = folded_expert_scale
+        self.fused_final_scalar = fused_final_scalar
+        self.layer_scalar_value = None
+        self.dram_in0_block_w = dram_in0_block_w
+        self.dram_workers_per_bank = dram_workers_per_bank
+        self.dram_sharded_roles = frozenset(dram_sharded_roles)
+        self.qkv_working_cores = qkv_working_cores
+        self.qkv_in0_block_w = qkv_in0_block_w
+        self.qkv_out_subblock_w = qkv_out_subblock_w
+        self.full_o_working_cores = full_o_working_cores
+        self.full_o_in0_block_w = full_o_in0_block_w
+        self.full_o_out_subblock_w = full_o_out_subblock_w
+        self.attention_allow_padding = attention_allow_padding
+        self.prefill_attention_options = _prefill_attention_options_from_env()
+        self.prefill_attention_program_configs = {}
+        self.prefill_attention_runtime = {}
+        self.routing_row_major = _bool_from_env("GEMMA4_OPT_ROUTING_ROW_MAJOR", True)
+        if self.routing_row_major and (not folded_expert_scale or residual_shard_cores == 0):
+&gt;           raise ValueError("row-major routing candidate requires folded expert scales and the sharded residual path")
+E           ValueError: row-major routing candidate requires folded expert scales and the sharded residual path
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:953: ValueError</failure></testcase></testsuite></testsuites>

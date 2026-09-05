@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="19.961" timestamp="2026-09-05T18:05:44.912266+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_non_aligned_prefill_and_decode_trace[blackhole-sliding_attention-mesh_device0-device_params0]" time="11.638"><properties><property name="start_timestamp" value="2026-09-05T18:05:45" /><property name="end_timestamp" value="2026-09-05T18:05:57" /></properties><failure message="RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/device/experimental/device.cpp:20: mesh-&gt;num_devices() == 1&#10;info:&#10;get_worker_noc_hop_distance() is only supported on unit MeshDevice.&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7fe2bb278439]&#10; --- tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(tt::tt_metal::IDevice*, tt::xy_pair const&amp;, tt::xy_pair const&amp;, tt::tt_metal::NOC)&#10; --- ttnn::prim::dram_sharded_helpers::get_dram_bank_reader_assignments(tt::tt_metal::IDevice*, tt::tt_metal::NOC, unsigned int, tt::tt_metal::CoreRangeSet const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb630d7) [0x7fe2bb9630d7]&#10; --- ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(ttnn::prim::MatmulParams const&amp;, ttnn::prim::MatmulInputs const&amp;, std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt;&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba374b) [0x7fe2bb9a374b]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba3571) [0x7fe2bb9a3571]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba2eeb) [0x7fe2bb9a2eeb]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x106) [0x7fe2bb993846]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1b5) [0x7fe2bb991045]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7fe2bb975198]&#10; --- ttnn::prim::matmul(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, ttnn::prim::MatmulParams const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb04e14) [0x7fe2bb904e14]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x25a) [0x7fe2bb90645a]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546c97) [0x7fe2bdd46c97]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546974) [0x7fe2bdd46974]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7fe2bde67a44]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7fe30482a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7fe30482a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fe263ccfbf0&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_non_aligned_prefill_and_decode_trace(mesh_device, device_params, monkeypatch, layer_idx):
+        """Exercise logical S=33, local cache ownership, and repeat trace replay."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 33
+        torch.manual_seed(4100 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        kv_cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=kv_cache,
+        )
+        assert tuple(prefill.shape) == (1, 1, seq_len, HIDDEN_SIZE)
+        decode_args = {
+            "hidden_states": functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            "current_pos": functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            "page_table": page_table,
+            "kv_cache": kv_cache,
+        }
+&gt;       eager = decoder.decode_forward(**decode_args)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1495:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:960: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2258: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1311: in _attention_decode
+    result = self._linear(attn_out, "o_proj", compute_kernel_config=self.decode_attention_compute_config)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:913: in _linear
+    result = ttnn.linear(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.linear', function=&lt;ttnn._ttnn.operations.matmul.linear_t object at 0x7...&lt;function default_postprocess_golden_function_outputs at 0x7fe26b44b560&gt;, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-1.9824e-01, -3.9648e-01,  ...,  0.0000e+00,  0.0000e+00],
+     ...0,  ...,  0.0000e+00,  0.0000e+00]]]], shape=Shape([1, 1, 2048, 3072]), dtype=DataType::BFLOAT16, layout=Layout::TILE))
+function_kwargs = {'compute_kernel_config': &lt;ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7fc104130450&gt;, 'dtype': ...hardedProgramConfig(in0_block_w=4,per_core_M=1,per_core_N=6,fused_activation=std::nullopt,num_workers_per_dram_bank=2)}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/device/experimental/device.cpp:20: mesh-&gt;num_devices() == 1
+E               info:
+E               get_worker_noc_hop_distance() is only supported on unit MeshDevice.
+E               backtrace:
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7fe2bb278439]
+E                --- tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(tt::tt_metal::IDevice*, tt::xy_pair const&amp;, tt::xy_pair const&amp;, tt::tt_metal::NOC)
+E                --- ttnn::prim::dram_sharded_helpers::get_dram_bank_reader_assignments(tt::tt_metal::IDevice*, tt::tt_metal::NOC, unsigned int, tt::tt_metal::CoreRangeSet const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb630d7) [0x7fe2bb9630d7]
+E                --- ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(ttnn::prim::MatmulParams const&amp;, ttnn::prim::MatmulInputs const&amp;, std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt;&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba374b) [0x7fe2bb9a374b]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba3571) [0x7fe2bb9a3571]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba2eeb) [0x7fe2bb9a2eeb]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x106) [0x7fe2bb993846]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1b5) [0x7fe2bb991045]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7fe2bb975198]
+E                --- ttnn::prim::matmul(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, ttnn::prim::MatmulParams const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb04e14) [0x7fe2bb904e14]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x25a) [0x7fe2bb90645a]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546c97) [0x7fe2bdd46c97]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546974) [0x7fe2bdd46974]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7fe2bde67a44]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x18122ac]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- python_env/bin/python() [0x18122ac]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E                --- python_env/bin/python() [0x18b1b4c]
+E                --- python_env/bin/python() [0x180874f]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E                --- python_env/bin/python() [0x1985162]
+E                --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E                --- python_env/bin/python() [0x19846df]
+E                --- python_env/bin/python() [0x19844ec]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7fe30482a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7fe30482a28b]
+E                --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_non_aligned_prefill_and_decode_trace[blackhole-full_attention-mesh_device0-device_params0]" time="7.228"><properties><property name="start_timestamp" value="2026-09-05T18:05:57" /><property name="end_timestamp" value="2026-09-05T18:06:04" /></properties><failure message="RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/device/experimental/device.cpp:20: mesh-&gt;num_devices() == 1&#10;info:&#10;get_worker_noc_hop_distance() is only supported on unit MeshDevice.&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7fe2bb278439]&#10; --- tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(tt::tt_metal::IDevice*, tt::xy_pair const&amp;, tt::xy_pair const&amp;, tt::tt_metal::NOC)&#10; --- ttnn::prim::dram_sharded_helpers::get_dram_bank_reader_assignments(tt::tt_metal::IDevice*, tt::tt_metal::NOC, unsigned int, tt::tt_metal::CoreRangeSet const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb630d7) [0x7fe2bb9630d7]&#10; --- ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(ttnn::prim::MatmulParams const&amp;, ttnn::prim::MatmulInputs const&amp;, std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt;&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba374b) [0x7fe2bb9a374b]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba3571) [0x7fe2bb9a3571]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba2eeb) [0x7fe2bb9a2eeb]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x106) [0x7fe2bb993846]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1b5) [0x7fe2bb991045]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7fe2bb975198]&#10; --- ttnn::prim::matmul(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, ttnn::prim::MatmulParams const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb04e14) [0x7fe2bb904e14]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x25a) [0x7fe2bb90645a]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546c97) [0x7fe2bdd46c97]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546974) [0x7fe2bdd46974]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7fe2bde67a44]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7fe30482a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7fe30482a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fe263b50ef0&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_non_aligned_prefill_and_decode_trace(mesh_device, device_params, monkeypatch, layer_idx):
+        """Exercise logical S=33, local cache ownership, and repeat trace replay."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 33
+        torch.manual_seed(4100 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        kv_cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=kv_cache,
+        )
+        assert tuple(prefill.shape) == (1, 1, seq_len, HIDDEN_SIZE)
+        decode_args = {
+            "hidden_states": functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            "current_pos": functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            "page_table": page_table,
+            "kv_cache": kv_cache,
+        }
+&gt;       eager = decoder.decode_forward(**decode_args)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1495:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:960: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2212: in decode_forward
+    return self._decode_forward_interleaved(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2334: in _decode_forward_interleaved
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1311: in _attention_decode
+    result = self._linear(attn_out, "o_proj", compute_kernel_config=self.decode_attention_compute_config)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:913: in _linear
+    result = ttnn.linear(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.linear', function=&lt;ttnn._ttnn.operations.matmul.linear_t object at 0x7...&lt;function default_postprocess_golden_function_outputs at 0x7fe26b44b560&gt;, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-5.9204e-03, -8.6328e-01,  ..., -7.3438e-01, -7.7344e-01],
+     ...,  ...,  0.0000e+00,  0.0000e+00]]]], shape=Shape([1, 1, 2048, 3072]), dtype=DataType::BFLOAT8_B, layout=Layout::TILE))
+function_kwargs = {'compute_kernel_config': &lt;ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7fc104132d00&gt;, 'dtype': ...hardedProgramConfig(in0_block_w=4,per_core_M=1,per_core_N=6,fused_activation=std::nullopt,num_workers_per_dram_bank=2)}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/device/experimental/device.cpp:20: mesh-&gt;num_devices() == 1
+E               info:
+E               get_worker_noc_hop_distance() is only supported on unit MeshDevice.
+E               backtrace:
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7fe2bb278439]
+E                --- tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(tt::tt_metal::IDevice*, tt::xy_pair const&amp;, tt::xy_pair const&amp;, tt::tt_metal::NOC)
+E                --- ttnn::prim::dram_sharded_helpers::get_dram_bank_reader_assignments(tt::tt_metal::IDevice*, tt::tt_metal::NOC, unsigned int, tt::tt_metal::CoreRangeSet const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb630d7) [0x7fe2bb9630d7]
+E                --- ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(ttnn::prim::MatmulParams const&amp;, ttnn::prim::MatmulInputs const&amp;, std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt;&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba374b) [0x7fe2bb9a374b]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba3571) [0x7fe2bb9a3571]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xba2eeb) [0x7fe2bb9a2eeb]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x106) [0x7fe2bb993846]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1b5) [0x7fe2bb991045]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7fe2bb975198]
+E                --- ttnn::prim::matmul(ttnn::Tensor const&amp;, ttnn::Tensor const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, ttnn::prim::MatmulParams const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0xb04e14) [0x7fe2bb904e14]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x25a) [0x7fe2bb90645a]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546c97) [0x7fe2bdd46c97]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x546974) [0x7fe2bdd46974]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7fe2bde67a44]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x18122ac]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- python_env/bin/python() [0x18122ac]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E                --- python_env/bin/python() [0x18b1b4c]
+E                --- python_env/bin/python() [0x180874f]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E                --- python_env/bin/python() [0x1985162]
+E                --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E                --- python_env/bin/python() [0x19846df]
+E                --- python_env/bin/python() [0x19844ec]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7fe30482a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7fe30482a28b]
+E                --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="6.354" timestamp="2026-09-05T16:03:04.253749+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_proxy_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0]" time="5.394"><properties><property name="start_timestamp" value="2026-09-05T16:03:05" /><property name="end_timestamp" value="2026-09-05T16:03:10" /></properties><failure message="RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/fabric/control_plane.cpp:2224: this-&gt;fabric_context_ != nullptr&#10;info:&#10;Trying to get un-initialized fabric context&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7a83dbe78439]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0xc6dadd) [0x7a83db06dadd]&#10; --- tt::tt_fabric::get_fabric_topology()&#10; --- ttnn::ccl::get_usable_topology(ttnn::Tensor const&amp;, std::optional&lt;tt::tt_fabric::Topology&gt; const&amp;, std::optional&lt;unsigned int&gt; const&amp;)&#10; --- ttnn::all_reduce(ttnn::Tensor const&amp;, std::optional&lt;unsigned int&gt;, std::optional&lt;ttsl::StrongType&lt;unsigned char, tt::tt_metal::SubDeviceIdTag&gt; &gt; const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_fabric::Topology&gt;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x5926ed) [0x7a83de9926ed]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7a83dea67a44]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x18122ac]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python() [0x1ab9bae]&#10; --- python_env/bin/python() [0x18cb66c]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- python_env/bin/python() [0x18b1b4c]&#10; --- python_env/bin/python() [0x180874f]&#10; --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]&#10; --- python_env/bin/python() [0x1985162]&#10; --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]&#10; --- python_env/bin/python() [0x19846df]&#10; --- python_env/bin/python() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7a842562a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7a842562a28b]&#10; --- python_env/bin/python(_start+0x29) [0x19a66a9]">mesh_device = MeshDevice(1x2 grid, 2 devices)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7a8384997050&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("mesh_device", [(1, 2)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_p150x2_proxy_matches_optimized_single_chip(mesh_device, monkeypatch, layer_idx):
+        """Validate the two-chip proxy with the synchronous linear CCL path."""
+&gt;       test_multichip_matches_optimized_single_chip(mesh_device, {}, monkeypatch, layer_idx)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:605:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:562: in test_multichip_matches_optimized_single_chip
+    prefill = decoder.prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:685: in prefill_forward
+    return super().prefill_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2106: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2143: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:871: in _attention_prefill
+    return self._all_reduce_hidden(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:639: in _all_reduce_hidden
+    reduced = ttnn.all_reduce(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.all_reduce', function=&lt;ttnn._ttnn.operations.ccl.all_reduce_t object a...uts=None, golden_function=None, postprocess_golden_function_outputs=None, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 8.0469e-01, -4.4141e-01,  ...,  1.8359e+00, -2.8281e+00],
+     ...01,  ...,  6.2500e-01, -7.0312e-01]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE),)
+function_kwargs = {'cluster_axis': 1, 'memory_config': MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType...ard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0), 'num_links': 2, 'topology': Topology.Linear}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/fabric/control_plane.cpp:2224: this-&gt;fabric_context_ != nullptr
+E               info:
+E               Trying to get un-initialized fabric context
+E               backtrace:
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x478439) [0x7a83dbe78439]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0xc6dadd) [0x7a83db06dadd]
+E                --- tt::tt_fabric::get_fabric_topology()
+E                --- ttnn::ccl::get_usable_topology(ttnn::Tensor const&amp;, std::optional&lt;tt::tt_fabric::Topology&gt; const&amp;, std::optional&lt;unsigned int&gt; const&amp;)
+E                --- ttnn::all_reduce(ttnn::Tensor const&amp;, std::optional&lt;unsigned int&gt;, std::optional&lt;ttsl::StrongType&lt;unsigned char, tt::tt_metal::SubDeviceIdTag&gt; &gt; const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;unsigned int&gt;, std::optional&lt;tt::tt_fabric::Topology&gt;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x5926ed) [0x7a83de9926ed]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x7a83dea67a44]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x18122ac]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python() [0x1ab9bae]
+E                --- python_env/bin/python() [0x18cb66c]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- python_env/bin/python(PyEval_EvalCode+0xde) [0x18b1d32]
+E                --- python_env/bin/python() [0x18b1b4c]
+E                --- python_env/bin/python() [0x180874f]
+E                --- python_env/bin/python(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E                --- python_env/bin/python() [0x1985162]
+E                --- python_env/bin/python(Py_RunMain+0x345) [0x1984a45]
+E                --- python_env/bin/python() [0x19846df]
+E                --- python_env/bin/python() [0x19844ec]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7a842562a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7a842562a28b]
+E                --- python_env/bin/python(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

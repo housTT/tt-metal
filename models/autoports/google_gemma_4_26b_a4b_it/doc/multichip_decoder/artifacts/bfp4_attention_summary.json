@@ -1,0 +1,149 @@
+{
+  "hardware": {
+    "architecture": "Blackhole",
+    "device_count": 4,
+    "post_run_dram_healthy": true,
+    "post_run_gddr_corrected_errors": 0,
+    "post_run_gddr_uncorrected_errors": 0,
+    "post_run_max_asic_temperature_c": 39.2,
+    "post_run_max_gddr_temperature_c": 44,
+    "proxy": "P150x4 on one P300C QB2",
+    "reset_or_recovery_required": false
+  },
+  "policy": {
+    "accepted": "selected",
+    "full_attention": {
+      "o_proj": "bfp8",
+      "qkv": "bfp8"
+    },
+    "rejected": [
+      "qkv_bfp4",
+      "o_proj_bfp4"
+    ],
+    "sliding_attention": {
+      "o_proj": "bf16",
+      "qkv": "bf16"
+    }
+  },
+  "provenance": {
+    "commands": {
+      "o_proj_bfp4": "GEMMA4_MULTICHIP_ATTENTION_PROBE=o_proj_bfp4 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' timeout 1800 python_env/bin/python -m pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k test_tp4_real_weight_attention_decode_precision_probe --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/bfp4_attention_o_proj_bfp4.xml",
+      "qkv_bfp4": "GEMMA4_MULTICHIP_ATTENTION_PROBE=qkv_bfp4 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' timeout 1800 python_env/bin/python -m pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k test_tp4_real_weight_attention_decode_precision_probe --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/bfp4_attention_qkv_bfp4.xml",
+      "qkv_control": "GEMMA4_MULTICHIP_ATTENTION_PROBE=qkv_control GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' timeout 1800 python_env/bin/python -m pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k test_tp4_real_weight_attention_decode_precision_probe --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/bfp4_attention_qkv_control.xml",
+      "selected": "GEMMA4_MULTICHIP_ATTENTION_PROBE=selected GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' timeout 1800 python_env/bin/python -m pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k test_tp4_real_weight_attention_decode_precision_probe --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/bfp4_attention_selected.xml"
+    },
+    "result_json_sha256": {
+      "bfp4_attention_o_proj_bfp4_layer0.json": "671e0a680c77177886f07ae7cbb20ab8b032c9a7aa6e242b155911bd4324a1da",
+      "bfp4_attention_o_proj_bfp4_layer5.json": "e6df9af7b063189d605130ce6746238564bee18604c735f7e5d4104bf25d08dc",
+      "bfp4_attention_qkv_bfp4_layer0.json": "6c13808a84d773488781c64551c1723b99a5439df0e13d75e3a886192e2ce070",
+      "bfp4_attention_qkv_bfp4_layer5.json": "d7c40c4af712626413d908de2a1c97ce1ea17acd61a1438f965107a7ceb3ef9f",
+      "bfp4_attention_qkv_control_layer0.json": "fe04a9a1575399099430ea0acd9fea3586194c49e363a217a2375e79001d0fa5",
+      "bfp4_attention_qkv_control_layer5.json": "acf3bac68a9c47187fe04e5222fe950af1b1b7ad37770151062deeeb999f196c",
+      "bfp4_attention_selected_layer0.json": "c79ce5c75131cdd7ac30c89adfba08d79cd28a94db1a30dd936e7783f4bcf6c8",
+      "bfp4_attention_selected_layer5.json": "ecb25e60f3d73fbc8d5b04d61b4cbcbef9525ea45257fc70c8010feee3588462"
+    },
+    "source_sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+    "test_sha256": "72adec376c8865825f7ce120ce8299e42865dbeb1b82cfa5afb1eca9141bcdf9"
+  },
+  "results": {
+    "full_attention": {
+      "decode_math_fidelity": "LoFi",
+      "local_cache_shape": [
+        2,
+        1,
+        128,
+        512
+      ],
+      "o_proj_bfp4": {
+        "decode_pcc": 0.9987438686022467,
+        "selected_relative_speedup": 1.0039158014306842,
+        "trace_replay_ms": 0.9489925345405936
+      },
+      "qkv_bfp4": {
+        "decode_pcc": 0.9782919205631848,
+        "qkv_control_relative_speedup": 1.0117138119117348,
+        "selected_relative_speedup": 1.047115871708048,
+        "trace_replay_ms": 0.9098406648263335
+      },
+      "qkv_control": {
+        "decode_pcc": 0.99986245520925,
+        "trace_replay_ms": 0.9204983672437569
+      },
+      "selected": {
+        "decode_pcc": 0.9998745871390105,
+        "prefill_pcc": 0.9986196042284662,
+        "trace_replay_ms": 0.9527086008650562
+      }
+    },
+    "sliding_attention": {
+      "decode_math_fidelity": "HiFi4",
+      "local_cache_shape": [
+        4,
+        2,
+        64,
+        256
+      ],
+      "o_proj_bfp4": {
+        "decode_pcc": 0.9914477984613633,
+        "selected_relative_speedup": 1.0016909146461739,
+        "trace_replay_ms": 0.6507745323081812
+      },
+      "qkv_bfp4": {
+        "decode_pcc": 0.9844980159285389,
+        "qkv_control_relative_speedup": 1.0034012682628646,
+        "selected_relative_speedup": 1.0182316726667013,
+        "trace_replay_ms": 0.6402029655873775
+      },
+      "qkv_control": {
+        "decode_pcc": 0.9941886345520329,
+        "trace_replay_ms": 0.6423804676160216
+      },
+      "selected": {
+        "decode_pcc": 0.9993185418255325,
+        "prefill_pcc": 0.9970896450177624,
+        "trace_replay_ms": 0.6518749364962181
+      }
+    }
+  },
+  "runtime_contract": {
+    "all_bfp4_candidate_role_reached_assertions": true,
+    "all_caches_nonzero_on_all_ranks": true,
+    "all_eager_trace_replays_bit_exact": true,
+    "all_other_attention_roles_preserved": true,
+    "all_prefill_weights_preserved": true,
+    "all_replicas_bit_exact": true,
+    "all_trace_repeats_bit_exact": true,
+    "cache_dtype": "BF16",
+    "decode_batch": 1,
+    "decode_current_position": 32,
+    "pcc_threshold": 0.995,
+    "prefill_sequence_length": 32,
+    "sdpa_program_config": "grid 8x4, q_chunk_size=32, k_chunk_size=64, exp_approx_mode=false, max_cores_per_head_batch=16",
+    "trace_replays": 30,
+    "warmups": 5
+  },
+  "selected_junit": {
+    "bfp4_attention_selected.xml": {
+      "failures": 0,
+      "sha256": "d17ff13f78ec10dc3678191a102c393ebc2e714f8ee4382c4a5035bc79619bf0",
+      "tests": 2
+    }
+  },
+  "superseded_candidate_junits": {
+    "bfp4_attention_o_proj_bfp4.xml": {
+      "expected_failures": 1,
+      "sha256": "27adfeef6e76b716764518f21c7a32410c07014a33fdfe3f0ede069e7c5e3193",
+      "tests": 2
+    },
+    "bfp4_attention_qkv_bfp4.xml": {
+      "expected_failures": 2,
+      "sha256": "1070e34fd2d7b1fe8885c3a46f814338f003488fe1d48919a91628f52f5f17fa",
+      "tests": 2
+    },
+    "bfp4_attention_qkv_control.xml": {
+      "expected_failures": 1,
+      "sha256": "65006f090867ac1e386e9d8f3afa6298c3066b68ae7ac68b1c39f667618d9b7b",
+      "tests": 2
+    }
+  }
+}

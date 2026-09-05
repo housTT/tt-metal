@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="11.765" timestamp="2026-09-05T15:26:20.619970+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-sliding_attention-mesh_device0-device_params0]" time="6.799"><properties><property name="start_timestamp" value="2026-09-05T15:26:21" /><property name="end_timestamp" value="2026-09-05T15:26:28" /></properties><failure message="AssertionError: 0.9892006673654702">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x71d1fcf32a80&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+        decode = decoder.decode_forward(
+            hidden_states=functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            current_pos=functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+        multichip_prefill, multichip_decode = (
+            ttnn.to_torch(ttnn.get_device_tensors(result.cpu())[0]) for result in (prefill, decode)
+        )
+        reference = torch.load(
+            Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+            / f"optimized_reference_layer{layer_idx}.pt",
+            weights_only=True,
+        )
+        assert_with_pcc(reference["prefill"], multichip_prefill, 0.995)
+&gt;       assert_with_pcc(reference["decode"], multichip_decode, 0.995)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:505:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+expected_pytorch_result = tensor([[[[-0.0996,  0.2031,  0.1128,  ...,  0.1089,  0.0258,  0.1064]]]],
+       dtype=torch.bfloat16)
+actual_pytorch_result = tensor([[[[-0.0122,  0.1143,  0.1465,  ...,  0.1050, -0.0171,  0.0864]]]],
+       dtype=torch.bfloat16)
+pcc = 0.995
+
+    def assert_with_pcc(expected_pytorch_result, actual_pytorch_result, pcc=0.9999):
+        """
+        Assert that two PyTorch tensors are similar within a specified Pearson Correlation Coefficient (PCC) threshold.
+
+        This function compares two tensors using PCC, which measures the linear correlation between them.
+        It's particularly useful for floating-point comparisons where exact equality is not expected due to
+        numerical precision differences.
+
+        Args:
+            expected_pytorch_result (torch.Tensor): The expected reference tensor
+            actual_pytorch_result (torch.Tensor): The actual tensor to compare against the reference
+            pcc (float, optional): The minimum PCC threshold for the comparison to pass. Defaults to 0.9999.
+                                  Values closer to 1.0 indicate stronger correlation.
+
+        Returns:
+            tuple: A tuple containing:
+                - pcc_passed (bool): True if the PCC check passed, False otherwise
+                - pcc_message (str): A message describing the PCC comparison result
+
+        Raises:
+            AssertionError: If the tensor shapes don't match or if the PCC is below the specified threshold
+        """
+
+        expected_pytorch_result = _normalize_tensor(expected_pytorch_result)
+        actual_pytorch_result = _normalize_tensor(actual_pytorch_result)
+
+        assert list(expected_pytorch_result.shape) == list(
+            actual_pytorch_result.shape
+        ), f"list(expected_pytorch_result.shape)={list(expected_pytorch_result.shape)} vs list(actual_pytorch_result.shape)={list(actual_pytorch_result.shape)}"
+        pcc_passed, pcc_message = comp_pcc(expected_pytorch_result, actual_pytorch_result, pcc)
+&gt;       assert pcc_passed, construct_pcc_assert_message(pcc_message, expected_pytorch_result, actual_pytorch_result)
+               ^^^^^^^^^^
+E       AssertionError: 0.9892006673654702
+
+tests/ttnn/utils_for_testing.py:173: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_matches_optimized_single_chip[blackhole-full_attention-mesh_device0-device_params0]" time="4.054"><properties><property name="start_timestamp" value="2026-09-05T15:26:28" /><property name="end_timestamp" value="2026-09-05T15:26:32" /></properties><failure message="AssertionError: 0.9949203490627379">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x71d1fcd46bd0&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_matches_optimized_single_chip(mesh_device, device_params, monkeypatch, layer_idx):
+        """Compare TP output directly with separately captured optimized TTNN output."""
+        import torch
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4TextRotaryEmbedding
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        layer_type = cfg.layer_types[layer_idx]
+        seq_len = 32
+        torch.manual_seed(4200 + layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+        decoder = MultichipDecoder.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+        if layer_type == "full_attention":
+            blocks, heads, block, dim = 2, 1, 128, 512
+        else:
+            blocks, heads, block, dim = 4, 2, 64, 256
+        page_table = functional_tests._as_tt(
+            mesh_device,
+            torch.arange(blocks, dtype=torch.int32).view(1, blocks),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache = tuple(
+            functional_tests._as_tt(mesh_device, torch.zeros((blocks, heads, block, dim), dtype=torch.bfloat16))
+            for _ in range(2)
+        )
+        prefill = decoder.prefill_forward(
+            functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+        decode = decoder.decode_forward(
+            hidden_states=functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+            position_cos=functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+            position_sin=functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+            current_pos=functional_tests._as_tt(
+                mesh_device,
+                torch.tensor([seq_len], dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            page_table=page_table,
+            kv_cache=cache,
+        )
+        multichip_prefill, multichip_decode = (
+            ttnn.to_torch(ttnn.get_device_tensors(result.cpu())[0]) for result in (prefill, decode)
+        )
+        reference = torch.load(
+            Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+            / f"optimized_reference_layer{layer_idx}.pt",
+            weights_only=True,
+        )
+        assert_with_pcc(reference["prefill"], multichip_prefill, 0.995)
+&gt;       assert_with_pcc(reference["decode"], multichip_decode, 0.995)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:505:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+expected_pytorch_result = tensor([[[[ 0.9961, -0.3633, -0.4941,  ..., -0.8047,  0.8281,  0.3086]]]],
+       dtype=torch.bfloat16)
+actual_pytorch_result = tensor([[[[ 1.0469, -0.3750, -0.4922,  ..., -0.9180,  0.8320,  0.3320]]]],
+       dtype=torch.bfloat16)
+pcc = 0.995
+
+    def assert_with_pcc(expected_pytorch_result, actual_pytorch_result, pcc=0.9999):
+        """
+        Assert that two PyTorch tensors are similar within a specified Pearson Correlation Coefficient (PCC) threshold.
+
+        This function compares two tensors using PCC, which measures the linear correlation between them.
+        It's particularly useful for floating-point comparisons where exact equality is not expected due to
+        numerical precision differences.
+
+        Args:
+            expected_pytorch_result (torch.Tensor): The expected reference tensor
+            actual_pytorch_result (torch.Tensor): The actual tensor to compare against the reference
+            pcc (float, optional): The minimum PCC threshold for the comparison to pass. Defaults to 0.9999.
+                                  Values closer to 1.0 indicate stronger correlation.
+
+        Returns:
+            tuple: A tuple containing:
+                - pcc_passed (bool): True if the PCC check passed, False otherwise
+                - pcc_message (str): A message describing the PCC comparison result
+
+        Raises:
+            AssertionError: If the tensor shapes don't match or if the PCC is below the specified threshold
+        """
+
+        expected_pytorch_result = _normalize_tensor(expected_pytorch_result)
+        actual_pytorch_result = _normalize_tensor(actual_pytorch_result)
+
+        assert list(expected_pytorch_result.shape) == list(
+            actual_pytorch_result.shape
+        ), f"list(expected_pytorch_result.shape)={list(expected_pytorch_result.shape)} vs list(actual_pytorch_result.shape)={list(actual_pytorch_result.shape)}"
+        pcc_passed, pcc_message = comp_pcc(expected_pytorch_result, actual_pytorch_result, pcc)
+&gt;       assert pcc_passed, construct_pcc_assert_message(pcc_message, expected_pytorch_result, actual_pytorch_result)
+               ^^^^^^^^^^
+E       AssertionError: 0.9949203490627379
+
+tests/ttnn/utils_for_testing.py:173: AssertionError</failure></testcase></testsuite></testsuites>

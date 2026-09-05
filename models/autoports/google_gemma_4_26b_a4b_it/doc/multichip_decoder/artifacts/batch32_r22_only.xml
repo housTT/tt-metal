@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="5.992" timestamp="2026-09-05T17:51:44.974242+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_batch32_trace_and_optimized_pcc[blackhole-full_attention-mesh_device0-device_params0]" time="5.036"><properties><property name="start_timestamp" value="2026-09-05T17:51:45" /><property name="end_timestamp" value="2026-09-05T17:51:50" /></properties><failure message="AttributeError: 'MultichipDecoder' object has no attribute 'batch32_expert_gate'">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7527b38cffe0&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_batch32_trace_and_optimized_pcc(mesh_device, device_params, monkeypatch, layer_idx):
+        import torch
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+&gt;       output, latency_ms, cache_shape = _run_traced_batch32(
+            MultichipDecoder, mesh_device, cfg, state, layer_idx, local_cache=True
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1163:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:1097: in _run_traced_batch32
+    eager = decoder.decode_forward(**decode_args)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:933: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2293: in decode_forward
+    hidden_2 = self._moe_decode(moe_in, router_weights)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1329: in _moe_decode
+    return self._all_reduce_hidden(super()._moe_decode(hidden_states, routing_weights))
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:3122: in _moe_decode
+    outputs.append(self._moe_decode_single_user(hidden_row, routing_row, use_batch32_policy=True))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1341: in _moe_decode_single_user
+    return super()._moe_decode_single_user(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x75065413c2f0&gt;
+hidden_states = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 6.6016e-01, -1.4250e+01,  ...,  4.2250e+01, -7.7188e+00]]]], sha...0e+01,  ...,  4.2250e+01, -7.7188e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+routing_weights = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, ....0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([1, 1, 1, 128]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _moe_decode_single_user(
+        self,
+        hidden_states: ttnn.Tensor,
+        routing_weights: ttnn.Tensor,
+        *,
+        use_batch32_policy: bool = False,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["expert_decode"] += 1
+        batch = hidden_states.shape[2]
+        if self.expert_decode_input_l1:
+            hidden_states = ttnn.to_memory_config(hidden_states, ttnn.L1_MEMORY_CONFIG, dtype=hidden_states.dtype)
+        row_major_routing = self.routing_row_major and not use_batch32_policy
+        if row_major_routing:
+            if routing_weights.layout != ttnn.ROW_MAJOR_LAYOUT:
+                raise AssertionError("selected routing candidate did not supply row-major sparse metadata")
+            sparsity = routing_weights
+            self.optimized_path_counters["routing_row_major_metadata"] += 1
+        else:
+            sparsity = ttnn.to_layout(routing_weights, ttnn.ROW_MAJOR_LAYOUT)
+        output_tile = ttnn.Tile([TILE_SIZE, TILE_SIZE])
+        gate_up_config = _optimized_sparse_decode_config(
+            self.mesh_device,
+            n=(
+                _PACKED_EXPERT_WIDTH
+                if self.packed_expert_decode_gate_up
+                else self.expert_weights.intermediate_size_per_device
+            ),
+            per_core_n=self.expert_gate_per_core_n,
+            in0_block_w=11 if use_batch32_policy else self.expert_gate_in0_block_w,
+            out_subblock_w=self.expert_gate_out_subblock_w,
+        )
+        down_config = _optimized_sparse_decode_config(
+            self.mesh_device,
+            n=HIDDEN_SIZE,
+            per_core_n=self.expert_down_per_core_n,
+            in0_block_w=self.expert_down_in0_block_w,
+            out_subblock_w=self.expert_down_out_subblock_w,
+        )
+        common = {
+            "sparsity": sparsity,
+            "nnz": TOP_K_EXPERTS,
+            "memory_config": ttnn.L1_MEMORY_CONFIG,
+            "output_tile": output_tile,
+            "dtype": self.activation_dtype,
+        }
+        if self.packed_expert_decode_gate_up:
+            self.optimized_path_counters["packed_expert_decode"] += 1
+            gate_up_weight = (
+                self.decode_packed_expert_gate_up_batch32 if use_batch32_policy else self.decode_packed_expert_gate_up
+            )
+            gate_up = ttnn.sparse_matmul(
+                hidden_states,
+                gate_up_weight,
+                program_config=gate_up_config,
+                compute_kernel_config=self.expert_compute_config,
+                **common,
+            )
+            gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, 1, _PACKED_EXPERT_WIDTH))
+            gate_up = ttnn.transpose(gate_up, 1, 2)
+            gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, _PACKED_EXPERT_WIDTH))
+            down_input = self._packed_expert_activation(gate_up)
+        else:
+&gt;           expert_gate = self.batch32_expert_gate if use_batch32_policy else self.weights.expert_gate
+                          ^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: 'MultichipDecoder' object has no attribute 'batch32_expert_gate'
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:3187: AttributeError</failure></testcase></testsuite></testsuites>

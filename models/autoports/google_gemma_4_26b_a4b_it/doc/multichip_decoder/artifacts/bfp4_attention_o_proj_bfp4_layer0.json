@@ -1,0 +1,124 @@
+{
+  "attention_weight_calls": [
+    {
+      "decode_candidate": false,
+      "input_shape": [
+        1,
+        1,
+        32,
+        2816
+      ],
+      "phase": "prefill",
+      "role": "qkv",
+      "weight_buffer_type": "BufferType.DRAM",
+      "weight_dtype": "DataType.BFLOAT16",
+      "weight_memory_layout": "TensorMemoryLayout.INTERLEAVED"
+    },
+    {
+      "decode_candidate": false,
+      "input_shape": [
+        1,
+        1,
+        1,
+        2816
+      ],
+      "phase": "decode",
+      "role": "qkv",
+      "weight_buffer_type": "BufferType.DRAM",
+      "weight_dtype": "DataType.BFLOAT16",
+      "weight_memory_layout": "TensorMemoryLayout.INTERLEAVED"
+    },
+    {
+      "decode_candidate": true,
+      "input_shape": [
+        1,
+        1,
+        32,
+        1024
+      ],
+      "phase": "decode",
+      "role": "o_proj",
+      "weight_buffer_type": "BufferType.DRAM",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory_layout": "TensorMemoryLayout.WIDTH_SHARDED"
+    },
+    {
+      "decode_candidate": false,
+      "input_shape": [
+        1,
+        1,
+        1,
+        2816
+      ],
+      "phase": "decode",
+      "role": "qkv",
+      "weight_buffer_type": "BufferType.DRAM",
+      "weight_dtype": "DataType.BFLOAT16",
+      "weight_memory_layout": "TensorMemoryLayout.INTERLEAVED"
+    },
+    {
+      "decode_candidate": true,
+      "input_shape": [
+        1,
+        1,
+        32,
+        1024
+      ],
+      "phase": "decode",
+      "role": "o_proj",
+      "weight_buffer_type": "BufferType.DRAM",
+      "weight_dtype": "DataType.BFLOAT4_B",
+      "weight_memory_layout": "TensorMemoryLayout.WIDTH_SHARDED"
+    }
+  ],
+  "cache_dtype": "DataType.BFLOAT16",
+  "cache_nonzero_on_all_ranks": true,
+  "candidate_role": "o_proj",
+  "candidate_role_reached_runtime": true,
+  "decode_attention_math_fidelity": "MathFidelity.HiFi4",
+  "decode_batch": 1,
+  "decode_current_position": 32,
+  "decode_pcc": 0.9914477984613633,
+  "decode_weight_sources": {
+    "mlp_down": "prefill_weight",
+    "o_proj": "device_typecast_retained",
+    "packed_mlp_gate_up": "independent_host_upload"
+  },
+  "eager_vs_trace_bit_exact": true,
+  "fallback_policy": "TTNN throw_exception_on_fallback=true",
+  "full_qkv_bypass_overridden_in_probe": false,
+  "layer_idx": 0,
+  "layer_type": "sliding_attention",
+  "local_cache_shape": [
+    4,
+    2,
+    64,
+    256
+  ],
+  "logical_prefill_length": 32,
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "mode": "o_proj_bfp4",
+  "optimized_reference_artifact": "optimized_reference_layer0.pt",
+  "optimized_reference_sha256": "06059cf9eec824faece6e738fcc0dc3664953ca2f7a7c9d58d3fff608e1c2f89",
+  "other_attention_role_preserved": true,
+  "page_table_shape": [
+    1,
+    4
+  ],
+  "pcc_threshold": 0.995,
+  "prefill_pcc": 0.9970896450177624,
+  "prefill_weights_preserved": true,
+  "real_weights": true,
+  "replicas_bit_exact": true,
+  "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-4, sub_core_grids=std::nullopt, q_chunk_size=32, k_chunk_size=64, exp_approx_mode=false, max_cores_per_head_batch=16)",
+  "source_sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+  "test_sha256": "72adec376c8865825f7ce120ce8299e42865dbeb1b82cfa5afb1eca9141bcdf9",
+  "tp_size": 4,
+  "trace_iterations": 30,
+  "trace_repeat_bit_exact": true,
+  "trace_replay_ms": 0.6507745323081812,
+  "warmups": 5
+}
