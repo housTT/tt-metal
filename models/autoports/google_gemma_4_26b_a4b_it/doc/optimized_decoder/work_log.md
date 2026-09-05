@@ -584,9 +584,12 @@ reduced.
   correctness-safe batch-aware policy.
 - [x] Independent final `$stage-review` clean-pass; see
   `STAGE_REVIEW_FINAL.md`.
-- [ ] Local stage-owned commit; SHA recorded below and never pushed.
+- [x] Local stage-owned commit; SHA recorded below and never pushed.
 
 ## Local commits
 
 Independent review: `STAGE_REVIEW_FINAL.md`, verdict `clean-pass`.
-Stage-owned commit pending.
+Primary implementation/evidence commit:
+`c46a6ce4078145b1c26368973c086930650196f0` (`Add optimized Gemma 4 decoder`).
+It was created locally and was not pushed. A closing documentation/CSV
+line-ending commit is reported in the final handoff.
