@@ -1,0 +1,897 @@
+{
+  "hardware": "TP4, four Blackhole chips on physical P300c boards",
+  "precision": "BF16 weights,input,output; HiFi4; FP32 destination accumulation; packer L1 accumulation",
+  "logical_columns_per_chunk": 32768,
+  "chunks_per_rank": 2,
+  "local_padded_vocabulary": 65536,
+  "selected": {
+    "input_cores": 64,
+    "input_grid": [
+      8,
+      8
+    ],
+    "input_shard": [
+      32,
+      64
+    ],
+    "in0_block_w": 1,
+    "readers": 2,
+    "per_core_M": 1,
+    "per_core_N": 16,
+    "final_norm_grid": [
+      8,
+      4
+    ],
+    "final_norm_shard": [
+      32,
+      128
+    ],
+    "explicit_post_norm_reshard": true,
+    "weight_repacking": false
+  },
+  "selection_basis": "Material paired terminal win with bit-identical recorded-real-hidden logical logits and corrected worker-watcher/allocation-tracker pass.",
+  "measurements": [
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c16_k1_r2_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c16_k1_r2_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "16",
+        "--in0-block-w",
+        "1",
+        "--readers",
+        "2",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c16_k1_r2_v1.json"
+      ],
+      "cores": 16,
+      "in0_block_w": 1,
+      "readers": 2,
+      "physical_columns": 32768,
+      "per_core_N": 64,
+      "predicted_static_end": 902144,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.3580861395894317,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.7820805460360134,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.3717901711061131,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.7947701235243585,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal_improvement_percent": -30.83415826468452,
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c16_k2_r3_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c16_k2_r3_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "16",
+        "--in0-block-w",
+        "2",
+        "--readers",
+        "3",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c16_k2_r3_v1.json"
+      ],
+      "cores": 16,
+      "in0_block_w": 2,
+      "readers": 3,
+      "physical_columns": 33024,
+      "per_core_N": 65,
+      "predicted_static_end": 918528,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.358509405690711,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.579915093316231,
+          "exact_baseline": false,
+          "max_abs": 0.125,
+          "pcc": 0.9999993443489075,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "164bf1b5bb824e1b6255d2757fbfd6f8afb36dc69ed918ba66d99bd810eebbff"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.3718666559725534,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.5929598739603534,
+          "exact_baseline": false,
+          "max_abs": 0.125,
+          "pcc": 0.9999993443489075,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "164bf1b5bb824e1b6255d2757fbfd6f8afb36dc69ed918ba66d99bd810eebbff"
+        }
+      },
+      "terminal_improvement_percent": -16.11623236305435,
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c32_k1_r3_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c32_k1_r3_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "32",
+        "--in0-block-w",
+        "1",
+        "--readers",
+        "3",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c32_k1_r3_v1.json"
+      ],
+      "cores": 32,
+      "in0_block_w": 1,
+      "readers": 3,
+      "physical_columns": 33024,
+      "per_core_N": 33,
+      "predicted_static_end": 650240,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.3584112803073367,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.3435361252049915,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.3717234542127699,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.3555832192650996,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal_improvement_percent": 1.1766391321881398,
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c32_k2_r3_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c32_k2_r3_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "32",
+        "--in0-block-w",
+        "2",
+        "--readers",
+        "3",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c32_k2_r3_v1.json"
+      ],
+      "cores": 32,
+      "in0_block_w": 2,
+      "readers": 3,
+      "physical_columns": 33024,
+      "per_core_N": 33,
+      "predicted_static_end": 918528,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.3584918269771151,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.3459539532050258,
+          "exact_baseline": false,
+          "max_abs": 0.125,
+          "pcc": 0.9999993443489075,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "164bf1b5bb824e1b6255d2757fbfd6f8afb36dc69ed918ba66d99bd810eebbff"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.371828124320018,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.3589461395895341,
+          "exact_baseline": false,
+          "max_abs": 0.125,
+          "pcc": 0.9999993443489075,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "164bf1b5bb824e1b6255d2757fbfd6f8afb36dc69ed918ba66d99bd810eebbff"
+        }
+      },
+      "terminal_improvement_percent": 0.9390378067127947,
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c64_k1_r2_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "64",
+        "--in0-block-w",
+        "1",
+        "--readers",
+        "2",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_v1.json"
+      ],
+      "cores": 64,
+      "in0_block_w": 1,
+      "readers": 2,
+      "physical_columns": 32768,
+      "per_core_N": 16,
+      "predicted_static_end": 902144,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.3582029841927579,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.1248761711613042,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.3716759222006658,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.1370859374437714,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal_improvement_percent": 17.102435127717854,
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k2_r2_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c64_k2_r2_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "64",
+        "--in0-block-w",
+        "2",
+        "--readers",
+        "2",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k2_r2_v1.json"
+      ],
+      "cores": 64,
+      "in0_block_w": 2,
+      "readers": 2,
+      "physical_columns": 32768,
+      "per_core_N": 16,
+      "predicted_static_end": 1299456,
+      "exit_code": 1,
+      "probe_execution_pass": false,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "phase": "head_candidate_eager",
+      "error": "TT_THROW @ /work/tt_metal/impl/program/program.cpp:1932: tt::exception\ninfo:\nStatically allocated circular buffers in program 50 clash with L1 buffers on core range [0-0 - 10-9]. L1 buffer allocated at 1268992 and static circular buffer region ends at 1299456\n",
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k2_r3_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c64_k2_r3_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "64",
+        "--in0-block-w",
+        "2",
+        "--readers",
+        "3",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k2_r3_v1.json"
+      ],
+      "cores": 64,
+      "in0_block_w": 2,
+      "readers": 3,
+      "physical_columns": 33024,
+      "per_core_N": 17,
+      "predicted_static_end": 918528,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.3585343749582535,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.2989985007152427,
+          "exact_baseline": false,
+          "max_abs": 0.125,
+          "pcc": 0.9999993443489075,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "164bf1b5bb824e1b6255d2757fbfd6f8afb36dc69ed918ba66d99bd810eebbff"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.3717018900933908,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.312336498813238,
+          "exact_baseline": false,
+          "max_abs": 0.125,
+          "pcc": 0.9999993443489075,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "164bf1b5bb824e1b6255d2757fbfd6f8afb36dc69ed918ba66d99bd810eebbff"
+        }
+      },
+      "terminal_improvement_percent": 4.327863926476838,
+      "baseline_cores": 32
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r3_vs_c64_k1_r2_v1.json",
+      "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c64_k1_r3_vs_c64_k1_r2_v1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--baseline-cores",
+        "64",
+        "--cores",
+        "64",
+        "--in0-block-w",
+        "1",
+        "--readers",
+        "3",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r3_vs_c64_k1_r2_v1.json"
+      ],
+      "baseline_cores": 64,
+      "baseline_geometry": {
+        "cores": 64,
+        "grid": [
+          8,
+          8
+        ],
+        "input_shard": [
+          32,
+          64
+        ],
+        "in0_block_w": 1,
+        "readers": 2,
+        "logical_columns": 32768,
+        "physical_columns": 32768,
+        "weight_shard": [
+          4096,
+          4096
+        ],
+        "reader_tiles": 64,
+        "compute_tiles": 64,
+        "per_core_N": 16,
+        "cb_bytes": {
+          "in0": 4096,
+          "in1": 393216,
+          "output": 131072,
+          "intermediate": 262144
+        },
+        "predicted_static_end": 902144,
+        "resident_bytes_per_bank": 221952
+      },
+      "cores": 64,
+      "in0_block_w": 1,
+      "readers": 3,
+      "physical_columns": 33024,
+      "per_core_N": 17,
+      "predicted_static_end": 650240,
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "head": {
+        "baseline": {
+          "median_trace_ms": 1.125082375438069,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.2960139374627033,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal": {
+        "baseline": {
+          "median_trace_ms": 1.1371377659088466,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        },
+        "candidate": {
+          "median_trace_ms": 1.3091127329971641,
+          "exact_baseline": true,
+          "max_abs": 0.0,
+          "pcc": 1.0,
+          "top1_equal": true,
+          "eager_exact_repeat": true,
+          "trace_exact_eager": true,
+          "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+        }
+      },
+      "terminal_improvement_percent": -15.123494465146713,
+      "verdict": "Same-core and same-K control completed: padded three readers are slower; retain C64/K1/R2."
+    }
+  ],
+  "watcher_runs": [
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_watcher_v1.json",
+      "exit_code": 1,
+      "probe_execution_pass": false,
+      "phase": "head_timing",
+      "environment": {
+        "TORCHINDUCTOR_CACHE_DIR": "/home/hous/dev/ornith-1.5-9b/state/torch-cache",
+        "OMP_NUM_THREADS": "8",
+        "HF_HUB_OFFLINE": "1",
+        "TT_METAL_WATCHER": "10",
+        "TT_METAL_WATCHER_DISABLE_ETH": "1",
+        "TT_METAL_DEVICE_PROFILER": null,
+        "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+        "TT_METAL_TRACE_ALLOC_TRACEBACKS": null
+      },
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "64",
+        "--in0-block-w",
+        "1",
+        "--readers",
+        "2",
+        "--repeats",
+        "2",
+        "--rounds",
+        "1",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_watcher_v1.json"
+      ],
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "error": "Found 4 device buffer(s) still alive before trace replay. These will be corrupted on replay.\nBuffer 373 [op: program_cache: ReshardDeviceOperation output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":7}], shape=[32, 64], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)]\nBuffer 388 [op: program_cache: MatmulDeviceOperation program_config=MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1,per_core_M=1,per_core_N=16,fused_activation=std::nullopt,num_workers_per_dram_bank=2) bcast_batch=true output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 compute_kernel_config=ComputeKernelConfig(math_fidelity=HiFi4,math_approx_mode=0,fp32_dest_acc_en=1,packer_l1_acc=1,dst_full_sync_en=0,throttle_level=ThrottleLevel::NO_THROTTLE) untilize_out=false user_core_coord=std::nullopt user_fused_activation=std::nullopt user_run_batched=false transpose_a=false transpose_b=false output_tile=Tile(tile_shape={32, 32},face_shape={16, 16},num_faces=4) global_cb=std::nullopt sub_device_id=std::nullopt]\nBuffer 418 [op: program_cache: ShardedToInterleavedDeviceOperation output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 num_slices=1 slice_index=0]\nBuffer 498 [op: ttnn.allocate_tensor_on_device]\n\nUse corruptible_allocation_scope() for acknowledged-corruptible tensors, or ensure temporary tensors are freed before replay.",
+      "classification": "Probe lifecycle: replaying older baseline trace after candidate trace allocated live buffers; host tracker rejected before replay."
+    },
+    {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_watcher_v2.json",
+      "exit_code": 0,
+      "probe_execution_pass": true,
+      "phase": "complete",
+      "environment": {
+        "TORCHINDUCTOR_CACHE_DIR": "/home/hous/dev/ornith-1.5-9b/state/torch-cache",
+        "OMP_NUM_THREADS": "8",
+        "HF_HUB_OFFLINE": "1",
+        "TT_METAL_WATCHER": "10",
+        "TT_METAL_WATCHER_DISABLE_ETH": "1",
+        "TT_METAL_DEVICE_PROFILER": null,
+        "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+        "TT_METAL_TRACE_ALLOC_TRACEBACKS": null
+      },
+      "command": [
+        "timeout",
+        "240",
+        "python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+        "--cores",
+        "64",
+        "--in0-block-w",
+        "1",
+        "--readers",
+        "2",
+        "--repeats",
+        "2",
+        "--rounds",
+        "1",
+        "--serial-traces",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_watcher_v2.json"
+      ],
+      "resident_l1": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "checks": {
+        "head": {
+          "baseline": {
+            "exact_baseline": true,
+            "eager_exact_repeat": true,
+            "trace_exact_eager": true,
+            "memory_before": {
+              "total_bytes_allocated_per_bank": 230144,
+              "total_bytes_free_per_bank": 1198336,
+              "largest_contiguous_bytes_free_per_bank": 1190144
+            }
+          },
+          "candidate": {
+            "exact_baseline": true,
+            "eager_exact_repeat": true,
+            "trace_exact_eager": true,
+            "memory_before": {
+              "total_bytes_allocated_per_bank": 230144,
+              "total_bytes_free_per_bank": 1198336,
+              "largest_contiguous_bytes_free_per_bank": 1190144
+            }
+          }
+        },
+        "terminal": {
+          "baseline": {
+            "exact_baseline": true,
+            "eager_exact_repeat": true,
+            "trace_exact_eager": true,
+            "memory_before": {
+              "total_bytes_allocated_per_bank": 221952,
+              "total_bytes_free_per_bank": 1206528,
+              "largest_contiguous_bytes_free_per_bank": 1206528
+            }
+          },
+          "candidate": {
+            "exact_baseline": true,
+            "eager_exact_repeat": true,
+            "trace_exact_eager": true,
+            "memory_before": {
+              "total_bytes_allocated_per_bank": 221952,
+              "total_bytes_free_per_bank": 1206528,
+              "largest_contiguous_bytes_free_per_bank": 1206528
+            }
+          }
+        }
+      }
+    }
+  ],
+  "scope_limits": [
+    "One recorded real hidden row; all-layer, mixed batch32, French qualitative, and final model performance gates belong to parent integration.",
+    "Reported speedups are terminal-only measurements, not full-model speedup claims.",
+    "Normal alternating timing traces read and validate each result immediately; strict watcher validation uses one live trace at a time."
+  ],
+  "hardware_returned_to_parent": true,
+  "missing_family_closure": {
+    "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r3_vs_c64_k1_r2_v1.json",
+    "provenance": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/logs/head_geometry_c64_k1_r3_vs_c64_k1_r2_v1.provenance.json",
+    "command": [
+      "timeout",
+      "240",
+      "python_env/bin/python",
+      "-m",
+      "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_head_geometry",
+      "--baseline-cores",
+      "64",
+      "--cores",
+      "64",
+      "--in0-block-w",
+      "1",
+      "--readers",
+      "3",
+      "--output",
+      "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r3_vs_c64_k1_r2_v1.json"
+    ],
+    "baseline_cores": 64,
+    "baseline_geometry": {
+      "cores": 64,
+      "grid": [
+        8,
+        8
+      ],
+      "input_shard": [
+        32,
+        64
+      ],
+      "in0_block_w": 1,
+      "readers": 2,
+      "logical_columns": 32768,
+      "physical_columns": 32768,
+      "weight_shard": [
+        4096,
+        4096
+      ],
+      "reader_tiles": 64,
+      "compute_tiles": 64,
+      "per_core_N": 16,
+      "cb_bytes": {
+        "in0": 4096,
+        "in1": 393216,
+        "output": 131072,
+        "intermediate": 262144
+      },
+      "predicted_static_end": 902144,
+      "resident_bytes_per_bank": 221952
+    },
+    "cores": 64,
+    "in0_block_w": 1,
+    "readers": 3,
+    "physical_columns": 33024,
+    "per_core_N": 17,
+    "predicted_static_end": 650240,
+    "exit_code": 0,
+    "probe_execution_pass": true,
+    "resident_l1": {
+      "total_bytes_allocated_per_bank": 221952,
+      "total_bytes_free_per_bank": 1206528,
+      "largest_contiguous_bytes_free_per_bank": 1206528
+    },
+    "head": {
+      "baseline": {
+        "median_trace_ms": 1.125082375438069,
+        "exact_baseline": true,
+        "max_abs": 0.0,
+        "pcc": 1.0,
+        "top1_equal": true,
+        "eager_exact_repeat": true,
+        "trace_exact_eager": true,
+        "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+      },
+      "candidate": {
+        "median_trace_ms": 1.2960139374627033,
+        "exact_baseline": true,
+        "max_abs": 0.0,
+        "pcc": 1.0,
+        "top1_equal": true,
+        "eager_exact_repeat": true,
+        "trace_exact_eager": true,
+        "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+      }
+    },
+    "terminal": {
+      "baseline": {
+        "median_trace_ms": 1.1371377659088466,
+        "exact_baseline": true,
+        "max_abs": 0.0,
+        "pcc": 1.0,
+        "top1_equal": true,
+        "eager_exact_repeat": true,
+        "trace_exact_eager": true,
+        "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+      },
+      "candidate": {
+        "median_trace_ms": 1.3091127329971641,
+        "exact_baseline": true,
+        "max_abs": 0.0,
+        "pcc": 1.0,
+        "top1_equal": true,
+        "eager_exact_repeat": true,
+        "trace_exact_eager": true,
+        "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50"
+      }
+    },
+    "terminal_improvement_percent": -15.123494465146713,
+    "verdict": "Same-core and same-K control completed: padded three readers are slower; retain C64/K1/R2."
+  }
+}

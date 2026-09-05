@@ -87,7 +87,7 @@ def fake_generator():
     generator.max_batch_size = 1
     generator.counters = {}
     generator.perf = {}
-    generator.reset = lambda: None
+    generator.reset = lambda **kwargs: None
     generator.ensure_traces = lambda: None
     generator._ensure_replay_safe = lambda: None
     generator._write_positions = lambda values: None
@@ -153,7 +153,7 @@ def test_live_sampling_reconfigure_restores_every_warmup_mutation(monkeypatch):
     state = gen._inputs + [gen._logits, gen.sampling.tt_sampling.seeds_tt_tensor] + histories
     expected = [tensor.clone() for tensor in state]
     calls = []
-    gen.teardown = lambda: calls.append("release")
+    gen._release_traces = lambda: calls.append("release")
     gen._configure_sampling = lambda value: calls.append("params")
 
     def warm(logits):
@@ -229,7 +229,7 @@ def test_ttft_includes_request_reset_and_reports_prefill_boundary(monkeypatch):
         events.append(("clock", value))
         return value
 
-    gen.reset = lambda: events.append(("reset", None))
+    gen.reset = lambda **kwargs: events.append(("reset", None))
     monkeypatch.setitem(NAMESPACE, "time", SimpleNamespace(perf_counter=clock))
     gen.generate([1], 3)
     assert events[:2] == [("clock", 10.0), ("reset", None)]

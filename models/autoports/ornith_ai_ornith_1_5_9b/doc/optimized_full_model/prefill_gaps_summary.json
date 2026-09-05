@@ -1,0 +1,494 @@
+{
+  "scope": "Reduced real layers0/3 plus embedding, full selected terminal, first sampling, B1 native262144 cache; no all32-layer profiling.",
+  "profiled_source_matches_uninstrumented_runtime": true,
+  "profiled_native_device_window": {
+    "rows": 145,
+    "device": 1,
+    "kernel_ms": 3.043997,
+    "interior_gap_ms": 2.071031,
+    "native_function_sum_ms": 0.176745,
+    "native_function_window_ms": 4.933206,
+    "largest_gaps": [
+      {
+        "operation": "EmbeddingsDeviceOperation",
+        "call_id": "954369",
+        "gap_us": 139.271,
+        "native_host_between_us": 148.905,
+        "native_function_us": 2.014,
+        "kernel_us": 9.59
+      },
+      {
+        "operation": "MatmulDeviceOperation",
+        "call_id": "1053697",
+        "gap_us": 76.784,
+        "native_host_between_us": 67.058,
+        "native_function_us": 0.761,
+        "kernel_us": 542.155
+      },
+      {
+        "operation": "ChunkGdnPrepOperation",
+        "call_id": "979969",
+        "gap_us": 70.846,
+        "native_host_between_us": 62.249,
+        "native_function_us": 1.974,
+        "kernel_us": 53.033
+      },
+      {
+        "operation": "AllGatherAsyncDeviceOperation",
+        "call_id": "955393",
+        "gap_us": 60.226,
+        "native_host_between_us": 65.145,
+        "native_function_us": 0.791,
+        "kernel_us": 25.879
+      },
+      {
+        "operation": "SDPAOperation",
+        "call_id": "1030145",
+        "gap_us": 53.152,
+        "native_host_between_us": 48.844,
+        "native_function_us": 2.655,
+        "kernel_us": 35.017
+      },
+      {
+        "operation": "MatmulDeviceOperation",
+        "call_id": "994305",
+        "gap_us": 51.16,
+        "native_host_between_us": 53.603,
+        "native_function_us": 1.443,
+        "kernel_us": 28.184
+      },
+      {
+        "operation": "BinaryNgDeviceOperation",
+        "call_id": "972801",
+        "gap_us": 50.233,
+        "native_host_between_us": 44.405,
+        "native_function_us": 1.322,
+        "kernel_us": 12.495
+      },
+      {
+        "operation": "InterleavedToShardedDeviceOperation",
+        "call_id": "1049601",
+        "gap_us": 47.014,
+        "native_host_between_us": 49.856,
+        "native_function_us": 1.372,
+        "kernel_us": 1.204
+      },
+      {
+        "operation": "ReduceScatterDeviceOperation",
+        "call_id": "995329",
+        "gap_us": 44.582,
+        "native_host_between_us": 62.639,
+        "native_function_us": 0.622,
+        "kernel_us": 20.448
+      },
+      {
+        "operation": "QkvCausalConv1dSiluOperation",
+        "call_id": "967681",
+        "gap_us": 44.551,
+        "native_host_between_us": 47.2,
+        "native_function_us": 1.623,
+        "kernel_us": 41.255
+      },
+      {
+        "operation": "MatmulDeviceOperation",
+        "call_id": "1033217",
+        "gap_us": 44.096,
+        "native_host_between_us": 44.926,
+        "native_function_us": 1.322,
+        "kernel_us": 28.313
+      },
+      {
+        "operation": "LayerNormDeviceOperation",
+        "call_id": "1051649",
+        "gap_us": 42.544,
+        "native_host_between_us": 42.06,
+        "native_function_us": 1.413,
+        "kernel_us": 5.223
+      },
+      {
+        "operation": "ReshardDeviceOperation",
+        "call_id": "1052673",
+        "gap_us": 41.071,
+        "native_host_between_us": 47.21,
+        "native_function_us": 1.413,
+        "kernel_us": 0.907
+      },
+      {
+        "operation": "BinaryNgDeviceOperation",
+        "call_id": "951297",
+        "gap_us": 40.53,
+        "native_host_between_us": 37.001,
+        "native_function_us": 0.822,
+        "kernel_us": 2.801
+      },
+      {
+        "operation": "BinaryNgDeviceOperation",
+        "call_id": "997377",
+        "gap_us": 40.264,
+        "native_host_between_us": 62.199,
+        "native_function_us": 1.132,
+        "kernel_us": 9.51
+      }
+    ],
+    "classification": "Instrumented device gaps; narrow native function durations omit between-call host work. Causality requires uninstrumented and same-body traced controls; no mandatory-wait classification assigned.",
+    "native_function_timestamped_rows": 144,
+    "native_function_outside_duration_ms": 4.756461
+  },
+  "public_window": {
+    "profiled_host_ms": 5.263949977234006,
+    "uninstrumented_host_ms": [
+      5.090072052553296,
+      4.891220945864916,
+      4.8722660867497325,
+      4.869099007919431,
+      4.830746096558869
+    ],
+    "uninstrumented_median_ms": 4.8722660867497325,
+    "profiled_minus_uninstrumented_median_ms": 0.39168389048427343,
+    "interpretation": "Instrumentation-associated/process difference across matching-source runs; not a pure causal estimate of profiler overhead and not an uninstrumented device-kernel split."
+  },
+  "prepared_body_candidates": [
+    {
+      "length": 128,
+      "start_pos": 0,
+      "trials": [
+        {
+          "trial": 0,
+          "mode": "eager",
+          "prepare_host_ms": 1.0845839278772473,
+          "submit_host_ms": 5.34793408587575,
+          "synchronized_ms": 6.7234039306640625
+        },
+        {
+          "trial": 0,
+          "mode": "traced",
+          "prepare_host_ms": 1.0674409568309784,
+          "submit_host_ms": 0.011242111213505268,
+          "synchronized_ms": 4.224427044391632
+        },
+        {
+          "trial": 1,
+          "mode": "traced",
+          "prepare_host_ms": 1.0565300472080708,
+          "submit_host_ms": 0.009286915883421898,
+          "synchronized_ms": 4.212534055113792
+        },
+        {
+          "trial": 1,
+          "mode": "eager",
+          "prepare_host_ms": 1.2510829837992787,
+          "submit_host_ms": 5.45702304225415,
+          "synchronized_ms": 6.983091006986797
+        },
+        {
+          "trial": 2,
+          "mode": "eager",
+          "prepare_host_ms": 1.0677110403776169,
+          "submit_host_ms": 5.459929001517594,
+          "synchronized_ms": 6.7993400152772665
+        },
+        {
+          "trial": 2,
+          "mode": "traced",
+          "prepare_host_ms": 1.1246500071138144,
+          "submit_host_ms": 0.009989016689360142,
+          "synchronized_ms": 4.27889998536557
+        },
+        {
+          "trial": 3,
+          "mode": "traced",
+          "prepare_host_ms": 0.8951020427048206,
+          "submit_host_ms": 0.008406001143157482,
+          "synchronized_ms": 4.053791053593159
+        },
+        {
+          "trial": 3,
+          "mode": "eager",
+          "prepare_host_ms": 3.0431379564106464,
+          "submit_host_ms": 5.166728049516678,
+          "synchronized_ms": 8.46308097243309
+        },
+        {
+          "trial": 4,
+          "mode": "eager",
+          "prepare_host_ms": 0.9477119892835617,
+          "submit_host_ms": 5.076395929791033,
+          "synchronized_ms": 6.301978952251375
+        },
+        {
+          "trial": 4,
+          "mode": "traced",
+          "prepare_host_ms": 4.04497398994863,
+          "submit_host_ms": 0.009547919034957886,
+          "synchronized_ms": 7.201117929071188
+        }
+      ],
+      "checks": [
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "ee6f8a47ba0f6357b81a4687f0fb3ce36a732fe50c9eedff47b17d20cb5ba126"
+        },
+        {
+          "variant": 1,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "08848b8f8bb6b773d88cb7a85384ed677faf8ca66a7c652885f1350f207626d5"
+        },
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "ee6f8a47ba0f6357b81a4687f0fb3ce36a732fe50c9eedff47b17d20cb5ba126"
+        }
+      ],
+      "phase": "complete",
+      "changed_tokens_change_logits": true,
+      "capture_ms": 9.230087045580149,
+      "medians": {
+        "eager": {
+          "prepare_host_ms": 1.0845839278772473,
+          "submit_host_ms": 5.34793408587575,
+          "synchronized_ms": 6.7993400152772665
+        },
+        "traced": {
+          "prepare_host_ms": 1.0674409568309784,
+          "submit_host_ms": 0.009547919034957886,
+          "synchronized_ms": 4.224427044391632
+        }
+      },
+      "trace_bytes_per_bank": 122880
+    },
+    {
+      "length": 131,
+      "start_pos": 0,
+      "trials": [
+        {
+          "trial": 0,
+          "mode": "eager",
+          "prepare_host_ms": 0.9913849644362926,
+          "submit_host_ms": 6.278975051827729,
+          "synchronized_ms": 7.476172992028296
+        },
+        {
+          "trial": 0,
+          "mode": "traced",
+          "prepare_host_ms": 0.9539840975776315,
+          "submit_host_ms": 0.010810908861458302,
+          "synchronized_ms": 4.5434870989993215
+        },
+        {
+          "trial": 1,
+          "mode": "traced",
+          "prepare_host_ms": 0.952331000007689,
+          "submit_host_ms": 0.008395989425480366,
+          "synchronized_ms": 4.539759014733136
+        },
+        {
+          "trial": 1,
+          "mode": "eager",
+          "prepare_host_ms": 1.3465939555317163,
+          "submit_host_ms": 6.17473607417196,
+          "synchronized_ms": 7.805383065715432
+        },
+        {
+          "trial": 2,
+          "mode": "eager",
+          "prepare_host_ms": 1.0800850577652454,
+          "submit_host_ms": 5.879219970665872,
+          "synchronized_ms": 7.2414850583299994
+        },
+        {
+          "trial": 2,
+          "mode": "traced",
+          "prepare_host_ms": 1.0827799560502172,
+          "submit_host_ms": 0.011311029084026814,
+          "synchronized_ms": 4.688162938691676
+        },
+        {
+          "trial": 3,
+          "mode": "traced",
+          "prepare_host_ms": 1.0802350006997585,
+          "submit_host_ms": 0.010931049473583698,
+          "synchronized_ms": 4.672563052736223
+        },
+        {
+          "trial": 3,
+          "mode": "eager",
+          "prepare_host_ms": 1.060236943885684,
+          "submit_host_ms": 5.869332002475858,
+          "synchronized_ms": 7.232117000967264
+        },
+        {
+          "trial": 4,
+          "mode": "eager",
+          "prepare_host_ms": 0.9267820278182626,
+          "submit_host_ms": 5.807031993754208,
+          "synchronized_ms": 7.038246025331318
+        },
+        {
+          "trial": 4,
+          "mode": "traced",
+          "prepare_host_ms": 1.0343979811295867,
+          "submit_host_ms": 0.01046003308147192,
+          "synchronized_ms": 4.628719994798303
+        }
+      ],
+      "checks": [
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "799efcd62bce715e6fffe1ab14beb5619503cab05edba3f707758fdb420d0f24"
+        },
+        {
+          "variant": 1,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "626f526f1cc7e82038d41952ccb3939eaa6d450d74bc667c7bd855adf60a5e40"
+        },
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "799efcd62bce715e6fffe1ab14beb5619503cab05edba3f707758fdb420d0f24"
+        }
+      ],
+      "phase": "complete",
+      "changed_tokens_change_logits": true,
+      "capture_ms": 11.0805151052773,
+      "medians": {
+        "eager": {
+          "prepare_host_ms": 1.060236943885684,
+          "submit_host_ms": 5.879219970665872,
+          "synchronized_ms": 7.2414850583299994
+        },
+        "traced": {
+          "prepare_host_ms": 1.0343979811295867,
+          "submit_host_ms": 0.010810908861458302,
+          "synchronized_ms": 4.628719994798303
+        }
+      },
+      "trace_bytes_per_bank": 147456
+    }
+  ],
+  "watcher": {
+    "exit_code": 0,
+    "probe_execution_pass": true,
+    "checks": {
+      "128": [
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "ee6f8a47ba0f6357b81a4687f0fb3ce36a732fe50c9eedff47b17d20cb5ba126"
+        },
+        {
+          "variant": 1,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "08848b8f8bb6b773d88cb7a85384ed677faf8ca66a7c652885f1350f207626d5"
+        },
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "ee6f8a47ba0f6357b81a4687f0fb3ce36a732fe50c9eedff47b17d20cb5ba126"
+        }
+      ],
+      "131": [
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "799efcd62bce715e6fffe1ab14beb5619503cab05edba3f707758fdb420d0f24"
+        },
+        {
+          "variant": 1,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "626f526f1cc7e82038d41952ccb3939eaa6d450d74bc667c7bd855adf60a5e40"
+        },
+        {
+          "variant": 0,
+          "prefill_exact": true,
+          "state_exact": true,
+          "token_exact": true,
+          "next_decode_exact": true,
+          "scores_sha256": "799efcd62bce715e6fffe1ab14beb5619503cab05edba3f707758fdb420d0f24"
+        }
+      ]
+    },
+    "environment": {
+      "TORCHINDUCTOR_CACHE_DIR": "/home/hous/dev/ornith-1.5-9b/state/torch-cache",
+      "OMP_NUM_THREADS": "8",
+      "HF_HUB_OFFLINE": "1",
+      "TT_METAL_WATCHER": "10",
+      "TT_METAL_WATCHER_DISABLE_ETH": "1",
+      "TT_METAL_DEVICE_PROFILER": null,
+      "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+      "TT_METAL_TRACE_ALLOC_TRACEBACKS": null
+    },
+    "timings_used_for_performance": false
+  },
+  "commands": {
+    "normal": [
+      "timeout",
+      "360",
+      "python_env/bin/python",
+      "-m",
+      "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_prefill_gaps",
+      "--output",
+      "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/prefill_gaps_v1.json"
+    ],
+    "watcher": [
+      "timeout",
+      "360",
+      "python_env/bin/python",
+      "-m",
+      "models.autoports.ornith_ai_ornith_1_5_9b.doc.optimized_full_model.probe_prefill_gaps",
+      "--trials",
+      "1",
+      "--watcher",
+      "--output",
+      "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/prefill_gaps_watcher_v1.json"
+    ]
+  },
+  "conclusions": [
+    "The CSV does not establish mandatory device waits; native function time excludes most between-call host intervals.",
+    "A device-only B1/start0 exact-shape prefill+sample trace is legal and passes token/page refresh and subsequent decode state equivalence for128/131.",
+    "Prepared-body eager vs traced comparison removes material host dispatch, but the prepared eager path is slower than unchanged public prefill and must not inflate the production headline.",
+    "Public128 median4.872266ms versus prepared trace request median4.224427ms is a promising reduced-stage result requiring same-harness integrated qualification.",
+    "One128 trace request measured7.201118ms; all samples retained, no percentile or jitter claim.",
+    "Fixed trace ownership must coexist with decode/model/sampler/history traces and preserve public owned-output semantics before integration."
+  ],
+  "limitations": [
+    "Probe supports B1/start0 one exact logical length at a time; public continuation/mixed/all-logit contracts remain in existing eager path.",
+    "Capture-only cost excludes stable input allocation, warmup and combined generator trace recapture.",
+    "No full-model TTFT speedup, full-stack trace-memory fit or full public lifecycle qualification is claimed."
+  ],
+  "hardware_returned_to_parent": true
+}

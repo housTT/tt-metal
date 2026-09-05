@@ -14,6 +14,8 @@ import torch
 from loguru import logger
 
 import ttnn
+from models.common.modules.lazy_weight import LazyWeight
+from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig
 
 from ..reference.hf_reference import CHECKPOINT_TEXT_PREFIX, load_layer_state_dict, load_text_config, resolve_model_path
 from .functional_decoder import DEFAULT_PAGE_BLOCK_SIZE, DEFAULT_PREFILL_CHUNK, num_blocks_for_context
@@ -35,6 +37,7 @@ class SamplingCCL:
 
     def __init__(self, mesh):
         self.ccl = MeshCCLManager(mesh, 1)
+        self._outputs = {}
 
     def get_and_cycle_ag_semaphore_handles(self, cluster_axis=None):
         return self.ccl.get_ag_ping_pong_semaphore()
@@ -42,17 +45,35 @@ class SamplingCCL:
     def get_and_cycle_barrier_semaphore_handle(self, cluster_axis=None):
         return self.ccl.get_barrier_semaphore()
 
-    def line_all_gather(self, tensor, *, dim, cluster_axis=None, memory_config=None, num_links=None):
-        return ttnn.experimental.all_gather_async(
-            tensor,
-            dim=dim,
-            persistent_output_buffer=None,
-            multi_device_global_semaphore=self.ccl.get_ag_ping_pong_semaphore(),
-            barrier_semaphore=self.ccl.get_barrier_semaphore(),
-            num_links=1,
-            topology=ttnn.Topology.Ring,
-            memory_config=memory_config or ttnn.DRAM_MEMORY_CONFIG,
-        )
+    def line_all_gather(self, tensor, *, dim, cluster_axis=None, memory_config=None, num_links=None, buffer_key=None):
+        memory = memory_config or ttnn.DRAM_MEMORY_CONFIG
+        # Reuse only fixed decode embedding and sampler outputs. Arbitrary
+        # prefill lengths must not accumulate request-sized persistent buffers.
+        persistent = buffer_key is not None or tensor.shape[-2] == 1
+        key = (buffer_key, tuple(tensor.shape), tensor.dtype, dim, str(memory))
+
+        def gather(output):
+            return ttnn.experimental.all_gather_async(
+                tensor,
+                dim=dim,
+                persistent_output_buffer=output,
+                multi_device_global_semaphore=self.ccl.get_ag_ping_pong_semaphore(),
+                barrier_semaphore=self.ccl.get_barrier_semaphore(),
+                num_links=1,
+                topology=ttnn.Topology.Ring,
+                memory_config=memory,
+            )
+
+        if not persistent:
+            return gather(None)
+        if key not in self._outputs:
+            self._outputs[key] = gather(None)
+        # Warm the preallocated program on the first call as well. Capture then
+        # sees the same program signature as its eager warmup.
+        output = gather(self._outputs[key])
+        # Consumers deallocate their result. Keep collective storage separately
+        # owned and return a disposable copy instead of an alias to that storage.
+        return ttnn.clone(output, memory_config=memory)
 
 
 @dataclass
@@ -83,6 +104,7 @@ class OrnithModel:
         lm_head_columns=32768,
         lm_head_block_w=1,
         lm_head_readers=2,
+        sharded_final_norm=True,
     ):
         self.mesh_device = mesh_device
         if tuple(mesh_device.shape) != (1, TP):
@@ -150,9 +172,18 @@ class OrnithModel:
             fp32_dest_acc_en=True,
             packer_l1_acc=True,
         )
-        self.head_input_memory = ttnn.create_sharded_memory_config(
+        self.final_norm_memory = ttnn.create_sharded_memory_config(
             shape=(32, self.dim // 32),
             core_grid=ttnn.CoreGrid(x=8, y=4),
+            strategy=ttnn.ShardStrategy.WIDTH,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        # Keep normalization's selected accumulation geometry. The head consumes
+        # an explicit 64-core reshard, which improves DRAM reader distribution.
+        self.head_input_memory = ttnn.create_sharded_memory_config(
+            shape=(32, self.dim // 64),
+            core_grid=ttnn.CoreGrid(x=8, y=8),
             strategy=ttnn.ShardStrategy.WIDTH,
             orientation=ttnn.ShardOrientation.ROW_MAJOR,
             use_height_and_width_as_shard_shape=True,
@@ -160,9 +191,28 @@ class OrnithModel:
         self.head_program = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
             in0_block_w=lm_head_block_w,
             per_core_M=1,
-            per_core_N=self.head_columns // 32 // 32,
+            per_core_N=self.head_columns // 32 // 64,
             num_workers_per_dram_bank=lm_head_readers,
             fused_activation=None,
+        )
+        # Reuse the already packed TP4 device weights through the materialized
+        # LazyWeight cache; the common module performs no second upload.
+        self.lm_head = LMHead1D.from_config(
+            LMHead1DConfig(
+                output_weights=[LazyWeight(source=w, _value=w, dtype=lm_head_dtype) for w in self.head_weights],
+                mesh_device=mesh_device,
+                dim=self.dim,
+                program_configs=[self.head_program] * len(self.head_weights),
+                compute_kernel_config=self.head_compute,
+                lm_head_dtype=ttnn.bfloat16,
+                input_memcfg=self.head_input_memory,
+                output_memcfg=ttnn.DRAM_MEMORY_CONFIG,
+                weights_memcfgs=[head_mem] * len(self.head_weights),
+            )
+        )
+        self.sharded_final_norm = sharded_final_norm
+        self.final_norm_program = ttnn.LayerNormShardedMultiCoreProgramConfig(
+            compute_with_storage_grid_size=(8, 4), block_h=1, block_w=4, subblock_w=4, inplace=False
         )
         self.layers = []
         mesh_config = MeshConfig()
@@ -326,30 +376,16 @@ class OrnithModel:
         """One <=32-row tile to padded vocabulary shards; the sampler masks vocabulary padding."""
         rows = int(hidden.shape[-2])
         flat = ttnn.reshape(hidden, [1, 1, rows, self.dim])
-        flat = ttnn.to_memory_config(flat, ttnn.DRAM_MEMORY_CONFIG)
+        memory = self.final_norm_memory if self.sharded_final_norm else ttnn.DRAM_MEMORY_CONFIG
+        flat = ttnn.to_memory_config(flat, memory)
         if rows < 32:
-            flat = ttnn.pad(flat, [(0, 0), (0, 0), (0, 32 - rows), (0, 0)], 0.0)
-        normalized = ttnn.rms_norm(flat, weight=self.norm_weight, epsilon=self.hf_config.rms_norm_eps)
+            flat = ttnn.pad(flat, [(0, 0), (0, 0), (0, 32 - rows), (0, 0)], 0.0, memory_config=memory)
+        norm_kwargs = (
+            dict(program_config=self.final_norm_program, memory_config=memory) if self.sharded_final_norm else {}
+        )
+        normalized = ttnn.rms_norm(flat, weight=self.norm_weight, epsilon=self.hf_config.rms_norm_eps, **norm_kwargs)
         sharded = ttnn.to_memory_config(normalized, self.head_input_memory)
-        parts = []
-        for weight in self.head_weights:
-            out = ttnn.linear(
-                sharded,
-                weight,
-                program_config=self.head_program,
-                compute_kernel_config=self.head_compute,
-                dtype=ttnn.bfloat16,
-                memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            )
-            parts.append(ttnn.to_memory_config(out, ttnn.DRAM_MEMORY_CONFIG))
-            ttnn.deallocate(out)
-        if len(parts) == 1:
-            # concat of one input aliases it: ownership transfers to the caller.
-            logits = parts[0]
-        else:
-            logits = ttnn.concat(parts, dim=-1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-            for part in parts:
-                ttnn.deallocate(part)
+        logits = self.lm_head(sharded)
         ttnn.deallocate(sharded)
         ttnn.deallocate(normalized)
         return logits
@@ -383,10 +419,8 @@ class OrnithModel:
                     ttnn.copy(row, dst)
                     ttnn.deallocate(row)
 
-    def prefill_forward(
-        self, tokens, *, page_table, kv_cache, prompt_lens, slots=None, start_pos=None, return_all_logits=False
-    ):
-        """Ragged logical prompts into explicit fixed cache slots. Padding stays inside each decoder."""
+    def validate_prefill(self, tokens, *, page_table, kv_cache, prompt_lens, slots=None, start_pos=None):
+        """Validate both eager and traced prompts before changing cache or sampler state."""
         cache = kv_cache
         slots = list(range(len(prompt_lens))) if slots is None else list(slots)
         starts = [0] * len(slots) if start_pos is None else list(start_pos)
@@ -406,18 +440,62 @@ class OrnithModel:
             ids = torch.as_tensor(row)
             if length > ids.numel() or bool((ids[:length] < 0).any()) or bool((ids[:length] >= self.vocab_size).any()):
                 raise ValueError("invalid logical token IDs or prompt length")
+        for length, start in zip(prompt_lens, starts):
+            if int(length) < 1 or start < 0 or start + int(length) > cache.context:
+                raise ValueError("prompt window exceeds cache context")
+        return slots, starts, table
+
+    def _prefill_chunk_forward(self, ids, *, start_pos, page_table, kv_cache):
+        """Device-only logical chunk shared by eager prefill and trace capture."""
+        x = self.embed(ids)
+        for layer in kv_cache.prefill_layers:
+            nxt = layer.prefill_forward(x, start_pos=start_pos, page_table=page_table)
+            ttnn.deallocate(x)
+            x = nxt
+        return x
+
+    def prefill_last_logits(self, ids, *, page_table, kv_cache):
+        """Device-only, single-user fresh chunk; callers validate and reset state."""
+        length = int(ids.shape[-1])
+        x = self._prefill_chunk_forward(ids, start_pos=0, page_table=page_table, kv_cache=kv_cache)
+        hidden = ttnn.slice(x, [0, length - 1, 0], [1, length, self.dim])
+        last = ttnn.clone(hidden)
+        ttnn.deallocate(x)
+        logits = self.terminal(last)
+        ttnn.deallocate(last)
+        return logits
+
+    def prefill_forward(
+        self, tokens, *, page_table, kv_cache, prompt_lens, slots=None, start_pos=None, return_all_logits=False
+    ):
+        """Ragged logical prompts into explicit fixed cache slots. Padding stays inside each decoder."""
+        cache = kv_cache
+        slots, starts, table = self.validate_prefill(
+            tokens, page_table=page_table, kv_cache=cache, prompt_lens=prompt_lens, slots=slots, start_pos=start_pos
+        )
+        return self._prefill_validated(
+            tokens,
+            page_table=table,
+            kv_cache=cache,
+            prompt_lens=prompt_lens,
+            slots=slots,
+            start_pos=starts,
+            return_all_logits=return_all_logits,
+        )
+
+    def _prefill_validated(self, tokens, *, page_table, kv_cache, prompt_lens, slots, start_pos, return_all_logits):
+        """Execute a prompt already checked by validate_prefill."""
+        cache, starts, table = kv_cache, start_pos, page_table
         results = []
         for user, (slot, length, start) in enumerate(zip(slots, prompt_lens, starts)):
             length = int(length)
-            if length < 1 or start < 0 or start + length > cache.context:
-                raise ValueError("prompt window exceeds cache context")
             if cache.batch_size > 1 and start:
                 self._transfer_slot(cache.decode_layers, cache.prefill_layers, slot, into_batch=False)
             elif start == 0:
                 for layer in cache.prefill_layers:
                     layer.reset_state()
             pt = self.upload(
-                torch.as_tensor(page_table)[slot : slot + 1].to(torch.int32),
+                table[slot : slot + 1].to(torch.int32),
                 dtype=ttnn.int32,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
             )
@@ -429,11 +507,7 @@ class OrnithModel:
                     dtype=ttnn.uint32,
                     layout=ttnn.ROW_MAJOR_LAYOUT,
                 )
-                x = self.embed(ids)
-                for layer in cache.prefill_layers:
-                    nxt = layer.prefill_forward(x, start_pos=start + offset, page_table=pt)
-                    ttnn.deallocate(x)
-                    x = nxt
+                x = self._prefill_chunk_forward(ids, start_pos=start + offset, page_table=pt, kv_cache=cache)
                 if return_all_logits:
                     for row in range(0, logical, 32):
                         n = min(32, logical - row)
@@ -476,8 +550,7 @@ class OrnithModel:
                     ttnn.deallocate(old)
             ttnn.deallocate(x)
             x = nxt
-        flat = ttnn.to_memory_config(x, ttnn.DRAM_MEMORY_CONFIG)
-        flat = ttnn.reshape(flat, [1, batch, self.dim])
+        flat = ttnn.reshape(x, [1, batch, self.dim])
         logits = self.terminal(flat)
         if advance_positions:
             ttnn.plus_one(current_pos, skip_negative_entries=True)

@@ -1,0 +1,96 @@
+{
+  "measured_head_program": {
+    "opcode": "MatmulDeviceOperation",
+    "program_hash": "9917258099498786034",
+    "math_fidelity": "HiFi4",
+    "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=HiFi4;math_approx_mode=0;fp32_dest_acc_en=1;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED;buffer_type=BufferType::L1;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1;per_core_M=1;per_core_N=16;fused_activation=std::nullopt;num_workers_per_dram_bank=2)'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+    "tensors": {
+      "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+      "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+      "INPUT_0_Y_PAD[LOGICAL]": "32[32]",
+      "INPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+      "INPUT_0_LAYOUT": "TILE",
+      "INPUT_0_DATATYPE": "BFLOAT16",
+      "INPUT_0_MEMORY": "DEV_0_L1_WIDTH_SHARDED",
+      "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+      "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+      "INPUT_1_Y_PAD[LOGICAL]": "4096[4096]",
+      "INPUT_1_X_PAD[LOGICAL]": "32768[32768]",
+      "INPUT_1_LAYOUT": "TILE",
+      "INPUT_1_DATATYPE": "BFLOAT16",
+      "INPUT_1_MEMORY": "DEV_0_DRAM_WIDTH_SHARDED",
+      "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+      "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+      "OUTPUT_0_Y_PAD[LOGICAL]": "32[32]",
+      "OUTPUT_0_X_PAD[LOGICAL]": "32768[32768]",
+      "OUTPUT_0_LAYOUT": "TILE",
+      "OUTPUT_0_DATATYPE": "BFLOAT16",
+      "OUTPUT_0_MEMORY": "DEV_0_L1_WIDTH_SHARDED"
+    },
+    "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+    "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_dram_sharded.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_dram_sharded.cpp']",
+    "trace_id": "3",
+    "global_calls": [
+      "718848",
+      "720896",
+      "718848",
+      "720896",
+      "718848",
+      "720896",
+      "718848",
+      "720896"
+    ],
+    "kernel_ns": [
+      543196.0,
+      541580.0,
+      541830.0,
+      540019.0,
+      541704.0,
+      539028.0,
+      541925.0,
+      542256.0
+    ]
+  },
+  "kernel_mean_ns": 541442.25,
+  "input_storage_cores": 64,
+  "dram_banks": 8,
+  "readers_per_bank": 2,
+  "actual_compute_workers": 16,
+  "installed_report_model_workers": 8,
+  "report_source": "python_env/lib/python3.10/site-packages/tt_perf_report/perf_report.py",
+  "report_source_sha256": "6d442b9845a0d6e235e66a50be6dd15690e3ec051b920c435cef0ebe3b2fb4f2",
+  "raw_modeled_flops_percent": 143.45444282616714,
+  "corrected_modeled_flops_percent": 71.72722141308357,
+  "weight_bytes": 268435456,
+  "weight_dram_GB_per_second": 495.7785544072336,
+  "weight_bandwidth_roofline_percent": 96.83174890766281,
+  "ideal_weight_read_ns": 524288.0,
+  "classification": "Reporting-model worker undercount, not physical utilization above100%. Native two readers/bank imply16 compute workers. Raw reports are preserved. Weight-bandwidth floor remains above corrected HiFi4 compute floor.",
+  "lower_fidelity_evidence": "../head_fidelity_probe.json and optimization_evidence.md; real-hidden controls showed no material gain. Lower head dtypes remain rejected by full-model French controls.",
+  "all_dram_sharded_worker_corrections": [
+    {
+      "program_hash": "17667698274134372560",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED;buffer_type=BufferType::L1;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=4;per_core_M=1;per_core_N=6;fused_activation=std::nullopt;num_workers_per_dram_bank=3)'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "workers_per_bank": 3,
+      "report_compute_percent_divisor": 3
+    },
+    {
+      "program_hash": "1007448725070958940",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED;buffer_type=BufferType::L1;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=6;per_core_M=1;per_core_N=16;fused_activation=std::nullopt;num_workers_per_dram_bank=2)'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "workers_per_bank": 2,
+      "report_compute_percent_divisor": 2
+    },
+    {
+      "program_hash": "14272793015688735587",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED;buffer_type=BufferType::L1;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=4;per_core_M=1;per_core_N=3;fused_activation=std::nullopt;num_workers_per_dram_bank=1)'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "workers_per_bank": 1,
+      "report_compute_percent_divisor": 1
+    },
+    {
+      "program_hash": "9917258099498786034",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=HiFi4;math_approx_mode=0;fp32_dest_acc_en=1;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED;buffer_type=BufferType::L1;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1;per_core_M=1;per_core_N=16;fused_activation=std::nullopt;num_workers_per_dram_bank=2)'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "workers_per_bank": 2,
+      "report_compute_percent_divisor": 2
+    }
+  ]
+}

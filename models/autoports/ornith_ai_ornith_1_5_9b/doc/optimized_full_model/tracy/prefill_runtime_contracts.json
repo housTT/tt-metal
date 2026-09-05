@@ -1,0 +1,514 @@
+{
+  "source": "prefill_device0_window.csv.gz",
+  "matmuls": [
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "14692961726082395997",
+      "math_fidelity": "LoFi",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8;in0_block_w=8;out_subblock_h=1;out_subblock_w=1;out_block_h=1;out_block_w=13;per_core_M=1;per_core_N=13;transpose_mcast=0;fused_activation=std::nullopt;fuse_batch=1;allowed_worker_cores={[0-0 - 7-7]})'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_X_PAD[LOGICAL]": "3136[3136]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT4_B",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "3136[3136]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_receiver.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_receiver_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_padding.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "957440"
+      ],
+      "kernel_ns": [
+        75713.0
+      ]
+    },
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "7310371705565692082",
+      "math_fidelity": "LoFi",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8;in0_block_w=8;out_subblock_h=1;out_subblock_w=4;out_block_h=1;out_block_w=16;per_core_M=1;per_core_N=16;transpose_mcast=0;fused_activation=std::nullopt;fuse_batch=1;allowed_worker_cores={[0-0 - 7-7]})'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "1024[1024]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "FLOAT32",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "1024[1024]",
+        "INPUT_1_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT4_B",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_receiver.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_receiver_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_padding.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "994304"
+      ],
+      "kernel_ns": [
+        28540.0
+      ]
+    },
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "17767886364549235443",
+      "math_fidelity": "LoFi",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8;in0_block_w=8;out_subblock_h=1;out_subblock_w=4;out_block_h=1;out_block_w=12;per_core_M=1;per_core_N=12;transpose_mcast=0;fused_activation=std::nullopt;fuse_batch=1;allowed_worker_cores={[0-0 - 7-7]})'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_X_PAD[LOGICAL]": "3072[3072]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT4_B",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "3072[3072]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_receiver.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_receiver_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_padding.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "999424",
+        "1000448",
+        "1038336",
+        "1039360"
+      ],
+      "kernel_ns": [
+        70681.0,
+        70189.0,
+        70196.0,
+        70615.0
+      ]
+    },
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "18152131572994898743",
+      "math_fidelity": "LoFi",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8;in0_block_w=8;out_subblock_h=1;out_subblock_w=4;out_block_h=1;out_block_w=16;per_core_M=1;per_core_N=16;transpose_mcast=0;fused_activation=std::nullopt;fuse_batch=1;allowed_worker_cores={[0-0 - 7-7]})'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "3072[3072]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "3072[3072]",
+        "INPUT_1_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT4_B",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_receiver.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_receiver_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_padding.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "1002496",
+        "1041408"
+      ],
+      "kernel_ns": [
+        70401.0,
+        70578.0
+      ]
+    },
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "5221972752034157795",
+      "math_fidelity": "LoFi",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8;in0_block_w=8;out_subblock_h=1;out_subblock_w=2;out_block_h=1;out_block_w=10;per_core_M=1;per_core_N=10;transpose_mcast=0;fused_activation=std::nullopt;fuse_batch=1;allowed_worker_cores={[0-0 - 7-7]})'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_X_PAD[LOGICAL]": "2560[2560]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT4_B",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "2560[2560]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_receiver.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_receiver_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_padding.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "1009664"
+      ],
+      "kernel_ns": [
+        60789.0
+      ]
+    },
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "4666213861540174666",
+      "math_fidelity": "LoFi",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=LoFi;math_approx_mode=0;fp32_dest_acc_en=0;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8;in0_block_w=8;out_subblock_h=1;out_subblock_w=4;out_block_h=1;out_block_w=16;per_core_M=1;per_core_N=16;transpose_mcast=0;fused_activation=std::nullopt;fuse_batch=1;allowed_worker_cores={[0-0 - 7-7]})'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "1024[1024]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "1024[1024]",
+        "INPUT_1_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT4_B",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_receiver.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_receiver_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_writer_padding.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_padding.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "1033216"
+      ],
+      "kernel_ns": [
+        28428.0
+      ]
+    },
+    {
+      "opcode": "MatmulDeviceOperation",
+      "program_hash": "9917258099498786034",
+      "math_fidelity": "HiFi4",
+      "attributes": "{'bcast_batch': 'true'; 'compute_kernel_config': 'ComputeKernelConfig(math_fidelity=HiFi4;math_approx_mode=0;fp32_dest_acc_en=1;packer_l1_acc=1;dst_full_sync_en=0;throttle_level=ThrottleLevel::NO_THROTTLE)'; 'global_cb': 'std::nullopt'; 'output_dtype': 'DataType::BFLOAT16'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED;buffer_type=BufferType::L1;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'output_tile': 'Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)'; 'program_config': 'MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1;per_core_M=1;per_core_N=16;fused_activation=std::nullopt;num_workers_per_dram_bank=2)'; 'sub_device_id': 'std::nullopt'; 'transpose_a': 'false'; 'transpose_b': 'false'; 'untilize_out': 'false'; 'user_core_coord': 'std::nullopt'; 'user_fused_activation': 'std::nullopt'; 'user_run_batched': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "32[32]",
+        "INPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_L1_WIDTH_SHARDED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_1_X_PAD[LOGICAL]": "32768[32768]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT16",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_WIDTH_SHARDED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "32[32]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "32768[32768]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_L1_WIDTH_SHARDED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/compute/bmm_large_block_zm_fused_bias_activation.cpp']",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in1_sender_dram_sharded.cpp'; 'ttnn/cpp/ttnn/operations/matmul/device/kernels/dataflow/reader_bmm_tile_layout_in0_sender_dram_sharded.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "1053696",
+        "1055744"
+      ],
+      "kernel_ns": [
+        544462.0,
+        539864.0
+      ]
+    }
+  ],
+  "collectives": [
+    {
+      "opcode": "AllGatherAsyncDeviceOperation",
+      "program_hash": "6619794537667496659",
+      "math_fidelity": "",
+      "attributes": "{'barrier_semaphore_present': 'true'; 'chunks_per_sync': 'std::nullopt'; 'cluster_axis': 'std::nullopt'; 'dim': '3'; 'num_buffers_per_channel': 'std::nullopt'; 'num_links': '1'; 'num_workers_per_link': 'std::nullopt'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'reverse_order': 'false'; 'ring_size': '4'; 'sub_core_grid': 'std::nullopt'; 'sub_device_id': 'std::nullopt'; 'topology': 'Topology::Ring'; 'use_all_gather_async_llama_sharded': 'false'; 'use_all_gather_async_via_broadcast': 'false'; 'use_optimal_ccl_for_llama': 'false'; 'using_persistent_buffers': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "1024[1024]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "[]",
+      "data_movement_kernel_source": "['tt_metal/fabric/impl/kernels/tt_fabric_mux.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_writer.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_reader.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "955392"
+      ],
+      "kernel_ns": [
+        29389.0
+      ]
+    },
+    {
+      "opcode": "ReduceScatterDeviceOperation",
+      "program_hash": "6785075473180028911",
+      "math_fidelity": "HiFi4",
+      "attributes": "{'chunks_per_sync': 'std::nullopt'; 'cluster_axis': 'std::nullopt'; 'compute_kernel_config': 'std::nullopt'; 'dim': '3'; 'memory_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'num_buffers_per_channel': 'std::nullopt'; 'num_links': '2'; 'num_workers_per_link': 'std::nullopt'; 'optional_intermediate_mem_config': 'std::nullopt'; 'subdevice_id': 'std::nullopt'; 'topology': 'Topology::Ring'; 'use_l1_small_for_semaphores': 'false'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_1_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_1_X_PAD[LOGICAL]": "1024[1024]",
+        "OUTPUT_1_LAYOUT": "TILE",
+        "OUTPUT_1_DATATYPE": "BFLOAT16",
+        "OUTPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "['ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/ring_reduction.cpp']",
+      "data_movement_kernel_source": "['tt_metal/fabric/impl/kernels/tt_fabric_mux_v2.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/ring_reduce_scatter_minimal_async_writer.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/reduce_scatter_minimal_async/device/kernels/ring_reduce_scatter_minimal_async_reader.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "995328",
+        "1003520",
+        "1034240",
+        "1042432"
+      ],
+      "kernel_ns": [
+        23819.0,
+        21882.0,
+        23540.0,
+        22647.0
+      ]
+    },
+    {
+      "opcode": "AllGatherDeviceOperation",
+      "program_hash": "5610599404550073476",
+      "math_fidelity": "",
+      "attributes": "{'axis_is_straight': '{true; false}'; 'axis_num_devices': '{1; 4}'; 'axis_num_links': '{0; 2}'; 'axis_topology': '{Topology::Linear; Topology::Ring}'; 'cluster_axis': 'std::nullopt'; 'dim_from_end': '-1'; 'fabric_config': 'FabricConfig::FABRIC_1D_RING'; 'num_devices': '4'; 'output_spec': 'TensorSpec(logical_shape=Shape([1; 1; 128; 4096]);tensor_layout=TensorLayout(dtype=DataType::BFLOAT16;page_config=PageConfig(config=TilePageConfig(tile=Tile(tile_shape={32; 32};face_shape={16; 16};num_faces=4)));memory_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0);alignment=Alignment([32; 32])))'; 'packet_size': '8192'; 'sub_core_grid': 'std::nullopt'; 'subdevice_id': 'std::nullopt'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "INPUT_0_X_PAD[LOGICAL]": "1024[1024]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "4096[4096]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "[]",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/ccl/all_gather/device/kernels/multicast_writer.cpp'; 'ttnn/cpp/ttnn/operations/ccl/all_gather/device/kernels/multicast_reader.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "996352",
+        "1004544",
+        "1035264",
+        "1043456"
+      ],
+      "kernel_ns": [
+        17252.0,
+        19059.0,
+        17541.0,
+        20099.0
+      ]
+    },
+    {
+      "opcode": "AllGatherAsyncDeviceOperation",
+      "program_hash": "783789568004644150",
+      "math_fidelity": "",
+      "attributes": "{'barrier_semaphore_present': 'true'; 'chunks_per_sync': 'std::nullopt'; 'cluster_axis': 'std::nullopt'; 'dim': '3'; 'num_buffers_per_channel': 'std::nullopt'; 'num_links': '1'; 'num_workers_per_link': 'std::nullopt'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'reverse_order': 'false'; 'ring_size': '4'; 'sub_core_grid': 'std::nullopt'; 'sub_device_id': 'std::nullopt'; 'topology': 'Topology::Ring'; 'use_all_gather_async_llama_sharded': 'false'; 'use_all_gather_async_via_broadcast': 'false'; 'use_optimal_ccl_for_llama': 'false'; 'using_persistent_buffers': 'true'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "32[32]",
+        "INPUT_0_X_PAD[LOGICAL]": "32[32]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "BFLOAT16",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "32[32]",
+        "INPUT_1_X_PAD[LOGICAL]": "128[128]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "BFLOAT16",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "32[32]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "BFLOAT16",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "[]",
+      "data_movement_kernel_source": "['ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_writer.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_reader.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "1070080"
+      ],
+      "kernel_ns": [
+        3494.0
+      ]
+    },
+    {
+      "opcode": "AllGatherAsyncDeviceOperation",
+      "program_hash": "7967880017902344749",
+      "math_fidelity": "",
+      "attributes": "{'barrier_semaphore_present': 'true'; 'chunks_per_sync': 'std::nullopt'; 'cluster_axis': 'std::nullopt'; 'dim': '3'; 'num_buffers_per_channel': 'std::nullopt'; 'num_links': '1'; 'num_workers_per_link': 'std::nullopt'; 'output_mem_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0;per_core_allocation=0)'; 'reverse_order': 'false'; 'ring_size': '4'; 'sub_core_grid': 'std::nullopt'; 'sub_device_id': 'std::nullopt'; 'topology': 'Topology::Ring'; 'use_all_gather_async_llama_sharded': 'false'; 'use_all_gather_async_via_broadcast': 'false'; 'use_optimal_ccl_for_llama': 'false'; 'using_persistent_buffers': 'true'}",
+      "tensors": {
+        "INPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_0_Y_PAD[LOGICAL]": "32[32]",
+        "INPUT_0_X_PAD[LOGICAL]": "32[32]",
+        "INPUT_0_LAYOUT": "TILE",
+        "INPUT_0_DATATYPE": "UINT32",
+        "INPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "INPUT_1_W_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Z_PAD[LOGICAL]": "1[1]",
+        "INPUT_1_Y_PAD[LOGICAL]": "32[32]",
+        "INPUT_1_X_PAD[LOGICAL]": "128[128]",
+        "INPUT_1_LAYOUT": "TILE",
+        "INPUT_1_DATATYPE": "UINT32",
+        "INPUT_1_MEMORY": "DEV_0_DRAM_INTERLEAVED",
+        "OUTPUT_0_W_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Z_PAD[LOGICAL]": "1[1]",
+        "OUTPUT_0_Y_PAD[LOGICAL]": "32[32]",
+        "OUTPUT_0_X_PAD[LOGICAL]": "128[128]",
+        "OUTPUT_0_LAYOUT": "TILE",
+        "OUTPUT_0_DATATYPE": "UINT32",
+        "OUTPUT_0_MEMORY": "DEV_0_DRAM_INTERLEAVED"
+      },
+      "compute_kernel_source": "[]",
+      "data_movement_kernel_source": "['tt_metal/fabric/impl/kernels/tt_fabric_mux.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_writer.cpp'; 'ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_reader.cpp']",
+      "trace_id": "",
+      "global_calls": [
+        "1072128"
+      ],
+      "kernel_ns": [
+        6856.0
+      ]
+    }
+  ],
+  "all_opcodes": [
+    "AllGatherAsyncDeviceOperation",
+    "AllGatherDeviceOperation",
+    "BinaryNgDeviceOperation",
+    "ChunkGdnPrepOperation",
+    "ChunkGdnScanOperation",
+    "CloneOperation",
+    "ConcatDeviceOperation",
+    "CopyDeviceOperation",
+    "EmbeddingsDeviceOperation",
+    "FillPadDeviceOperation",
+    "InterleavedToShardedDeviceOperation",
+    "LayerNormDeviceOperation",
+    "ManualSeedDeviceOperation",
+    "MatmulDeviceOperation",
+    "NLPConcatHeadsDeviceOperation",
+    "NlpCreateHeadsDeviceOperation",
+    "PagedFillCacheDeviceOperation",
+    "PlusOneDeviceOperation",
+    "QkvCausalConv1dSiluOperation",
+    "ReduceDeviceOperation",
+    "ReduceScatterDeviceOperation",
+    "ReshapeViewDeviceOperation",
+    "ReshardDeviceOperation",
+    "RotaryEmbeddingDeviceOperation",
+    "SDPAOperation",
+    "SamplingDeviceOperation",
+    "ShardedToInterleavedDeviceOperation",
+    "SigmoidGatedRmsNormOperation",
+    "SliceDeviceOperation",
+    "TernaryDeviceOperation",
+    "TilizeWithValPaddingDeviceOperation",
+    "TopkLargeIndicesDeviceOperation",
+    "TopkRouteFinishDeviceOperation",
+    "TopkRoutePrepDeviceOperation",
+    "TransposeDeviceOperation",
+    "TypecastDeviceOperation",
+    "UnaryDeviceOperation",
+    "UntilizeCodegenDeviceOperation",
+    "UntilizeDeviceOperation",
+    "UntilizeWithUnpaddingDeviceOperation"
+  ],
+  "note": "Exact rank0 runtime attributes/tensor policy for all unique matmul and collective programs; complete rows on all ranks are retained in signposted archives."
+}

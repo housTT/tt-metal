@@ -1,0 +1,16 @@
+{
+  "layers": "all32",
+  "context": 262144,
+  "batch": 1,
+  "intervention": "Skip only second layer.reset_state call in one warmed generate; runtime unchanged",
+  "watcher": null,
+  "allocation_tracking": null,
+  "checks": [],
+  "trials": [],
+  "pass_": false,
+  "mesh_multiply_calls_per_reset": 96,
+  "warm_control_mesh_multiply_calls": 192,
+  "warm_candidate_mesh_multiply_calls": 96,
+  "error": "int() argument must be a string, a bytes-like object or a real number, not 'list'",
+  "traceback": "Traceback (most recent call last):\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/probe_prefill_reset.py\", line 161, in main\n    gen.generate(tokens, 3, sampling_params=params, stop_on_eos=False)\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/tt/generator.py\", line 746, in generate\n    self._reset_seeds()\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/tt/generator.py\", line 263, in _reset_seeds\n    _request_seed_values(self.sampling.seed_manager, self._configured_seeds, list(range(32)), reset_all=True),\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/tt/generator.py\", line 74, in _request_seed_values\n    seed_manager.reset_seed([configured_seeds[slot] for slot in slots], slots)\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/common/sampling/generator.py\", line 1073, in reset_seed\n    seed = self._seed_from_slot_params(seeds, i)\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/common/sampling/generator.py\", line 939, in _seed_from_slot_params\n    return int(seed)\nTypeError: int() argument must be a string, a bytes-like object or a real number, not 'list'\n"
+}

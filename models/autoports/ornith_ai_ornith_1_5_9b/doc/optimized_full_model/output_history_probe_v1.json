@@ -1,0 +1,213 @@
+{
+  "command": [
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/probe_output_history.py",
+    "--output",
+    "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/output_history_probe_v1.json"
+  ],
+  "hardware": "four Blackhole chips on P300c boards",
+  "mesh": [
+    1,
+    4
+  ],
+  "capacity": 128,
+  "native_batch": "1..32; independent of the 32 physical history lanes",
+  "collector": "indexed_fill + copy + plus_one(cursor)",
+  "probe_only_input_producer": "plus_one(tokens)",
+  "timing_scope": "collector plus probe input producer plus one final mesh transfer; no model",
+  "windows": [
+    {
+      "name": "batch_one",
+      "steps": 1,
+      "active_fixed_slots": [
+        0
+      ],
+      "checked_ranks": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "exact_uint32": true,
+      "untouched_tail": true,
+      "buffer_identity_preserved": true,
+      "loop_host_reads": 0,
+      "loop_host_writes": 0,
+      "loop_host_waits": 0,
+      "final_mesh_reads": 1,
+      "final_waits": 1,
+      "trace_replays": 1,
+      "blocking_replay": false,
+      "submit_s": 0.001655444037169218,
+      "completion_with_final_read_s": 0.0021349709713831544,
+      "amortized_completion_ms": 2.1349709713831544
+    },
+    {
+      "name": "sparse_fixed_slots",
+      "steps": 7,
+      "active_fixed_slots": [
+        0,
+        3,
+        17,
+        31
+      ],
+      "checked_ranks": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "exact_uint32": true,
+      "untouched_tail": true,
+      "buffer_identity_preserved": true,
+      "loop_host_reads": 0,
+      "loop_host_writes": 0,
+      "loop_host_waits": 0,
+      "final_mesh_reads": 1,
+      "final_waits": 1,
+      "trace_replays": 7,
+      "blocking_replay": false,
+      "submit_s": 0.0004030310083180666,
+      "completion_with_final_read_s": 0.0024381809635087848,
+      "amortized_completion_ms": 0.34831156621554066
+    },
+    {
+      "name": "full_capacity_batch32",
+      "steps": 128,
+      "active_fixed_slots": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "checked_ranks": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "exact_uint32": true,
+      "untouched_tail": true,
+      "buffer_identity_preserved": true,
+      "loop_host_reads": 0,
+      "loop_host_writes": 0,
+      "loop_host_waits": 0,
+      "final_mesh_reads": 1,
+      "final_waits": 1,
+      "trace_replays": 128,
+      "blocking_replay": false,
+      "submit_s": 0.0005438899388536811,
+      "completion_with_final_read_s": 0.034758331021294,
+      "amortized_completion_ms": 0.27154946110385936
+    },
+    {
+      "name": "reset_a",
+      "steps": 33,
+      "active_fixed_slots": [
+        0,
+        2,
+        5,
+        17,
+        31
+      ],
+      "checked_ranks": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "exact_uint32": true,
+      "untouched_tail": true,
+      "buffer_identity_preserved": true,
+      "loop_host_reads": 0,
+      "loop_host_writes": 0,
+      "loop_host_waits": 0,
+      "final_mesh_reads": 1,
+      "final_waits": 1,
+      "trace_replays": 33,
+      "blocking_replay": false,
+      "submit_s": 0.0004458220209926367,
+      "completion_with_final_read_s": 0.009385671000927687,
+      "amortized_completion_ms": 0.28441427275538445
+    },
+    {
+      "name": "reset_a_repeat",
+      "steps": 33,
+      "active_fixed_slots": [
+        0,
+        2,
+        5,
+        17,
+        31
+      ],
+      "checked_ranks": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "exact_uint32": true,
+      "untouched_tail": true,
+      "buffer_identity_preserved": true,
+      "loop_host_reads": 0,
+      "loop_host_writes": 0,
+      "loop_host_waits": 0,
+      "final_mesh_reads": 1,
+      "final_waits": 1,
+      "trace_replays": 33,
+      "blocking_replay": false,
+      "submit_s": 0.00045198400039225817,
+      "completion_with_final_read_s": 0.009399316972121596,
+      "amortized_completion_ms": 0.28482778703398776
+    }
+  ],
+  "status": "passed",
+  "buffer_addresses": {
+    "history": [
+      5848704,
+      5848704,
+      5848704,
+      5848704
+    ],
+    "cursor": [
+      5850752,
+      5850752,
+      5850752,
+      5850752
+    ],
+    "tokens": [
+      5850816,
+      5850816,
+      5850816,
+      5850816
+    ]
+  },
+  "program_cache_entries": 4
+}

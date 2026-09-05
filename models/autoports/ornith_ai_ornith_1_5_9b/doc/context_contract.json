@@ -1,7 +1,7 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "full-model",
+  "stage": "optimized-full-model",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
@@ -28,7 +28,8 @@
     "optimized_multichip_decoder/logs/final_default_v2_watcher_contracts.log.gz",
     "optimized_multichip_decoder/logs/final_default_v2_stack.log.gz",
     "full_model/logs/native_context_v2.provenance.json",
-    "full_model/logs/native_context_final_v3.provenance.json"
+    "full_model/logs/native_context_final_v3.provenance.json",
+    "optimized_full_model/logs/native_context_release_v2.provenance.json"
   ],
   "batch_context_semantics": "Native262144 context validated with all32 layers atbatch1. Batches1..32 use the same explicit cache/page-table API; short-contextB32 validation covers aggregate capacity. Requested batch*context must fit physical DRAM; no claim that32 simultaneousnativecontextcaches fit.",
   "largest_tested_batch": 32,
@@ -203,7 +204,7 @@
   },
   "stage_review": {
     "verdict": "clean-pass",
-    "report": "full_model/STAGE_REVIEW.md"
+    "report": "optimized_full_model/STAGE_REVIEW.md"
   },
   "previous_context_stage": {
     "stage": "optimized-multichip-decoder",
@@ -429,5 +430,265 @@
     "head_policy": "BF16/HiFi4 FP32destacc, 2x32768 columns/rank, Kblock1, readers2; selected after full French quality controls rejected faster BFP4/BFP8 candidates",
     "other_loaded_constants_and_allocator_padding_bytes_per_device": 34037760,
     "cache_sampler_auxiliary_and_allocator_padding_bytes_per_device": 371844608
+  },
+  "previous_full_model_stage": {
+    "stage": "full-model",
+    "status": "complete",
+    "stage_review": {
+      "verdict": "clean-pass",
+      "report": "full_model/STAGE_REVIEW.md"
+    }
+  },
+  "optimized_full_model_capacity": {
+    "native_context": 262144,
+    "capability_reduction": null,
+    "layers": 32,
+    "batch": 1,
+    "execution_probe": "optimized_full_model/native_context_prefill_trace_release_v1.json",
+    "execution_windows": [
+      {
+        "logical_prompt_length": 262143,
+        "returned_token": 100,
+        "prefill_s": 43.86709698603954,
+        "last_decode_position": 262143,
+        "decode_token": 100,
+        "advanced_position": 262144
+      },
+      {
+        "logical_prompt_length": 262144,
+        "returned_token": 100,
+        "prefill_s": 43.86606565897819
+      }
+    ],
+    "measured_allocations": {
+      "opened": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 4259840384,
+          "largest_contiguous_bytes_free_per_bank": 4259840384,
+          "total_allocated_bytes_per_device": 0
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 1428480,
+          "largest_contiguous_bytes_free_per_bank": 1428480,
+          "total_allocated_bytes_per_device": 0
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "loaded_weights_constants": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 489270272,
+          "total_bytes_free_per_bank": 3770570112,
+          "largest_contiguous_bytes_free_per_bank": 3743766912,
+          "total_allocated_bytes_per_device": 3914162176
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 25344,
+          "total_bytes_free_per_bank": 1403136,
+          "largest_contiguous_bytes_free_per_bank": 1403136,
+          "total_allocated_bytes_per_device": 2787840
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "allocated_full_native_cache": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 678359296,
+          "total_bytes_free_per_bank": 3581481088,
+          "largest_contiguous_bytes_free_per_bank": 3574393216,
+          "total_allocated_bytes_per_device": 5426874368
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 221952,
+          "total_bytes_free_per_bank": 1206528,
+          "largest_contiguous_bytes_free_per_bank": 1206528,
+          "total_allocated_bytes_per_device": 24414720
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "resident_prefill_trace_131": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 679473088,
+          "total_bytes_free_per_bank": 3580367296,
+          "largest_contiguous_bytes_free_per_bank": 3573864832,
+          "total_allocated_bytes_per_device": 5435784704
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222208,
+          "total_bytes_free_per_bank": 1206272,
+          "largest_contiguous_bytes_free_per_bank": 1206272,
+          "total_allocated_bytes_per_device": 24442880
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3235840,
+          "total_bytes_free_per_bank": 9265152,
+          "largest_contiguous_bytes_free_per_bank": 9265152,
+          "total_allocated_bytes_per_device": 25886720
+        }
+      },
+      "resident_prefill_trace_2048": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 679646592,
+          "total_bytes_free_per_bank": 3580193792,
+          "largest_contiguous_bytes_free_per_bank": 3573731712,
+          "total_allocated_bytes_per_device": 5437172736
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      },
+      "traces_sampler_ready": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 679646592,
+          "total_bytes_free_per_bank": 3580193792,
+          "largest_contiguous_bytes_free_per_bank": 3573731712,
+          "total_allocated_bytes_per_device": 5437172736
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      },
+      "after_prefill_262143": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 680971648,
+          "total_bytes_free_per_bank": 3578868736,
+          "largest_contiguous_bytes_free_per_bank": 3572406656,
+          "total_allocated_bytes_per_device": 5447773184
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      },
+      "after_prefill_262144": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 680971648,
+          "total_bytes_free_per_bank": 3578868736,
+          "largest_contiguous_bytes_free_per_bank": 3572406656,
+          "total_allocated_bytes_per_device": 5447773184
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      }
+    },
+    "head_policy": "BF16/HiFi4 FP32destacc, two32768-column chunks/rank,64-core8x8 input K1/readers2/per_core_N16; final norm8x4; decoder residual directly consumed",
+    "persistent_output_history_logical_bytes_per_device": 16384,
+    "persistent_ccl_buffers": "Fixed decode embedding and named sampler candidate gather outputs, separately owned and cloned for consumers; no prefill-size persistence",
+    "trace_contract": "Bounded single-shape prefill/model/plain-sampler/history-sampler trace family; nonblocking decode with persistent token/position/RoPE/page inputs, no per-token host sync or readback in plain token-out. Eligible fresh owned-cache B1 logical1..2048; public outputs owned clones; changed-only prefill and decode page inputs.",
+    "logical_lengths": "No chunk/page/tile alignment restriction: native262143/262144 with maximum2048 prefill trace resident; exact traced1/128/131/2048 controls plus mixed131/127/3 and prior63/65/129/2047/2049 stale-page controls.",
+    "precision_and_residual_changed": false,
+    "history_window_tokens": 128,
+    "largest_tested_batch": 32,
+    "batch_evidence": "optimized_full_model/full_batch32_prefill_trace_release_v1.json; all32 layers, mixed131/127/3, exact cross-slot and permuted-page logits; prior terminal_boundary_watcher_v1.json",
+    "note": "Full-model predecessor measurements remain preserved above. This stage retains all native capability and adds measured persistent history/CCL/trace storage. No32 simultaneousnative-context capacity claim.",
+    "previous_measurement_artifact": "optimized_full_model/native_context_release_v2.json",
+    "prefill_trace_capacity": {
+      "maximum_eligible_prompt_tokens": 2048,
+      "maximum_active_shapes": 1,
+      "logical_alignment_restriction": null,
+      "native_context_validated_while_maximum_prefill_trace_resident": true,
+      "trace_bytes_per_device_at_2048": 26542080,
+      "fallback_contract": "Validated eager prefill for longer prompts, mixed batches, external caches, continuation, all-logit requests and live shape misses; advertised context unchanged."
+    },
+    "final_state_evidence": "optimized_full_model/prefill_integration_full32_v2/summary.json and both complete compressed lane records; prefill_integration_long_v2.json; private skip of duplicate reset has no graph/buffer/public-path changes."
   }
 }

@@ -1,0 +1,224 @@
+{
+  "candidate": {
+    "cores": 64,
+    "grid": [
+      8,
+      8
+    ],
+    "input_shard": [
+      32,
+      64
+    ],
+    "in0_block_w": 1,
+    "readers": 2,
+    "logical_columns": 32768,
+    "physical_columns": 32768,
+    "weight_shard": [
+      4096,
+      4096
+    ],
+    "reader_tiles": 64,
+    "compute_tiles": 64,
+    "per_core_N": 16,
+    "cb_bytes": {
+      "in0": 4096,
+      "in1": 393216,
+      "output": 131072,
+      "intermediate": 262144
+    },
+    "predicted_static_end": 902144,
+    "resident_bytes_per_bank": 221952
+  },
+  "baseline": {
+    "cores": 32,
+    "grid": [
+      8,
+      4
+    ],
+    "input_shard": [
+      32,
+      128
+    ],
+    "in0_block_w": 1,
+    "readers": 2,
+    "logical_columns": 32768,
+    "physical_columns": 32768,
+    "weight_shard": [
+      4096,
+      4096
+    ],
+    "reader_tiles": 64,
+    "compute_tiles": 64,
+    "per_core_N": 32,
+    "cb_bytes": {
+      "in0": 4096,
+      "in1": 393216,
+      "output": 131072,
+      "intermediate": 262144
+    },
+    "predicted_static_end": 902144,
+    "resident_bytes_per_bank": 221952
+  },
+  "precision": "BF16 weights/input/output; HiFi4; fp32_dest_acc_en=True; packer_l1_acc=True",
+  "hardware": "TP4, four Blackhole chips on P300c boards",
+  "normalization": "Fixed 8x4 sharded final norm and padding for both geometries",
+  "paired_trials": [],
+  "probe_execution_pass": false,
+  "phase": "head_timing",
+  "hidden_sha256": "7df8dd0a88cbb19eeb3ea23faf21d61a7df1eeba1dcbf475006bb20f07598891",
+  "resident_allocation": {
+    "shape": [
+      110,
+      110592
+    ],
+    "padded_shape": [
+      110,
+      110592
+    ],
+    "dtype": "DataType.BFLOAT16",
+    "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::HEIGHT_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":9}], shape=[1, 110592], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[1, 110592],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":9}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+    "address": 1318144
+  },
+  "resident_memory": {
+    "total_bytes_allocated_per_bank": 221952,
+    "total_bytes_free_per_bank": 1206528,
+    "largest_contiguous_bytes_free_per_bank": 1206528
+  },
+  "candidate_program": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1,per_core_M=1,per_core_N=16,fused_activation=std::nullopt,num_workers_per_dram_bank=2)",
+  "compute": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7ddb78a63ba0>",
+  "weights": [
+    {
+      "shape": [
+        4096,
+        32768
+      ],
+      "padded_shape": [
+        4096,
+        32768
+      ],
+      "dtype": "DataType.BFLOAT16",
+      "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 4096], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 4096],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "address": 170196608
+    },
+    {
+      "shape": [
+        4096,
+        32768
+      ],
+      "padded_shape": [
+        4096,
+        32768
+      ],
+      "dtype": "DataType.BFLOAT16",
+      "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 4096], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 4096],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "address": 203751040
+    }
+  ],
+  "normalized": {
+    "shape": [
+      1,
+      1,
+      32,
+      4096
+    ],
+    "padded_shape": [
+      1,
+      1,
+      32,
+      4096
+    ],
+    "dtype": "DataType.BFLOAT16",
+    "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":3}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":3}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+    "address": 1301760
+  },
+  "head": {
+    "baseline": {
+      "memory_before": {
+        "total_bytes_allocated_per_bank": 230144,
+        "total_bytes_free_per_bank": 1198336,
+        "largest_contiguous_bytes_free_per_bank": 1190144
+      },
+      "finite": true,
+      "exact_baseline": true,
+      "max_abs": 0.0,
+      "mean_abs": 0.0,
+      "boundary_max_abs": 0.0,
+      "pcc": 1.0,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        5292,
+        559
+      ],
+      "top10_logits": [
+        23.0,
+        22.5,
+        22.25,
+        22.0,
+        21.75,
+        21.0,
+        20.875,
+        20.875,
+        20.625,
+        20.625
+      ],
+      "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50",
+      "scores_path": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_watcher_v1_head_baseline_scores.pt",
+      "eager_exact_repeat": true,
+      "trace_exact_eager": true
+    },
+    "candidate": {
+      "memory_before": {
+        "total_bytes_allocated_per_bank": 230144,
+        "total_bytes_free_per_bank": 1198336,
+        "largest_contiguous_bytes_free_per_bank": 1190144
+      },
+      "finite": true,
+      "exact_baseline": true,
+      "max_abs": 0.0,
+      "mean_abs": 0.0,
+      "boundary_max_abs": 0.0,
+      "pcc": 1.0,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        5292,
+        559
+      ],
+      "top10_logits": [
+        23.0,
+        22.5,
+        22.25,
+        22.0,
+        21.75,
+        21.0,
+        20.875,
+        20.875,
+        20.625,
+        20.625
+      ],
+      "scores_sha256": "28aa6265df28479105d2c81240e5c892680d99cf5dde4100e4defa81743ecf50",
+      "scores_path": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/head_geometry_c64_k1_r2_watcher_v1_head_candidate_scores.pt",
+      "eager_exact_repeat": true,
+      "trace_exact_eager": true
+    }
+  },
+  "error": "Found 4 device buffer(s) still alive before trace replay. These will be corrupted on replay.\nBuffer 373 [op: program_cache: ReshardDeviceOperation output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":7}], shape=[32, 64], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)]\nBuffer 388 [op: program_cache: MatmulDeviceOperation program_config=MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1,per_core_M=1,per_core_N=16,fused_activation=std::nullopt,num_workers_per_dram_bank=2) bcast_batch=true output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 compute_kernel_config=ComputeKernelConfig(math_fidelity=HiFi4,math_approx_mode=0,fp32_dest_acc_en=1,packer_l1_acc=1,dst_full_sync_en=0,throttle_level=ThrottleLevel::NO_THROTTLE) untilize_out=false user_core_coord=std::nullopt user_fused_activation=std::nullopt user_run_batched=false transpose_a=false transpose_b=false output_tile=Tile(tile_shape={32, 32},face_shape={16, 16},num_faces=4) global_cb=std::nullopt sub_device_id=std::nullopt]\nBuffer 418 [op: program_cache: ShardedToInterleavedDeviceOperation output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 num_slices=1 slice_index=0]\nBuffer 498 [op: ttnn.allocate_tensor_on_device]\n\nUse corruptible_allocation_scope() for acknowledged-corruptible tensors, or ensure temporary tensors are freed before replay.",
+  "traceback": "Traceback (most recent call last):\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/probe_head_geometry.py\", line 348, in main\n    ttnn.execute_trace(mesh, trace_by_name[name], cq_id=0, blocking=True)\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/__init__.py\", line 161, in execute_trace\n    UnsafeAllocationTracker(device).verify_before_replay(trace_id)\n  File \"/home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/unsafe_allocation_tracker.py\", line 115, in verify_before_replay\n    raise RuntimeError(\"\".join(parts))\nRuntimeError: Found 4 device buffer(s) still alive before trace replay. These will be corrupted on replay.\nBuffer 373 [op: program_cache: ReshardDeviceOperation output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":7}], shape=[32, 64], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)]\nBuffer 388 [op: program_cache: MatmulDeviceOperation program_config=MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1,per_core_M=1,per_core_N=16,fused_activation=std::nullopt,num_workers_per_dram_bank=2) bcast_batch=true output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 compute_kernel_config=ComputeKernelConfig(math_fidelity=HiFi4,math_approx_mode=0,fp32_dest_acc_en=1,packer_l1_acc=1,dst_full_sync_en=0,throttle_level=ThrottleLevel::NO_THROTTLE) untilize_out=false user_core_coord=std::nullopt user_fused_activation=std::nullopt user_run_batched=false transpose_a=false transpose_b=false output_tile=Tile(tile_shape={32, 32},face_shape={16, 16},num_faces=4) global_cb=std::nullopt sub_device_id=std::nullopt]\nBuffer 418 [op: program_cache: ShardedToInterleavedDeviceOperation output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 num_slices=1 slice_index=0]\nBuffer 498 [op: ttnn.allocate_tensor_on_device]\n\nUse corruptible_allocation_scope() for acknowledged-corruptible tensors, or ensure temporary tensors are freed before replay.\n"
+}
