@@ -723,3 +723,9 @@
   are pre-commit, `py_compile`, the 32-case host suite, JSON/XML/provenance
   validation, candidate-patch applicability, warning scan, and
   `git diff --check` as recorded above.
+
+## Local stage commit
+
+- Implementation, tests, documentation, and selected evidence:
+  `7b57af40d8c` (`Add Gemma 4 multichip decoder`). This commit is local only;
+  it was not pushed.
