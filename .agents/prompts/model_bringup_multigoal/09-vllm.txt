@@ -5,6 +5,8 @@ As the user, I explicitly authorize you to use subagents when a selected skill r
 This goal creates the vLLM state. Start from the completed datatype-sweep stage and work on models/autoports/<model>/tt/generator_vllm.py plus vLLM TT plugin registration.
 
 Goal completion requirements:
+- Serve and test separate P150, P150x2, and P150x4 configurations on 1/2/4-chip proxies. Enable Gemma 4 tool-call and reasoning parsers and verify OpenAI-compatible requests for both.
+- Scope is text-only; document that upstream image/video inputs are excluded from this release.
 - models/autoports/<model>/tt/generator_vllm.py exists and delegates to tt/generator.py low-level methods whenever possible.
 - The adapter reuses the full-model generator's canonical split-sampling token-out path. It has no separate sampling path, host argmax path, full-logits readback path, generic top-k greedy fallback, or Python readback/writeback token-feedback loop.
 - The vLLM path uses the selected precision config, including weight groups, activation/CCL dtype, KV-cache dtype, compute fidelities, and layer exceptions.
