@@ -1,0 +1,73 @@
+{
+  "cache_shape": [
+    17,
+    8,
+    64,
+    256
+  ],
+  "decode_batch": 1,
+  "decode_current_pos": 1024,
+  "decode_trace_host_ms": 1.3094273925526068,
+  "decode_trace_iterations": 200,
+  "decode_trace_warmups": 21,
+  "fused_stage_provenance": {
+    "checkout_git_sha": "a80e3d2911f488c7e207b6cfcfcaedeb9d20be57",
+    "environment_overrides": {
+      "GEMMA4_FUSED_CANDIDATE_ID": "final_scalar_sliding_perf",
+      "GEMMA4_FUSED_DECODER_PERF": "1",
+      "GEMMA4_FUSED_FINAL_SCALAR": "1"
+    },
+    "exact_command": "pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_fused_decoder.py::test_fused_perf_profile[blackhole-sliding_attention_1024-device_params0-mesh_device0]",
+    "fused_decoder_sha256": "45f8005f92f06e2dae0903bf73ddd4a581272368b2447f044feb2a2ecfb36e30",
+    "fused_test_sha256": "7dea6aa83625632fd21e8e7c134280b23b9a2a05da68325324941a40d16de98e",
+    "resolved_fusion_policy": {
+      "binary_dense_geglu": true,
+      "binary_expert_geglu": true,
+      "dense_geglu": false,
+      "expert_geglu": false,
+      "expert_in0_block_w": 4,
+      "expert_padded_width": 1536,
+      "folded_expert_scale": true,
+      "folded_router_projection": true,
+      "fused_branch_norm": false,
+      "fused_final_scalar": true,
+      "packed_dense_gate_up": true,
+      "packed_expert_gate_up": true,
+      "routed_reduction_matmul": false,
+      "shared_ffn_norm": true
+    }
+  },
+  "layer_idx": 0,
+  "layer_type": "sliding_attention",
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "prefill_host_ms": 278.43704691622406,
+  "provenance": {
+    "artifact_dir": "models/autoports/google_gemma_4_26b_a4b_it/doc/fused_decoder",
+    "checkout_git_sha": "a80e3d2911f488c7e207b6cfcfcaedeb9d20be57",
+    "exact_command": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_RANGE_DOWNLOAD=1 python -m tracy -r -p pytest -- models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py::test_functional_decoder_perf_profile -k 'sliding_attention and batch1'",
+    "functional_decoder_sha256": "1de6d3e39b2ba645f1d9f0de032178b12faa733b3d51ae4735e5ee33953cdf23",
+    "gemma4_environment": {
+      "GEMMA4_FUNCTIONAL_DECODER_PERF": "1",
+      "GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS": "200",
+      "GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS": "20",
+      "GEMMA4_FUSED_CANDIDATE_ID": "final_scalar_sliding_perf",
+      "GEMMA4_FUSED_DECODER_PERF": "1",
+      "GEMMA4_FUSED_FINAL_SCALAR": "1"
+    },
+    "hardware": {
+      "arch": "Arch.BLACKHOLE",
+      "device_ids": [
+        1
+      ],
+      "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+    },
+    "measured_decoder_path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tt/fused_decoder.py",
+    "measured_decoder_sha256": "45f8005f92f06e2dae0903bf73ddd4a581272368b2447f044feb2a2ecfb36e30",
+    "multichip_test_sha256": "f1579fa50beb609c884ee04495ee3281a2d2d1f9bc7cd6728b48d2fcbaa07a69",
+    "test_sha256": "a493ef28f2abd5b25cda7d4b009e9b765681dc9b640f26ab5d5923fd44ac526c",
+    "ttnn_extension_path": "/home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so",
+    "ttnn_extension_sha256": "52deb65dd2ded7e68753dc8fbec68ae992a72dd85596b7769beda7968fbe0e98"
+  },
+  "sequence_length": 1024,
+  "shared_physical_cache": true
+}

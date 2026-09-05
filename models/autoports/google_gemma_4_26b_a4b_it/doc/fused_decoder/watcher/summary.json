@@ -1,0 +1,21 @@
+{
+  "command": "source python_env/bin/activate && TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/google_gemma_4_26b_a4b_it/doc/fused_decoder/watcher/definitive timeout 900 pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_fused_decoder.py::test_fused_real_weights_prefill_decode[blackhole-sliding_attention_shared_cache-device_params0-mesh_device0]' 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_fused_decoder.py::test_fused_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]'",
+  "date_utc": "2026-09-05",
+  "fatal_pattern_scan": {
+    "command": "rg -n -i 'watcher error|noc.*(error|timeout)|assert|hang|deadlock|illegal|fatal' models/autoports/google_gemma_4_26b_a4b_it/doc/fused_decoder/watcher/definitive/generated/watcher/watcher.log",
+    "matches": []
+  },
+  "hardware": "Blackhole P300, 1x1 mesh, device id 1; watcher attached to all four visible devices",
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "fused_decoder_sha256": "a9f3d0b776674ecad286500fbd86a5d2cf6bb2fbc1d606312724d484c8aea4ea",
+  "fused_test_sha256": "fffff4af877208551844a2bd935c86dc4573a54c491c53de1716969db0aeb364",
+  "pytest_result": "2 passed, 2 warnings in 6.53s",
+  "result": "clean",
+  "tests": [
+    "test_fused_real_weights_prefill_decode[blackhole-sliding_attention_shared_cache-device_params0-mesh_device0]",
+    "test_fused_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]"
+  ],
+  "watcher_log": "watcher/definitive/generated/watcher/watcher.log",
+  "watcher_log_lines": 1220,
+  "watcher_log_sha256": "959b7e198a53fad82725cb29d800f4e0006a98bc5c2fe922c9bdb153c036badb"
+}

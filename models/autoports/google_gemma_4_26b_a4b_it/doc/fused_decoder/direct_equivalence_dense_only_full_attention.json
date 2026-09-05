@@ -1,0 +1,54 @@
+{
+  "decode_path": "trace_replay",
+  "distinct_decoder_instances": true,
+  "distinct_kv_caches": true,
+  "functional_vs_fused_decode_pcc": 1.0,
+  "functional_vs_fused_prefill_pcc": 1.0,
+  "fused_stage_provenance": {
+    "checkout_git_sha": "a80e3d2911f488c7e207b6cfcfcaedeb9d20be57",
+    "environment_overrides": {
+      "GEMMA4_FUSED_BINARY_DENSE_GEGLU": "1",
+      "GEMMA4_FUSED_BINARY_EXPERT_GEGLU": "0",
+      "GEMMA4_FUSED_BRANCH_NORM": "0",
+      "GEMMA4_FUSED_DENSE_GEGLU": "0",
+      "GEMMA4_FUSED_EXPERT_GEGLU": "0",
+      "GEMMA4_FUSED_EXPERT_IN0_BLOCK_W": "1",
+      "GEMMA4_FUSED_EXPERT_PADDED_WIDTH": "1408",
+      "GEMMA4_FUSED_FINAL_SCALAR": "0",
+      "GEMMA4_FUSED_FOLDED_EXPERT_SCALE": "0",
+      "GEMMA4_FUSED_FOLDED_ROUTER": "0",
+      "GEMMA4_FUSED_PACKED_DENSE_GATE_UP": "1",
+      "GEMMA4_FUSED_PACKED_EXPERT_GATE_UP": "0",
+      "GEMMA4_FUSED_ROUTED_REDUCTION": "0",
+      "GEMMA4_FUSED_SHARED_FFN_NORM": "0"
+    },
+    "exact_command": "pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_fused_decoder.py::test_direct_functional_fused_equivalence[blackhole-dense_only-full_attention-device_params0-mesh_device0]",
+    "fused_decoder_sha256": "a9f3d0b776674ecad286500fbd86a5d2cf6bb2fbc1d606312724d484c8aea4ea",
+    "fused_test_sha256": "fffff4af877208551844a2bd935c86dc4573a54c491c53de1716969db0aeb364",
+    "resolved_fusion_policy": {
+      "binary_dense_geglu": true,
+      "binary_expert_geglu": false,
+      "dense_geglu": false,
+      "expert_geglu": false,
+      "expert_in0_block_w": 1,
+      "expert_padded_width": 1408,
+      "folded_expert_scale": false,
+      "folded_router_projection": false,
+      "fused_branch_norm": false,
+      "fused_final_scalar": false,
+      "packed_dense_gate_up": true,
+      "packed_expert_gate_up": false,
+      "routed_reduction_matmul": false,
+      "shared_ffn_norm": false
+    }
+  },
+  "layer_idx": 5,
+  "layer_type": "full_attention",
+  "required_fusion_counts": {
+    "binary_dense_geglu": 3,
+    "packed_dense_gate_up": 3
+  },
+  "sequence_length": 32,
+  "threshold": 0.995,
+  "variant": "dense_only"
+}
