@@ -74,8 +74,8 @@ skips only `trailing-whitespace,end-of-file-fixer` to preserve exact generated
 text and profiler CSV bytes; all other hooks run at commit. The final source,
 docs and JSON whitespace check passes.
 
-The implementation/evidence SHA is recorded after the first local commit. A
-second documentation commit records that SHA. The final receipt, including both
+Implementation and reviewed evidence commit: `10637ff92ef0cae3138ca16cfb673f67a5dbe511`.
+All enabled commit hooks passed. A second documentation commit records this SHA. The final receipt, including both
 commit SHAs and clean-worktree verification, is retained at
 `/home/hous/dev/ornith-1.5-9b/state/full_model_checkpoint.json` to avoid a
 self-referential commit hash.
